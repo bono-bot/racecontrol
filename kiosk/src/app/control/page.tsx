@@ -31,14 +31,30 @@ export default function ControlPage() {
     pendingAuthTokens,
   } = useKioskSocket();
 
-  // Auth gate
+  // Auth gate — check sessionStorage first, fall back to JWT cookie
   useEffect(() => {
     const name = sessionStorage.getItem("kiosk_staff_name");
-    if (!name) {
-      router.replace("/staff");
+    if (name) {
+      setStaffName(name);
       return;
     }
-    setStaffName(name);
+    // sessionStorage is tab-scoped — try to recover name from JWT cookie
+    const cookie = document.cookie
+      .split("; ")
+      .find((c) => c.startsWith("kiosk_token="));
+    if (cookie) {
+      try {
+        const token = cookie.split("=")[1];
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        const cookieName = payload.name || payload.sub || "Staff";
+        sessionStorage.setItem("kiosk_staff_name", cookieName);
+        setStaffName(cookieName);
+        return;
+      } catch {
+        // malformed JWT — fall through to redirect
+      }
+    }
+    router.replace("/staff");
   }, [router]);
 
   // Fetch experiences + settings once

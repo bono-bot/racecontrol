@@ -652,6 +652,20 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     ))
                                 };
                                 if let Some((session_id, driver_name, allocated_seconds, remaining)) = resync {
+                                    // Resume PausedDisconnect timer — pod is back online
+                                    {
+                                        let mut timers = state.billing.active_timers.write().await;
+                                        if let Some(timer) = timers.get_mut(&canonical_id) {
+                                            if timer.status == rc_common::types::BillingSessionStatus::PausedDisconnect {
+                                                timer.status = rc_common::types::BillingSessionStatus::Active;
+                                                timer.offline_since = None;
+                                                tracing::info!(
+                                                    "Resumed PausedDisconnect timer for session {} on pod {} — customer is back",
+                                                    session_id, canonical_id
+                                                );
+                                            }
+                                        }
+                                    }
                                     let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
                                         billing_session_id: session_id.clone(),
                                         driver_name: driver_name.clone(),

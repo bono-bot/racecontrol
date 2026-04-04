@@ -19,7 +19,7 @@ async fn ssh_exec(config: &GuardianConfig, command: &str) -> Result<String, Stri
 
     let result = tokio::process::Command::new("ssh")
         .args([
-            "-o", "StrictHostKeyChecking=no",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=15",
             "-o", "BatchMode=yes",
             &user_host,
@@ -73,8 +73,8 @@ pub async fn soft_restart(config: &GuardianConfig) -> bool {
             } else {
                 warn!(output = %output, "schtasks returned but without SUCCESS marker");
             }
-            // Even without SUCCESS marker, if SSH succeeded we consider the command was sent
-            true
+            // Return actual success status — false lets caller fall through to hard restart immediately
+            success
         }
         Err(e) => {
             error!(error = %e, "Soft restart SSH command failed");

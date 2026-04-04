@@ -29,7 +29,7 @@ type HmacSha256 = Hmac<Sha256>;
 const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members,driver_ratings,fleet_solutions,model_evaluations,metrics_rollups";
 
 /// Relay sync interval in seconds (fast — localhost only).
-const RELAY_INTERVAL_SECS: u64 = 2;
+const RELAY_INTERVAL_SECS: u64 = 30;
 
 /// Hysteresis thresholds to prevent relay mode flapping.
 /// Require N consecutive failures before declaring relay down,
@@ -626,7 +626,7 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
             'original_price_paise', original_price_paise, 'discount_reason', discount_reason,
             'pause_count', pause_count, 'total_paused_seconds', total_paused_seconds, 'refund_paise', refund_paise,
             'end_reason', end_reason
-        ) FROM billing_sessions WHERE created_at > ? OR ended_at > ?
+        ) FROM billing_sessions WHERE created_at >= ? OR ended_at >= ?
         ORDER BY created_at ASC LIMIT 500",
     )
     .bind(&last_push)

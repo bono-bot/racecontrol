@@ -55,8 +55,14 @@ const BINARY_VALIDATION_INTERVAL: u32 = 10;
 /// Extracted as a testable helper — the actual is_rc_agent_running() function
 /// calls tasklist and feeds its stdout here.
 pub fn output_contains_agent(stdout: &str) -> bool {
-    // tasklist output contains the image name; check for "rc-agent" substring
-    stdout.contains("rc-agent")
+    // BUG-66: Match exact "rc-agent.exe" and exclude renamed binaries like
+    // rc-agent-failed.exe or rc-agent-prev.exe that may appear in tasklist.
+    stdout.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.contains("rc-agent.exe")
+            && !lower.contains("rc-agent-failed")
+            && !lower.contains("rc-agent-prev")
+    })
 }
 
 /// Check whether the restart grace window is still active.
@@ -336,6 +342,12 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
         if is_rc_agent_running() {
             // Agent is healthy — confirm rollback state if applicable
             rollback_manager::confirm_healthy();
+            // BUG-61: Clear restart timestamps when agent is confirmed healthy.
+            // Without this, old timestamps accumulate and can falsely trigger
+            // MMA restart-loop detection after the agent has been stable.
+            if !restart_timestamps.is_empty() {
+                restart_timestamps.clear();
+            }
             std::thread::sleep(POLL_INTERVAL);
             continue;
         }
@@ -555,6 +567,27 @@ mod tests {
         let output = "chrome.exe                   1234 Console  1  100,000 K\r\n\
                       explorer.exe                 9012 Console  1   80,000 K\r\n";
         assert!(!output_contains_agent(output));
+    }
+
+    // BUG-66: Renamed/failed binaries must NOT match
+    #[test]
+    fn test_output_excludes_agent_failed() {
+        let output = "rc-agent-failed.exe          12345 Console  1   45,000 K\r\n";
+        assert!(!output_contains_agent(output));
+    }
+
+    #[test]
+    fn test_output_excludes_agent_prev() {
+        let output = "rc-agent-prev.exe            12345 Console  1   45,000 K\r\n";
+        assert!(!output_contains_agent(output));
+    }
+
+    #[test]
+    fn test_output_agent_with_failed_also_present() {
+        // Both rc-agent.exe and rc-agent-failed.exe — should still detect agent
+        let output = "rc-agent.exe                 1234 Console  1   45,000 K\r\n\
+                      rc-agent-failed.exe          5678 Console  1   45,000 K\r\n";
+        assert!(output_contains_agent(output));
     }
 
     // ── restart_grace_active tests ──────────────────────────────────────

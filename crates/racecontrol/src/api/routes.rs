@@ -572,10 +572,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/mesh/incidents", get(mesh_list_incidents))
         .route("/mesh/stats", get(mesh_stats))
         .route("/mesh/deploy-status", get(mesh_deploy_status))
+        .route("/mesh/audit-check", get(mesh_audit_check))
         .route("/cameras/health", get(cameras_health_proxy))
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
+        .route("/mesh/audit-seed", post(mesh_audit_seed))
         // ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────
         .route("/models/evaluations", get(list_model_evaluations))
         // ─── Model Reputation Query (MREP-04 / Phase 292) ────────────────────
@@ -11147,8 +11149,8 @@ async fn sync_push(
                     started_at, ended_at, created_at, experience_id, car, track, sim_type,
                     split_count, split_duration_minutes,
                     wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason,
-                    pause_count, total_paused_seconds, refund_paise, venue_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)
+                    pause_count, total_paused_seconds, refund_paise, end_reason, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)
                  ON CONFLICT(id) DO UPDATE SET
                     driving_seconds = excluded.driving_seconds,
                     status = excluded.status,
@@ -11160,7 +11162,8 @@ async fn sync_push(
                     discount_reason = COALESCE(excluded.discount_reason, billing_sessions.discount_reason),
                     pause_count = COALESCE(excluded.pause_count, billing_sessions.pause_count),
                     total_paused_seconds = COALESCE(excluded.total_paused_seconds, billing_sessions.total_paused_seconds),
-                    refund_paise = COALESCE(excluded.refund_paise, billing_sessions.refund_paise)",
+                    refund_paise = COALESCE(excluded.refund_paise, billing_sessions.refund_paise),
+                    end_reason = COALESCE(excluded.end_reason, billing_sessions.end_reason)",
             )
             .bind(id)
             .bind(s.get("driver_id").and_then(|v| v.as_str()))
@@ -11188,6 +11191,7 @@ async fn sync_push(
             .bind(s.get("pause_count").and_then(|v| v.as_i64()))
             .bind(s.get("total_paused_seconds").and_then(|v| v.as_i64()))
             .bind(s.get("refund_paise").and_then(|v| v.as_i64()))
+            .bind(s.get("end_reason").and_then(|v| v.as_str()))
             .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
@@ -21848,6 +21852,73 @@ async fn mesh_deploy_status(
 ) -> Json<serde_json::Value> {
     let status = crate::deploy_awareness::get_fleet_deploy_status(&state).await;
     Json(serde_json::to_value(status).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() })))
+}
+
+/// Tier 0: Check if a symptom matches a known audit issue.
+/// Called by rc-agent before running Tier 1-4 diagnosis.
+/// GET /api/v1/mesh/audit-check?symptom=orphan+session+not+ending
+async fn mesh_audit_check(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let symptom = params.get("symptom").map(|s| s.as_str()).unwrap_or("");
+    if symptom.is_empty() {
+        return Json(serde_json::json!({ "matched": false }));
+    }
+    match crate::fleet_kb::check_audit_known_issues(&state.db, symptom).await {
+        Some(escalation) => Json(serde_json::json!({
+            "matched": true,
+            "escalation": escalation,
+            "action": "skip_diagnosis",
+        })),
+        None => Json(serde_json::json!({ "matched": false })),
+    }
+}
+
+/// Seed audit findings into the audit_known_issues table.
+/// POST /api/v1/mesh/audit-seed with JSON body.
+async fn mesh_audit_seed(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let findings = match body.get("findings").and_then(|f| f.as_array()) {
+        Some(f) => f,
+        None => return Json(serde_json::json!({ "ok": false, "error": "missing findings array" })),
+    };
+    let mut seeded = 0;
+    let mut errors = Vec::new();
+    for finding in findings {
+        let id = finding.get("problem_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let problem_key = id.clone();
+        let severity = finding.get("severity").and_then(|v| v.as_str()).unwrap_or("P2");
+        let symptoms: Vec<String> = finding.get("symptom_patterns")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let root_cause = finding.get("root_cause").and_then(|v| v.as_str()).unwrap_or("");
+        let fix_desc = finding.get("fix_action").and_then(|v| v.as_str()).unwrap_or("");
+        let fix_status = finding.get("fix_status").and_then(|v| v.as_str()).unwrap_or("pending");
+        let fixed_in = finding.get("fixed_in_build").and_then(|v| v.as_str());
+        let affects: Vec<String> = finding.get("affects")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let audit_date = finding.get("audit_date").and_then(|v| v.as_str()).unwrap_or("2026-04-04");
+        let escalation = finding.get("escalation_message").and_then(|v| v.as_str())
+            .unwrap_or_else(|| finding.get("symptoms").and_then(|v| v.as_str()).unwrap_or(""));
+
+        if let Err(e) = crate::fleet_kb::upsert_audit_known_issue(
+            &state.db, &id, &problem_key, severity, &symptoms, root_cause,
+            fix_desc, fix_status, fixed_in, &affects, audit_date, escalation,
+        ).await {
+            errors.push(format!("{}: {}", problem_key, e));
+        } else {
+            seeded += 1;
+        }
+    }
+    Json(serde_json::json!({
+        "ok": errors.is_empty(),
+        "seeded": seeded,
+        "errors": errors,
+    }))
 }
 
 async fn mesh_promote_solution(

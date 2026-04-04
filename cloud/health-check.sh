@@ -4,13 +4,16 @@
 
 set -euo pipefail
 
-# --- Config ---
-EVOLUTION_API_KEY="CHANGE_ME"
-UDAY_WHATSAPP="91XXXXXXXXXX"
-EVOLUTION_INSTANCE="racingpoint"
+# --- Config (load secrets from env file if available) ---
+if [ -f /root/.rc-health-secrets ]; then
+    source /root/.rc-health-secrets
+fi
+EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-CHANGE_ME}"
+UDAY_WHATSAPP="${UDAY_WHATSAPP:-917981264279}"
+EVOLUTION_INSTANCE="${EVOLUTION_INSTANCE:-racingpoint}"
 COOLDOWN_SECS=1800
-STATE_DIR="/tmp/rc-health-state"
-ALERT_DIR="/tmp/rc-health-alerts"
+STATE_DIR="/var/lib/rc-health"
+ALERT_DIR="/var/lib/rc-health/alerts"
 COMMS_DIR="/root/racingpoint/comms-link"
 COMMS_PSK="85d1d06c806b3cc5159676bbed35e29ef0a60661e442a683c2c5a345f2036df0"
 COMMS_URL="ws://localhost:8765"

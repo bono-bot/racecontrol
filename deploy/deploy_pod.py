@@ -189,12 +189,15 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
 
     # Build the swap script once — used by both the server proxy path and the
     # direct path. Rename-then-copy keeps the old binary running until kill.
+    # NOTE: Do NOT Start-Process rc-agent.exe here — it would run in Session 0 (no GUI).
+    # RCWatchdog service detects the dead agent and restarts it in Session 1 via
+    # WTSQueryUserToken + CreateProcessAsUser. Just kill rc-agent; watchdog handles restart.
     if config_only:
         ps_script = (
             "Start-Sleep -Milliseconds 500\r\n"
             "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
             "Start-Sleep -Seconds 2\r\n"
-            "Start-Process -FilePath 'C:\\RacingPoint\\rc-agent.exe' -WorkingDirectory 'C:\\RacingPoint' -WindowStyle Hidden\r\n"
+            "# RCWatchdog auto-restarts rc-agent in Session 1\r\n"
         )
     else:
         ps_script = (
@@ -205,7 +208,7 @@ def deploy_pod(pod_number, config_only=False, binary_url=None):
             "Stop-Process -Name rc-agent -Force -ErrorAction SilentlyContinue\r\n"
             "Start-Sleep -Seconds 2\r\n"
             "Remove-Item 'C:\\RacingPoint\\rc-agent-old.exe' -ErrorAction SilentlyContinue\r\n"
-            "Start-Process -FilePath 'C:\\RacingPoint\\rc-agent.exe' -WorkingDirectory 'C:\\RacingPoint' -WindowStyle Hidden\r\n"
+            "# RCWatchdog auto-restarts rc-agent in Session 1\r\n"
         )
 
     if use_server:

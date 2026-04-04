@@ -646,6 +646,14 @@ The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells yo
 
 ---
 
+### Ecosystem Audits
+
+- **Manifest-driven audits (CGP Standing Rule #14).** Before claiming any audit is complete, load `ECOSYSTEM-MANIFEST.json` and verify every `critical: true` system was checked. List skipped systems explicitly. "Audited everything" without manifest verification = H4 violation.
+  _Why: 2026-04-04 ecosystem audit missed rc-sentry, rc-sentry-ai, people-tracker, go2rtc, and 5 MCP servers. Organized by functional groups instead of exhaustive directory enumeration. The camera system — a critical production component — was entirely unaudited._
+- **Seed findings into Meshed Intelligence (CGP Standing Rule #15).** After any code audit, seed findings via `POST /api/v1/mesh/audit-seed` (or directly into `audit_known_issues` table). MI Tier 0 checks this table BEFORE running Tier 1-4 AI diagnosis, preventing wasted Ollama/OpenRouter credits on known code bugs. Format: `{"findings": [{"problem_key": "...", "severity": "P0", "symptom_patterns": ["keyword1","keyword2"], "root_cause": "...", "fix_action": "...", "fix_status": "code_fixed|pending", "affects": ["pod_1",...], "escalation_message": "..."}]}`.
+  _Why: MI had no way to know about code-level bugs found by audits. Would waste AI credits trying to diagnose runtime symptoms of unfixed code bugs. Tier 0 short-circuits with escalation message instead._
+- **ECOSYSTEM-MANIFEST.json** — machine-readable list of every system. Located at repo root. Update when adding new systems, crates, or services.
+
 ## Current Blockers
 
 - v6.0 blocked on BIOS AMD-V (SVM Mode disabled on server Ryzen 7 5800X) — does not affect v9.0

@@ -230,15 +230,29 @@ fn kill_rc_agent() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Enter maintenance mode by writing the sentinel file.
+/// Enter maintenance mode by writing the sentinel file as JSON with timestamp_epoch,
+/// matching what `auto_clear_maintenance_mode_json` expects. (BUG-71)
 fn enter_maintenance_mode(reason: &str) {
-    let content = format!(
-        "MAINTENANCE_MODE entered by rc-watchdog\nReason: {}\nTime: {}\n",
-        reason,
-        chrono::Utc::now().to_rfc3339()
-    );
-    if let Err(e) = std::fs::write(MAINTENANCE_MODE_FILE, content) {
-        tracing::error!("Failed to write MAINTENANCE_MODE sentinel: {}", e);
+    let now = chrono::Utc::now();
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let content = serde_json::json!({
+        "reason": reason,
+        "entered_by": "rc-watchdog",
+        "time": now.to_rfc3339(),
+        "timestamp_epoch": epoch,
+    });
+    match serde_json::to_string_pretty(&content) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(MAINTENANCE_MODE_FILE, json) {
+                tracing::error!("Failed to write MAINTENANCE_MODE sentinel: {}", e);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to serialize MAINTENANCE_MODE JSON: {}", e);
+        }
     }
 }
 

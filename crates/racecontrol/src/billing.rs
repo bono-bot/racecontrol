@@ -581,6 +581,8 @@ pub struct WaitingForGameEntry {
     pub group_session_id: Option<String>,
     /// Game sim_type for per-game rate lookup. Set when AcStatus::Live received.
     pub sim_type: Option<rc_common::types::SimType>,
+    /// Launch args for retry on timeout (track, car, AI config, etc.)
+    pub launch_args: Option<String>,
     /// BILL-13: Pre-committed session data from kiosk staff path (FATM-01).
     /// When Some, the DB record + wallet debit already committed. On Live, just activate
     /// the in-memory timer via finalize_billing_start() — do NOT call start_billing_session().
@@ -696,6 +698,7 @@ pub async fn defer_billing_start(
         attempt: 1,
         group_session_id: group_session_id.clone(),
         sim_type: None,
+        launch_args: None,
         pre_committed: None,
     };
     if group_session_id.is_some() {
@@ -731,6 +734,7 @@ pub async fn defer_billing_with_precommitted_session(
         attempt: 1,
         group_session_id: None,
         sim_type: None,
+        launch_args: None,
         pre_committed: Some(data),
     };
     tracing::info!(
@@ -1778,14 +1782,20 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             log_pod_activity(state, pod_id, "billing", "Session Expired", &format!("{} — {}s driven", driver_name, driving_seconds), "core", None);
         }
 
-        let agent_senders = state.agent_senders.read().await;
+        // Snapshot senders to avoid holding lock across .await (standing rule)
+        let sender_snapshot: Vec<_> = {
+            let agent_senders = state.agent_senders.read().await;
+            expired_sessions.iter().filter_map(|(pod_id, _, _, _)| {
+                agent_senders.get(pod_id).map(|s| (pod_id.clone(), s.clone()))
+            }).collect()
+        }; // lock dropped here
         for (pod_id, session_id, driving_seconds, driver_name) in &expired_sessions {
             // Check if pod has active reservation (multi-sub-session support)
             let has_reservation = crate::pod_reservation::get_active_reservation_for_pod(state, pod_id)
                 .await
                 .is_some();
 
-            if let Some(sender) = agent_senders.get(pod_id) {
+            if let Some((_, sender)) = sender_snapshot.iter().find(|(id, _)| id == pod_id) {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
 
                 if has_reservation {
@@ -2107,10 +2117,51 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         log_pod_activity(state, &pod_id, "billing", "Session Auto-Ended (Offline)",
             &reason, "race_engineer", Some(&session_id));
 
+        // H11-REFUND: Calculate partial refund (same as pause_timeout path)
+        let session_info = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<String>)>(
+            "SELECT allocated_seconds, driving_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+        )
+        .bind(&session_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let mut refund_paise: i64 = 0;
+        if let Some((allocated, driving_seconds, Some(debit), wallet_owner)) = session_info {
+            refund_paise = compute_refund(allocated, driving_seconds, debit);
+            if refund_paise > 0 {
+                let driver_id_row = sqlx::query_as::<_, (String,)>(
+                    "SELECT driver_id FROM billing_sessions WHERE id = ?",
+                )
+                .bind(&session_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+
+                let driver_id = driver_id_row.map(|(d,)| d).unwrap_or_default();
+                let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
+                match crate::wallet::refund(
+                    state,
+                    refund_target,
+                    refund_paise,
+                    Some(&session_id),
+                    Some("Auto-refund: offline auto-end (H11)"),
+                )
+                .await
+                {
+                    Ok(_) => tracing::info!("BILLING: H11 offline refund {}p for session {}", refund_paise, session_id),
+                    Err(e) => tracing::error!("CRITICAL: H11 offline refund FAILED for session {} ({}p): {}", session_id, refund_paise, e),
+                }
+            }
+        }
+
         let _ = sqlx::query(
             "UPDATE billing_sessions SET status = 'ended_early', ended_at = datetime('now'),
-             notes = ? WHERE id = ?",
+             refund_paise = ?, notes = ? WHERE id = ? AND status IN ('active', 'paused_disconnect')",
         )
+        .bind(refund_paise)
         .bind(&reason)
         .bind(&session_id)
         .execute(&state.db)
@@ -2122,7 +2173,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
-        .bind(format!("{{\"reason\":\"{}\"}}", reason.replace('"', "\\\"" )))
+        .bind(format!("{{\"reason\":\"{}\",\"refund_paise\":{}}}", reason.replace('"', "\\\""), refund_paise))
         .execute(&state.db)
         .await;
 
@@ -2167,12 +2218,19 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer", None);
             }
             // The agent-side LaunchState machine handles the actual retry
-            // Send LaunchGame again to trigger retry
+            // Send LaunchGame again with the ORIGINAL sim_type and args (not hardcoded AC)
+            let (retry_sim, retry_args) = {
+                let w = state.billing.waiting_for_game.read().await;
+                w.get(&pod_id).map(|e| (
+                    e.sim_type.unwrap_or(rc_common::types::SimType::AssettoCorsa),
+                    e.launch_args.clone(),
+                )).unwrap_or((rc_common::types::SimType::AssettoCorsa, None))
+            };
             let agent_senders = state.agent_senders.read().await;
             if let Some(sender) = agent_senders.get(&pod_id) {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
-                    sim_type: rc_common::types::SimType::AssettoCorsa,
-                    launch_args: None,
+                    sim_type: retry_sim,
+                    launch_args: retry_args,
                     force_clean: false,
                     duration_minutes: None,
                 })).await;

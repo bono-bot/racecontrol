@@ -111,8 +111,107 @@ pub async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
-    tracing::info!("Mesh intelligence tables initialized");
+    // Audit Known Issues — code bugs found by ecosystem audits that MI should
+    // recognize as code-level problems (not runtime fixable). When symptoms match,
+    // MI short-circuits diagnosis and escalates instead of burning AI credits.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS audit_known_issues (
+            id TEXT PRIMARY KEY,
+            problem_key TEXT NOT NULL UNIQUE,
+            severity TEXT NOT NULL,
+            symptom_patterns TEXT NOT NULL,
+            root_cause TEXT NOT NULL,
+            fix_description TEXT NOT NULL,
+            fix_status TEXT NOT NULL DEFAULT 'pending',
+            fixed_in_build TEXT,
+            affects_targets TEXT NOT NULL,
+            audit_date TEXT NOT NULL,
+            escalation_message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_known_issues_status ON audit_known_issues(fix_status)")
+        .execute(pool)
+        .await?;
+
+    tracing::info!("Mesh intelligence tables initialized (with audit_known_issues)");
     Ok(())
+}
+
+// ─── Audit Known Issues ────────────────────────────────────────────────────
+
+/// Check if a symptom string matches any known audit issue.
+/// Returns the escalation message if matched, so the caller can skip Tier 1-4 diagnosis.
+pub async fn check_audit_known_issues(pool: &SqlitePool, symptom: &str) -> Option<String> {
+    let lower = symptom.to_lowercase();
+    let rows = sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT problem_key, symptom_patterns, escalation_message, fix_status FROM audit_known_issues",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    for (problem_key, patterns_json, escalation, fix_status) in &rows {
+        // patterns_json is a JSON array of keyword strings to match
+        if let Ok(patterns) = serde_json::from_str::<Vec<String>>(patterns_json) {
+            let matched = patterns.iter().any(|p| lower.contains(&p.to_lowercase()));
+            if matched {
+                let status_note = if fix_status == "code_fixed" {
+                    " [FIX AVAILABLE — verify build version]"
+                } else {
+                    " [NOT YET FIXED — escalate to developer]"
+                };
+                return Some(format!(
+                    "[AUDIT KNOWN ISSUE: {}]{}\n{}",
+                    problem_key, status_note, escalation
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Insert or update an audit known issue.
+pub async fn upsert_audit_known_issue(
+    pool: &SqlitePool,
+    id: &str,
+    problem_key: &str,
+    severity: &str,
+    symptom_patterns: &[String],
+    root_cause: &str,
+    fix_description: &str,
+    fix_status: &str,
+    fixed_in_build: Option<&str>,
+    affects_targets: &[String],
+    audit_date: &str,
+    escalation_message: &str,
+) -> anyhow::Result<()> {
+    let patterns_json = serde_json::to_string(symptom_patterns)?;
+    let targets_json = serde_json::to_string(affects_targets)?;
+    sqlx::query(
+        "INSERT OR REPLACE INTO audit_known_issues
+         (id, problem_key, severity, symptom_patterns, root_cause, fix_description,
+          fix_status, fixed_in_build, affects_targets, audit_date, escalation_message)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+    )
+    .bind(id)
+    .bind(problem_key)
+    .bind(severity)
+    .bind(&patterns_json)
+    .bind(root_cause)
+    .bind(fix_description)
+    .bind(fix_status)
+    .bind(fixed_in_build)
+    .bind(&targets_json)
+    .bind(audit_date)
+    .bind(escalation_message)
+    .execute(pool)
+    .await?;
+    Ok(()
+    )
 }
 
 // ─── Solution CRUD ──────────────────────────────────────────────────────────

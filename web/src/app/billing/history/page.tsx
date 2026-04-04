@@ -142,8 +142,9 @@ function formatTime(iso?: string): string {
 }
 
 function todayISO(): string {
-  const d = new Date();
-  return d.toISOString().split("T")[0];
+  const now = new Date();
+  const istMs = now.getTime() + (5.5 * 60 * 60 * 1000);
+  return new Date(istMs).toISOString().split("T")[0];
 }
 
 // Status display uses StatusBadge for all 10 BillingSessionStatus variants

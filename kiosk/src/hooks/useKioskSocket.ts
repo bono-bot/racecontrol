@@ -314,7 +314,7 @@ export function useKioskSocket() {
             setMultiplayerGroup(data);
             break;
           }
-          case "GameLaunchRequested": {
+          case "game_launch_requested": {
             const req = msg.data as GameLaunchRequest;
             setGameLaunchRequests((prev) => [req, ...prev]);
             // Auto-expire after 60 seconds

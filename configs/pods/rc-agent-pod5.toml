@@ -47,7 +47,7 @@ use_steam = true
 
 [ai_debugger]
 enabled = true
-ollama_url = "http://127.0.0.1:11434"
+ollama_url = "http://192.168.31.27:11434"
 ollama_model = "rp-debug"
 # openrouter_api_key — removed; key is read from OPENROUTER_KEY env var (per-pod keys)
 openrouter_model = "openrouter/auto"

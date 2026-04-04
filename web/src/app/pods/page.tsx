@@ -76,7 +76,7 @@ export default function PodsPage() {
   }, [pods, selectedPod?.id]);
 
   const handleStartSession = useCallback(
-    (data: { pod_id: string; driver_id: string; pricing_tier_id: string; payment_method: string }) => {
+    (data: { pod_id: string; driver_id: string; pricing_tier_id: string; payment_method?: string; custom_price_paise?: number; custom_duration_minutes?: number; staff_discount_paise?: number; discount_reason?: string }) => {
       api.startBilling(data).catch(console.error);
       setModalPod(null);
     },

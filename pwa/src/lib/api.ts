@@ -59,12 +59,21 @@ async function fetchApi<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
+  let res: Response;
   let data: unknown;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
   try {
     data = await res.json();
   } catch {
@@ -82,7 +91,7 @@ async function fetchApi<T>(
     const hasRedirect = "_clear" in (data as Record<string, unknown>);
     if (err.includes("JWT decode error") || err.includes("Missing Authorization") || err === "session_expired" || hasRedirect) {
       forceLogout();
-      return {} as T;
+      throw new Error("auth_expired");
     }
   }
 

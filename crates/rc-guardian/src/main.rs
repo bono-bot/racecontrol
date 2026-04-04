@@ -133,13 +133,11 @@ async fn main() -> anyhow::Result<()> {
             let acting = comms::try_acquire_guardian_lock(&config).await;
             if !acting {
                 warn!("Another guardian is already acting — skipping recovery");
-                // Send heartbeat about the event anyway
-                let guard = state.lock().await;
+                // Send heartbeat about the event (no lock needed — failures already captured)
                 comms::send_event(&config, &comms::GuardianEvent::Deferred {
                     reason: "Another guardian already acting".to_string(),
                     consecutive_failures: failures,
                 }).await;
-                drop(guard);
                 continue;
             }
 

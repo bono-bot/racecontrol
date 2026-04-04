@@ -122,7 +122,12 @@ pub async fn check_billing_safety(client: &reqwest::Client, config: &GuardianCon
     // Build fleet health URL — we check if any pod has active billing
     // The fleet health endpoint returns pod status, not billing directly.
     // We need to check billing endpoint instead.
-    let billing_url = config.server_url.replace("/health", "/billing/active");
+    // Derive billing URL from server_url base (strip path, add billing endpoint)
+    let billing_url = if let Some(idx) = config.server_url.find("/api/v1/") {
+        format!("{}/api/v1/billing/active", &config.server_url[..idx])
+    } else {
+        config.server_url.replace("/health", "/billing/active")
+    };
 
     match client.get(&billing_url).send().await {
         Ok(resp) if resp.status().is_success() => {

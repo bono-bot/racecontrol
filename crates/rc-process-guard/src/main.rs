@@ -216,7 +216,8 @@ async fn run_scan_cycle(
         })
         .count();
     // MMA: raised threshold to 80% to avoid false positives on minimal systems
-    let effective_action = if non_excluded_count > 10 && violation_count * 100 / non_excluded_count > 80 {
+    // BUG-70: Use >= for both thresholds to avoid off-by-one at boundary values
+    let effective_action = if non_excluded_count >= 10 && violation_count * 100 / non_excluded_count >= 80 {
         let pct = violation_count * 100 / non_excluded_count;
         tracing::error!(
             pct = pct, violations = violation_count, total = non_excluded_count,
@@ -641,8 +642,25 @@ async fn run_port_audit_james(
             .unwrap_or(None);
 
             let killed = if let Some(start_time) = start_time_opt {
-                let name_for_kill = format!("port-owner-pid-{}", pid);
-                kill_process_verified_james(pid, name_for_kill, start_time).await
+                // BUG-74: Look up actual process name from sysinfo instead of
+                // using a synthetic name that will never match any real process.
+                let actual_name = tokio::task::spawn_blocking(move || {
+                    let mut sys = sysinfo::System::new();
+                    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                    sys.process(sysinfo::Pid::from_u32(pid))
+                        .map(|p| p.name().to_string_lossy().to_lowercase().to_string())
+                })
+                .await
+                .unwrap_or(None);
+                if let Some(name_for_kill) = actual_name {
+                    kill_process_verified_james(pid, name_for_kill, start_time).await
+                } else {
+                    log_james_event(&format!(
+                        "PORT_KILL_SKIPPED pid={} port={} (process name lookup failed)",
+                        pid, port
+                    ));
+                    false
+                }
             } else {
                 // Cannot verify PID identity (process already exited or lookup failed).
                 // Skip kill to avoid PID reuse risk — the PID may belong to a different

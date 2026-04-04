@@ -278,21 +278,24 @@ pub async fn credit_wallet(
 
     let new_balance = result.map(|(b,)| b).unwrap_or(0);
 
-    // Log transaction
+    // Log transaction (include balance_after_paise for audit trail)
     let txn_id = uuid::Uuid::new_v4().to_string();
-    let _ = sqlx::query(
-        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, txn_type, reference_id, notes, venue_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    if let Err(e) = sqlx::query(
+        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, venue_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&txn_id)
     .bind(driver_id)
     .bind(amount_paise)
+    .bind(new_balance)
     .bind(txn_type)
     .bind(reference_id)
     .bind(notes)
     .bind(venue_id)
     .execute(db)
-    .await;
+    .await {
+        tracing::error!("Failed to log wallet transaction for {}: {}", driver_id, e);
+    }
 
     Ok(new_balance)
 }

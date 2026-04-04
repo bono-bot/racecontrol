@@ -108,6 +108,10 @@ Each rule is here because it prevented a documented incident AND cannot be autom
 12. **Financial flow E2E for billing changes.** Trace actual currency values through: create customer → topup → book → launch → end (early/normal/cancel) → verify refund/balance. Any function that UPDATEs then SELECTs same DB column = audit for overwrite. _Why: F-05 lost Rs.162.50 per customer per early-end session._
 13. **Session start: check fleet health + MAINTENANCE_MODE.** At session start, run fleet health snapshot. Any pod with `ws_connected: false` → check for MAINTENANCE_MODE via SSH before investigating. Stale MAINTENANCE_MODE blocked 3 pods for 1.5+ hours with no alert.
 
+### Audit
+14. **Ecosystem manifest before audit claims.** Any audit (ecosystem, security, fleet) MUST load `ECOSYSTEM-MANIFEST.json` and check every `critical: true` system. Audit is incomplete if any critical system has no coverage. List skipped systems explicitly — "I audited everything" without manifest verification is an H4 violation.
+15. **Audit findings feed Meshed Intelligence.** After any code audit, seed findings into `audit_known_issues` via `POST /api/v1/mesh/audit-seed`. This lets MI Tier 0 short-circuit diagnosis for known code bugs instead of wasting AI credits. _Why: 2026-04-04 ecosystem audit found 92 bugs. MI had no way to know about them — would have wasted Ollama/OpenRouter trying to diagnose runtime symptoms of code bugs._
+
 ---
 
 ## Emergency Protocol (Phase E)

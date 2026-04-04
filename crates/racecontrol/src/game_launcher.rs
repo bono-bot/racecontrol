@@ -97,7 +97,7 @@ pub trait GameLauncherImpl: Send + Sync {
     /// Validate sim-specific launch args. Called before billing gate.
     fn validate_args(&self, args: Option<&str>) -> Result<(), String>;
     /// Return the CoreToAgentMessage to send for this game.
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage;
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage;
     /// Optional cleanup on launch failure. Default: no-op.
     fn cleanup_on_failure(&self, _pod_id: &str) {}
 }
@@ -114,8 +114,8 @@ impl GameLauncherImpl for AcLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
     }
 }
 
@@ -126,8 +126,8 @@ impl GameLauncherImpl for F1Launcher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
     }
 }
 
@@ -138,8 +138,8 @@ impl GameLauncherImpl for IRacingLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
     }
 }
 
@@ -150,8 +150,8 @@ impl GameLauncherImpl for DefaultLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
     }
 }
 
@@ -448,7 +448,12 @@ async fn launch_game(
 
     // Send command to agent with 1 retry (GAP-1 fix: fire-and-forget → retry-once)
     // Phase 312: Wrap with CoreMessage to get a known command_id for ACK correlation.
-    let launch_inner = launcher.make_launch_message(sim_type, launch_args);
+    // Extract duration_minutes from billing timer for SessionEnforcer (Forza GAME-03 fix)
+    let duration_minutes = {
+        let timers = state.billing.active_timers.read().await;
+        timers.get(pod_id).map(|t| (t.remaining_seconds() / 60).max(1) as u32)
+    };
+    let launch_inner = launcher.make_launch_message(sim_type, launch_args, duration_minutes);
     let launch_msg = CoreMessage::wrap(launch_inner);
     let command_id = launch_msg.command_id.clone().unwrap_or_default();
 

@@ -23,7 +23,7 @@ export default function PodKioskPage() {
   } = useKioskSocket();
 
   useEffect(() => {
-    api.listExperiences().then((res) => setExperiences(res.experiences || []));
+    api.listExperiences().then((res) => setExperiences(res.experiences || [])).catch(() => {});
   }, []);
 
   // Find pod by number

@@ -431,8 +431,11 @@ export const api = {
     pod_id: string;
     driver_id: string;
     pricing_tier_id: string;
+    payment_method?: string;
     custom_price_paise?: number;
     custom_duration_minutes?: number;
+    staff_discount_paise?: number;
+    discount_reason?: string;
   }) => fetchApi<{ ok: boolean }>("/billing/start", { method: "POST", body: JSON.stringify(data) }),
   activeBillingSessions: () => fetchApi<{ sessions: BillingSession[] }>("/billing/active"),
   listBillingSessions: (params?: { date?: string; status?: string }) => {

@@ -170,23 +170,30 @@ pub fn is_mma_diagnosing() -> bool {
         return false;
     }
 
-    // Check if sentinel has expired
-    match std::fs::metadata(path) {
-        Ok(meta) => match meta.modified() {
-            Ok(modified) => match modified.elapsed() {
-                Ok(age) => {
-                    if age.as_secs() > MMA_SENTINEL_TTL_SECS {
-                        // Expired — clean up
-                        tracing::info!("MMA_DIAGNOSING sentinel expired (age: {}s), clearing", age.as_secs());
-                        let _ = std::fs::remove_file(path);
-                        return false;
+    // BUG-62: Use started_at from sentinel JSON instead of file mtime.
+    // File mtime can be refreshed by reads on some filesystems, resetting the TTL.
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(started_at_str) = parsed.get("started_at").and_then(|v| v.as_str()) {
+                    if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(started_at_str) {
+                        let age_secs = (chrono::Utc::now() - started_at.to_utc())
+                            .num_seconds()
+                            .max(0) as u64;
+                        if age_secs > MMA_SENTINEL_TTL_SECS {
+                            tracing::info!("MMA_DIAGNOSING sentinel expired (age: {}s), clearing", age_secs);
+                            let _ = std::fs::remove_file(path);
+                            return false;
+                        }
+                        return true;
                     }
-                    true
                 }
-                Err(_) => false,
-            },
-            Err(_) => false,
-        },
+            }
+            // Fallback: file exists but unparseable — treat as expired
+            tracing::warn!("MMA_DIAGNOSING sentinel unreadable, clearing");
+            let _ = std::fs::remove_file(path);
+            false
+        }
         Err(_) => false,
     }
 }

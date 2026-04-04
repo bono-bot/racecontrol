@@ -1,0 +1,233 @@
+{
+  "_description": "Machine-readable list of every system in the Racing Point ecosystem. ANY audit (CGP, MMA, or ad-hoc) MUST iterate this list and check every entry. Audit is incomplete if any system has audit_status=null.",
+  "_updated": "2026-04-04",
+  "systems": [
+    {
+      "id": "racecontrol",
+      "name": "RaceControl Server",
+      "type": "rust_crate",
+      "path": "crates/racecontrol/",
+      "runs_on": ["server_23", "bono_vps"],
+      "port": 8080,
+      "critical": true
+    },
+    {
+      "id": "rc-agent",
+      "name": "RC Agent (Pod Agent)",
+      "type": "rust_crate",
+      "path": "crates/rc-agent/",
+      "runs_on": ["pod_1", "pod_2", "pod_3", "pod_4", "pod_5", "pod_6", "pod_7", "pod_8", "pos_20"],
+      "port": 8090,
+      "critical": true
+    },
+    {
+      "id": "rc-common",
+      "name": "RC Common (Shared Types)",
+      "type": "rust_crate",
+      "path": "crates/rc-common/",
+      "runs_on": [],
+      "critical": true
+    },
+    {
+      "id": "rc-sentry",
+      "name": "RC Sentry (Pod Monitor + Camera)",
+      "type": "rust_crate",
+      "path": "crates/rc-sentry/",
+      "runs_on": ["pod_1", "pod_2", "pod_3", "pod_4", "pod_5", "pod_6", "pod_7", "pod_8"],
+      "port": 8091,
+      "critical": true
+    },
+    {
+      "id": "rc-sentry-ai",
+      "name": "RC Sentry AI (Face Detection)",
+      "type": "rust_crate",
+      "path": "crates/rc-sentry-ai/",
+      "runs_on": ["james_27"],
+      "cameras": ["cam2", "cam9", "entrance"],
+      "critical": true
+    },
+    {
+      "id": "rc-watchdog",
+      "name": "RC Watchdog (Agent Restarter)",
+      "type": "rust_crate",
+      "path": "crates/rc-watchdog/",
+      "runs_on": ["james_27"],
+      "critical": true
+    },
+    {
+      "id": "rc-guardian",
+      "name": "RC Guardian (Server Health)",
+      "type": "rust_crate",
+      "path": "crates/rc-guardian/",
+      "runs_on": ["bono_vps"],
+      "critical": true
+    },
+    {
+      "id": "rc-process-guard",
+      "name": "RC Process Guard (Allowlist)",
+      "type": "rust_crate",
+      "path": "crates/rc-process-guard/",
+      "runs_on": ["pod_1", "pod_2", "pod_3", "pod_4", "pod_5", "pod_6", "pod_7", "pod_8", "james_27"],
+      "critical": true
+    },
+    {
+      "id": "rc-installer",
+      "name": "RC Installer (Pod Setup)",
+      "type": "rust_crate",
+      "path": "crates/rc-installer/",
+      "runs_on": [],
+      "critical": false
+    },
+    {
+      "id": "weekly-report",
+      "name": "Weekly Report Generator",
+      "type": "rust_crate",
+      "path": "crates/weekly-report/",
+      "runs_on": [],
+      "critical": false
+    },
+    {
+      "id": "comms-link",
+      "name": "Comms Link (James<->Bono)",
+      "type": "nodejs",
+      "path": "../comms-link/",
+      "runs_on": ["james_27", "bono_vps"],
+      "port": {"james": 8766, "bono": 8765},
+      "critical": true
+    },
+    {
+      "id": "whatsapp-bot",
+      "name": "WhatsApp Bot",
+      "type": "nodejs",
+      "path": "../whatsapp-bot/",
+      "runs_on": ["bono_vps"],
+      "port": 3000,
+      "critical": true
+    },
+    {
+      "id": "racingpoint-admin",
+      "name": "Admin Dashboard (Next.js)",
+      "type": "nextjs",
+      "path": "../racingpoint-admin/",
+      "runs_on": ["server_23", "bono_vps"],
+      "port": 3201,
+      "critical": true
+    },
+    {
+      "id": "web-dashboard",
+      "name": "Web Dashboard (Next.js)",
+      "type": "nextjs",
+      "path": "web/",
+      "runs_on": ["server_23", "bono_vps"],
+      "port": 3200,
+      "critical": true
+    },
+    {
+      "id": "kiosk",
+      "name": "Kiosk App (Next.js)",
+      "type": "nextjs",
+      "path": "kiosk/",
+      "runs_on": ["server_23", "bono_vps"],
+      "port": 3300,
+      "critical": true
+    },
+    {
+      "id": "pwa",
+      "name": "Customer PWA (Next.js)",
+      "type": "nextjs",
+      "path": "pwa/",
+      "runs_on": ["bono_vps"],
+      "port": 3500,
+      "critical": true
+    },
+    {
+      "id": "people-tracker",
+      "name": "People Tracker (YOLO + FastAPI)",
+      "type": "python",
+      "path": "../people-tracker/",
+      "runs_on": ["james_27"],
+      "port": 8095,
+      "critical": false
+    },
+    {
+      "id": "go2rtc",
+      "name": "go2rtc Camera Streaming",
+      "type": "binary",
+      "config_path": "go2rtc.yaml",
+      "runs_on": ["james_27"],
+      "port": 1984,
+      "cameras": 13,
+      "critical": true
+    },
+    {
+      "id": "deploy-configs",
+      "name": "Deploy Scripts + Bat Files",
+      "type": "config",
+      "path": "scripts/deploy/",
+      "runs_on": ["all"],
+      "critical": true
+    },
+    {
+      "id": "cloud-infra",
+      "name": "Cloud Infrastructure (nginx, Docker, PM2)",
+      "type": "config",
+      "path": "cloud/",
+      "runs_on": ["bono_vps"],
+      "critical": true
+    },
+    {
+      "id": "mcp-calendar",
+      "name": "Google Calendar MCP",
+      "type": "nodejs",
+      "path": "../racingpoint-mcp-calendar/",
+      "runs_on": ["james_27"],
+      "critical": false
+    },
+    {
+      "id": "mcp-drive",
+      "name": "Google Drive MCP",
+      "type": "nodejs",
+      "path": "../racingpoint-mcp-drive/",
+      "runs_on": ["james_27"],
+      "critical": false
+    },
+    {
+      "id": "mcp-gmail",
+      "name": "Gmail MCP",
+      "type": "nodejs",
+      "path": "../racingpoint-mcp-gmail/",
+      "runs_on": ["james_27"],
+      "critical": false
+    },
+    {
+      "id": "mcp-sheets",
+      "name": "Google Sheets MCP",
+      "type": "nodejs",
+      "path": "../racingpoint-mcp-sheets/",
+      "runs_on": ["james_27"],
+      "critical": false
+    },
+    {
+      "id": "rc-ops-mcp",
+      "name": "RC Ops MCP",
+      "type": "nodejs",
+      "path": "../rc-ops-mcp/",
+      "runs_on": ["james_27"],
+      "critical": false
+    }
+  ],
+  "targets": [
+    {"id": "server_23", "ip": "192.168.31.23", "type": "server"},
+    {"id": "pod_1", "ip": "192.168.31.89", "type": "pod"},
+    {"id": "pod_2", "ip": "192.168.31.33", "type": "pod"},
+    {"id": "pod_3", "ip": "192.168.31.28", "type": "pod"},
+    {"id": "pod_4", "ip": "192.168.31.88", "type": "pod"},
+    {"id": "pod_5", "ip": "192.168.31.86", "type": "pod"},
+    {"id": "pod_6", "ip": "192.168.31.87", "type": "pod"},
+    {"id": "pod_7", "ip": "192.168.31.38", "type": "pod"},
+    {"id": "pod_8", "ip": "192.168.31.91", "type": "pod"},
+    {"id": "pos_20", "ip": "192.168.31.20", "type": "pos"},
+    {"id": "james_27", "ip": "192.168.31.27", "type": "workstation"},
+    {"id": "bono_vps", "ip": "72.60.101.58", "type": "vps"}
+  ]
+}

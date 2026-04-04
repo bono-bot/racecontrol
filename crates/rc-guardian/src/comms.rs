@@ -57,6 +57,16 @@ struct CommsMessage {
 
 static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
+/// BUG-67: Gateway API key resolved once from env, not hardcoded 4x.
+static GATEWAY_KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn gateway_key() -> &'static str {
+    GATEWAY_KEY.get_or_init(|| {
+        std::env::var("GUARDIAN_COMMS_KEY")
+            .unwrap_or_else(|_| "rp-gateway-2026-secure-key".to_string())
+    })
+}
+
 fn uptime_secs() -> u64 {
     START_TIME
         .get_or_init(std::time::Instant::now)
@@ -101,7 +111,7 @@ pub async fn send_event(config: &GuardianConfig, event: &GuardianEvent) {
 
     match client
         .post(gateway_url)
-        .header("x-api-key", "rp-gateway-2026-secure-key")
+        .header("x-api-key", gateway_key())
         .header("Content-Type", "application/json")
         .json(&msg)
         .send()
@@ -246,7 +256,7 @@ pub async fn try_acquire_guardian_lock(_config: &GuardianConfig) -> bool {
     let check_url = "http://localhost:3100/api/comms/messages?sender=james-guardian&limit=1";
     match client
         .get(check_url)
-        .header("x-api-key", "rp-gateway-2026-secure-key")
+        .header("x-api-key", gateway_key())
         .send()
         .await
     {
@@ -286,7 +296,7 @@ pub async fn try_acquire_guardian_lock(_config: &GuardianConfig) -> bool {
     let gateway_url = "http://localhost:3100/api/comms/messages";
     match client
         .post(gateway_url)
-        .header("x-api-key", "rp-gateway-2026-secure-key")
+        .header("x-api-key", gateway_key())
         .header("Content-Type", "application/json")
         .json(&msg)
         .send()
@@ -327,7 +337,7 @@ pub async fn release_guardian_lock(config: &GuardianConfig) {
     let gateway_url = "http://localhost:3100/api/comms/messages";
     match client
         .post(gateway_url)
-        .header("x-api-key", "rp-gateway-2026-secure-key")
+        .header("x-api-key", gateway_key())
         .header("Content-Type", "application/json")
         .json(&msg)
         .send()

@@ -103,7 +103,11 @@ export default function BillingStartModal({
       base.discount_reason = discountReason.trim();
     }
 
-    onStart(base);
+    try {
+      onStart(base);
+    } catch {
+      setStarting(false);
+    }
   }
 
   return (

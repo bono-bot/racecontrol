@@ -40,7 +40,7 @@ async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &
     #[cfg(feature = "http-client")]
     {
     let client = orphan_client();
-    let base_url = format!("{}/billing/session/{}/end", core_base_url, session_id);
+    let base_url = format!("{}/billing/{}/stop", core_base_url, session_id);
     match client.post(&base_url).query(&[("reason", end_reason)]).send().await {
         Ok(resp) => resp.status().is_success(),
         Err(e) => {

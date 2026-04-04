@@ -1,9 +1,9 @@
 @echo off
 cd /d C:\RacingPoint
 set RUST_BACKTRACE=1
-set OPENROUTER_MGMT_KEY=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
-taskkill /F /IM racecontrol.exe 1>/dev/null 2>/dev/null
-timeout /t 2 /nobreak 1>/dev/null
+rem OpenRouter keys auto-loaded from data/openrouter-mma-key.txt by key recovery module
+taskkill /F /IM racecontrol.exe 1>nul 2>nul
+ping -n 4 127.0.0.1 >nul
 rem --- Binary swap (hash-based versioning) ---
 set "STAGED="
 for /f "delims=" %%F in ('dir /B /O-D racecontrol-????????*.exe 2^>nul') do (

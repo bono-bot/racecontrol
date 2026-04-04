@@ -9,7 +9,7 @@ netstat -ano | findstr "LISTEN" | findstr ":53622" >nul 2>&1
 if %ERRORLEVEL%==0 goto :already_running
 
 REM Start tunnel (background, auto-reconnect on failure)
-start /B ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -N -L 53622:localhost:53622 root@100.70.177.44
+start /B ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -N -L 53622:localhost:53622 root@100.70.177.44
 echo %DATE% %TIME% Tunnel started >> C:\RacingPoint\logs\evolution-tunnel.log
 goto :eof
 

@@ -323,6 +323,26 @@ pub async fn analyze_crash(
         pod_id, sim_type, config.ollama_model, config.ollama_url
     );
 
+    // ── Tier 0: Check audit known issues (code bugs, not runtime fixable) ────
+    if let Some(audit_match) = check_audit_known_issues(&config, &error_context).await {
+        tracing::warn!(
+            target: LOG_TARGET,
+            "AUDIT KNOWN ISSUE matched for {} — skipping AI diagnosis",
+            pod_id,
+        );
+        let _ = result_tx
+            .send(AiDebugSuggestion {
+                pod_id,
+                sim_type,
+                error_context,
+                suggestion: audit_match,
+                model: "audit-kb/tier-0".to_string(),
+                created_at: Utc::now(),
+            })
+            .await;
+        return;
+    }
+
     // ── Check pattern memory for instant fix ────────────────────────────────
     let memory = DebugMemory::load();
     if let Some(cached_suggestion) = memory.instant_fix(&sim_type, &error_context) {
@@ -577,6 +597,33 @@ async fn fetch_fleet_solutions(config: &AiDebuggerConfig, error_context: &str) -
             tracing::debug!(target: LOG_TARGET, "Fleet KB search failed: {}", e);
             String::new()
         }
+    }
+}
+
+/// Tier 0: Query server for audit known issues matching this symptom.
+/// Returns Some(escalation_message) if matched, None otherwise.
+/// This avoids wasting Ollama/OpenRouter credits on known code bugs.
+async fn check_audit_known_issues(config: &AiDebuggerConfig, error_context: &str) -> Option<String> {
+    let search_url = format!(
+        "http://192.168.31.23:8080/api/v1/mesh/audit-check?symptom={}",
+        error_context.replace(' ', "+").replace('&', "%26").replace('?', "%3F")
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(&search_url).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if body.get("matched").and_then(|m| m.as_bool()).unwrap_or(false) {
+                    return body.get("escalation").and_then(|e| e.as_str()).map(String::from);
+                }
+            }
+            None
+        }
+        _ => None, // Server unreachable = skip Tier 0, proceed to normal diagnosis
     }
 }
 
