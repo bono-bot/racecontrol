@@ -51,7 +51,7 @@ export default function BookPage() {
     const load = () => {
       fetch(`${API_BASE}/api/v1/fleet/health`)
         .then((r) => r.json())
-        .then((d) => { if (active && Array.isArray(d?.pods)) setFleet(d.pods); })
+        .then((d) => { if (active && Array.isArray(d?.pods)) setFleet(d.pods.filter((p: PodStatus & { node_type?: string }) => p.node_type !== "pos")); })
         .catch(() => {});
     };
     load();

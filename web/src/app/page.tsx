@@ -8,7 +8,7 @@ import TelemetryBar from "@/components/TelemetryBar";
 import LiveLapFeed from "@/components/LiveLapFeed";
 import { EmptyState } from "@/components/Skeleton";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { api } from "@/lib/api";
+import { api, racingWsPodsOnly } from "@/lib/api";
 
 function MonitorIcon() {
   return (
@@ -34,8 +34,9 @@ export default function LiveOverview() {
       });
   }, []);
 
-  const sortedPods = pods ? [...pods].sort((a, b) => a.number - b.number) : [];
-  const podsOnline = pods ? pods.filter((p) => p.status !== "offline").length : 0;
+  const racingPods = pods ? racingWsPodsOnly(pods) : [];
+  const sortedPods = [...racingPods].sort((a, b) => a.number - b.number);
+  const podsOnline = racingPods.filter((p) => p.status !== "offline").length;
 
   return (
     <DashboardLayout>

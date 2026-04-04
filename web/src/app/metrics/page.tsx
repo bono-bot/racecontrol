@@ -54,7 +54,7 @@ export default function MetricsDashboardPage() {
 
   // Derive unique pod list from snapshot
   const podList: number[] = Array.from(
-    new Set(snapshot.map((e) => e.pod).filter((p): p is number => p !== null))
+    new Set(snapshot.map((e) => e.pod).filter((p): p is number => p !== null && p <= 8))
   ).sort((a, b) => a - b);
 
   const rangeSeconds =

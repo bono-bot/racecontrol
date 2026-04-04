@@ -76,7 +76,7 @@ export default function DiagnosisPage() {
   const loadOverview = useCallback(async () => {
     try {
       const data = await diagnosisApi.debugActivity(2);
-      setPods(data.pod_health);
+      setPods(data.pod_health.filter((p) => p.pod_number >= 1 && p.pod_number <= 8));
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load");

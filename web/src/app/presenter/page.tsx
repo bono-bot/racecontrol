@@ -1,13 +1,15 @@
 "use client";
 
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { racingWsPodsOnly } from "@/lib/api";
 import LiveLapFeed from "@/components/LiveLapFeed";
 
 export default function PresenterPage() {
   const { connected, pods, recentLaps } = useWebSocket();
 
-  const activePods = pods.filter((p) => p.status === "in_session");
-  const idlePods = pods.filter((p) => p.status === "idle");
+  const racingPods = racingWsPodsOnly(pods);
+  const activePods = racingPods.filter((p) => p.status === "in_session");
+  const idlePods = racingPods.filter((p) => p.status === "idle");
 
   return (
     <div className="min-h-screen bg-rp-black p-8">

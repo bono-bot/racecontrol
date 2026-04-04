@@ -6,7 +6,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import MetricCard from "@/components/MetricCard";
 import StatusBadge from "@/components/StatusBadge";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
-import { api } from "@/lib/api";
+import { api, racingPodsOnly } from "@/lib/api";
 import type { PodFleetStatus } from "@/lib/api";
 
 function formatUptime(secs: number): string {
@@ -26,7 +26,7 @@ export default function FleetHealthPage() {
       api
         .fleetHealth()
         .then((data) => {
-          setPods(data || []);
+          setPods(racingPodsOnly(data || []));
           setLastUpdated(new Date());
           setLoading(false);
           setError(false);

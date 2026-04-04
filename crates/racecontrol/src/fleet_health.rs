@@ -280,6 +280,9 @@ pub struct PodFleetStatus {
     /// Display name from DB (e.g. "Pod 1", "POS 1"). Used by status page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Node type: "pod" for racing simulators (1-8), "pos" for point-of-sale terminal (9).
+    /// Used by frontends to filter POS out of racing pod views.
+    pub node_type: String,
     pub ws_connected: bool,
     pub http_reachable: bool,
     pub version: Option<String>,
@@ -1131,10 +1134,12 @@ pub async fn fleet_health_handler(
         match pod_info {
             None => {
                 // Pod slot not registered yet — return all-false defaults.
+                let node_type = if pod_number >= 9 { "pos" } else { "pod" };
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: None,
                     name: None,
+                    node_type: node_type.to_string(),
                     ws_connected: false,
                     http_reachable: false,
                     version: None,
@@ -1224,10 +1229,12 @@ pub async fn fleet_health_handler(
                     .unwrap_or(0);
                 let ws_reconnect_count = store.map(|s| s.ws_reconnect_count).unwrap_or(0);
 
+                let node_type = if pod_number >= 9 { "pos" } else { "pod" };
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
                     name: Some(info.name.clone()),
+                    node_type: node_type.to_string(),
                     ws_connected,
                     http_reachable,
                     version,

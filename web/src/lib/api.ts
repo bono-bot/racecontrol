@@ -759,12 +759,23 @@ export interface Pod {
 
 export interface PodFleetStatus {
   pod_number: number;
+  node_type: string;
   ws_connected: boolean;
   http_reachable: boolean;
   version: string;
   build_id: string;
   uptime_secs: number;
   last_seen: string;
+}
+
+/** Filter to racing simulator pods only (excludes POS and other non-racing nodes). */
+export function racingPodsOnly(pods: PodFleetStatus[]): PodFleetStatus[] {
+  return pods.filter((p) => p.node_type !== "pos");
+}
+
+/** Filter WS Pod list to racing pods only (excludes POS pod 9+). */
+export function racingWsPodsOnly(pods: Pod[]): Pod[] {
+  return pods.filter((p) => p.number >= 1 && p.number <= 8);
 }
 
 export interface Driver {

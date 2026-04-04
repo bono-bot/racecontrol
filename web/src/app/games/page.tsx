@@ -9,7 +9,7 @@ import GameLaunchModal from "@/components/GameLaunchModal";
 import AiDebugPanel from "@/components/AiDebugPanel";
 import { Gamepad2 } from "lucide-react";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { api } from "@/lib/api";
+import { api, racingWsPodsOnly } from "@/lib/api";
 import type { Pod } from "@/lib/api";
 
 const simLabels: Record<string, string> = {
@@ -28,7 +28,7 @@ export default function GamesPage() {
   const [modalPod, setModalPod] = useState<Pod | null>(null);
   const [stopping, setStopping] = useState<Set<string>>(new Set());
 
-  const sortedPods = [...pods].sort((a, b) => a.number - b.number);
+  const sortedPods = racingWsPodsOnly([...pods]).sort((a, b) => a.number - b.number);
   const activeCount = Array.from(gameStates.values()).filter(
     (g) => g.game_state !== "idle"
   ).length;

@@ -52,7 +52,14 @@ export default function AcSessionsPage() {
                   </span>
                   {session.pod_ids && (
                     <span className="text-rp-grey text-xs ml-2">
-                      {(() => { try { return (JSON.parse(session.pod_ids) as string[]).length; } catch { return session.pod_ids.split(",").length; } })()} pods
+                      {(() => {
+                        try {
+                          const pods = JSON.parse(session.pod_ids) as string[];
+                          return pods.map(p => p.replace("pod_", "Pod ")).join(", ");
+                        } catch {
+                          return session.pod_ids;
+                        }
+                      })()}
                     </span>
                   )}
                 </div>

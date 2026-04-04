@@ -5,6 +5,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import {
   api,
   defaultAcConfig,
+  racingWsPodsOnly,
   type AcLanSessionConfig,
   type AcServerInfo,
   type AcPresetSummary,
@@ -52,7 +53,7 @@ export default function AcLanPage() {
     }
   }, [acLoadedConfig]);
 
-  const onlinePods = pods.filter(
+  const onlinePods = racingWsPodsOnly(pods).filter(
     (p) => p.status !== "offline"
   );
 

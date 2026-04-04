@@ -35,6 +35,7 @@ import { fetchPublic } from "@/lib/api";
 
 interface PodFleetStatus {
   pod_number: number;
+  node_type?: string;
   ws_connected: boolean;
   http_reachable: boolean;
   last_seen: string;
@@ -81,7 +82,7 @@ export default function Sidebar() {
       try {
         const data = await fetchPublic<{ pods: PodFleetStatus[] } | PodFleetStatus[]>("/fleet/health");
         const pods = Array.isArray(data) ? data : (data?.pods ?? []);
-        if (mounted) setFleet(pods);
+        if (mounted) setFleet(pods.filter((p) => p.node_type !== "pos"));
       } catch {
         if (mounted) setFleet([]);
       }

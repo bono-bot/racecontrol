@@ -8,7 +8,7 @@ import CountdownTimer from "@/components/CountdownTimer";
 import BillingStartModal from "@/components/BillingStartModal";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { api } from "@/lib/api";
+import { api, racingWsPodsOnly } from "@/lib/api";
 import type { Pod, PodFleetStatus } from "@/lib/api";
 
 function MonitorIcon() {
@@ -43,11 +43,12 @@ export default function PodsPage() {
   const [drawerHealthLoading, setDrawerHealthLoading] = useState(false);
   const [modalPod, setModalPod] = useState<Pod | null>(null);
 
-  const sortedPods = [...pods].sort((a, b) => a.number - b.number);
+  const racingPods = racingWsPodsOnly(pods);
+  const sortedPods = [...racingPods].sort((a, b) => a.number - b.number);
 
   // Status counts for KPI pills
-  const onlineCount = pods.filter((p) => p.status !== "offline").length;
-  const racingCount = pods.filter((p) => p.status === "in_session").length;
+  const onlineCount = racingPods.filter((p) => p.status !== "offline").length;
+  const racingCount = racingPods.filter((p) => p.status === "in_session").length;
   const offlineCount = pods.filter((p) => p.status === "offline").length;
 
   // Fetch fleet health when drawer opens

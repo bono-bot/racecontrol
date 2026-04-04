@@ -9,6 +9,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { racingWsPodsOnly } from "@/lib/api";
 import type { Pod } from "@/lib/api";
 
 export default function BillingPage() {
@@ -54,7 +55,7 @@ export default function BillingPage() {
     toast({ message: "+10 minutes added", type: "success" });
   }
 
-  const sortedPods = [...pods].sort((a, b) => a.number - b.number);
+  const sortedPods = racingWsPodsOnly([...pods]).sort((a, b) => a.number - b.number);
 
   // Count paused sessions
   const pausedCount = Array.from(billingTimers.values()).filter(
