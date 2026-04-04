@@ -140,8 +140,12 @@ pub fn spawn_in_session1(exe_dir: &Path) -> anyhow::Result<()> {
 
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
 
-        // CREATE_UNICODE_ENVIRONMENT (0x00000400) | CREATE_NO_WINDOW (0x08000000)
-        let creation_flags: u32 = 0x00000400 | 0x08000000;
+        // CREATE_UNICODE_ENVIRONMENT (0x00000400) | CREATE_NEW_CONSOLE (0x00000010)
+        // FIX: CREATE_NO_WINDOW (0x08000000) caused start-rcagent.bat's `start` command
+        // to spawn rc-agent.exe without a console, routing it to Session 0 where it
+        // exits with FATAL "running in Session 0". CREATE_NEW_CONSOLE ensures the bat
+        // and all child processes stay in the interactive session.
+        let creation_flags: u32 = 0x00000400 | 0x00000010;
 
         let create_result = CreateProcessAsUserW(
             dup_token.raw(),

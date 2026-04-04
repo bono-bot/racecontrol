@@ -48,6 +48,11 @@ const RESTART_LOOP_THRESHOLD: u32 = 3;
 /// SW-07: MAINTENANCE_MODE auto-clear after this many seconds (30 minutes).
 const MAINTENANCE_AUTO_CLEAR_SECS: u64 = 1800;
 
+/// Maximum consecutive sentry breadcrumb deferrals before watchdog takes over.
+/// At 5s poll interval, 6 deferrals = 30s — if sentry hasn't restarted agent
+/// after 30s of trying, its restart mechanism is broken.
+const SENTRY_DEFER_MAX: u32 = 6;
+
 /// Interval between binary validation checks (every 10th poll cycle).
 const BINARY_VALIDATION_INTERVAL: u32 = 10;
 
@@ -234,6 +239,7 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     let mut last_restart_at: Option<Instant> = None;
     let mut poll_cycle: u32 = 0;
     let mut restart_timestamps: Vec<Instant> = Vec::new();
+    let mut sentry_defer_count: u32 = 0;
     let mut initial_validation_done = false;
 
     // SW-11: One-time binary validation at startup
@@ -360,10 +366,29 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
         }
 
         // Check if rc-sentry recently handled this restart (COORD deconfliction)
+        // FIX: Track consecutive sentry deferrals. If sentry keeps writing the breadcrumb
+        // but rc-agent is still dead after multiple cycles, sentry's restart failed —
+        // watchdog must take over. Without this, a sentry restart failure causes an infinite
+        // deferral loop (sentry writes breadcrumb → watchdog defers → sentry retries → repeat).
         if sentry_breadcrumb_active(SENTRY_BREADCRUMB_PATH, SENTRY_GRACE_SECS) {
-            tracing::info!("grace window active: sentry-restart-breadcrumb.txt is recent, skipping restart");
-            std::thread::sleep(POLL_INTERVAL);
-            continue;
+            sentry_defer_count += 1;
+            if sentry_defer_count < SENTRY_DEFER_MAX {
+                tracing::info!(
+                    "grace window active: sentry-restart-breadcrumb.txt is recent, deferring ({}/{})",
+                    sentry_defer_count, SENTRY_DEFER_MAX
+                );
+                std::thread::sleep(POLL_INTERVAL);
+                continue;
+            } else {
+                tracing::warn!(
+                    "Sentry breadcrumb still fresh after {} deferrals — sentry restart likely failed, watchdog taking over",
+                    sentry_defer_count
+                );
+                sentry_defer_count = 0;
+                // Fall through to watchdog's own restart logic
+            }
+        } else {
+            sentry_defer_count = 0;
         }
 
         tracing::warn!("rc-agent not running, attempting restart in Session 1");
