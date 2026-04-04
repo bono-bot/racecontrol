@@ -59,5 +59,8 @@ target/
 .tmp/
 # Local deploy staging artifacts
 
+# Smart Pipes runtime results (not committed)
+.smart-pipes-results/
+
 # Auto-detect runtime state (not committed)
 audit/results/auto-detect-cooldown.json

@@ -1,0 +1,18 @@
+# Gitleaks configuration for Racing Point racecontrol
+# Allowlisted paths contain known operational secrets (service keys, deploy configs)
+# These are intentional and tracked — not leaked credentials.
+
+title = "Racing Point Gitleaks Config"
+
+[allowlist]
+description = "Known operational files containing service keys"
+paths = [
+  '''scripts/deploy/''',
+  '''scripts/pod-verify\.sh''',
+  '''scripts/multi-model-audit\.js''',
+  '''scripts/deploy-server\.sh''',
+  '''\.planning/''',
+  '''CLAUDE\.md''',
+  '''racecontrol\.toml''',
+  '''crates/racecontrol/src/tls\.rs''',
+]
