@@ -6042,6 +6042,7 @@ mod tests {
             attempt: 1,
             group_session_id: None,
             sim_type: None,
+        launch_args: None,
             pre_committed: None,
         };
         assert_eq!(entry.pod_id, "pod1");
@@ -6161,6 +6162,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             });
         }
@@ -6194,6 +6196,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             };
             // Simulate time passing by using checked_sub
@@ -6225,6 +6228,7 @@ mod tests {
                 attempt: 2, // second attempt
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             };
             waiting.insert("p8".to_string(), entry);
@@ -6959,6 +6963,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             });
         }
@@ -7041,6 +7046,7 @@ mod tests {
                 attempt: 2, // Second attempt — this is the cancel threshold
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             };
             waiting.insert("pod-cnp".to_string(), entry);
@@ -7103,6 +7109,7 @@ mod tests {
             attempt: 1,
             group_session_id: Some(group_id.to_string()),
             sim_type: None,
+        launch_args: None,
             pre_committed: None,
         };
 
@@ -7179,6 +7186,7 @@ mod tests {
                 attempt: 1,
                 group_session_id: None,
                 sim_type: None,
+        launch_args: None,
                 pre_committed: None,
             });
         }
