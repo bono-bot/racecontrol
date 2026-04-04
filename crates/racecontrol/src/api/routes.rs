@@ -139,6 +139,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         // These leaked operational data (billing accuracy, incidents, camera topology) publicly.
         // /games/alternatives remains public (customer-facing combo recommendations).
         .route("/games/alternatives", get(metrics::alternatives_handler))
+        // cameras/health is a simple ok/down proxy — no sensitive data. Needs to be public
+        // because the portal page (/portal) fetches it without auth to show camera status dot.
+        .route("/cameras/health", get(cameras_health_proxy))
         // POS lockdown read — public so POS agent/kiosk can poll without JWT (MMA Round 1 fix: 2/3 consensus)
         // POST (write) stays in staff_routes
         .route("/pos/lockdown", get(get_pos_lockdown))
@@ -297,7 +300,7 @@ fn customer_routes() -> Router<Arc<AppState>> {
 fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/kiosk/experiences", get(list_kiosk_experiences))
-        .route("/kiosk/settings", get(get_kiosk_settings))
+        .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
         .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
@@ -573,7 +576,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/mesh/stats", get(mesh_stats))
         .route("/mesh/deploy-status", get(mesh_deploy_status))
         .route("/mesh/audit-check", get(mesh_audit_check))
-        .route("/cameras/health", get(cameras_health_proxy))
+        // cameras/health moved to public_routes — portal page needs it without JWT
         // Mesh Intelligence (v26.0) — staff write operations
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
