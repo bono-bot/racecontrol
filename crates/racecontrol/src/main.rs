@@ -432,7 +432,17 @@ fn security_headers_layer() -> HelmetLayer {
     directives.insert("script-src", vec!["'self'", "'unsafe-inline'"]);
     directives.insert("style-src", vec!["'self'", "'unsafe-inline'"]);
     directives.insert("img-src", vec!["'self'", "data:"]);
-    directives.insert("connect-src", vec!["'self'", "ws:", "wss:"]);
+    // Allow connect to self + venue server on any port (kiosk on :80 needs API on :8080).
+    // CSP doesn't support IP wildcards, so list the server explicitly.
+    // ws:/wss: scheme-only = any WS host (needed for dashboard WS to server).
+    directives.insert("connect-src", vec![
+        "'self'",
+        "http://192.168.31.23:8080",   // server API from kiosk on :80/:3300
+        "ws://192.168.31.23:8080",      // server WS from kiosk on :80/:3300
+        "http://localhost:8080",        // dev
+        "ws://localhost:8080",          // dev WS
+        "ws:", "wss:",
+    ]);
     directives.insert("frame-ancestors", vec!["'none'"]);
     directives.insert("base-uri", vec!["'self'"]);
     directives.insert("form-action", vec!["'self'"]);
@@ -1188,26 +1198,28 @@ async fn main() -> anyhow::Result<()> {
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
                     let origin = origin.to_str().unwrap_or("");
-                    // SEC-P1-5: Restrict CORS to known service origins only
-                    // MMA iter2: pod kiosks need CORS too (browser → server API calls)
-                    origin.starts_with("http://localhost:")
-                        || origin.starts_with("https://localhost:")
-                        || origin.starts_with("http://127.0.0.1:")
-                        || origin.starts_with("https://127.0.0.1:")
-                        || origin.starts_with("http://192.168.31.23:")  // server
-                        || origin.starts_with("http://192.168.31.27:")  // james
-                        || origin.starts_with("http://192.168.31.20:")  // POS
-                        || origin.starts_with("http://192.168.31.89:")  // pod 1
-                        || origin.starts_with("http://192.168.31.33:")  // pod 2
-                        || origin.starts_with("http://192.168.31.28:")  // pod 3
-                        || origin.starts_with("http://192.168.31.88:")  // pod 4
-                        || origin.starts_with("http://192.168.31.86:")  // pod 5
-                        || origin.starts_with("http://192.168.31.87:")  // pod 6
-                        || origin.starts_with("http://192.168.31.38:")  // pod 7
-                        || origin.starts_with("http://192.168.31.91:")  // pod 8
-                        || origin.starts_with("http://kiosk.rp")
-                        || origin.starts_with("https://kiosk.rp")
+                    // SEC-P1-5: Restrict CORS to venue LAN, localhost, and known cloud origins.
+                    // Origins may or may not include a port (port 80/443 = no port in Origin header).
+                    // Strip the scheme to get "host" or "host:port", then check the host part.
+                    let host_port = origin
+                        .strip_prefix("http://")
+                        .or_else(|| origin.strip_prefix("https://"))
+                        .unwrap_or("");
+                    // Extract just the host (before any :port)
+                    let host = host_port.split(':').next().unwrap_or("");
+
+                    // Allow all LAN IPs on the venue subnet (192.168.31.*)
+                    // Covers server, pods, POS, james, spectator — with or without port
+                    host.starts_with("192.168.31.")
+                        || host == "localhost"
+                        || host == "127.0.0.1"
+                        // Tailscale IPs (100.x.x.x) — for remote access
+                        || host.starts_with("100.")
+                        // Named hosts
+                        || host.starts_with("kiosk.rp")
                         || origin == "https://app.racingpoint.cloud"
+                        || origin == "https://admin.racingpoint.cloud"
+                        || origin == "https://racingpoint.cloud"
                 }))
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE, Method::OPTIONS])
                 .allow_headers(tower_http::cors::Any)
