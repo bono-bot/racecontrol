@@ -174,8 +174,9 @@ async fn ws_live_handler(
 ) -> Response {
     let rtsp_url = state.rtsp_url(channel, params.subtype);
     let rtsp_url_safe = state.rtsp_url_redacted(channel, params.subtype);
-    tracing::info!(channel, subtype = params.subtype, "WebSocket live stream requested");
-    ws.on_upgrade(move |socket| ws_live_stream(socket, rtsp_url, rtsp_url_safe, channel))
+    let subtype = params.subtype;
+    tracing::info!(channel, subtype, "WebSocket live stream requested");
+    ws.on_upgrade(move |socket| ws_live_stream(socket, rtsp_url, rtsp_url_safe, channel, subtype))
 }
 
 /// WebSocket live stream task: pulls RTSP from NVR, sends H.265 frames.
@@ -184,13 +185,19 @@ async fn ws_live_handler(
 /// 1. First message (text/JSON): `{"type":"init","codec":"hev1.1.6.L123.B0","width":2560,"height":1440}`
 /// 2. Subsequent messages (binary): `[u64 LE timestamp_µs][u8 flags][H.265 Annex B NALUs]`
 ///    flags: 0x01 = keyframe
-async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: String, channel: u32) {
+async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: String, channel: u32, subtype: u32) {
+    // Resolution depends on NVR subtype: 0 = main (4MP), 1 = sub (D1/CIF)
+    let (width, height, codec) = match subtype {
+        0 => (2560, 1440, "hev1.1.6.L123.B0"),  // 4MP H.265 main stream
+        _ => (704, 576, "hev1.1.6.L93.B0"),       // D1 H.265 sub stream
+    };
+
     // Send init message with codec info
     let init_msg = serde_json::json!({
         "type": "init",
-        "codec": "hev1.1.6.L123.B0",
-        "width": 2560,
-        "height": 1440
+        "codec": codec,
+        "width": width,
+        "height": height
     });
     if socket
         .send(Message::Text(init_msg.to_string().into()))
@@ -280,7 +287,9 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
     /// Frames arriving faster are dropped to avoid overwhelming slow clients.
     const MIN_FRAME_INTERVAL: Duration = Duration::from_millis(40);
     /// Maximum pending WS send time before considering client too slow.
-    const WS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
+    /// 2s (down from 5s) for faster recovery — stalled clients reconnect sooner
+    /// instead of accumulating a multi-second frame backlog.
+    const WS_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
     // Stream frames to WebSocket
     loop {

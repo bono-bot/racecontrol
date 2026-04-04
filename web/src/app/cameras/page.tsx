@@ -141,11 +141,19 @@ function connectLiveStream(
       const timestamp = Number(view.getBigUint64(0, true));
       const flags = view.getUint8(8);
       const data = new Uint8Array(buf, 9);
+      const isKey = !!(flags & 0x01);
+
+      // Lag prevention: if decode queue is backing up, drop delta frames.
+      // A growing queue means GPU can't keep up — frames display with increasing delay.
+      // Max queue of 3 keeps latency under ~120ms (3 frames at 25fps).
+      if (!isKey && decoder.decodeQueueSize > 3) {
+        return;
+      }
 
       try {
         decoder.decode(
           new EncodedVideoChunk({
-            type: flags & 0x01 ? "key" : "delta",
+            type: isKey ? "key" : "delta",
             timestamp: timestamp,
             data: data,
           }),
