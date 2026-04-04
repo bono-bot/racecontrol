@@ -299,7 +299,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
 /// call them while staff/admin routes remain pod-blocked.
 fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/kiosk/experiences", get(list_kiosk_experiences))
+        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
+        .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
         .route("/kiosk/book-multiplayer", post(kiosk_book_multiplayer))
@@ -323,7 +324,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/debug/activity", get(debug_activity))
         .route("/debug/playbooks", get(debug_playbooks))
-        .route("/debug/incidents", get(list_debug_incidents))
+        .route("/debug/incidents", get(list_debug_incidents).post(create_debug_incident))
+        .route("/debug/incidents/{id}", put(update_debug_incident))
+        .route("/debug/incidents/{id}/apply-fix", post(debug_apply_fix))
+        .route("/debug/diagnose", post(debug_diagnose))
         .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
@@ -455,11 +459,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Phase 298: Game preset library — write operations (read is in public_routes)
         .route("/presets", post(preset_library::create_preset))
         .route("/presets/{id}", put(preset_library::update_preset).delete(preset_library::delete_preset))
-        // Config
-        // GET moved to public_routes (rc-agent fetches without auth)
-        // config/kiosk-allowlist POST/DELETE — moved to role-gated admin section
-        // POS — POST only (write), GET moved to public_routes (MMA Round 1 fix: POS agent polls without JWT)
-        // pos/lockdown — moved to role-gated admin section
+        // Config — write ops for kiosk allowlist (GET is in public_routes)
+        .route("/config/kiosk-allowlist", post(add_kiosk_allowlist_entry))
+        .route("/config/kiosk-allowlist/{name}", delete(delete_kiosk_allowlist_entry))
+        // POS lockdown write (GET is in public_routes)
+        .route("/pos/lockdown", post(set_pos_lockdown))
         // AI (staff)
         .route("/ai/chat", post(ai_chat))
         .route("/ai/diagnose", post(ai_diagnose))
