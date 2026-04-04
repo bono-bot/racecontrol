@@ -697,6 +697,8 @@ fn service_routes() -> Router<Arc<AppState>> {
         // Mesh Intelligence Cloud KB sync (v26.0 Phase 227)
         .route("/cloud/mesh/sync", post(cloud_mesh_sync))
         .route("/cloud/mesh/pull", get(cloud_mesh_pull))
+        // Audit seed via service key (CGP 4.1: smart pipes feed MI without staff JWT)
+        .route("/mesh/audit-seed-service", post(mesh_audit_seed_service))
 }
 
 const BUILD_ID: &str = env!("GIT_HASH");
@@ -21919,6 +21921,24 @@ async fn mesh_audit_seed(
         "seeded": seeded,
         "errors": errors,
     }))
+}
+
+/// POST /api/v1/mesh/audit-seed-service — service-key-authed version of audit-seed.
+/// CGP 4.1: Smart pipes and automated tools need to feed MI without staff JWT.
+/// Auth: X-Service-Key header must match config sentry_service_key.
+async fn mesh_audit_seed_service(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
+    let expected = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    let provided = headers.get("X-Service-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if expected.is_empty() || provided.is_empty() || provided != expected {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Invalid service key").into_response();
+    }
+    // Delegate to the existing handler logic
+    let result = mesh_audit_seed(State(state), Json(body)).await;
+    result.into_response()
 }
 
 async fn mesh_promote_solution(
