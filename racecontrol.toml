@@ -1123,6 +1123,38 @@ name = "vssvc.exe"
 category = "system"
 machines = ["all"]
 
+# --- Added 2026-04-04: Windows Update/Defender processes (false violations on all pods) ---
+[[process_guard.allowed]]
+name = "wuaucltcore.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "mpsigstub.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "windowspackagemanagerserver.exe"
+category = "system"
+machines = ["all"]
+
+# Defender delta patches have version-specific names (am_delta_patch_*.exe)
+[[process_guard.allowed]]
+name = "am_delta_patch_*"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "musnotification.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "musnotificationux.exe"
+category = "system"
+machines = ["all"]
+
 [process_guard.overrides.pod]
 allow_extra_autostart = [
   "StartRCAgent",
@@ -1163,4 +1195,11 @@ allow_extra_autostart = [
   "GoogleUpdaterTaskSystem",
   "Firefox Background Update",
   "Firefox Default Browser Agent",
+  # --- Added 2026-04-04: recurring schtask/autostart flags from pods ---
+  "Teams",
+  "AmdX3DInstaller",
+  "RC-Agent Watchdog",
+  "RC-Update",
+  "RacingPoint-PodAgent",
+  "RacingPoint-RcAgent",
 ]
