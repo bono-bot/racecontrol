@@ -1843,8 +1843,12 @@ pub async fn run(
                         }
                     }
                     udp_heartbeat::HeartbeatEvent::ForceRestart => {
-                        tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested restart — exiting");
-                        std::process::exit(0);
+                        if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                            tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested restart but billing active — deferring");
+                        } else {
+                            tracing::warn!(target: LOG_TARGET, "UDP heartbeat: core requested restart — exiting");
+                            std::process::exit(0);
+                        }
                     }
                     udp_heartbeat::HeartbeatEvent::CoreAlive => {}
                 }

@@ -190,6 +190,12 @@ fn find_var_offset(
     header: &IrsdkHeader,
     name: &[u8],
 ) -> Option<(i32, i32)> {
+    // Guard against corrupted header: num_vars and var_header_offset must be sane.
+    // iRacing has ~300 vars; 4096 is a safe upper bound. Corrupted values from stale
+    // shared memory after game exit would cause pointer arithmetic into unmapped memory.
+    if header.num_vars <= 0 || header.num_vars > 4096 || header.var_header_offset <= 0 {
+        return None;
+    }
     for i in 0..header.num_vars {
         let var_ptr = unsafe {
             shm_ptr.add(header.var_header_offset as usize + i as usize * 144)
@@ -381,6 +387,14 @@ impl IracingAdapter {
     #[cfg(windows)]
     fn parse_session_yaml(&mut self, shm_ptr: *const u8, header: &IrsdkHeader) {
         if header.session_info_len <= 0 || header.session_info_offset < 0 {
+            return;
+        }
+        // Guard: ensure offset+len doesn't exceed SHM size (iRacing uses 780KB).
+        // Corrupted header values from stale SHM could cause out-of-bounds read.
+        const MAX_IRACING_SHM_SIZE: usize = 1024 * 1024; // 1MB generous upper bound
+        let end = (header.session_info_offset as usize).saturating_add(header.session_info_len as usize);
+        if end > MAX_IRACING_SHM_SIZE || header.session_info_len as usize > MAX_IRACING_SHM_SIZE {
+            tracing::warn!(target: LOG_TARGET, "iRacing session YAML bounds invalid: offset={} len={}", header.session_info_offset, header.session_info_len);
             return;
         }
         let yaml_bytes = unsafe {

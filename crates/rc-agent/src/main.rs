@@ -398,6 +398,34 @@ static PANIC_LOCK_STATE: OnceLock<std::sync::Arc<std::sync::Mutex<lock_screen::L
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // CRASH-DIAG: Catch Windows SEH exceptions (access violations, stack overflow)
+    // that bypass Rust's panic hook. Logs to file before process terminates.
+    #[cfg(windows)]
+    unsafe {
+        use std::io::Write;
+        unsafe extern "system" {
+            fn SetUnhandledExceptionFilter(
+                filter: Option<unsafe extern "system" fn(*const u8) -> i32>,
+            ) -> Option<unsafe extern "system" fn(*const u8) -> i32>;
+        }
+        unsafe extern "system" fn seh_crash_handler(info: *const u8) -> i32 {
+            // info -> EXCEPTION_POINTERS { ExceptionRecord*, ContextRecord* }
+            // ExceptionRecord -> { ExceptionCode (u32 @0), ExceptionFlags (u32 @4),
+            //                      ExceptionRecord* (@8), ExceptionAddress (ptr @16) }
+            let record_ptr = unsafe { *(info as *const *const u8) };
+            let code = unsafe { *(record_ptr as *const u32) };
+            let addr = unsafe { *(record_ptr.add(16) as *const usize) };
+            let _ = std::fs::OpenOptions::new().create(true).append(true)
+                .open(r"C:\RacingPoint\crash-seh.log")
+                .map(|mut f| {
+                    let _ = writeln!(f, "[SEH] code=0x{:08X} addr=0x{:016X} time={}",
+                        code, addr, chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+                });
+            0 // EXCEPTION_CONTINUE_SEARCH
+        }
+        SetUnhandledExceptionFilter(Some(seh_crash_handler));
+    }
+
     // SAFETY-01: Panic hook — zero FFB + log crash + show error lock screen + exit
     // Must be installed BEFORE any other init so even config-load panics are caught.
     // The hook is sync-only: no async, no allocator-dependent code, try_lock not lock.
@@ -1377,7 +1405,8 @@ async fn main() -> Result<()> {
                 .and_hms_opt(0, 0, 0)
                 .expect("midnight")
                 .and_local_timezone(ist)
-                .unwrap();
+                .earliest()
+                .unwrap_or_else(|| now_ist + chrono::Duration::hours(24));
             let secs_until = (tomorrow_midnight - now_ist).num_seconds().max(1) as u64;
             tracing::info!(target: "night-ops", secs_until_midnight = secs_until, "Sleeping until midnight IST");
             tokio::time::sleep(std::time::Duration::from_secs(secs_until)).await;

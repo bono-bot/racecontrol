@@ -367,6 +367,24 @@ impl LmuAdapter {
     }
 
     /// Find the player's vehicle index in the vehicle array.
+    /// Verify LMU shared memory is still alive by probing OpenFileMappingW.
+    #[cfg(windows)]
+    fn verify_shm_alive_lmu(&self) -> bool {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let name: Vec<u16> = OsStr::new("$rFactor2SMMP_Scoring$")
+            .encode_wide().chain(std::iter::once(0)).collect();
+        unsafe {
+            let h = winapi::um::memoryapi::OpenFileMappingW(
+                winapi::um::memoryapi::FILE_MAP_READ, 0, name.as_ptr());
+            if h.is_null() { return false; }
+            winapi::um::handleapi::CloseHandle(h);
+            true
+        }
+    }
+    #[cfg(not(windows))]
+    fn verify_shm_alive_lmu(&self) -> bool { true }
+
     /// Player is identified by mIsPlayer == 1.
     /// Returns None if not found.
     #[cfg(windows)]
@@ -604,6 +622,11 @@ impl SimAdapter for LmuAdapter {
 
     #[cfg(windows)]
     fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
+        if !self.verify_shm_alive_lmu() {
+            tracing::warn!(target: LOG_TARGET, "LMU shared memory gone — disconnecting adapter");
+            self.disconnect();
+            return Ok(None);
+        }
         let scoring_ptr = match &self.scoring_shm {
             Some(h) => h.ptr,
             None => return Ok(None),
