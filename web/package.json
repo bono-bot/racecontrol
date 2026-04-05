@@ -6,6 +6,7 @@
     "dev": "next dev",
     "prebuild": "bash ../scripts/validate-frontend-env.sh",
     "build": "next build",
+    "postbuild": "cp -r .next/static .next/standalone/.next/static 2>/dev/null; if [ -d public ]; then cp -r public .next/standalone/public; fi; echo 'postbuild: static assets copied to standalone'",
     "start": "next start",
     "lint": "eslint"
   },
