@@ -5504,11 +5504,16 @@ async fn launch_game(
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
         Ok(()) => {
-            // CLOSED-LOOP: Include verification status in response.
-            // verified=true means game process confirmed running on pod.
-            // verified=false means command sent but process not yet confirmed.
-            let verified = state.game_launcher.last_launch_verified
-                .load(std::sync::atomic::Ordering::Relaxed);
+            // CLOSED-LOOP: Per-launch verification from the pod's game tracker.
+            // Previous implementation used a global AtomicBool (last_launch_verified) that
+            // returned stale results from prior launches on ANY pod — causing verified=true
+            // even when the current launch failed. Now we check this pod's actual tracker state.
+            let verified = {
+                let games = state.game_launcher.active_games.read().await;
+                games.get(pod_id)
+                    .map(|t| t.game_state == rc_common::types::GameState::Running)
+                    .unwrap_or(false)
+            };
             let mut resp = json!({
                 "ok": true,
                 "verified": verified,

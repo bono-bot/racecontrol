@@ -429,15 +429,35 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             }
         }
     } else {
-        tracing::info!(target: LOG_TARGET, "Launching acs.exe directly (race.ini pre-written)...");
         let ac_dir = find_ac_dir()?;
+        tracing::info!(target: LOG_TARGET, "Launching acs.exe directly from {:?} (race.ini pre-written)...", ac_dir);
         let child = Command::new(ac_dir.join("acs.exe"))
             .current_dir(&ac_dir)
             .spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
-        child.id()
+            .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
+        let spawn_pid = child.id();
+        // Verify the spawned process is actually alive (spawn().is_ok() != process running)
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let fresh_pid = find_acs_pid().unwrap_or(spawn_pid);
+        if fresh_pid != spawn_pid {
+            tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — possible stale process", spawn_pid, fresh_pid);
+        }
+        fresh_pid
     };
-    tracing::info!(target: LOG_TARGET, "AC launched with PID {}", pid);
+    tracing::info!(target: LOG_TARGET, "AC launched with PID {} — verifying race.ini exists...", pid);
+    // Post-launch verification: confirm race.ini was written (E2E found it missing)
+    {
+        let race_ini_check = dirs_next::document_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+            .join("Assetto Corsa").join("cfg").join("race.ini");
+        if race_ini_check.exists() {
+            let meta = std::fs::metadata(&race_ini_check);
+            tracing::info!(target: LOG_TARGET, "race.ini confirmed: {:?} ({} bytes)",
+                race_ini_check, meta.map(|m| m.len()).unwrap_or(0));
+        } else {
+            tracing::error!(target: LOG_TARGET, "race.ini MISSING at {:?} after launch — game will use stale/default config!", race_ini_check);
+        }
+    }
 
     // Step 4: Wait for AC to load, then minimize Conspit Link
     // (Don't kill Conspit Link — it crashes on force-restart. Just minimize it.)
