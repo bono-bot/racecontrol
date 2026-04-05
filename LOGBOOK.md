@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-05 22:30 IST | James | d3df2992 | fix: RESIL-07 controls.ini destruction + self_heal.rs stderr redirect + fleet deploy 8/8 pods build d3df2992. Game launch: controls.ini now preserved (verified 2453 bytes), Pod 1 log confirms full AC init. Remaining: Pod 2 different error dialog, game exits after load — needs physical/MMA investigation. |
 | 2026-04-05 14:55 IST | James | b923d1fd | fix: 10 bugs from E2E testing — P1 billing deadlock (8 lock-across-await), HTTP status codes (401/400), coupon DB type, financial fields, kiosk middleware cookie, E2E test infra. 44/45 E2E pass. |
 | 2026-04-03 16:32 IST | James | da0942cd | feat: per-minute billing engine + visits table + Acts 1-4 data model. BillingTimer per-minute mode, debit_wallet(), Default impl, 326 lines added. |
 | 2026-04-03 15:02 IST | James | c0193f2e | feat: Act 1+2 customer workflow — billing redesign, per-minute pricing, 7 conflict fixes, F1 25 billing fix, 180s grace, 30s crash recovery |
