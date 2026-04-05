@@ -361,18 +361,65 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     write_assists_ini(params)?;
     write_apps_preset()?;
 
-    // RESIL-07: Fresh controls.ini every session — no FFB leakage from previous sessions.
-    // Write a clean baseline; set_ffb() then overwrites GAIN with the requested preset.
+    // RESIL-07: Reset FFB settings each session — no FFB leakage from previous sessions.
+    // Only update the [FF] section, preserving controller/device mappings (steering, gas, brake).
+    // Overwriting the entire file destroys controller config and causes "controls not configured" error.
     {
         let controls_path = dirs_next::document_dir()
             .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
             .join("Assetto Corsa")
             .join("cfg")
             .join("controls.ini");
-        if let Err(e) = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n") {
-            tracing::warn!(target: LOG_TARGET, "RESIL-07: Failed to write fresh controls.ini: {}", e);
+        if controls_path.exists() {
+            // Preserve existing file, only update [FF] section
+            match std::fs::read_to_string(&controls_path) {
+                Ok(content) => {
+                    let mut lines: Vec<&str> = content.lines().collect();
+                    let mut in_ff = false;
+                    let mut ff_found = false;
+                    let mut new_lines: Vec<String> = Vec::new();
+                    for line in &lines {
+                        if line.trim() == "[FF]" {
+                            in_ff = true;
+                            ff_found = true;
+                            new_lines.push("[FF]".to_string());
+                            new_lines.push("GAIN=70".to_string());
+                            new_lines.push("MIN_FORCE=0.05".to_string());
+                            new_lines.push("FILTER=0.00".to_string());
+                            continue;
+                        }
+                        if in_ff {
+                            if line.starts_with('[') {
+                                in_ff = false;
+                                new_lines.push(line.to_string());
+                            }
+                            // Skip old [FF] lines — already replaced
+                            continue;
+                        }
+                        new_lines.push(line.to_string());
+                    }
+                    if !ff_found {
+                        new_lines.push("\n[FF]".to_string());
+                        new_lines.push("GAIN=70".to_string());
+                        new_lines.push("MIN_FORCE=0.05".to_string());
+                        new_lines.push("FILTER=0.00".to_string());
+                    }
+                    if let Err(e) = std::fs::write(&controls_path, new_lines.join("\r\n")) {
+                        tracing::warn!(target: LOG_TARGET, "RESIL-07: Failed to update [FF] in controls.ini: {}", e);
+                    } else {
+                        tracing::info!(target: LOG_TARGET, "RESIL-07: Updated [FF] section in controls.ini (preserved controller mappings)");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "RESIL-07: Can't read controls.ini ({}), writing FFB-only baseline", e);
+                    let _ = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n");
+                }
+            }
         } else {
-            tracing::info!(target: LOG_TARGET, "RESIL-07: Fresh controls.ini written (pre-FFB reset)");
+            // No existing controls.ini — write minimal baseline (first-run scenario)
+            if let Err(e) = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n") {
+                tracing::warn!(target: LOG_TARGET, "RESIL-07: Failed to create controls.ini: {}", e);
+            }
         }
     }
 
