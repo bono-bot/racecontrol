@@ -123,9 +123,14 @@ pub fn spawn_in_session1(exe_dir: &Path) -> anyhow::Result<()> {
             SafeEnvBlock::new(raw_env_block)
         };
 
-        // 5. Build command line: cmd.exe /c "C:\RacingPoint\start-rcagent.bat"
-        let bat_path = exe_dir.join("start-rcagent.bat");
-        let cmd_str = format!("cmd.exe /c \"{}\"", bat_path.display());
+        // 5. Build command line: launch rc-agent.exe directly (NOT via start-rcagent.bat).
+        // CRITICAL: start-rcagent.bat runs `taskkill /F /IM rc-agent.exe` as its first action,
+        // which kills a RUNNING agent if the watchdog triggers a false-positive restart.
+        // This caused the P0 "agent dies during AC launch" bug — the bat is only appropriate
+        // at boot (HKLM Run key) for bloatware cleanup and binary swap.
+        // The watchdog should only start the exe directly when the agent is confirmed dead.
+        let exe_path = exe_dir.join("rc-agent.exe");
+        let cmd_str = format!("\"{}\"", exe_path.display());
         let mut cmd_wide: Vec<u16> = cmd_str.encode_utf16().chain(std::iter::once(0)).collect();
 
         // Desktop string for interactive session
