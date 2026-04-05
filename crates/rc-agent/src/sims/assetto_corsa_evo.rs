@@ -392,6 +392,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             sector3_ms: self.sector_times[2],
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::AssettoCorsaEvo),
+            normalized_car_position: None, // TODO: read from ACE shared memory when available
         }))
     }
 

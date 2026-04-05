@@ -9,6 +9,8 @@ use crate::types::{
     KillSwitchPayload, FlagCacheSyncPayload,
     // v41.0 Game Intelligence (Phase 315)
     GameInventory, ComboValidationResult, LaunchTimeline, CrashLoopReport,
+    // VMS-inspired features
+    LobbyStatus, AcSessionPhase,
 };
 
 /// Summary of deploy state for a single pod — used in DeployStatusList
@@ -622,6 +624,15 @@ pub enum AgentMessage {
     /// Phase 318: Crash loop detection in game_process.rs triggers this.
     CrashLoopDetected(CrashLoopReport),
 
+    // ─── Multiplayer Lobby (VMS-inspired Feature 2) ───────���────────────────
+
+    /// Pod reports game loaded and ready for synchronized multiplayer start.
+    /// Server collects these from all assigned pods before broadcasting LobbyGo.
+    LobbyReady {
+        pod_id: String,
+        group_session_id: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -1025,6 +1036,27 @@ pub enum CoreToAgentMessage {
         expires_at: i64,
     },
 
+    // ─── Multiplayer Lobby (VMS-inspired Feature 2) ────────────────────────
+
+    /// Server tells pod to enter lobby mode — hold in "waiting for others" state.
+    /// Pod should report LobbyReady once the game is loaded and ready.
+    EnterLobby {
+        group_session_id: String,
+        total_pods: u32,
+    },
+
+    /// All pods are ready — start the race/session now.
+    LobbyGo,
+
+    // ─── AC Session Phase (VMS-inspired Feature 1) ──���───────────────────
+
+    /// AC dedicated server transitioned to a new session phase.
+    /// Agent can update its overlay (e.g., show "QUALIFYING" banner).
+    AcSessionPhaseChanged {
+        phase: String,
+        time_left_secs: u32,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -1305,6 +1337,20 @@ pub enum DashboardEvent {
         timestamp: String,
         /// Updated list of active sentinels on this pod after this change
         active_sentinels: Vec<String>,
+    },
+
+    // ─── Multiplayer Lobby (VMS-inspired Feature 2) ────────────────────────
+
+    /// Lobby status update — broadcast to dashboards for staff visibility.
+    LobbyUpdate(LobbyStatus),
+
+    // ─── AC Session Phase (VMS-inspired Feature 1) ─────────────────────────
+
+    /// AC dedicated server transitioned to a new session phase (Practice → Quali → Race).
+    AcSessionPhaseChanged {
+        session_id: String,
+        phase: AcSessionPhase,
+        time_left_secs: u32,
     },
 }
 

@@ -425,7 +425,7 @@ pub async fn handle_ws_message(
                             exit_code: None,
                             playable_at: None,
                             ready_delay_ms: None,
-                            session_id: None,
+                            session_id: None, launch_stage: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -499,7 +499,7 @@ pub async fn handle_ws_message(
                             exit_code: None,
                             playable_at: None,
                             ready_delay_ms: None,
-                            session_id: None,
+                            session_id: None, launch_stage: None,
                         };
                         if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
@@ -521,7 +521,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Pre-launch validation: {}", validation_error)),
                                 diagnostics: None,
                                 exit_code: None,
-                                playable_at: None, ready_delay_ms: None,
+                                playable_at: None, ready_delay_ms: None, launch_stage: None,
                                 session_id: None,
                             };
                             if let Ok(json_str) = serde_json::to_string(&AgentMessage::GameStateUpdate(error_info)) {
@@ -576,7 +576,7 @@ pub async fn handle_ws_message(
                     pod_id: state.pod_id.clone(), sim_type: launch_sim,
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
-                    exit_code: None, playable_at: None, ready_delay_ms: None,
+                    exit_code: None, playable_at: None, ready_delay_ms: None, launch_stage: None,
                     session_id: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(info);
@@ -608,7 +608,7 @@ pub async fn handle_ws_message(
                                 direct_exit_code: result.diagnostics.direct_exit_code,
                             }),
                             exit_code: None,
-                            playable_at: None, ready_delay_ms: None,
+                            playable_at: None, ready_delay_ms: None, launch_stage: None,
                             session_id: None,
                         };
                         game_process::persist_pid(result.pid);
@@ -664,7 +664,7 @@ pub async fn handle_ws_message(
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
- playable_at: None, ready_delay_ms: None,
+ playable_at: None, ready_delay_ms: None, launch_stage: None,
                             session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
@@ -728,7 +728,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Steam readiness check failed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
-                                playable_at: None, ready_delay_ms: None,
+                                playable_at: None, ready_delay_ms: None, launch_stage: None,
                                 session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -769,7 +769,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("Content not installed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
-                                playable_at: None, ready_delay_ms: None,
+                                playable_at: None, ready_delay_ms: None, launch_stage: None,
                                 session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -831,7 +831,7 @@ pub async fn handle_ws_message(
                                 error_message: Some(format!("iRacing readiness check failed: {}", reason)),
                                 diagnostics: None,
                                 exit_code: None,
-                                playable_at: None, ready_delay_ms: None,
+                                playable_at: None, ready_delay_ms: None, launch_stage: None,
                                 session_id: None,
                             };
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -865,7 +865,7 @@ pub async fn handle_ws_message(
                     game_state: GameState::Launching, pid: None,
                     launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
  exit_code: None,
- playable_at: None, ready_delay_ms: None,
+ playable_at: None, ready_delay_ms: None, launch_stage: None,
                     session_id: None,
                 };
                 let msg = AgentMessage::GameStateUpdate(launching_info);
@@ -917,7 +917,7 @@ pub async fn handle_ws_message(
                                 game_state: GameState::Running, pid: Some(pid),
                                 launched_at: Some(Utc::now()), error_message: None, diagnostics: None,
                                 exit_code: None,
-                                playable_at: None, ready_delay_ms: None,
+                                playable_at: None, ready_delay_ms: None, launch_stage: None,
                                 session_id: None,
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
@@ -953,7 +953,7 @@ pub async fn handle_ws_message(
                                             game_state: GameState::Running, pid: Some(pid),
                                             launched_at: Some(Utc::now()), error_message: None,
                                             diagnostics: None, exit_code: None,
-                                            playable_at: None, ready_delay_ms: None,
+                                            playable_at: None, ready_delay_ms: None, launch_stage: None,
                                             session_id: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
@@ -971,7 +971,7 @@ pub async fn handle_ws_message(
                                             launched_at: None,
                                             error_message: Some(format!("Game window not detected: {}", reason)),
                                             diagnostics: None, exit_code: None,
-                                            playable_at: None, ready_delay_ms: None,
+                                            playable_at: None, ready_delay_ms: None, launch_stage: None,
                                             session_id: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
@@ -998,7 +998,7 @@ pub async fn handle_ws_message(
                             game_state: GameState::Error, pid: None, launched_at: None,
                             error_message: Some(e.to_string()), diagnostics: None,
  exit_code: None,
- playable_at: None, ready_delay_ms: None,
+ playable_at: None, ready_delay_ms: None, launch_stage: None,
                             session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);
@@ -1057,7 +1057,7 @@ pub async fn handle_ws_message(
                             pod_id: state.pod_id.clone(), sim_type: sim, game_state: GameState::Idle,
                             pid: None, launched_at: None, error_message: None, diagnostics: None,
  exit_code: None,
- playable_at: None, ready_delay_ms: None,
+ playable_at: None, ready_delay_ms: None, launch_stage: None,
                             session_id: None,
                         };
                         let msg = AgentMessage::GameStateUpdate(info);

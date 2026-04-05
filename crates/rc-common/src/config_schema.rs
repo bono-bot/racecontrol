@@ -104,6 +104,10 @@ pub struct CoreConfig {
     /// DANGEROUS: only use for LAN development/testing with self-signed certs.
     #[serde(default)]
     pub tls_skip_verify: bool,
+    /// mDNS auto-discovery: agent browses for `_racecontrol._tcp.local.` on startup.
+    /// Falls back to `url` if mDNS times out (5s) or is unavailable.
+    #[serde(default = "default_true")]
+    pub mdns_enabled: bool,
 }
 
 impl Default for CoreConfig {
@@ -114,6 +118,7 @@ impl Default for CoreConfig {
             ws_secret: None,
             tls_ca_cert_path: None,
             tls_skip_verify: false,
+            mdns_enabled: true,
         }
     }
 }

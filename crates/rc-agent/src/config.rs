@@ -562,6 +562,7 @@ mod tests {
                 ws_secret: None,
                 tls_ca_cert_path: None,
                 tls_skip_verify: false,
+                mdns_enabled: true,
             },
             wheelbase: WheelbaseConfig::default(),
             telemetry_ports: TelemetryPortsConfig::default(),

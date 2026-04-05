@@ -153,6 +153,10 @@ pub struct ServerConfig {
     /// `[server.tls]` in racecontrol.toml. Defaults to disabled (plain HTTP).
     #[serde(default)]
     pub tls: MtlsConfig,
+    /// mDNS auto-discovery: advertise `_racecontrol._tcp.local.` on the LAN.
+    /// Pods with `core.mdns_enabled = true` will find this server without hardcoded IPs.
+    #[serde(default = "default_true")]
+    pub mdns_enabled: bool,
 }
 
 /// Mutual TLS configuration for the racecontrol server (v38.0 Phase 305).
@@ -918,6 +922,7 @@ impl Config {
                 cert_path: None,
                 key_path: None,
                 tls: MtlsConfig::default(),
+                mdns_enabled: true,
             },
             database: DatabaseConfig {
                 path: default_db_path(),

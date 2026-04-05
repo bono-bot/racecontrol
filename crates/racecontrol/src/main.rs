@@ -1239,6 +1239,19 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
 
+    // mDNS service advertiser — lets pods discover this server without hardcoded IPs.
+    // The _mdns_daemon variable keeps the daemon alive for the server's lifetime.
+    let _mdns_daemon = if state.config.server.mdns_enabled {
+        racecontrol_crate::mdns::start_advertiser(
+            state.config.server.port,
+            env!("GIT_HASH"),
+            &state.config.venue.venue_id,
+        )
+    } else {
+        tracing::info!("mDNS advertiser disabled by config (server.mdns_enabled = false)");
+        None
+    };
+
     // Start HTTPS server (if tls_port configured -- legacy one-way TLS path)
     if let Some(tls_port) = state.config.server.tls_port {
         let tls_config = tls::load_or_generate_rustls_config(

@@ -93,7 +93,6 @@ mod graphics {
     pub const LAST_SECTOR_TIME: usize = 168;  // i32, last sector split time in ms
     #[allow(dead_code)]
     pub const NUMBER_OF_LAPS: usize = 172;    // i32, total laps in session (0 = unlimited)
-    #[allow(dead_code)]
     pub const NORMALIZED_CAR_POSITION: usize = 248; // f32, 0.0-1.0 track progress
     // isValidLap is deep in the extended struct (~offset 1408+), not reliably accessible
     // We still track it but acknowledge it may read incorrect data
@@ -279,6 +278,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         let current_sector = Self::read_i32(graphics, graphics::CURRENT_SECTOR_INDEX);
         let last_sector_time = Self::read_i32(graphics, graphics::LAST_SECTOR_TIME);
         let is_valid = Self::read_i32(graphics, graphics::IS_VALID_LAP);
+        let normalized_car_position = Self::read_f32(graphics, graphics::NORMALIZED_CAR_POSITION);
 
         // Track sector transitions to accumulate split times
         if current_sector != self.last_sector_index && last_sector_time > 0 {
@@ -361,6 +361,11 @@ impl SimAdapter for AssettoCorsaAdapter {
             sector3_ms: self.sector_times[2],
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::AssettoCorsa),
+            normalized_car_position: if normalized_car_position >= 0.0 && normalized_car_position <= 1.0 {
+                Some(normalized_car_position)
+            } else {
+                None
+            },
         }))
     }
 

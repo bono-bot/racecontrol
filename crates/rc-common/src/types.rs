@@ -216,6 +216,11 @@ pub struct TelemetryFrame {
     pub sector2_ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sector3_ms: Option<u32>,
+
+    /// Normalized car position on track spline (0.0 = start/finish, 1.0 = full lap).
+    /// Used for circuit viewer display and off-track detection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalized_car_position: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -446,6 +451,47 @@ pub enum GameState {
     Stopping,
     /// Game crashed or failed to launch
     Error,
+    /// Multiplayer lobby: game loaded, waiting for all pods to be ready
+    InLobby,
+}
+
+// ─── Multiplayer Lobby (VMS-inspired Feature 2) ──────────────────────────
+
+/// Phase of a synchronized multiplayer lobby.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LobbyPhase {
+    /// Pods are loading the game
+    Forming,
+    /// All pods reported ready
+    AllReady,
+    /// Session is starting
+    Starting,
+    /// Lobby completed (pods are racing)
+    Active,
+    /// Lobby cancelled or timed out
+    Cancelled,
+}
+
+/// Status of a synchronized multiplayer lobby, broadcast to dashboards.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LobbyStatus {
+    pub group_session_id: String,
+    pub phase: LobbyPhase,
+    pub total_pods: u32,
+    pub ready_pods: Vec<String>,
+    pub created_at: String,
+}
+
+// ─── AC Session Phase (VMS-inspired Feature 1) ──────────────────────────
+
+/// AC dedicated server session phase (Practice → Qualifying → Race).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcSessionPhase {
+    Practice,
+    Qualifying,
+    Race,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,6 +518,11 @@ pub struct GameLaunchInfo {
     /// Phase 310: Billing session ID for end-to-end customer journey tracing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// VMS-inspired launch verification stage.
+    /// Tracks actual launch progress: "process_alive" → "shared_memory" → "on_track" → "playable".
+    /// Allows kiosk to show honest status ("Loading..." vs "Entering track..." vs "Ready!").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_stage: Option<String>,
 }
 
 /// Structured diagnostics from a game launch attempt.

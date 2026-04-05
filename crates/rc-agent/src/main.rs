@@ -63,6 +63,9 @@ mod inactivity_monitor;
 mod session_enforcer;
 mod iracing_checks;
 mod steam_checks;
+mod launch_verifier;
+mod mdns_discovery;
+mod off_track_detector;
 mod udp_heartbeat;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -632,7 +635,7 @@ async fn main() -> Result<()> {
     }
 
     // Load and validate config — fail fast with branded lock screen error on any issue
-    let config = match load_config() {
+    let mut config = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("[rc-agent] Config error: {}", e);
@@ -642,6 +645,22 @@ async fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    // mDNS auto-discovery: try to find the racecontrol server on LAN.
+    // If found, override the TOML core.url with the discovered WS URL.
+    // Falls back to TOML config if mDNS times out (5s) or is unavailable.
+    // Uses spawn_blocking because mdns-sd uses sync channels internally.
+    if config.core.mdns_enabled {
+        let discovered = tokio::task::spawn_blocking(mdns_discovery::discover_server)
+            .await
+            .unwrap_or(None);
+        if let Some(discovered_url) = discovered {
+            eprintln!("[rc-agent] mDNS: discovered server at {}", discovered_url);
+            config.core.url = discovered_url;
+        }
+    } else {
+        eprintln!("[rc-agent] mDNS discovery disabled by config");
+    }
     // Early lock screen is replaced by the main lock screen manager below
     drop(early_lock_screen);
     startup_log::write_phase("config_loaded", &format!("pod={}", config.pod.number));

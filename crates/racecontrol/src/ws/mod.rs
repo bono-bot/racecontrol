@@ -535,7 +535,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     }
 
                                     // Case 2: Server has no tracker, pod reports active game — create tracker
-                                    (None, GameState::Running | GameState::Launching | GameState::Loading) => {
+                                    (None, GameState::Running | GameState::Launching | GameState::Loading | GameState::InLobby) => {
                                         if let Some(sim) = pod_info.current_game {
                                             games.insert(canonical_id.clone(), game_launcher::GameTracker {
                                                 pod_id: canonical_id.clone(),
@@ -560,7 +560,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                     }
 
                                     // Case 3: Server has tracker, pod reports active — update state from pod (source of truth)
-                                    (Some(_server_gs), GameState::Running | GameState::Launching | GameState::Loading) => {
+                                    (Some(_server_gs), GameState::Running | GameState::Launching | GameState::Loading | GameState::InLobby) => {
                                         if let Some(tracker) = games.get_mut(&canonical_id) {
                                             let old_state = tracker.game_state;
                                             tracker.game_state = pod_game_state;
@@ -923,6 +923,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 GameState::Idle => "Game Stopped",
                                 GameState::Launching => "Game Launching",
                                 GameState::Stopping => "Game Stopping",
+                                GameState::InLobby => "Game In Lobby",
                             };
                             let gs_details = match &info.error_message {
                                 Some(err) => format!("{}: {}", info.sim_type, err),

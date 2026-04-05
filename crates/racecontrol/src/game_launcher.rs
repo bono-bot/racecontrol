@@ -61,6 +61,7 @@ impl GameTracker {
             playable_at: self.playable_at,
             ready_delay_ms: self.ready_delay_ms,
             session_id: self.billing_session_id.clone(),
+            launch_stage: None,
         }
     }
 }
@@ -956,6 +957,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         GameState::Idle => "stopped",
         GameState::Launching => "launched",
         GameState::Stopping => "stopping",
+        GameState::InLobby => "in_lobby",
     };
 
     // Log to DB (legacy table)
@@ -1469,7 +1471,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None,
+            session_id: None, launch_stage: None,
         };
 
         // Update tracker
@@ -2056,7 +2058,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None,
+            session_id: None, launch_stage: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2115,7 +2117,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None,
+            session_id: None, launch_stage: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -2374,7 +2376,7 @@ mod tests {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None,
+            session_id: None, launch_stage: None,
         };
 
         handle_game_state_update(&state, info).await;
