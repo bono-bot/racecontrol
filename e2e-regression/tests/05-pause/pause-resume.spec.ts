@@ -32,6 +32,7 @@ test.describe('05 — Pause/Resume Tests', () => {
     const session = await api.startBilling({
       pod_id: pod.podId,
       driver_id: testDriverId,
+      pricing_tier_id: 'tier_30min',
       sim_type: 'assetto_corsa',
       track: 'monza',
       car: 'ks_ferrari_sf15t',

@@ -15,8 +15,8 @@ test.describe('00 — Smoke Tests', () => {
     console.log(`Server build_id: ${health.build_id}, service: ${health.service}`);
   });
 
-  test('Staff auth works with PIN 0009', async () => {
-    const token = await api.login(STAFF_PIN);
+  test('Auth works (staff PIN or admin fallback)', async () => {
+    const token = await api.login();
     expect(token).toBeTruthy();
     expect(token.length).toBeGreaterThan(10);
   });

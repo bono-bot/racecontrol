@@ -32,6 +32,7 @@ test.describe('06 — Coupon Tests', () => {
     const session = await api.startBilling({
       pod_id: pod.podId,
       driver_id: testDriverId,
+      pricing_tier_id: 'tier_30min',
       sim_type: 'assetto_corsa',
       coupon_code: coupons.percentCoupon,
     });
@@ -45,7 +46,7 @@ test.describe('06 — Coupon Tests', () => {
     await screenshot(page, '06-coupon-percent');
 
     // Stop session
-    await api.stopBilling(session.id);
+    try { await api.stopBilling(session.id || session.billing_session_id); } catch { /* session may be waiting_for_game */ }
     try { await api.stopGame({ pod_id: pod.podId }); } catch { /* ignore */ }
   });
 
@@ -58,6 +59,7 @@ test.describe('06 — Coupon Tests', () => {
     const session = await api.startBilling({
       pod_id: pod.podId,
       driver_id: testDriverId,
+      pricing_tier_id: 'tier_30min',
       sim_type: 'assetto_corsa',
       coupon_code: coupons.flatCoupon,
     });
@@ -68,7 +70,7 @@ test.describe('06 — Coupon Tests', () => {
     await loginPOS(page);
     await screenshot(page, '06-coupon-flat');
 
-    await api.stopBilling(session.id);
+    try { await api.stopBilling(session.id || session.billing_session_id); } catch { /* session may be waiting_for_game */ }
     try { await api.stopGame({ pod_id: pod.podId }); } catch { /* ignore */ }
   });
 
@@ -81,6 +83,7 @@ test.describe('06 — Coupon Tests', () => {
     const session = await api.startBilling({
       pod_id: pod.podId,
       driver_id: testDriverId,
+      pricing_tier_id: 'tier_30min',
       sim_type: 'assetto_corsa',
       coupon_code: coupons.freeMinCoupon,
     });
@@ -90,7 +93,7 @@ test.describe('06 — Coupon Tests', () => {
     await loginPOS(page);
     await screenshot(page, '06-coupon-free-minutes');
 
-    await api.stopBilling(session.id);
+    try { await api.stopBilling(session.id || session.billing_session_id); } catch { /* session may be waiting_for_game */ }
     try { await api.stopGame({ pod_id: pod.podId }); } catch { /* ignore */ }
   });
 

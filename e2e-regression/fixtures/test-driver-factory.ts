@@ -24,15 +24,37 @@ export async function createTestDriver(
     isTrial?: boolean;
     isMinor?: boolean;
     guardianId?: string;
+    createNew?: boolean; // Force creation of a new driver (not shared)
   } = {},
 ): Promise<{ driverId: string; name: string; phone: string }> {
   driverCounter++;
 
-  // Use the known waiver-signed driver for all billing tests
-  // This avoids venue/register customer_id collision issues
+  // Create a NEW unique test customer or reuse known driver for billing
+  if (options.createNew) {
+    const ts = Date.now();
+    const name = options.name || `E2E_Customer_${driverCounter}_${ts}`;
+    const phone = `TEST${String(ts).slice(-7)}`;
+    const resp = await api.registerDriver({ name, phone });
+    const newId = resp.id;
+    testDriverIds.push(newId);
+
+    // Fund wallet if needed
+    const balance = options.balancePaise ?? 0;
+    if (balance > 0) {
+      await api.topupWallet(newId, {
+        amount_paise: balance,
+        method: options.paymentMethod || 'cash',
+        notes: 'E2E new customer funding',
+      });
+    }
+
+    return { driverId: newId, name, phone };
+  }
+
+  // Default: use the known waiver-signed driver for billing tests
   const driverId = KNOWN_WAIVER_DRIVER;
 
-  // Fund wallet if needed (only top up once per run, then as needed)
+  // Fund wallet if needed
   const balance = options.balancePaise ?? 200000;
   if (balance > 0) {
     try {
@@ -45,7 +67,6 @@ export async function createTestDriver(
         });
       }
     } catch {
-      // Wallet might not exist yet — topup will create it
       await api.topupWallet(driverId, {
         amount_paise: balance,
         method: options.paymentMethod || 'cash',
@@ -86,7 +107,7 @@ export async function createTestCoupons(api: RCApiClient): Promise<{
 
   const pct = await api.createCoupon({
     code: `E2E_PCT_${ts}`,
-    coupon_type: 'percentage',
+    coupon_type: 'percent',
     value: 10, // 10% off
     max_uses: 100,
     is_active: true,
@@ -94,7 +115,7 @@ export async function createTestCoupons(api: RCApiClient): Promise<{
 
   const flat = await api.createCoupon({
     code: `E2E_FLAT_${ts}`,
-    coupon_type: 'fixed_amount',
+    coupon_type: 'flat',
     value: 5000, // ₹50 off
     max_uses: 100,
     is_active: true,
@@ -117,8 +138,15 @@ export async function createTestCoupons(api: RCApiClient): Promise<{
   };
 }
 
-// Create a short-duration E2E pricing tier for "completed" tests
+// Create a short-duration E2E pricing tier for "completed" tests (idempotent)
 export async function createE2EPricingTier(api: RCApiClient): Promise<string> {
+  // Check if E2E tier already exists to avoid duplicates
+  try {
+    const tiers = await api.listPricingTiers();
+    const existing = tiers.find((t: any) => t.name === 'E2E_1min');
+    if (existing) return existing.id;
+  } catch { /* if listing fails, create anyway */ }
+
   const tier = await api.createPricingTier({
     name: 'E2E_1min',
     duration_minutes: 1,
@@ -144,7 +172,7 @@ export async function ensureWalletBalance(
       method: paymentMethod,
       notes: `E2E auto-topup: needed ${requiredPaise}, had ${wallet.balance_paise}`,
     });
-    return result.balance_paise;
+    return result.new_balance_paise;
   }
   return wallet.balance_paise;
 }

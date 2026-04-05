@@ -2,6 +2,7 @@ use rand::Rng;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
 };
@@ -3225,7 +3226,7 @@ async fn validate_and_calc_coupon(
     let code_upper = code.to_uppercase();
 
     // Find coupon — FATM-08: only 'available' coupons can be validated
-    let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
+    let coupon: Option<(String, String, i64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
         "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
          FROM coupons WHERE code = ? AND is_active = 1 AND coupon_status = 'available'",
     )
@@ -3288,12 +3289,12 @@ async fn validate_and_calc_coupon(
     // Calculate discount
     let (discount_paise, description) = match coupon.1.as_str() {
         "percent" => {
-            let disc = ((price_paise as f64) * coupon.2 / 100.0).round() as i64;
+            let disc = ((price_paise as f64) * (coupon.2 as f64) / 100.0).round() as i64;
             let disc = disc.min(price_paise); // never exceed price
             (disc, format!("{}% off", coupon.2))
         }
         "flat" => {
-            let disc = (coupon.2 as i64).min(price_paise);
+            let disc = coupon.2.min(price_paise);
             (disc, format!("{} credits off", disc / 100))
         }
         "free_minutes" => {
@@ -3306,7 +3307,7 @@ async fn validate_and_calc_coupon(
     Ok(CouponDiscount {
         coupon_id: coupon.0,
         coupon_type: coupon.1,
-        value: coupon.2,
+        value: coupon.2 as f64,
         discount_paise,
         description,
     })
@@ -4008,6 +4009,7 @@ async fn start_billing(
         "original_price_paise": original_price_paise,
         "discount_reason": applied_discount_reason,
         "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
+        "allocated_seconds": allocated_seconds,
         "nonce": billing_nonce,
     }))
 }
@@ -4658,7 +4660,7 @@ async fn list_billing_sessions(
     let mut query = String::from(
         "SELECT bs.id, bs.driver_id, d.name, bs.pod_id, pt.name, bs.allocated_seconds,
                 bs.driving_seconds, bs.status, COALESCE(bs.custom_price_paise, pt.price_paise),
-                bs.started_at, bs.ended_at, bs.created_at
+                bs.started_at, bs.ended_at, bs.created_at, bs.wallet_debit_paise, bs.refund_paise, bs.discount_paise
          FROM billing_sessions bs
          JOIN drivers d ON bs.driver_id = d.id
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id
@@ -4684,7 +4686,7 @@ async fn list_billing_sessions(
 
     query.push_str(" ORDER BY bs.created_at DESC LIMIT 100");
 
-    let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String)>(
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, i64, i64, String, i64, Option<String>, Option<String>, String, Option<i64>, Option<i64>, Option<i64>)>(
         &query,
     );
     for val in &bind_values {
@@ -4703,6 +4705,7 @@ async fn list_billing_sessions(
                         "allocated_seconds": s.5, "driving_seconds": s.6,
                         "status": s.7, "price_paise": s.8,
                         "started_at": s.9, "ended_at": s.10, "created_at": s.11,
+                        "wallet_debit_paise": s.12, "refund_paise": s.13, "discount_paise": s.14,
                     })
                 })
                 .collect();
@@ -10105,21 +10108,21 @@ async fn kiosk_book_multiplayer(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
     Json(req): Json<Value>,
-) -> Json<Value> {
+) -> (StatusCode, Json<Value>) {
     // Extract driver_id from Bearer token (same auth as customer_book_session)
     let driver_id = match extract_driver_id(&state, &headers) {
         Ok(id) => id,
-        Err(e) => return Json(json!({ "error": e })),
+        Err(e) => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))),
     };
 
     let pricing_tier_id = match req.get("pricing_tier_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return Json(json!({ "error": "Missing 'pricing_tier_id'" })),
+        None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Missing 'pricing_tier_id'" }))),
     };
 
     let pod_count = match req.get("pod_count").and_then(|v| v.as_u64()) {
         Some(n) => n as usize,
-        None => return Json(json!({ "error": "Missing 'pod_count'" })),
+        None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Missing 'pod_count'" }))),
     };
 
     let experience_id = req.get("experience_id").and_then(|v| v.as_str()).map(String::from);
@@ -10132,7 +10135,7 @@ async fn kiosk_book_multiplayer(
     });
 
     if experience_id.is_none() && custom.is_none() {
-        return Json(json!({ "error": "Must provide 'experience_id' or 'custom' payload" }));
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Must provide 'experience_id' or 'custom' payload" })));
     }
 
     match multiplayer::book_multiplayer_kiosk(
@@ -10145,15 +10148,15 @@ async fn kiosk_book_multiplayer(
     )
     .await
     {
-        Ok(result) => Json(json!({
+        Ok(result) => (StatusCode::OK, Json(json!({
             "status": "ok",
             "group_session_id": result.group_session_id,
             "experience_name": result.experience_name,
             "tier_name": result.tier_name,
             "allocated_seconds": result.allocated_seconds,
             "assignments": result.assignments,
-        })),
-        Err(e) => Json(json!({ "error": e })),
+        }))),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))),
     }
 }
 
@@ -12250,7 +12253,7 @@ struct StaffValidatePinRequest {
 async fn staff_validate_pin(
     State(state): State<Arc<AppState>>,
     Json(req): Json<StaffValidatePinRequest>,
-) -> Json<Value> {
+) -> (StatusCode, Json<Value>) {
     // Read role from DB — DEFAULT 'staff' (legacy, maps to cashier in middleware)
     let result = sqlx::query_as::<_, (String, String, Option<String>)>(
         "SELECT id, name, role FROM staff_members WHERE pin = ? AND is_active = 1",
@@ -12278,23 +12281,23 @@ async fn staff_validate_pin(
             );
 
             match token {
-                Ok(jwt) => Json(json!({
+                Ok(jwt) => (StatusCode::OK, Json(json!({
                     "status": "ok",
                     "staff_id": id,
                     "staff_name": name,
                     "role": role,
                     "token": jwt,
-                })),
-                Err(e) => Json(json!({
+                }))),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
                     "status": "ok",
                     "staff_id": id,
                     "staff_name": name,
                     "error": format!("Login ok but token failed: {}", e),
-                })),
+                }))),
             }
         }
-        Ok(None) => Json(json!({ "error": "Invalid staff PIN" })),
-        Err(e) => Json(json!({ "error": format!("Database error: {}", e) })),
+        Ok(None) => (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid staff PIN" }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Database error: {}", e) }))),
     }
 }
 
@@ -13601,7 +13604,7 @@ async fn customer_apply_coupon(
     };
 
     // Find coupon
-    let coupon: Option<(String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
+    let coupon: Option<(String, String, i64, i64, Option<String>, Option<String>, Option<i64>, bool)> = sqlx::query_as(
         "SELECT id, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only
          FROM coupons WHERE code = ? AND is_active = 1",
     )
@@ -13648,7 +13651,7 @@ async fn customer_apply_coupon(
     // Return coupon details for the client to apply at checkout
     let discount_description = match coupon.1.as_str() {
         "percent" => format!("{}% off", coupon.2),
-        "flat" => format!("₹{} off", coupon.2 as i64 / 100),
+        "flat" => format!("₹{} off", coupon.2 / 100),
         "free_minutes" => format!("{} free minutes", coupon.2 as i64),
         _ => "Discount".to_string(),
     };

@@ -84,6 +84,12 @@ export function middleware(request: NextRequest) {
   const response = NextResponse.next();
   response.headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
   response.headers.set("Pragma", "no-cache");
+  // Re-set cookie on each successful validation to prevent expiry during rapid navigation
+  response.cookies.set("kiosk_staff_jwt", staffJwt.value, {
+    path: "/",
+    maxAge: 1800,
+    sameSite: "strict",
+  });
   return response;
 }
 

@@ -32,7 +32,7 @@ test.describe('09 — Financial Reconciliation', () => {
     let discrepancies = 0;
 
     for (const session of testSessions) {
-      totalDebits += session.wallet_debit_paise;
+      totalDebits += (session.wallet_debit_paise || 0);
 
       if (session.status === 'ended_early' && session.wallet_debit_paise > 0) {
         const expectedRefund = computeExpectedRefund(

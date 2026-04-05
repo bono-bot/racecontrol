@@ -3,48 +3,15 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { Page } from '@playwright/test';
-import { API_BASE, STAFF_PIN } from './test-data';
+import { API_BASE, STAFF_PIN, ADMIN_PIN } from './test-data';
+import { RCApiClient } from './api-client';
 
-let cachedStaffToken: string | null = null;
+// Delegate to RCApiClient which handles file-persisted token caching
+const sharedApi = new RCApiClient();
 
-// Get staff JWT from API
+// Get staff JWT from API (uses shared file-persisted token)
 export async function getStaffToken(pin: string = STAFF_PIN): Promise<string> {
-  if (cachedStaffToken) return cachedStaffToken;
-
-  // Retry with backoff for 429 rate limiting
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
-
-    const resp = await fetch(`${API_BASE}/staff/validate-pin`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin }),
-    });
-
-    if (resp.status === 429) {
-      console.log(`  Auth rate limited (429), retry ${attempt + 1}/5...`);
-      continue;
-    }
-
-    if (resp.ok) {
-      const data = await resp.json();
-      cachedStaffToken = data.token;
-      return data.token;
-    }
-
-    // Fallback to admin-login
-    const resp2 = await fetch(`${API_BASE}/auth/admin-login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin }),
-    });
-    if (resp2.status === 429) continue;
-    if (!resp2.ok) throw new Error(`Staff login failed: ${resp2.status}`);
-    const data2 = await resp2.json();
-    cachedStaffToken = data2.token;
-    return data2.token;
-  }
-  throw new Error('Staff login failed after 5 retries (rate limited)');
+  return sharedApi.login(pin);
 }
 
 // Login to POS web dashboard (inject JWT into localStorage)
@@ -80,6 +47,8 @@ export async function loginKioskStaff(page: Page, pin: string = STAFF_PIN): Prom
     await page.evaluate((t) => {
       localStorage.setItem('kiosk_staff_jwt', t);
       localStorage.setItem('rp_staff_jwt', t);
+      // Also set cookie — middleware checks cookie, not localStorage
+      document.cookie = `kiosk_staff_jwt=${t}; path=/; max-age=1800; SameSite=Strict`;
     }, token);
     await page.goto('/kiosk/staff', { waitUntil: 'load' });
     await page.waitForTimeout(2000);

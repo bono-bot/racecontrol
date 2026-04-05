@@ -2,26 +2,57 @@
 // RC API Client — wraps all API endpoints for E2E test automation
 // ═══════════════════════════════════════════════════════════════
 
-import { API_BASE, STAFF_PIN } from './test-data';
+import { API_BASE, STAFF_PIN, ADMIN_PIN } from './test-data';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const TOKEN_FILE = path.join(__dirname, '..', '.e2e-token');
 
 export class RCApiClient {
   private token: string | null = null;
 
   // ─── Auth ────────────────────────────────────────────────
-  // Shared token cache — avoids rate limiting across test suites
+  // Shared token cache — persisted to file to survive across test suites
   private static cachedToken: string | null = null;
 
+  private static loadPersistedToken(): string | null {
+    try {
+      if (fs.existsSync(TOKEN_FILE)) {
+        const data = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+        // Token valid for 12h — check if still fresh (within 11h)
+        if (data.token && data.timestamp && Date.now() - data.timestamp < 11 * 3600 * 1000) {
+          return data.token;
+        }
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  private static persistToken(token: string): void {
+    try {
+      fs.writeFileSync(TOKEN_FILE, JSON.stringify({ token, timestamp: Date.now() }));
+    } catch { /* ignore */ }
+  }
+
   async login(pin: string = STAFF_PIN): Promise<string> {
-    // Return cached token if available
+    // Return in-memory cached token if available
     if (RCApiClient.cachedToken) {
       this.token = RCApiClient.cachedToken;
       return this.token;
     }
 
+    // Try file-persisted token (survives across test files)
+    const persisted = RCApiClient.loadPersistedToken();
+    if (persisted) {
+      this.token = persisted;
+      RCApiClient.cachedToken = persisted;
+      return persisted;
+    }
+
     // Retry with backoff to handle 429 rate limiting
     for (let attempt = 0; attempt < 5; attempt++) {
       if (attempt > 0) {
-        const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s, 16s
+        const delay = Math.pow(2, attempt) * 1000;
         await new Promise(r => setTimeout(r, delay));
       }
 
@@ -38,16 +69,19 @@ export class RCApiClient {
 
       if (resp.ok) {
         const data = await resp.json();
-        this.token = data.token;
-        RCApiClient.cachedToken = data.token;
-        return data.token;
+        if (data.token) {
+          this.token = data.token;
+          RCApiClient.cachedToken = data.token;
+          RCApiClient.persistToken(data.token);
+          return data.token;
+        }
       }
 
-      // Fallback to admin-login
+      // Fallback to admin-login (uses admin PIN, not the staff PIN)
       const resp2 = await fetch(`${API_BASE}/auth/admin-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin: ADMIN_PIN }),
       });
 
       if (resp2.status === 429) {
@@ -59,6 +93,7 @@ export class RCApiClient {
         const data2 = await resp2.json();
         this.token = data2.token;
         RCApiClient.cachedToken = data2.token;
+        RCApiClient.persistToken(data2.token);
         return data2.token;
       }
 
@@ -150,7 +185,9 @@ export class RCApiClient {
 
   // ─── Wallet ──────────────────────────────────────────────
   async getWallet(driverId: string): Promise<Wallet> {
-    return this.get(`/wallet/${driverId}`);
+    const resp = await this.get(`/wallet/${driverId}`);
+    // API wraps in { wallet: {...} } — unwrap if present
+    return resp.wallet || resp;
   }
 
   async topupWallet(driverId: string, data: {
@@ -158,12 +195,13 @@ export class RCApiClient {
     method: string;
     staff_id?: string;
     notes?: string;
-  }): Promise<{ balance_paise: number; txn_id: string }> {
+  }): Promise<{ new_balance_paise: number; balance_paise?: number; txn_id?: string; status: string }> {
     return this.post(`/wallet/${driverId}/topup`, data);
   }
 
   async walletTransactions(driverId: string): Promise<WalletTransaction[]> {
-    return this.get(`/wallet/${driverId}/transactions`);
+    const resp = await this.get(`/wallet/${driverId}/transactions`);
+    return resp.transactions || resp;
   }
 
   // ─── Billing ─────────────────────────────────────────────
@@ -193,7 +231,10 @@ export class RCApiClient {
       });
       clearTimeout(timeout);
       if (!resp.ok) throw new Error(`POST /billing/start failed: ${resp.status} ${await resp.text()}`);
-      return resp.json();
+      const result = await resp.json();
+      // Alias billing_session_id as id for convenience
+      result.id = result.billing_session_id;
+      return result;
     } catch (e: any) {
       clearTimeout(timeout);
       if (e.name === 'AbortError') {
@@ -261,11 +302,13 @@ export class RCApiClient {
   }
 
   async activeBillingSessions(): Promise<BillingSession[]> {
-    return this.get('/billing/active');
+    const resp = await this.get('/billing/active');
+    return resp.sessions || resp;
   }
 
   async listBillingSessions(): Promise<BillingSession[]> {
-    return this.get('/billing/sessions');
+    const resp = await this.get('/billing/sessions');
+    return resp.sessions || resp;
   }
 
   async applyBillingDiscount(sessionId: string, data: {
@@ -280,6 +323,8 @@ export class RCApiClient {
   async launchGame(data: {
     pod_id: string;
     sim_type: string;
+    track?: string;
+    car?: string;
     launch_args?: {
       track?: string;
       car?: string;
@@ -290,14 +335,34 @@ export class RCApiClient {
     };
   }): Promise<{ ok: boolean; verified?: boolean }> {
     // launch_args must be a JSON STRING, not nested object
+    const args = data.launch_args || {};
+    if (data.track && !args.track) args.track = data.track;
+    if (data.car && !args.car) args.car = data.car;
     const payload: Record<string, unknown> = {
       pod_id: data.pod_id,
       sim_type: data.sim_type,
     };
-    if (data.launch_args) {
-      payload.launch_args = JSON.stringify(data.launch_args);
+    if (Object.keys(args).length > 0) {
+      payload.launch_args = JSON.stringify(args);
     }
-    return this.post('/games/launch', payload);
+    // Use timeout — game launch can hang if pod is unresponsive
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const resp = await fetch(`${API_BASE}/games/launch`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!resp.ok) throw new Error(`POST /games/launch failed: ${resp.status} ${await resp.text()}`);
+      return resp.json();
+    } catch (e: any) {
+      clearTimeout(timeout);
+      if (e.name === 'AbortError') throw new Error(`games/launch timed out after 30s on ${data.pod_id}`);
+      throw e;
+    }
   }
 
   async stopGame(data: { pod_id: string }): Promise<{ ok: boolean }> {
@@ -463,11 +528,13 @@ export interface WalletTransaction {
 
 export interface BillingStartResponse {
   ok: boolean;
+  id: string; // alias for billing_session_id
   billing_session_id: string;
   wallet_debit_paise: number;
   original_price_paise: number;
   discount_paise: number;
   discount_reason?: string;
+  allocated_seconds: number;
   nonce: string;
 }
 

@@ -1650,11 +1650,17 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     }
 
     // Send billing ticks to agents (for pod lock screen timer + overlay taxi meter)
+    // Clone senders first, then drop lock before .await (standing rule: no lock across .await)
     if !agent_ticks.is_empty() {
         let seq = BILLING_TICK_SEQ.fetch_add(1, Ordering::Relaxed);
-        let agent_senders = state.agent_senders.read().await;
+        let senders_snapshot: Vec<_> = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_ticks.iter().filter_map(|(pod_id, ..)| {
+                agent_senders.get(pod_id).map(|s| (pod_id.clone(), s.clone()))
+            }).collect()
+        }; // lock released
         for (pod_id, remaining, allocated, driver_name, elapsed, cost, rate, paused, min_to_tier, tier_nm) in agent_ticks {
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            if let Some((_, sender)) = senders_snapshot.iter().find(|(p, _)| *p == pod_id) {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BillingTick {
                     remaining_seconds: remaining,
                     allocated_seconds: allocated,
@@ -1940,8 +1946,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let level = if remaining <= 60 { "red" } else { "yellow" };
         tracing::info!("BILL-02: Sending {} countdown warning to pod {} ({}s remaining)", level, pod_id, remaining);
         {
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            let sender_clone = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(sender) = sender_clone {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::BillingCountdownWarning {
                     remaining_secs: remaining,
                     level: level.to_string(),
@@ -2023,9 +2032,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             pause_count: *pause_count,
         });
 
-        // Send ShowPauseOverlay to agent
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
+        // Send ShowPauseOverlay to agent — snapshot sender to avoid lock across .await
+        let sender_clone = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(pod_id).cloned()
+        };
+        if let Some(sender) = sender_clone {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ShowPauseOverlay {
                 session_id: session_id.clone(),
                 remaining_seconds: 600, // max pause duration
@@ -2117,9 +2129,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             }
         }
 
-        // Notify agent: session ended
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(&pod_id) {
+        // Notify agent: session ended — snapshot sender to avoid lock across .await
+        let sender_clone = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(&pod_id).cloned()
+        };
+        if let Some(sender) = sender_clone {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::HidePauseOverlay {
                 session_id: session_id.clone(),
@@ -3452,9 +3467,13 @@ pub async fn start_billing_session(
         }
     }
 
-    // Notify agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Notify agent — clone sender BEFORE await to avoid holding lock across .await
+    // Standing rule: "Never hold a lock across .await"
+    let sender_clone = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    }; // lock released here
+    if let Some(sender) = sender_clone {
         let _ = sender
             .send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
                 billing_session_id: session_id.clone(),
@@ -3781,9 +3800,12 @@ pub async fn resume_billing_from_disconnect(
     });
     let _ = state.dashboard_tx.send(DashboardEvent::BillingSessionChanged(info));
 
-    // Send HidePauseOverlay to agent
-    let agent_senders = state.agent_senders.read().await;
-    if let Some(sender) = agent_senders.get(&pod_id) {
+    // Send HidePauseOverlay to agent — snapshot sender to avoid lock across .await
+    let sender_clone = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = sender_clone {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::HidePauseOverlay {
             session_id: session_id.to_string(),
         })).await;
@@ -4035,8 +4057,12 @@ async fn end_billing_session(
                 .await
                 .is_some();
 
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            // Snapshot sender to avoid holding lock across .await
+            let sender_clone = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(sender) = sender_clone {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
 
                 if has_reservation && end_status != BillingSessionStatus::Cancelled {
@@ -4170,9 +4196,12 @@ async fn end_billing_session(
         // MULTI-02: Check if this orphaned pod was part of a multiplayer group
         check_and_stop_multiplayer_server(state, &pod_id).await;
 
-        // Notify agent to deactivate overlay and show blank
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(&pod_id) {
+        // Notify agent to deactivate overlay and show blank — snapshot sender to avoid lock across .await
+        let sender_clone = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(&pod_id).cloned()
+        };
+        if let Some(sender) = sender_clone {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                 billing_session_id: session_id.to_string(),
                 driver_name,

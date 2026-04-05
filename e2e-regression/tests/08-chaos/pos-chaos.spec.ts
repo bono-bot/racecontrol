@@ -31,11 +31,11 @@ test.describe('08 — POS Chaos Tests', () => {
     const key = `e2e-dblclick-${Date.now()}`;
     const p1 = api.startBilling({
       pod_id: pod.podId, driver_id: testDriverId,
-      sim_type: 'assetto_corsa', idempotency_key: key,
+      pricing_tier_id: 'tier_30min', sim_type: 'assetto_corsa', idempotency_key: key,
     });
     const p2 = api.startBilling({
       pod_id: pod.podId, driver_id: testDriverId,
-      sim_type: 'assetto_corsa', idempotency_key: key,
+      pricing_tier_id: 'tier_30min', sim_type: 'assetto_corsa', idempotency_key: key,
     });
 
     const results = await Promise.allSettled([p1, p2]);
@@ -104,23 +104,22 @@ test.describe('08 — POS Chaos Tests', () => {
     // Start first session
     const s1 = await api.startBilling({
       pod_id: pod.podId, driver_id: testDriverId,
-      sim_type: 'assetto_corsa',
+      pricing_tier_id: 'tier_30min', sim_type: 'assetto_corsa',
     });
+    expect(s1.ok).toBe(true);
+    expect(s1.id).toBeTruthy();
 
-    // Try to start second session on same pod — should fail
-    try {
-      await api.startBilling({
-        pod_id: pod.podId, driver_id: driver2.driverId,
-        sim_type: 'assetto_corsa',
-      });
-      // If it somehow succeeded, that's a bug
-      console.log('WARNING: Second session on same pod succeeded — potential bug');
-    } catch (e) {
-      console.log(`Correctly rejected concurrent session: ${String(e).slice(0, 100)}`);
-    }
+    // Try to start second session on same pod — should be rejected
+    const s2 = await api.startBilling({
+      pod_id: pod.podId, driver_id: driver2.driverId,
+      pricing_tier_id: 'tier_30min', sim_type: 'assetto_corsa',
+    });
+    // Server returns 200 with error for concurrent sessions
+    expect(s2.ok).toBeFalsy();
+    console.log(`Correctly rejected concurrent session: ${JSON.stringify(s2).slice(0, 100)}`);
 
     // Cleanup
-    await api.stopBilling(s1.id);
+    try { await api.stopBilling(s1.id); } catch { /* may be waiting_for_game */ }
     try { await api.stopGame({ pod_id: pod.podId }); } catch { /* ignore */ }
   });
 
@@ -134,7 +133,7 @@ test.describe('08 — POS Chaos Tests', () => {
       await api.startBilling({
         pod_id: pod.podId,
         driver_id: poorDriver.driverId,
-        sim_type: 'assetto_corsa',
+        pricing_tier_id: 'tier_30min', sim_type: 'assetto_corsa',
       });
       console.log('WARNING: Billing started with insufficient funds — potential bug');
     } catch (e) {
