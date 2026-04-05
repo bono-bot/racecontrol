@@ -3437,8 +3437,22 @@ async fn start_billing(
     // BATOM-01: Acquire per-pod lock to serialize concurrent start_billing calls.
     // This eliminates the TOCTOU window between pre-validation and waiting_for_game write.
     // Different pods are not blocked — only same-pod concurrent requests are serialized.
+    // Timeout prevents indefinite hangs if a prior handler is stuck (e.g., slow DB).
     let billing_lock_arc = state.billing.get_billing_start_lock(&pod_id);
-    let _billing_lock = billing_lock_arc.lock().await;
+    let _billing_lock = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        billing_lock_arc.lock(),
+    ).await {
+        Ok(guard) => guard,
+        Err(_) => {
+            tracing::error!(
+                "Per-pod billing lock timeout (30s) for pod {} — another billing operation may be stuck",
+                pod_id
+            );
+            state.record_api_error("billing/start");
+            return Json(json!({ "error": format!("Billing request timed out for pod {} — another operation is in progress", pod_id) }));
+        }
+    };
 
     // FATM-02: Idempotency check — return original result if key was already processed
     if let Some(ref key) = idempotency_key {

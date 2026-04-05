@@ -2225,29 +2225,39 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let timed_out = check_launch_timeouts(state).await;
     for (pod_id, attempt) in timed_out {
         if attempt == 1 {
-            // First timeout: reset to attempt 2 and allow another 3 minutes
-            let mut waiting = state.billing.waiting_for_game.write().await;
-            if let Some(entry) = waiting.get_mut(&pod_id) {
-                tracing::warn!(
-                    "Launch timeout (attempt 1) for pod {} — allowing retry (attempt 2)",
-                    pod_id
-                );
-                entry.attempt = 2;
-                entry.waiting_since = std::time::Instant::now();
-                log_pod_activity(state, &pod_id, "billing", "Launch Timeout",
-                    "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer", None);
-            }
+            // First timeout: reset to attempt 2 and allow another 3 minutes.
+            // CRITICAL: acquire write lock in a tight block, snapshot retry data, then drop.
+            // Previous code held the write lock alive when acquiring a read lock on the same
+            // RwLock — tokio::sync::RwLock is not re-entrant, causing a deadlock that froze
+            // the entire billing tick loop.
+            let (retry_sim, retry_args) = {
+                let mut waiting = state.billing.waiting_for_game.write().await;
+                if let Some(entry) = waiting.get_mut(&pod_id) {
+                    tracing::warn!(
+                        "Launch timeout (attempt 1) for pod {} — allowing retry (attempt 2)",
+                        pod_id
+                    );
+                    entry.attempt = 2;
+                    entry.waiting_since = std::time::Instant::now();
+                    // Snapshot retry data while we have the lock
+                    (
+                        entry.sim_type.unwrap_or(rc_common::types::SimType::AssettoCorsa),
+                        entry.launch_args.clone(),
+                    )
+                } else {
+                    (rc_common::types::SimType::AssettoCorsa, None)
+                }
+                // write lock dropped here
+            };
+            log_pod_activity(state, &pod_id, "billing", "Launch Timeout",
+                "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer", None);
             // The agent-side LaunchState machine handles the actual retry
             // Send LaunchGame again with the ORIGINAL sim_type and args (not hardcoded AC)
-            let (retry_sim, retry_args) = {
-                let w = state.billing.waiting_for_game.read().await;
-                w.get(&pod_id).map(|e| (
-                    e.sim_type.unwrap_or(rc_common::types::SimType::AssettoCorsa),
-                    e.launch_args.clone(),
-                )).unwrap_or((rc_common::types::SimType::AssettoCorsa, None))
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
             };
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            if let Some(sender) = sender {
                 let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::LaunchGame {
                     sim_type: retry_sim,
                     launch_args: retry_args,
@@ -2256,9 +2266,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 })).await;
             }
         } else {
-            // Second timeout: cancel with no charge
-            let mut waiting = state.billing.waiting_for_game.write().await;
-            let entry = waiting.remove(&pod_id);
+            // Second timeout: cancel with no charge.
+            // CRITICAL: Remove entry and drop write lock immediately — never hold across .await.
+            // Previous code held waiting_for_game.write() across multiple DB queries, wallet
+            // credit, and WS sends (~90 lines of async work), blocking ALL billing operations.
+            let entry = {
+                let mut waiting = state.billing.waiting_for_game.write().await;
+                waiting.remove(&pod_id)
+                // write lock dropped here
+            };
             tracing::error!(
                 "Launch timeout (attempt 2) for pod {} — cancelling session (no charge)",
                 pod_id
@@ -2329,8 +2345,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             }
 
             // Send BillingStopped to agent so it shows session cancelled
-            let agent_senders = state.agent_senders.read().await;
-            if let Some(sender) = agent_senders.get(&pod_id) {
+            // Snapshot sender — don't hold agent_senders lock across .await
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(sender) = sender {
                 let billing_session_id = entry
                     .map(|e| format!("deferred-{}", e.pod_id))
                     .unwrap_or_default();
