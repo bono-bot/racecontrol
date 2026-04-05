@@ -142,6 +142,28 @@ impl AssettoCorsaEvoAdapter {
             String::from_utf16_lossy(&slice[..end])
         }
     }
+    /// Verify AC EVO/Rally shared memory is still alive.
+    /// Same pattern as AC adapter — prevents access violation on game exit.
+    #[cfg(windows)]
+    fn verify_shm_alive(&self) -> bool {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let name: Vec<u16> = OsStr::new("Local\\acpmf_physics")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let handle = winapi::um::memoryapi::OpenFileMappingW(
+                winapi::um::memoryapi::FILE_MAP_READ, 0, name.as_ptr(),
+            );
+            if handle.is_null() { return false; }
+            winapi::um::handleapi::CloseHandle(handle);
+            true
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn verify_shm_alive(&self) -> bool { true }
 }
 
 impl SimAdapter for AssettoCorsaEvoAdapter {
@@ -269,6 +291,14 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
     /// This prevents the event loop from calling disconnect() on empty telemetry (Pitfall 5).
     #[cfg(windows)]
     fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
+        // Guard: verify shared memory still exists before raw pointer read.
+        // When AC EVO exits, the mapping is destroyed — reading causes access violation.
+        if !self.verify_shm_alive() {
+            tracing::warn!(target: LOG_TARGET, "{} shared memory gone — disconnecting adapter", self.log_prefix);
+            self.disconnect();
+            return Ok(None);
+        }
+
         let physics = match &self.physics_handle {
             Some(h) => h,
             None => return Ok(None), // Not connected — Ok(None) per TEL-EVO-02

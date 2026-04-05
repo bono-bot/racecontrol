@@ -484,6 +484,30 @@ impl IracingAdapter {
     fn read_is_on_track_from_shm(&self) -> Option<bool> {
         None
     }
+
+    /// Verify iRacing shared memory is still alive (same pattern as AC adapter).
+    /// When iRacing exits, its shared memory is destroyed — reading from stale
+    /// mapping causes access violation that bypasses Rust's panic hook.
+    #[cfg(windows)]
+    fn verify_shm_alive(&self) -> bool {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let name: Vec<u16> = OsStr::new("Local\\IRSDKMemMapFileName")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let handle = winapi::um::memoryapi::OpenFileMappingW(
+                winapi::um::memoryapi::FILE_MAP_READ, 0, name.as_ptr(),
+            );
+            if handle.is_null() { return false; }
+            winapi::um::handleapi::CloseHandle(handle);
+            true
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn verify_shm_alive(&self) -> bool { true }
 }
 
 // ─── Pre-flight check ─────────────────────────────────────────────────────────
@@ -593,6 +617,14 @@ impl SimAdapter for IracingAdapter {
 
     #[cfg(windows)]
     fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
+        // Guard: verify shared memory still exists before raw pointer read.
+        // When iRacing exits, the mapping is destroyed — reading causes access violation.
+        if !self.verify_shm_alive() {
+            tracing::warn!(target: LOG_TARGET, "iRacing shared memory gone — disconnecting adapter");
+            self.disconnect();
+            return Ok(None);
+        }
+
         let shm_ptr = match &self.shm_handle {
             Some(h) => h.ptr,
             None => return Ok(None),
