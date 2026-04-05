@@ -264,7 +264,7 @@ fn bootstrap_ac_config() -> Result<()> {
     // gui.ini — CSP kiosk mode (FORCE_START skips main menu)
     let gui_path = cfg_dir.join("gui.ini");
     if !gui_path.exists() {
-        std::fs::write(&gui_path, "[SETTINGS]\nFORCE_START=1\nHIDE_MAIN_MENU=1\n")?;
+        std::fs::write(&gui_path, "[SETTINGS]\r\nFORCE_START=1\r\nHIDE_MAIN_MENU=1\r\n")?;
         tracing::info!(target: LOG_TARGET, "Bootstrap: created gui.ini (FORCE_START=1)");
     }
 
@@ -272,10 +272,10 @@ fn bootstrap_ac_config() -> Result<()> {
     let video_path = cfg_dir.join("video.ini");
     if !video_path.exists() {
         std::fs::write(&video_path, concat!(
-            "[VIDEO]\n",
-            "FULLSCREEN=1\nWIDTH=1920\nHEIGHT=1080\nREFRESH=60\n",
-            "VSYNC=1\nAASAMPLES=2\nANISOTROPIC=8\n",
-            "SHADOW_MAP_SIZE=2048\nWORLD_DETAIL=1\nSMOKE=1\n",
+            "[VIDEO]\r\n",
+            "FULLSCREEN=1\r\nWIDTH=1920\r\nHEIGHT=1080\r\nREFRESH=60\r\n",
+            "VSYNC=1\r\nAASAMPLES=2\r\nANISOTROPIC=8\r\n",
+            "SHADOW_MAP_SIZE=2048\r\nWORLD_DETAIL=1\r\nSMOKE=1\r\n",
         ))?;
         tracing::info!(target: LOG_TARGET, "Bootstrap: created video.ini (1080p fullscreen)");
     }
@@ -402,7 +402,8 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                         new_lines.push(line.to_string());
                     }
                     if !ff_found {
-                        new_lines.push("\n[FF]".to_string());
+                        new_lines.push("".to_string()); // blank line separator
+                        new_lines.push("[FF]".to_string());
                         new_lines.push("GAIN=70".to_string());
                         new_lines.push("MIN_FORCE=0.05".to_string());
                         new_lines.push("FILTER=0.00".to_string());
@@ -415,7 +416,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 }
                 Err(e) => {
                     tracing::warn!(target: LOG_TARGET, "RESIL-07: Can't read controls.ini ({}), writing FFB-only baseline", e);
-                    let _ = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n");
+                    let _ = std::fs::write(&controls_path, "[FF]\r\nGAIN=70\r\nMIN_FORCE=0.05\r\nFILTER=0.00\r\n");
                 }
             }
         } else {
@@ -1223,8 +1224,11 @@ fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
     if let Some(parent) = race_ini_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&race_ini_path, content.as_bytes())?;
-    tracing::info!(target: LOG_TARGET, "Wrote race.ini ({} bytes) to {}", content.len(), race_ini_path.display());
+    // AC + CSP on Windows requires CRLF line endings. writeln! produces LF only.
+    // LF-only causes CSP to corrupt field values (garbled Unicode track names → crash).
+    let crlf_content = content.replace('\n', "\r\n");
+    std::fs::write(&race_ini_path, crlf_content.as_bytes())?;
+    tracing::info!(target: LOG_TARGET, "Wrote race.ini ({} bytes, CRLF) to {}", crlf_content.len(), race_ini_path.display());
     Ok(())
 }
 
@@ -1744,7 +1748,9 @@ HEIGHT=80
 VISIBLE=1
 ";
     let mut file = std::fs::File::create(&apps_ini_path)?;
-    file.write_all(content.as_bytes())?;
+    // AC INI files on Windows require CRLF line endings
+    let crlf_content = content.replace('\n', "\r\n");
+    file.write_all(crlf_content.as_bytes())?;
     tracing::info!(target: LOG_TARGET, "Wrote apps preset to {}", apps_ini_path.display());
     Ok(())
 }
