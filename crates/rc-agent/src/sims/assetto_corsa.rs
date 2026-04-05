@@ -36,6 +36,14 @@ pub struct AssettoCorsaAdapter {
     graphics_handle: Option<ShmHandle>,
     #[cfg(windows)]
     static_handle: Option<ShmHandle>,
+    /// RaceControl AC plugin shared memory ("rcpmf_telemetry").
+    /// If the plugin is installed, we read from here instead of AC's raw shared memory.
+    /// This is safe because the plugin manages the lifecycle and sets mem_status flags.
+    #[cfg(windows)]
+    rc_plugin_handle: Option<ShmHandle>,
+    /// True if we successfully connected to the RC plugin shared memory.
+    /// When true, read_telemetry uses the plugin buffer instead of raw AC memory.
+    using_rc_plugin: bool,
 }
 
 /// Wrapper for a Windows memory-mapped file handle + view pointer
@@ -134,6 +142,9 @@ impl AssettoCorsaAdapter {
             graphics_handle: None,
             #[cfg(windows)]
             static_handle: None,
+            #[cfg(windows)]
+            rc_plugin_handle: None,
+            using_rc_plugin: false,
         }
     }
 
@@ -161,6 +172,196 @@ impl AssettoCorsaAdapter {
             let end = slice.iter().position(|&c| c == 0).unwrap_or(max_chars);
             String::from_utf16_lossy(&slice[..end])
         }
+    }
+
+    /// Verify AC shared memory is still alive by probing OpenFileMappingW.
+    /// When acs.exe exits, its shared memory objects are destroyed. Reading from
+    /// our existing mapping after that causes an access violation (segfault) that
+    /// bypasses Rust's panic hook. This lightweight probe (kernel handle check,
+    /// no subprocess) detects the condition before any unsafe read.
+    #[cfg(windows)]
+    fn verify_shm_alive(&self) -> bool {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let name: Vec<u16> = OsStr::new("Local\\acpmf_physics")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let handle = winapi::um::memoryapi::OpenFileMappingW(
+                winapi::um::memoryapi::FILE_MAP_READ,
+                0,
+                name.as_ptr(),
+            );
+            if handle.is_null() {
+                return false; // Shared memory destroyed — acs.exe exited
+            }
+            winapi::um::handleapi::CloseHandle(handle);
+            true
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn verify_shm_alive(&self) -> bool {
+        true // Non-Windows: assume alive (no shared memory)
+    }
+    /// Read telemetry from the RaceControl AC plugin's shared memory.
+    /// The plugin writes to "rcpmf_telemetry" with a status protocol:
+    ///   RC_SM_IDLE (2) = safe to read
+    ///   RC_SM_WRITING (1) = plugin is updating, wait
+    ///   RC_SM_SHUTDOWN (3) = plugin exiting, disconnect
+    ///   RC_SM_UNINITIALIZED (0) = plugin not loaded
+    #[cfg(windows)]
+    fn read_telemetry_from_plugin(&mut self) -> Result<Option<TelemetryFrame>> {
+        let handle = match &self.rc_plugin_handle {
+            Some(h) => h,
+            None => return Ok(None),
+        };
+
+        // Check mem_status (offset 0, i32)
+        let mem_status = Self::read_i32(handle, 0);
+        match mem_status {
+            2 => {} // RC_SM_IDLE — safe to read
+            1 => return Ok(None), // RC_SM_WRITING — skip this tick
+            3 | 0 => {
+                // RC_SM_SHUTDOWN or RC_SM_UNINITIALIZED — plugin gone
+                tracing::warn!(target: LOG_TARGET, "RC plugin shared memory status={} — disconnecting", mem_status);
+                self.disconnect();
+                return Ok(None);
+            }
+            _ => return Ok(None), // Unknown status — skip
+        }
+
+        // Check plugin is still alive (update_counter should increment)
+        // Offset layout from RcTelemetryPage:
+        //   0: mem_status (i32)
+        //   4: plugin_version (i32)
+        //   8: plugin_pid (i32)
+        //  12: update_counter (i32)
+        //  16: ac_status (i32)
+        //  20: session_type (i32)
+        //  24: car_on_track (i32)
+        //  28: is_in_pit (i32)
+        //  32: is_in_pit_lane (i32)
+        //  36: car_model (wchar[33] = 66 bytes)
+        // 102: track_name (wchar[33] = 66 bytes)
+        // 168: track_config (wchar[33] = 66 bytes)
+        // 234: driver_name (wchar[33] = 66 bytes)
+        // 300: track_length (f32)
+        // 304: max_rpm (i32)
+        // 308: sector_count (i32)
+        // 312: speed_kmh (f32)
+        // 316: rpm (i32)
+        // 320: gear (i32)
+        // 324: throttle (f32)
+        // 328: brake (f32)
+        // 332: steer_angle (f32)
+        // 336: fuel (f32)
+        // 340: completed_laps (i32)
+        // 344: current_lap_time_ms (i32)
+        // 348: last_lap_time_ms (i32)
+        // 352: best_lap_time_ms (i32)
+        // 356: current_sector_index (i32)
+        // 360: last_sector_time_ms (i32)
+        // 364: lap_invalid (i32)
+        // 368: normalized_car_position (f32)
+
+        let ac_status = Self::read_i32(handle, 16);
+        if ac_status == 0 { return Ok(None); } // AC_OFF — nothing to report
+
+        let speed_kmh = Self::read_f32(handle, 312);
+        let rpm = Self::read_i32(handle, 316) as u32;
+        let raw_gear = Self::read_i32(handle, 320);
+        let gear = (raw_gear - 1) as i8;
+        let throttle = Self::read_f32(handle, 324);
+        let brake = Self::read_f32(handle, 328);
+        let steering = Self::read_f32(handle, 332);
+        let completed_laps = Self::read_i32(handle, 340) as u32;
+        let lap_time_ms = Self::read_i32(handle, 344) as u32;
+        let last_lap_time_ms = Self::read_i32(handle, 348);
+        let best_lap_ms = Self::read_i32(handle, 352);
+        let current_sector = Self::read_i32(handle, 356);
+        let last_sector_time = Self::read_i32(handle, 360);
+        let is_valid = Self::read_i32(handle, 364);
+        let normalized_pos = Self::read_f32(handle, 368);
+
+        // Track sector transitions (same logic as direct path)
+        if current_sector != self.last_sector_index && last_sector_time > 0 {
+            let completed_sector = self.last_sector_index;
+            if completed_sector >= 0 && completed_sector < 3 {
+                self.sector_times[completed_sector as usize] = Some(last_sector_time as u32);
+            }
+            self.last_sector_index = current_sector;
+        } else if self.last_sector_index < 0 {
+            self.last_sector_index = current_sector;
+        }
+
+        // Detect lap completion
+        if completed_laps > self.last_lap_count {
+            let lap_ms = if last_lap_time_ms > 0 { last_lap_time_ms as u32 } else { 0 };
+            if lap_ms > 0 {
+                let lap_data = LapData {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    session_id: String::new(),
+                    driver_id: String::new(),
+                    pod_id: self.pod_id.clone(),
+                    sim_type: SimType::AssettoCorsa,
+                    track: self.current_track.clone(),
+                    car: self.current_car.clone(),
+                    lap_number: completed_laps,
+                    lap_time_ms: lap_ms,
+                    sector1_ms: self.sector_times[0],
+                    sector2_ms: self.sector_times[1],
+                    sector3_ms: self.sector_times[2],
+                    valid: is_valid != 0,
+                    session_type: SessionType::Practice, // Updated by event_loop from billing state
+                    created_at: Utc::now(),
+                };
+                self.pending_lap = Some(lap_data);
+            }
+            self.last_lap_count = completed_laps;
+            self.sector_times = [None; 3];
+        }
+
+        Ok(Some(TelemetryFrame {
+            pod_id: self.pod_id.clone(),
+            timestamp: Utc::now(),
+            driver_name: self.current_driver.clone(),
+            car: self.current_car.clone(),
+            track: self.current_track.clone(),
+            lap_number: completed_laps,
+            lap_time_ms,
+            sector: current_sector as u8,
+            speed_kmh,
+            throttle,
+            brake,
+            steering,
+            gear,
+            rpm,
+            position: None,
+            session_time_ms: lap_time_ms,
+            drs_active: None,
+            drs_available: None,
+            ers_deploy_mode: None,
+            ers_store_percent: None,
+            best_lap_ms: if best_lap_ms > 0 { Some(best_lap_ms as u32) } else { None },
+            current_lap_invalid: Some(is_valid == 0),
+            sector1_ms: self.sector_times[0],
+            sector2_ms: self.sector_times[1],
+            sector3_ms: self.sector_times[2],
+            lap_id: None,
+            sim_type: Some(SimType::AssettoCorsa),
+            normalized_car_position: if normalized_pos >= 0.0 && normalized_pos <= 1.0 {
+                Some(normalized_pos)
+            } else {
+                None
+            },
+        }))
+    }
+
+    #[cfg(not(windows))]
+    fn read_telemetry_from_plugin(&mut self) -> Result<Option<TelemetryFrame>> {
+        Ok(None)
     }
 }
 
@@ -205,6 +406,33 @@ impl SimAdapter for AssettoCorsaAdapter {
                     ptr: ptr as *const u8,
                     _size: 0,
                 })
+            }
+        }
+
+        // Try RaceControl AC plugin shared memory first (safe — plugin controls lifecycle).
+        // If the plugin is installed, we read from rcpmf_telemetry instead of AC's raw memory.
+        match open_shm("rcpmf_telemetry") {
+            Ok(rc_handle) => {
+                tracing::info!(target: LOG_TARGET, "RC AC plugin detected — using safe rcpmf_telemetry shared memory");
+                // Read static info from the plugin buffer
+                let car = Self::read_wchar_string(&rc_handle, 32, 33);   // car_model offset
+                let track = Self::read_wchar_string(&rc_handle, 98, 33); // track_name offset
+                let driver = Self::read_wchar_string(&rc_handle, 164, 33); // driver_name offset
+                tracing::info!(target: LOG_TARGET, "RC plugin: driver={}, car={}, track={}", driver, car, track);
+                self.current_car = car;
+                self.current_track = track;
+                self.current_driver = driver;
+                self.rc_plugin_handle = Some(rc_handle);
+                self.using_rc_plugin = true;
+                self.connected = true;
+                // Still open AC shared memory as fallback for data the plugin doesn't expose
+                let _ = open_shm("Local\\acpmf_physics").map(|h| self.physics_handle = Some(h));
+                let _ = open_shm("Local\\acpmf_graphics").map(|h| self.graphics_handle = Some(h));
+                let _ = open_shm("Local\\acpmf_static").map(|h| self.static_handle = Some(h));
+                return Ok(());
+            }
+            Err(_) => {
+                tracing::info!(target: LOG_TARGET, "RC AC plugin not found — using direct AC shared memory (less safe)");
             }
         }
 
@@ -253,6 +481,22 @@ impl SimAdapter for AssettoCorsaAdapter {
 
     #[cfg(windows)]
     fn read_telemetry(&mut self) -> Result<Option<TelemetryFrame>> {
+        // ─── RC Plugin Path (safe — plugin manages shared memory lifecycle) ─────
+        if self.using_rc_plugin {
+            return self.read_telemetry_from_plugin();
+        }
+
+        // ─── Direct AC Shared Memory Path (unsafe — needs liveness guard) ───────
+        // SAFETY: AC shared memory (acpmf_*) is invalidated when acs.exe exits.
+        // Reading from an invalid mapping causes an access violation (segfault)
+        // that bypasses the Rust panic hook — the agent silently disappears.
+        // Guard: verify the shared memory mapping is still valid before reading.
+        if !self.verify_shm_alive() {
+            tracing::warn!(target: LOG_TARGET, "AC shared memory gone — disconnecting adapter");
+            self.disconnect();
+            return Ok(None);
+        }
+
         let physics = match &self.physics_handle {
             Some(h) => h,
             None => return Ok(None),
@@ -435,6 +679,7 @@ impl SimAdapter for AssettoCorsaAdapter {
 
     #[cfg(windows)]
     fn read_ac_status(&self) -> Option<AcStatus> {
+        if !self.verify_shm_alive() { return None; }
         let gh = self.graphics_handle.as_ref()?;
         let raw = Self::read_i32(gh, graphics::STATUS);
         Some(match raw {
@@ -453,6 +698,7 @@ impl SimAdapter for AssettoCorsaAdapter {
 
     #[cfg(windows)]
     fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
+        if !self.verify_shm_alive() { return None; }
         let ph = self.physics_handle.as_ref()?;
 
         let abs_val = Self::read_f32(ph, physics::ABS);
