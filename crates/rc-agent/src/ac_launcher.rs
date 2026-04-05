@@ -280,11 +280,14 @@ fn bootstrap_ac_config() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Bootstrap: created video.ini (1080p fullscreen)");
     }
 
-    // controls.ini — FFB defaults (medium gain)
+    // controls.ini — Conspit wheelbase defaults (bootstrap only if file missing)
+    // Full template with [CONTROLLERS] section + Conspit device PGUIDs.
+    // JOY indices assume standard USB enumeration: 0=290GP, 1=CPP.LITE, 2=Ares.
+    // If USB order differs per pod, the per-device configs in controllers/ dir override.
     let controls_path = cfg_dir.join("controls.ini");
     if !controls_path.exists() {
-        std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\n")?;
-        tracing::info!(target: LOG_TARGET, "Bootstrap: created controls.ini (FFB gain=70)");
+        std::fs::write(&controls_path, include_str!("controls_template.ini"))?;
+        tracing::info!(target: LOG_TARGET, "Bootstrap: created controls.ini (Conspit wheelbase template)");
     }
 
     Ok(())
@@ -416,9 +419,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 }
             }
         } else {
-            // No existing controls.ini — write minimal baseline (first-run scenario)
-            if let Err(e) = std::fs::write(&controls_path, "[FF]\nGAIN=70\nMIN_FORCE=0.05\nFILTER=0.00\n") {
+            // No existing controls.ini — write full Conspit template (same as bootstrap)
+            if let Err(e) = std::fs::write(&controls_path, include_str!("controls_template.ini")) {
                 tracing::warn!(target: LOG_TARGET, "RESIL-07: Failed to create controls.ini: {}", e);
+            } else {
+                tracing::info!(target: LOG_TARGET, "RESIL-07: Created controls.ini from Conspit template (file was missing)");
             }
         }
     }
