@@ -77,7 +77,7 @@ timeout /t 1 /nobreak 1>nul\r\n\
 if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul\r\n\
 ren \"%STAGED%\" rc-agent.exe 1>nul\r\n\
 :start_agent\r\n\
-start \"\" /D C:\\RacingPoint rc-agent.exe 2>> rc-agent-stderr.log\r\n";
+start \"\" /D C:\\RacingPoint rc-agent.exe\r\n";
 
 /// Result of the self-heal check-and-repair cycle.
 #[derive(Debug)]
