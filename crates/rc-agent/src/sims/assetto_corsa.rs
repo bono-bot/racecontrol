@@ -425,10 +425,10 @@ impl SimAdapter for AssettoCorsaAdapter {
                 self.rc_plugin_handle = Some(rc_handle);
                 self.using_rc_plugin = true;
                 self.connected = true;
-                // Still open AC shared memory as fallback for data the plugin doesn't expose
-                let _ = open_shm("Local\\acpmf_physics").map(|h| self.physics_handle = Some(h));
-                let _ = open_shm("Local\\acpmf_graphics").map(|h| self.graphics_handle = Some(h));
-                let _ = open_shm("Local\\acpmf_static").map(|h| self.static_handle = Some(h));
+                // IMPORTANT: Do NOT open acpmf_* when plugin is active.
+                // Having handles to AC's shared memory may trigger CSP/anti-cheat
+                // or Steam to terminate our process. The plugin provides all data
+                // we need via rcpmf_telemetry. Zero AC handles = invisible to AC.
                 return Ok(());
             }
             Err(_) => {

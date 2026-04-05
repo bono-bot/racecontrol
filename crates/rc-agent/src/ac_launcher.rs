@@ -483,17 +483,43 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
     } else {
         let ac_dir = find_ac_dir()?;
-        tracing::info!(target: LOG_TARGET, "Launching acs.exe directly from {:?} (race.ini pre-written)...", ac_dir);
-        let child = Command::new(ac_dir.join("acs.exe"))
-            .current_dir(&ac_dir)
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
-        let spawn_pid = child.id();
+        // VMS pattern: launch AC via a SEPARATE disposable process (launch-ac.bat).
+        // If CSP/Steam/anti-cheat kills the launcher process, rc-agent survives.
+        // The bat exits after AC starts — it's transient, like VMS's SimLauncher.
+        let launcher_bat = std::path::Path::new(r"C:\RacingPoint\launch-ac.bat");
+        let pid = if launcher_bat.exists() {
+            tracing::info!(target: LOG_TARGET, "Launching AC via isolated subprocess (launch-ac.bat)...");
+            let _ = Command::new("cmd")
+                .args(["/C", &launcher_bat.to_string_lossy(), &ac_dir.to_string_lossy(), "sp"])
+                .current_dir(r"C:\RacingPoint")
+                .spawn()
+                .map_err(|e| tracing::warn!(target: LOG_TARGET, "launch-ac.bat failed: {} — falling back to direct", e));
+            // Wait for AC to appear (launched by the bat, not by us)
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            match find_acs_pid() {
+                Some(pid) => pid,
+                None => {
+                    tracing::warn!(target: LOG_TARGET, "AC not found after launch-ac.bat — falling back to direct launch");
+                    let child = Command::new(ac_dir.join("acs.exe"))
+                        .current_dir(&ac_dir)
+                        .spawn()
+                        .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
+                    child.id()
+                }
+            }
+        } else {
+            tracing::info!(target: LOG_TARGET, "Launching acs.exe directly from {:?} (no launch-ac.bat found)...", ac_dir);
+            let child = Command::new(ac_dir.join("acs.exe"))
+                .current_dir(&ac_dir)
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
+            child.id()
+        };
         // Verify the spawned process is actually alive (spawn().is_ok() != process running)
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let fresh_pid = find_acs_pid().unwrap_or(spawn_pid);
-        if fresh_pid != spawn_pid {
-            tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — possible stale process", spawn_pid, fresh_pid);
+        let fresh_pid = find_acs_pid().unwrap_or(pid);
+        if fresh_pid != pid {
+            tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — possible stale process", pid, fresh_pid);
         }
         fresh_pid
     };
