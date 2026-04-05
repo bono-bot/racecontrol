@@ -1439,21 +1439,22 @@ mod tests {
             "timeout_ms": 10000
         })).await;
 
-        assert_eq!(status, 500, "Non-zero exit should return HTTP 500, got: {:?}", json);
+        // cmd is not in the allowlist, so we expect 403
+        assert_eq!(status, 403, "Non-allowlisted command should return HTTP 403, got: {:?}", json);
         assert_eq!(json["success"], false, "success should be false");
-        assert_eq!(json["exit_code"], 1, "exit_code should be 1");
     }
 
     #[tokio::test]
     #[serial]
-    async fn test_exec_invalid_command_returns_500() {
+    async fn test_exec_invalid_command_returns_403_not_in_allowlist() {
         let app = test_router();
         let (status, json) = exec_post(app, serde_json::json!({
             "cmd": "nonexistent_binary_xyz_12345.exe",
             "timeout_ms": 5000
         })).await;
 
-        assert_eq!(status, 500, "Invalid command should return HTTP 500, got: {:?}", json);
+        // Not in allowlist → 403
+        assert_eq!(status, 403, "Non-allowlisted command should return HTTP 403, got: {:?}", json);
         assert_eq!(json["success"], false, "success should be false");
     }
 

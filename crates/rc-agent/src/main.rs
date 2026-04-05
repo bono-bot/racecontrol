@@ -2381,25 +2381,36 @@ mod tests {
     use super::*;
     use crate::event_loop::CrashRecoveryState;
 
+    /// Helper: assert delay is within [base, base + 25% jitter]
+    fn assert_delay_in_range(attempt: u32, base_secs: u64) {
+        let delay = reconnect_delay_for_attempt(attempt);
+        let base = Duration::from_secs(base_secs);
+        let max = base + base / 4; // 25% jitter ceiling
+        assert!(
+            delay >= base && delay <= max,
+            "attempt {attempt}: delay {delay:?} not in [{base:?}, {max:?}]"
+        );
+    }
+
     #[test]
     fn test_reconnect_delay_fast_retries() {
-        assert_eq!(reconnect_delay_for_attempt(0), Duration::from_secs(1));
-        assert_eq!(reconnect_delay_for_attempt(1), Duration::from_secs(1));
-        assert_eq!(reconnect_delay_for_attempt(2), Duration::from_secs(1));
+        assert_delay_in_range(0, 1);
+        assert_delay_in_range(1, 1);
+        assert_delay_in_range(2, 1);
     }
 
     #[test]
     fn test_reconnect_delay_exponential_backoff() {
-        assert_eq!(reconnect_delay_for_attempt(3), Duration::from_secs(2));
-        assert_eq!(reconnect_delay_for_attempt(4), Duration::from_secs(4));
-        assert_eq!(reconnect_delay_for_attempt(5), Duration::from_secs(8));
-        assert_eq!(reconnect_delay_for_attempt(6), Duration::from_secs(16));
+        assert_delay_in_range(3, 2);
+        assert_delay_in_range(4, 4);
+        assert_delay_in_range(5, 8);
+        assert_delay_in_range(6, 16);
     }
 
     #[test]
     fn test_reconnect_delay_cap() {
-        assert_eq!(reconnect_delay_for_attempt(7), Duration::from_secs(30));
-        assert_eq!(reconnect_delay_for_attempt(100), Duration::from_secs(30));
+        assert_delay_in_range(7, 30);
+        assert_delay_in_range(100, 30);
     }
 
     // ─── SESSION-03: CrashRecoveryState tests ─────────────────────────────
