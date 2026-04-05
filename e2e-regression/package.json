@@ -1,0 +1,16 @@
+{
+  "name": "rp-e2e-regression",
+  "version": "1.0.0",
+  "description": "Racing Point eSports — Full E2E Regression Test Suite",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:pos": "npx playwright test --project=pos-billing",
+    "test:kiosk": "npx playwright test --project=staff-kiosk",
+    "test:smoke": "npx playwright test tests/00-smoke/",
+    "test:matrix": "npx playwright test tests/04-matrix/",
+    "report": "npx playwright show-report test-results/html"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

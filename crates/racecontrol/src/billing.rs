@@ -1702,7 +1702,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 games.iter().map(|(k, v)| (k.clone(), v.game_state)).collect()
             };
 
-            let mut sessions_to_cancel: Vec<(String, String, Option<i64>, Option<String>)> = Vec::new();
+            // (session_id, driver_id, wallet_debit_paise, wallet_owner_id, pod_id)
+            let mut sessions_to_cancel: Vec<(String, String, Option<i64>, Option<String>, String)> = Vec::new();
 
             for (session_id, driver_id, wallet_debit_paise, pod_id, created_at_str, status, wallet_owner_id) in &stale_sessions {
                 // Parse created_at to compute age
@@ -1719,7 +1720,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                         "LBILL-03: Cancelling stale pending session {} — no game launched yet (pod {}, age {}min)",
                         session_id, pod_id, age_minutes
                     );
-                    sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
+                    sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone(), pod_id.clone()));
                 } else {
                     // status == "waiting_for_game"
                     let game_state = game_snapshot.get(pod_id.as_str()).copied();
@@ -1740,20 +1741,20 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                             "LBILL-02: Absolute timeout — cancelling session {} despite game alive on pod {} ({}min)",
                             session_id, pod_id, age_minutes
                         );
-                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone(), pod_id.clone()));
                     } else {
                         // LBILL-03: Game is dead — cancel with refund
                         tracing::info!(
                             "LBILL-03: Cancelling stale session {} — no active game on pod {} (game_state={:?}, age {}min)",
                             session_id, pod_id, game_state, age_minutes
                         );
-                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone()));
+                        sessions_to_cancel.push((session_id.clone(), driver_id.clone(), *wallet_debit_paise, wallet_owner_id.clone(), pod_id.clone()));
                     }
                 }
             }
 
             // Refund wallet for sessions being cancelled (BILL-13 kiosk path)
-            for (session_id, driver_id, wallet_debit_paise, wallet_owner) in &sessions_to_cancel {
+            for (session_id, driver_id, wallet_debit_paise, wallet_owner, _pod_id) in &sessions_to_cancel {
                 if let Some(debit) = wallet_debit_paise {
                     if *debit > 0 {
                         let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
@@ -1780,7 +1781,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             }
 
             // Cancel only the sessions that were not extended
-            for (session_id, _, _, _) in &sessions_to_cancel {
+            for (session_id, _, _, _, cancel_pod_id) in &sessions_to_cancel {
                 if let Err(e) = sqlx::query(
                     "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') \
                      WHERE id = ? AND ended_at IS NULL",
@@ -1790,6 +1791,16 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 .await
                 {
                     tracing::warn!("Failed to auto-cancel stale billing session {}: {}", session_id, e);
+                }
+
+                // CRITICAL FIX: Remove entry from in-memory waiting_for_game map
+                // Without this, the per-pod billing lock blocks all future billing/start on this pod
+                let normalized = cancel_pod_id.replace('-', "_");
+                if state.billing.waiting_for_game.write().await.remove(&normalized).is_some() {
+                    tracing::info!(
+                        "Cleared waiting_for_game entry for pod {} (session {} auto-cancelled)",
+                        cancel_pod_id, session_id
+                    );
                 }
             }
         }
