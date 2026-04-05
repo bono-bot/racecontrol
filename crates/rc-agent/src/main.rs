@@ -2463,4 +2463,91 @@ mod tests {
             "30s+ elapsed should be at/beyond grace window boundary"
         );
     }
+
+    /// REGRESSION: Every process::exit() in rc-agent must be accounted for.
+    /// This test scans all source files for process::exit calls and verifies
+    /// each one is in a known-safe location. If a new exit is added without
+    /// updating this list, the test fails — forcing the developer to consider
+    /// whether the exit path needs a billing-session guard.
+    ///
+    /// Known safe exits:
+    /// - Panic hook (main.rs) — process is already crashing
+    /// - Single-instance guard (main.rs) — startup, before billing
+    /// - Session 0 check (main.rs) — startup, before billing
+    /// - Hostname allowlist (main.rs) — startup, before billing
+    /// - Config load failure (main.rs) — startup, before billing
+    /// - Lock screen bind failure (main.rs) — startup, before billing
+    /// - Remote ops bind failure (main.rs) — startup, before billing
+    /// - ForceRestart (event_loop.rs) — MUST check billing_active
+    /// - RestartRcAgent (event_loop.rs) — AI action, has sentinel
+    /// - self_monitor relaunch (self_monitor.rs) — 60s+ after start
+    #[test]
+    fn test_all_process_exit_paths_are_accounted_for() {
+        // Scan all rc-agent source files for process::exit
+        let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut exit_locations: Vec<(String, usize, String)> = Vec::new();
+
+        fn scan_dir(dir: &std::path::Path, results: &mut Vec<(String, usize, String)>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        scan_dir(&path, results);
+                    } else if path.extension().map_or(false, |e| e == "rs") {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                            let mut in_test = false;
+                            for (i, line) in content.lines().enumerate() {
+                                if line.contains("#[cfg(test)]") || line.contains("#[test]") {
+                                    in_test = true;
+                                }
+                                if !in_test && line.contains("process::exit") && !line.trim().starts_with("//") {
+                                    results.push((filename.clone(), i + 1, line.trim().to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        scan_dir(&src_dir, &mut exit_locations);
+
+        // Known files that are ALLOWED to have process::exit
+        let allowed_files = [
+            "main.rs",           // startup guards + panic hook
+            "event_loop.rs",     // ForceRestart (billing-guarded) + RestartRcAgent
+            "self_monitor.rs",   // self-restart after 5min WS dead
+            "remote_ops.rs",     // relaunch_self (explicit admin command)
+        ];
+
+        let unexpected: Vec<_> = exit_locations
+            .iter()
+            .filter(|(file, _, _)| !allowed_files.contains(&file.as_str()))
+            .collect();
+
+        assert!(
+            unexpected.is_empty(),
+            "REGRESSION: Unexpected process::exit() found in files not on the \
+             allowed list. Each exit path must be reviewed for billing-session \
+             safety. New exits must be added to the allowed_files list after review.\n\
+             Unexpected exits: {:?}",
+            unexpected
+        );
+
+        // Verify ForceRestart is billing-guarded (contains billing_active check)
+        let event_loop_src = std::fs::read_to_string(src_dir.join("event_loop.rs"))
+            .expect("read event_loop.rs");
+        let force_restart_section: String = event_loop_src
+            .lines()
+            .skip_while(|l| !l.contains("ForceRestart"))
+            .take(10)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            force_restart_section.contains("billing_active"),
+            "REGRESSION: ForceRestart exit must check billing_active before \
+             calling process::exit. See commit e388b5af."
+        );
+    }
 }

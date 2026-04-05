@@ -226,4 +226,42 @@ mod tests {
             err_msg
         );
     }
+
+    /// REGRESSION: The watchdog MUST NOT use start-rcagent.bat to restart rc-agent.
+    /// start-rcagent.bat's first action is `taskkill /F /IM rc-agent.exe`, which kills
+    /// a running agent if the watchdog triggers a false-positive "not running" detection.
+    /// This caused the P0 bug: agent dies 5-20s after AC game launch.
+    /// Root cause confirmed via Sysmon on 2026-04-06 (commit 0e1a07cc).
+    ///
+    /// This test verifies the source code directly — if anyone changes the command
+    /// back to use the bat file, this test will catch it at compile time.
+    #[test]
+    fn test_watchdog_must_not_use_start_rcagent_bat() {
+        let source = include_str!("session.rs");
+
+        // The spawn_in_session1 function must NOT reference start-rcagent.bat
+        // in executable code. Check only non-comment lines in the command
+        // construction section.
+        let cmd_section: Vec<&str> = source
+            .lines()
+            .skip_while(|l| !l.contains("Build command line"))
+            .take_while(|l| !l.contains("Desktop string"))
+            .filter(|l| {
+                let trimmed = l.trim();
+                !trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("*")
+            })
+            .collect();
+        let cmd_code = cmd_section.join("\n");
+
+        assert!(
+            !cmd_code.contains("start-rcagent.bat"),
+            "REGRESSION: spawn_in_session1() must launch rc-agent.exe directly, \
+             NOT via start-rcagent.bat. The bat runs `taskkill /F /IM rc-agent.exe` \
+             which kills running agents. See commit 0e1a07cc."
+        );
+        assert!(
+            cmd_code.contains("rc-agent.exe"),
+            "spawn_in_session1() must reference rc-agent.exe in its command line"
+        );
+    }
 }
