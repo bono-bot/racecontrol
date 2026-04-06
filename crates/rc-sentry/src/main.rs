@@ -35,6 +35,7 @@ mod cognitive_gate;
 #[cfg(feature = "mesh")]
 mod mesh_client;
 mod peer_channel;
+mod peer_launch;
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision};
 #[cfg(feature = "watchdog")]
@@ -526,6 +527,29 @@ fn main() {
                 }
             })
             .expect("spawn peer-gossip-proc");
+        // Spawn TCP coordinated launch listener (Phase 324 Plan 02)
+        let launch_receiver = peer_launch::spawn_listener(
+            peer_cfg.launch_port,
+            peer_cfg.node_id.clone(),
+            &SHUTDOWN_REQUESTED,
+        );
+
+        // Process incoming launch signals (log for now -- future: trigger local game launch)
+        std::thread::Builder::new()
+            .name("peer-launch-proc".to_string())
+            .spawn(move || {
+                for session_id in launch_receiver {
+                    tracing::info!(
+                        target: "peer-launch",
+                        session_id = %session_id,
+                        "LAUNCH SIGNAL RECEIVED -- coordinated launch triggered for session {}",
+                        session_id
+                    );
+                    // Phase 324: log the launch signal. Future: call rc-agent launch API on localhost
+                    // POST http://127.0.0.1:8090/launch with session game params
+                }
+            })
+            .expect("spawn peer-launch-proc");
     } else {
         tracing::info!(target: "peer-gossip", "peer gossip disabled (peer.enabled=false)");
     }
@@ -655,6 +679,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         ("POST", "/exec") => handle_exec(&mut stream, &request),
         ("POST", "/mi/trigger") => handle_mi_trigger(&mut stream, &request),
         ("POST", "/peer/ping") => handle_peer_ping(&mut stream),
+        ("POST", "/peer/launch") => handle_peer_launch(&mut stream, &request),
         ("GET", "/mma/status") => handle_mma_status(&mut stream),
         ("GET", "/gate/last-plan") => handle_gate_last_plan(&mut stream),
         ("GET", "/flags") => handle_flags(&mut stream),
@@ -978,6 +1003,110 @@ fn handle_peer_ping(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Er
         "peers_pinged": peer_count,
     });
     send_response(stream, 200, &resp.to_string())
+}
+
+/// POST /peer/launch — initiate or acknowledge coordinated launch for a multiplayer session.
+///
+/// JSON body: { "session_id": "f125-session-abc123", "session_peers": ["pod_3", "pod_5"] }
+/// If session_peers is omitted, uses all known peers from config.
+/// The lowest-numbered pod in the session becomes the initiator.
+fn handle_peer_launch(
+    stream: &mut TcpStream,
+    request: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = sentry_config::load();
+    if !cfg.peer.enabled {
+        return send_response(stream, 503, r#"{"error":"peer gossip disabled"}"#);
+    }
+
+    let body = request
+        .find("\r\n\r\n")
+        .map(|i| &request[i + 4..])
+        .or_else(|| request.find("\n\n").map(|i| &request[i + 2..]))
+        .unwrap_or("");
+
+    let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let session_id = parsed["session_id"]
+        .as_str()
+        .unwrap_or("default-session");
+    let my_node = &cfg.peer.node_id;
+
+    // Get session peer IDs from request, default to all known peers
+    let session_peer_ids: Vec<String> = if let Some(arr) = parsed["session_peers"].as_array() {
+        arr.iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        cfg.peer.peers.keys().cloned().collect()
+    };
+
+    // Exclude self from peer IP list
+    let peer_ips: Vec<String> = session_peer_ids
+        .iter()
+        .filter(|id| id.as_str() != my_node.as_str())
+        .filter_map(|id| cfg.peer.peers.get(id))
+        .cloned()
+        .collect();
+
+    if peer_launch::is_initiator(my_node, &session_peer_ids) {
+        // This pod is the initiator -- run the TCP rendezvous
+        let peer_ip_refs: Vec<&str> = peer_ips.iter().map(|s| s.as_str()).collect();
+        match peer_launch::initiate_launch(
+            session_id,
+            my_node,
+            &peer_ip_refs,
+            cfg.peer.launch_port,
+        ) {
+            Ok(()) => {
+                tracing::info!(
+                    target: "peer-launch",
+                    session_id,
+                    "coordinated launch initiated successfully"
+                );
+                let resp = serde_json::json!({
+                    "status": "launch_initiated",
+                    "session_id": session_id,
+                    "initiator": my_node,
+                    "peers": peer_ips.len(),
+                });
+                send_response(stream, 200, &resp.to_string())
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "peer-launch",
+                    session_id,
+                    "launch initiation failed: {e}"
+                );
+                let resp = serde_json::json!({ "error": e, "session_id": session_id });
+                send_response(stream, 500, &resp.to_string())
+            }
+        }
+    } else {
+        // Not the initiator -- inform caller which pod should initiate
+        let initiator = session_peer_ids
+            .iter()
+            .min_by_key(|id| {
+                id.chars()
+                    .rev()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>()
+                    .parse::<u32>()
+                    .unwrap_or(u32::MAX)
+            })
+            .cloned()
+            .unwrap_or_default();
+        let resp = serde_json::json!({
+            "status": "not_initiator",
+            "session_id": session_id,
+            "my_node": my_node,
+            "initiator_would_be": initiator,
+        });
+        send_response(stream, 200, &resp.to_string())
+    }
 }
 
 fn send_response(
