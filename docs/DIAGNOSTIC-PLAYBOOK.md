@@ -415,9 +415,48 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 
 ---
 
+## Section K — Infrastructure Problems (D6)
+
+### James Services Quick Check
+```bash
+# All James infrastructure processes
+powershell.exe -Command "Get-Process | Where-Object { $_.Name -match 'rc-sentry|rc-watchdog|rc-process|ollama|go2rtc' } | Select-Object Name,Id,StartTime | Format-Table -AutoSize"
+
+# Comms-link
+curl -s http://localhost:8766/relay/health
+
+# Ollama
+curl -s http://localhost:11434/api/tags | python3 -m json.tool
+
+# go2rtc streams + frame test
+curl -s http://localhost:1984/api/streams | python3 -m json.tool
+curl -s -o /dev/null -w '%{size_download}' "http://localhost:1984/api/frame.jpeg?src=entrance"
+# >1KB = ok, 0 = broken (check env vars, NVR connectivity)
+
+# rc-sentry-ai
+curl -s http://localhost:8096/health
+
+# rc-watchdog log
+tail -20 "$HOME/.claude/rc-watchdog.log"
+
+# Comms-link test suite
+cd ~/racingpoint/comms-link && COMMS_PSK="..." bash test/run-all.sh
+```
+
+### go2rtc: Env Var Resolution (KNOWN ISSUE)
+go2rtc started from HKLM Run key (`start-go2rtc.bat`) can end up in Session 0 where `${NVR_USER}` env vars don't resolve. **Fix:** go2rtc.yaml now uses hardcoded credentials (2026-04-06 D6 audit). If frame endpoint returns 0 bytes after config fix, restart go2rtc (reboot James or kill with admin privileges).
+
+### POS PC
+- IP changed from .20 to .130 (WiFi DHCP). SSH config updated 2026-04-06.
+- SSH via `ssh pos` (LAN .130) or `ssh pos1` (Tailscale)
+- rc-sentry NOT installed on POS (no binary found)
+- rc-agent 20 commits behind pods — needs venue deploy
+
+---
+
 ## Current System Status (UPDATE THIS SECTION after every session)
 
-**Last updated:** 2026-04-06 20:50 IST (D3 Pod Fleet Health audit)
+**Last updated:** 2026-04-06 21:15 IST (D6 Infrastructure audit)
 
 ### Deployed Builds
 | Target | Build | Date |
@@ -447,14 +486,25 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 | 13 | Linked racers wallet resolution not tested | Billing | P2 | COMMITTED | — |
 | 14 | Orphan auto-end incomplete cleanup | Billing | P2 | CODE FIX `bc100be7` — needs deploy | — |
 | 15 | POS rc-agent 20 commits behind pods (`c31997c0` vs `f05e324e`) | Pod Health | P2 | D3 FINDING — needs venue deploy | — |
-| 16 | POS SSH unreachable (IP changed .20→.130, WiFi DHCP) | Pod Health | P2 | D3 FINDING | — |
-| 17 | go2rtc frame endpoint returns 0 bytes (service runs, no frames) | Infrastructure | P3 | D3 FINDING — rc-watchdog correctly reports DOWN | — |
+| 16 | POS SSH unreachable (IP changed .20→.130, WiFi DHCP) | Pod Health | P2 | D6 FIXED — SSH config updated .20→.130, both LAN+TS work | — |
+| 17 | go2rtc frame endpoint returns 0 bytes (service runs, no frames) | Infrastructure | P2 | D6 ROOT CAUSE: env vars not resolving (Session 0). Config hardcoded — needs reboot | — |
 | 18 | rc-watchdog boot persistence: HKCU Run key only (no admin schtask) | Infrastructure | P3 | D3 PARTIAL FIX — needs admin for schtask | — |
+| 19 | rc-sentry-ai: cameras={}, frames_processed=0 (go2rtc can't deliver) | Infrastructure | P2 | D6 FINDING — blocked by #17, will resolve with go2rtc restart | — |
+| 20 | rc-process-guard NOT running on James (binary not deployed) | Infrastructure | P3 | D6 FINDING — binary in build output, no auto-start mechanism | — |
+| 21 | POS rc-sentry NOT installed (no binary on POS) | Pod Health | P3 | D6 FINDING — needs deploy | — |
+| 22 | people-tracker :8095 NOT running on James | Infrastructure | P3 | KNOWN — standing gap | — |
+| 23 | rc-sentry Pod 1 + Pods 5-7 missing 2-3 fix commits | Pod Health | P2 | D6 CONFIRMED — Pods 2-4,8 current, Pod 1 + 5-7 need rebuild+deploy | — |
 
 ### Resolved Issues (recently closed — reference only)
 
 | Issue | Resolution | Commit | Date |
 |-------|-----------|--------|------|
+| POS SSH config .20→.130 (was #16) | SSH config updated, both LAN (.130) and Tailscale (pos1) work | D6 audit | 2026-04-06 |
+| go2rtc env vars root cause identified (was #17) | `${NVR_USER}:${NVR_PASS}` unresolved in Session 0 — config hardcoded with credentials | D6 audit | 2026-04-06 |
+| D6 comms-link: HEALTHY | REALTIME mode, test suite PASS (contract+integration+syntax+security) | D6 audit | 2026-04-06 |
+| D6 Tailscale: ALL HEALTHY | All machines online (server, pods 1-8, POS, Bono VPS) | D6 audit | 2026-04-06 |
+| D6 Ollama: HEALTHY | qwen2.5:3b + llama3.1:8b loaded, :11434 responding | D6 audit | 2026-04-06 |
+| D6 rc-watchdog: HEALTHY | Running PID 28456, fresh build from D3 audit | D6 audit | 2026-04-06 |
 | MI Tier 3 Ollama URL wrong on pods (was #6) | STALE — URL is correct (`192.168.31.27:11434`), verified on Pod 1 + Pod 8 | D3 audit | 2026-04-06 |
 | rc-watchdog stale build on James | Killed Mar-31 instance (PID 19132), started fresh build, added HKCU Run key | D3 audit | 2026-04-06 |
 | PausedDisconnect kills session on reconnect | Per-disconnect pause_seconds timeout + orphan cleanup | `bc100be7` | 2026-04-06 |
