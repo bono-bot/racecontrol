@@ -24,6 +24,7 @@ mod tier1_fixes;
 mod debug_memory;
 // ollama module is now in rc-common — see rc_common::ollama
 mod session1_spawn;
+mod screen_verify;
 #[cfg(feature = "mesh")]
 mod mesh_client;
 
@@ -251,6 +252,32 @@ fn main() {
                         tier1_fixes::reset_maint_clear_count();
                     } else if result.restarted {
                         consecutive_failures += 1;
+                    }
+
+                    // MON-05: Verify blanking screen after restart
+                    // Wait 15 seconds for rc-agent to fully start and launch Edge
+                    // Runs on crash-handler thread, NOT the watchdog polling thread — does not block health checks
+                    #[cfg(feature = "tier1-fixes")]
+                    if result.restarted && result.spawn_verified {
+                        std::thread::sleep(std::time::Duration::from_secs(15));
+                        let blanking = screen_verify::verify_blanking();
+                        tracing::info!(target: "watchdog", "Blanking verification after restart: {:?}", blanking);
+                        match &blanking {
+                            screen_verify::BlankingStatus::NotBlanked { matching_points, total_points } => {
+                                let msg = format!(
+                                    "[rc-sentry] Pod {} blanking FAILED after restart! Only {}/{} points match expected color. Screen may not be blanked.",
+                                    tier1_fixes::get_pod_id(), matching_points, total_points
+                                );
+                                tracing::warn!(target: "watchdog", "{}", msg);
+                                tier1_fixes::send_whatsapp_alert(&tier1_fixes::get_pod_id(), &msg);
+                            }
+                            screen_verify::BlankingStatus::Unknown(reason) => {
+                                tracing::warn!(target: "watchdog", "Blanking verification inconclusive: {}", reason);
+                            }
+                            screen_verify::BlankingStatus::Blanked { .. } => {
+                                tracing::info!(target: "watchdog", "Blanking verified successfully");
+                            }
+                        }
                     }
 
                     // Tier 3: Ollama diagnosis for unknown patterns where spawn verification failed (GRAD-03)

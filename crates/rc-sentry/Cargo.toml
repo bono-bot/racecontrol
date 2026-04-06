@@ -42,7 +42,9 @@ winapi = { version = "0.3", features = [
     "securitybaseapi",
     "userenv",
     "winbase",
+    "wingdi",
     "winnt",
+    "winuser",
     "wtsapi32",
 ] }
 
