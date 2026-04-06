@@ -1,8 +1,19 @@
 # Session 1 Launcher Architecture
 
-**Status:** PROPOSED (MMA audit recommendation, 6-model consensus, 2026-03-29)
-**Priority:** HIGH — eliminates reboot-required deploys
-**Effort:** Medium (new Rust binary + IPC + bat changes)
+**Status:** PARTIALLY IMPLEMENTED — RCWatchdog Session 1 spawn is working (session.rs). The proposed RCAgentLauncher binary was never needed.
+**Updated:** 2026-04-06
+
+**What was implemented instead:**
+- `rc-watchdog/src/session.rs`: `spawn_in_session1()` with WTSQueryUserToken + DuplicateTokenEx + CreateProcessAsUser + lpDesktop=`winsta0\default` + CreateEnvironmentBlock. All RAII-wrapped (SafeHandle, SafeEnvBlock).
+- GAME_LAUNCHING sentinel (RAII guard in ws_handler.rs) suppresses watchdog restart during game launch.
+- SetConsoleCtrlHandler logs termination reason to `termination.log`.
+- Zero-block launch via launch-ac.bat subprocess (<1s return).
+
+**Original proposal below is HISTORICAL — kept for reference but superseded by the above.**
+
+---
+
+**(HISTORICAL) Original Proposal (2026-03-29, 6-model consensus)**
 
 ## Problem
 

@@ -1,7 +1,22 @@
 # Racing Point — Deployment Runbook
 
-Last updated: 2026-03-23
+Last updated: 2026-04-06
 Standing rule: Always run `bash deploy-staging/check-health.sh` before marking any deploy complete.
+
+## Pod Deploy Artifacts (alongside rc-agent.exe)
+
+These files MUST be in `C:\RacingPoint\` on each pod:
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `rc-agent.exe` | Yes | Pod agent binary |
+| `rc-agent.exe.manifest` | Yes | asInvoker elevation (anti-cheat compat, VMS pattern) |
+| `steam_appid.txt` | Yes | Contains "480" — prevents Steam from killing rc-agent |
+| `launch-ac.bat` | Yes | VMS SimLauncher clone: isolated AC launcher (SP + MP) |
+| `start-rcagent.bat` | Yes | Boot startup + bloatware cleanup |
+| `rc-agent.toml` | Yes | Agent configuration |
+
+Source: `deploy/` directory in repo. Copy all on every pod deploy.
 
 ---
 

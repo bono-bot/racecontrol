@@ -40,6 +40,48 @@ Indexed reference of known errors, root causes, and fixes. Organized by system l
 
 ---
 
+## Sentinel & Launch Errors
+
+### `GAME_LAUNCHING sentinel already held`
+
+- **Where:** rc-agent ws_handler.rs (GameLaunchingSentinelGuard)
+- **Symptom:** Warning logged, launch proceeds anyway
+- **Root Cause:** Concurrent LaunchGame commands or stale sentinel from previous crash
+- **Fix:** Sentinel has 5min TTL — auto-expires. If persistent: `del C:\RacingPoint\GAME_LAUNCHING`
+- **Prevention:** SEC-10 game_launch_mutex serializes concurrent launches
+
+### `GAME_LAUNCHING sentinel write failed`
+
+- **Where:** rc-agent ws_handler.rs
+- **Symptom:** Launch proceeds without watchdog protection
+- **Root Cause:** `C:\RacingPoint\` directory missing or permissions issue
+- **Fix:** Ensure `C:\RacingPoint\` exists and is writable by the agent user
+
+### Agent terminated — check `termination.log`
+
+- **Where:** `C:\RacingPoint\termination.log`
+- **Symptom:** rc-agent disappears with no crash-seh.log
+- **Root Cause:** External process killed rc-agent (taskkill, logoff, shutdown)
+- **Diagnosis:** Read `termination.log` — shows reason code (CTRL_C=0, CLOSE=2, LOGOFF=5, SHUTDOWN=6)
+- **If no termination.log:** Process was killed via `TerminateProcess()` which bypasses ctrl handler. Check Sysmon or Event Viewer.
+
+### `launch-ac.bat spawn failed`
+
+- **Where:** rc-agent ac_launcher.rs
+- **Symptom:** AC launch falls back to direct acs.exe (less isolated)
+- **Root Cause:** `C:\RacingPoint\launch-ac.bat` missing or cmd.exe unavailable
+- **Fix:** Redeploy launch-ac.bat from `deploy/` directory
+
+### WMI watcher spawn failed — tasklist fallback active
+
+- **Where:** rc-agent safe_mode.rs
+- **Symptom:** `Tasklist fallback: polling every 5s` in logs
+- **Root Cause:** PowerShell failed to start (missing, policy restriction, or resource exhaustion)
+- **Impact:** Safe mode still works but with 5s detection delay instead of instant WMI events
+- **Fix:** Verify PowerShell is accessible: `powershell -NoProfile -Command "echo ok"`
+
+---
+
 ## Billing Errors
 
 ### Double-End / Race Condition

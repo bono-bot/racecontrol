@@ -11,6 +11,10 @@ These files should be copied to `C:\RacingPoint\` on each pod alongside rc-agent
   process to launch acs.exe. If CSP/Steam/anti-cheat kills the launcher, rc-agent survives.
   VMS uses the same pattern (SimLauncher.exe is a separate disposable process).
 
+- `rc-agent.exe.manifest` — Windows application manifest declaring `requestedExecutionLevel=asInvoker`.
+  Prevents anti-cheat from flagging rc-agent as elevated. VMS Connect uses the same pattern.
+  Must be placed next to rc-agent.exe (Windows reads `<exe>.manifest` automatically).
+
 ## Optional
 - `nircmdc.exe` — NirSoft NirCmd command-line tool for window management (focus, topmost,
   activation). VMS ships this to avoid Win32 API calls from the agent process. Download
