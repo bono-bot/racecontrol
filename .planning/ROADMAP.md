@@ -491,7 +491,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 - [ ] 321-01-PLAN.md — Dual-detection watchdog + MON-02/MON-03 verification
-- [ ] 321-02-PLAN.md — Direct WhatsApp alert via Evolution API
+- [x] 321-02-PLAN.md — Direct WhatsApp alert via Evolution API
 - [ ] 321-03-PLAN.md — Screenshot-based blanking verification
 
 ### Phase 322: MI Core Engine Migration
@@ -532,7 +532,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 321. External Monitoring & Alert Chain | 0/TBD | Not started | - |
+| 321. External Monitoring & Alert Chain | 1/3 | In Progress|  |
 | 322. MI Core Engine Migration | 0/TBD | Not started | - |
 | 323. MMA Engine & Cognitive Gate Migration | 0/TBD | Not started | - |
 | 324. True Mesh Intelligence | 0/TBD | Not started | - |
