@@ -16,7 +16,7 @@
 - ✅ **v40.0 Game Launch Reliability** — Phases 311-314 (shipped 2026-04-03)
 - 🔨 **v41.0 Game Intelligence System** — Phases 315-320
 - 📋 **v42.0 Meshed Intelligence Migration** — Phases 321-324
-
+- 📋 **v43.0 Self-Audit & Visual Regression System** — Phases 325-328
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
@@ -534,3 +534,98 @@ Plans:
 | 324. True Mesh Intelligence | 0/TBD | Not started | - |
 
 *Last updated: 2026-04-03 — roadmap created*
+
+## v43.0 Self-Audit & Visual Regression System
+
+**Goal:** James autonomously verifies all frontend pages before/after fixes using Playwright screenshots, with hook-enforced compliance and deploy script integration -- eliminating the "fix blind from code" failure mode.
+
+**Phases:** 4  |  **Coverage:** 17/17 requirements mapped
+
+**Dependency graph:**
+```
+325 (Page Crawler)
+  ├──> 326 (Visual Regression Tests)
+  ├──> 327 (Enforcement & Deploy Integration) ←── also depends on 326
+  └──> 328 (AI Self-Audit)
+```
+
+### Phases
+
+- [ ] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04
+- [ ] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04
+- [ ] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03
+- [ ] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
+
+---
+
+### Phase 325: Page Crawler
+**Goal**: James can capture screenshots of every frontend page on demand, with proper authentication and structured output
+**Depends on**: Nothing (first phase of v43.0)
+**Requirements**: CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04
+**Success Criteria** (what must be TRUE):
+  1. Running the crawler produces a screenshot for every reachable page across web (:3200), admin (:3201), and kiosk (:3300)
+  2. Crawler authenticates via saved Playwright storageState (staff PIN) -- no manual login needed per run
+  3. Screenshots are saved to `tests/screenshots/{app}/{route}/{timestamp}.png` with consistent naming
+  4. Crawler accepts flags to target a specific app or specific page instead of always doing a full crawl
+**Plans**: TBD
+**UI hint**: yes
+
+Plans:
+- [ ] 325-01: Page crawler script with auth, full crawl, and selective targeting
+
+### Phase 326: Visual Regression Tests
+**Goal**: Frontend changes are automatically compared against known-good baselines, with dynamic content properly masked
+**Depends on**: Phase 325
+**Requirements**: VR-01, VR-02, VR-03, VR-04
+**Success Criteria** (what must be TRUE):
+  1. Critical pages have Playwright toHaveScreenshot() tests that fail when layout or styling changes unexpectedly
+  2. Dynamic content (timestamps, counters, live metrics) is masked per-page so legitimate data changes do not trigger false failures
+  3. Baseline screenshots are committed in git alongside test files and update via --update-snapshots
+  4. Running the visual regression suite before and after a frontend fix produces a clear before/after comparison
+**Plans**: TBD
+**UI hint**: yes
+
+Plans:
+- [ ] 326-01: Playwright visual regression tests with baselines, masking config, and before/after workflow
+
+### Phase 327: Enforcement & Deploy Integration
+**Goal**: Frontend completion claims require screenshot evidence, and deploys automatically detect visual regressions
+**Depends on**: Phase 325, Phase 326
+**Requirements**: HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03
+**Success Criteria** (what must be TRUE):
+  1. Claude Code hook blocks "fixed/done/resolved" claims for frontend changes unless a screenshot file newer than the last code edit exists in the session
+  2. Hook only fires for frontend-related file changes (Next.js pages, CSS, React components) -- Rust backend and script changes are unaffected
+  3. After deploy-nextjs.sh completes, the page crawler runs automatically and the deploy exits with failure if visual regressions are detected
+  4. Deploy output includes a build hash verification table showing expected vs running build on server and cloud targets
+**Plans**: TBD
+
+Plans:
+- [ ] 327-01: Claude Code enforcement hook (screenshot evidence gate for frontend claims)
+- [ ] 327-02: Deploy script integration (auto-crawl after deploy, hash verification table, regression gate)
+
+### Phase 328: AI Self-Audit
+**Goal**: James autonomously identifies pages that look wrong by comparing live screenshots against documented expected behavior
+**Depends on**: Phase 325
+**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
+**Success Criteria** (what must be TRUE):
+  1. Every critical page has a description file documenting expected layout, data sources, and key interactions
+  2. James can read a fresh screenshot via the Read tool and compare it against the page description to spot anomalies
+  3. Running the self-audit produces an anomaly report listing pages that do not match expected behavior with specific discrepancies
+  4. When James starts a session involving frontend work, the self-audit runs automatically to establish baseline awareness of current state
+**Plans**: TBD
+
+Plans:
+- [ ] 328-01: Page description files and AI self-audit workflow
+
+---
+
+### Progress Table (v43.0)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 325. Page Crawler | 0/1 | Not started | - |
+| 326. Visual Regression Tests | 0/1 | Not started | - |
+| 327. Enforcement & Deploy Integration | 0/2 | Not started | - |
+| 328. AI Self-Audit | 0/1 | Not started | - |
+
+*Last updated: 2026-04-06 -- roadmap created*

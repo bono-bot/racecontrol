@@ -1,7 +1,7 @@
 # Requirements: v43.0 Self-Audit & Visual Regression System
 
 **Defined:** 2026-04-06
-**Core Value:** James autonomously verifies all frontend pages before/after fixes — eliminating blind code-only fixes.
+**Core Value:** James autonomously verifies all frontend pages before/after fixes -- eliminating blind code-only fixes.
 
 ## v43.0 Requirements
 
@@ -24,7 +24,7 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 ### Enforcement Hooks
 
 - [ ] **HOOK-01**: Claude Code hook blocks "fixed/done/resolved" claims for frontend changes unless screenshot evidence exists
-- [ ] **HOOK-02**: Hook only triggers for frontend-related changes (Next.js, CSS, React) — not Rust backend or scripts
+- [ ] **HOOK-02**: Hook only triggers for frontend-related changes (Next.js, CSS, React) -- not Rust backend or scripts
 - [ ] **HOOK-03**: Hook checks for screenshot file newer than last code edit in session
 
 ### Deploy Integration
@@ -55,7 +55,7 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 | Feature | Reason |
 |---------|--------|
 | Cloud visual testing services (Percy, Chromatic) | Overkill for single-developer, adds external dependency |
-| BackstopJS | Redundant — Playwright already installed with same capabilities |
+| BackstopJS | Redundant -- Playwright already installed with same capabilities |
 | Cross-browser rendering comparison | All targets use same Chrome/Edge engine |
 | Video recording of page interactions | Screenshots sufficient for static verification |
 | Automated bug fixing based on visual diffs | AI identifies issues, human/James fixes them |
@@ -64,30 +64,30 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRAWL-01 | TBD | Pending |
-| CRAWL-02 | TBD | Pending |
-| CRAWL-03 | TBD | Pending |
-| CRAWL-04 | TBD | Pending |
-| VR-01 | TBD | Pending |
-| VR-02 | TBD | Pending |
-| VR-03 | TBD | Pending |
-| VR-04 | TBD | Pending |
-| HOOK-01 | TBD | Pending |
-| HOOK-02 | TBD | Pending |
-| HOOK-03 | TBD | Pending |
-| DEPLOY-01 | TBD | Pending |
-| DEPLOY-02 | TBD | Pending |
-| DEPLOY-03 | TBD | Pending |
-| AUDIT-01 | TBD | Pending |
-| AUDIT-02 | TBD | Pending |
-| AUDIT-03 | TBD | Pending |
-| AUDIT-04 | TBD | Pending |
+| CRAWL-01 | Phase 325 | Pending |
+| CRAWL-02 | Phase 325 | Pending |
+| CRAWL-03 | Phase 325 | Pending |
+| CRAWL-04 | Phase 325 | Pending |
+| VR-01 | Phase 326 | Pending |
+| VR-02 | Phase 326 | Pending |
+| VR-03 | Phase 326 | Pending |
+| VR-04 | Phase 326 | Pending |
+| HOOK-01 | Phase 327 | Pending |
+| HOOK-02 | Phase 327 | Pending |
+| HOOK-03 | Phase 327 | Pending |
+| DEPLOY-01 | Phase 327 | Pending |
+| DEPLOY-02 | Phase 327 | Pending |
+| DEPLOY-03 | Phase 327 | Pending |
+| AUDIT-01 | Phase 328 | Pending |
+| AUDIT-02 | Phase 328 | Pending |
+| AUDIT-03 | Phase 328 | Pending |
+| AUDIT-04 | Phase 328 | Pending |
 
 **Coverage:**
 - v43.0 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-06*
-*Last updated: 2026-04-06 after initial definition*
+*Last updated: 2026-04-06 after roadmap creation (all 17 requirements mapped to phases 325-328)*
