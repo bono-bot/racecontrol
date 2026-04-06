@@ -472,7 +472,7 @@ Plans:
 ### Phases
 
 - [x] **Phase 321: External Monitoring & Alert Chain** — MON-01, MON-02, MON-03, MON-04, MON-05 (completed 2026-04-06)
-- [ ] **Phase 322: MI Core Engine Migration** — MIG-01, MIG-02, MIG-03, MIG-05
+- [x] **Phase 322: MI Core Engine Migration** — MIG-01, MIG-02, MIG-03, MIG-05 (completed 2026-04-06)
 - [ ] **Phase 323: MMA Engine & Cognitive Gate Migration** — MIG-04, MIG-06
 - [ ] **Phase 324: True Mesh Intelligence** — MESH-01, MESH-02, MESH-03
 
@@ -533,7 +533,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 321. External Monitoring & Alert Chain | 3/3 | Complete   | 2026-04-06 |
-| 322. MI Core Engine Migration | 0/TBD | Not started | - |
+| 322. MI Core Engine Migration | 4/4 | Complete   | 2026-04-06 |
 | 323. MMA Engine & Cognitive Gate Migration | 0/TBD | Not started | - |
 | 324. True Mesh Intelligence | 0/TBD | Not started | - |
 
