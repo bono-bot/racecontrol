@@ -48,23 +48,39 @@ ping -n 2 127.0.0.1 >nul
 REM ─── MULTIPLAYER MODE ─────────────────────────────────────────────────────
 if /I "%MODE%"=="mp" goto :launch_mp
 
+REM ─── FIND CONTENT MANAGER ──────────────────────────────────────────────────
+REM CM is required for CSP integration. Search known locations on pods.
+set CM_EXE=
+if exist "%AC_DIR%\Content Manager.exe" set "CM_EXE=%AC_DIR%\Content Manager.exe"
+if "%CM_EXE%"=="" if exist "%USERPROFILE%\Desktop\Content Manager.exe" set "CM_EXE=%USERPROFILE%\Desktop\Content Manager.exe"
+if "%CM_EXE%"=="" if exist "%USERPROFILE%\Downloads\content-manager\Content Manager.exe" set "CM_EXE=%USERPROFILE%\Downloads\content-manager\Content Manager.exe"
+if "%CM_EXE%"=="" if exist "%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe" set "CM_EXE=%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe"
+if "%CM_EXE%"=="" if exist "C:\content-manager\Content Manager.exe" set "CM_EXE=C:\content-manager\Content Manager.exe"
+
 REM ─── SINGLE PLAYER MODE ───────────────────────────────────────────────────
+if /I "%MODE%"=="mp" goto :launch_mp
+
 :launch_sp
-echo Launching acs.exe (single player) from %AC_DIR%...
+if "%CM_EXE%"=="" goto :sp_direct
+
+REM Launch via Content Manager — race.ini already written by rc-agent
+echo Launching via Content Manager (SP): %CM_EXE%
+start "" "%CM_EXE%" --race
+REM CM takes a few seconds to parse config and launch acs.exe
+ping -n 8 127.0.0.1 >nul
+goto :verify_launch
+
+:sp_direct
+REM Fallback: direct acs.exe (no CM — CSP may not initialize properly)
+echo WARNING: Content Manager not found — launching acs.exe directly (CSP may not work)
 start "" /D "%AC_DIR%" acs.exe
 goto :verify_launch
 
 REM ─── MULTIPLAYER MODE ─────────────────────────────────────────────────────
 :launch_mp
-REM Try Content Manager first (handles server join handshake)
-set CM_EXE=
-REM Check common CM paths
-if exist "%AC_DIR%\Content Manager.exe" set CM_EXE=%AC_DIR%\Content Manager.exe
-if "%CM_EXE%"=="" if exist "%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe" set CM_EXE=%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe
-if "%CM_EXE%"=="" if exist "C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\Content Manager.exe" set CM_EXE=C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\Content Manager.exe
-
 if "%CM_EXE%"=="" goto :mp_direct
-echo Launching via Content Manager: %CM_EXE%
+
+echo Launching via Content Manager (MP): %CM_EXE%
 
 REM Build CM URI for multiplayer
 set CM_URI=acmanager://race/online?ip=%SERVER_IP%^&httpPort=%SERVER_HTTP_PORT%
@@ -77,7 +93,7 @@ goto :verify_launch
 
 REM Fallback: direct acs.exe with [REMOTE] ACTIVE=1 in race.ini
 :mp_direct
-echo Content Manager not found — launching acs.exe directly for multiplayer...
+echo WARNING: Content Manager not found — launching acs.exe directly for multiplayer
 start "" /D "%AC_DIR%" acs.exe
 goto :verify_launch
 

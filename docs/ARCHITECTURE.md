@@ -302,7 +302,7 @@ AC Engine → acpmf_* shared memory → RC Plugin (Python, 60Hz)
 
 | File | Purpose |
 |------|---------|
-| **launch-ac.bat** | VMS SimLauncher clone: SP + MP modes. cmd.exe parents acs.exe (not rc-agent). |
+| **launch-ac.bat** | VMS SimLauncher clone: SP + MP modes via Content Manager. cmd.exe parents acs.exe (not rc-agent). CM locations: Pod 1 = `SIM 1\Downloads\content-manager\`, Pods 2-8 = `User\Desktop\`. Fallback: direct acs.exe if CM not found. |
 | **steam_appid.txt** | `480` (Spacewar). Prevents Steam from killing rc-agent. VMS ships same. |
 | **rc-agent.exe.manifest** | `asInvoker` elevation. Prevents anti-cheat from flagging elevated process. |
 | **README-deploy-files.md** | Documentation for pod deploy files |
