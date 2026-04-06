@@ -31,6 +31,7 @@ mod mma_budget;
 mod mma_engine;
 mod session1_spawn;
 mod screen_verify;
+mod cognitive_gate;
 #[cfg(feature = "mesh")]
 mod mesh_client;
 
@@ -407,12 +408,14 @@ fn main() {
         }
     }
 
-    // Spawn Meshed Intelligence diagnostic engine + tier engine (Phase 322)
+    // Spawn Meshed Intelligence diagnostic engine + tier engine + MMA engine (Phase 322/323)
     mi_debug_state::init();
     let (mi_trigger_tx, mi_trigger_rx) = std::sync::mpsc::channel();
+    let (mma_tx, mma_rx) = std::sync::mpsc::channel::<rc_common::diagnostic_types::TierDiagnosis>();
     mi_diagnostic_engine::spawn(mi_trigger_tx);
-    mi_tier_engine::spawn(mi_trigger_rx);
-    tracing::info!("MI diagnostic engine + tier engine spawned");
+    mi_tier_engine::spawn(mi_trigger_rx, mma_tx);
+    mma_engine::spawn(mma_rx);
+    tracing::info!("MI diagnostic engine + tier engine + MMA engine spawned");
 
     const MAX_CONCURRENT_CONNECTIONS: usize = 32;
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();

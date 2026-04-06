@@ -58,7 +58,11 @@ pub enum TierResult {
 
 /// Spawn the tier engine thread.
 /// Listens for DiagnosticTrigger events on `trigger_rx` and runs diagnosis.
-pub fn spawn(trigger_rx: Receiver<DiagnosticTrigger>) {
+/// When Tier 3/4 stubs fire, forwards to MMA engine via `mma_tx`.
+pub fn spawn(
+    trigger_rx: Receiver<DiagnosticTrigger>,
+    mma_tx: std::sync::mpsc::Sender<TierDiagnosis>,
+) {
     std::thread::Builder::new()
         .name("sentry-tier-engine".to_string())
         .spawn(move || {
@@ -90,6 +94,24 @@ pub fn spawn(trigger_rx: Receiver<DiagnosticTrigger>) {
                 let diagnosis = run_diagnosis(&trigger);
                 crate::mi_debug_state::record_diagnosis(&diagnosis);
 
+                // If diagnosis resulted in a stub (Tier 3+), forward to MMA engine
+                if diagnosis.outcome == "stub" && diagnosis.tier >= 3 {
+                    let mma_diag = build_mma_diag(&trigger, diagnosis.tier);
+                    if let Err(e) = mma_tx.send(mma_diag) {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            error = %e,
+                            "Failed to send to MMA engine — channel closed"
+                        );
+                    } else {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            tier = diagnosis.tier,
+                            "Forwarded to MMA engine for Tier 3/4 diagnosis"
+                        );
+                    }
+                }
+
                 tracing::info!(
                     target: LOG_TARGET,
                     tier = diagnosis.tier,
@@ -105,6 +127,22 @@ pub fn spawn(trigger_rx: Receiver<DiagnosticTrigger>) {
             );
         })
         .expect("spawn sentry-tier-engine thread");
+}
+
+/// Build a TierDiagnosis to forward to MMA engine.
+fn build_mma_diag(trigger: &DiagnosticTrigger, tier: u8) -> TierDiagnosis {
+    TierDiagnosis {
+        trigger: trigger.clone(),
+        tier,
+        outcome: "mma-pending".to_string(),
+        action: "forwarded-to-mma-engine".to_string(),
+        root_cause: String::new(),
+        fix_type: String::new(),
+        confidence: 0.0,
+        fix_applied: false,
+        problem_hash: rc_common::diagnostic_types::normalize_problem_key(trigger),
+        timestamp: ist_now(),
+    }
 }
 
 /// Run the full diagnosis cascade for a trigger.
