@@ -20,6 +20,8 @@ tracing-subscriber = { workspace = true }
 sysinfo = "0.33"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls", "json"], default-features = false }
+rand = { version = "0.8", features = ["small_rng"] }
 tungstenite = { version = "0.26", optional = true }
 hmac = { version = "0.12", optional = true }
 
