@@ -251,7 +251,7 @@ Fields to check per pod: `ws_connected`, `http_reachable`, `build_id`, `uptime_s
 | 6 | 192.168.31.87 | 100.127.149.17 | `ssh pod6` |
 | 7 | 192.168.31.38 | 100.82.196.28 | `ssh pod7` |
 | 8 | 192.168.31.91 | 100.98.67.67 | `ssh pod8` |
-| POS | 192.168.31.20 | 100.95.211.1 | `ssh pos` |
+| POS | 192.168.31.130 (was .20, WiFi DHCP) | 100.95.211.1 | `ssh pos` (SSH down as of D3 audit) |
 
 ### Decision tree: Pod not responding
 
@@ -395,7 +395,8 @@ grep "cloud_sync" racecontrol-*.jsonl | tail -5
 - **Mesh gossip:** INCOMPLETE — skeleton, no fleet consensus
 
 ### Known MI issues
-- Ollama URL wrong on deployed pods (ecosystem audit finding)
+- ~~Ollama URL wrong on deployed pods~~ — STALE: verified correct (`192.168.31.27:11434`) on Pod 1 + Pod 8 (D3 audit 2026-04-06)
+- Model on pods is `qwen2.5:3b` (matches installed Ollama models on James)
 - No OpenRouter key on pods = zero Tier 4
 - Knowledge base may be empty on most pods
 
@@ -416,15 +417,17 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 
 ## Current System Status (UPDATE THIS SECTION after every session)
 
-**Last updated:** 2026-04-06 18:34 IST
+**Last updated:** 2026-04-06 20:50 IST (D3 Pod Fleet Health audit)
 
 ### Deployed Builds
 | Target | Build | Date |
 |--------|-------|------|
 | Server .23 | `70626c9c` | 2026-04-06 |
-| Pods 1-8 | `f05e324e` | 2026-04-06 |
-| POS .20 | `c31997c0` | unknown |
+| Pods 1-8 (rc-agent) | `f05e324e` | 2026-04-06 |
+| Pods 1-8 (rc-sentry) | Mixed: `e70707c1` (Pod1), `75b6b3fa` (2-4,8), `31dd28c0` (5-7) | pre-2026-04-06 |
+| POS .130 (was .20) | `c31997c0` | unknown |
 | Cloud (Bono VPS) | `8a94395e` | 2026-04-06 |
+| James rc-watchdog | Fresh build from `f05e324e` HEAD | 2026-04-06 |
 
 ### Open Issues (actively broken or unverified)
 
@@ -434,21 +437,26 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 | 2 | Pod 2 different AC error dialog | Game Launch | P1 | UNVERIFIED | project_game_launch_testing.md |
 | 3 | Game exits after load on some pods | Game Launch | P1 | UNVERIFIED | project_game_launch_testing.md |
 | 4 | venue_id column WARN in server logs | Server | P2 | CODE FIX `b49998c5` — needs deploy | — |
-| 5 | 23+ lock-across-await remain in codebase | Code Quality | P2 | KNOWN | project_launch_resilience_gaps.md |
-| 6 | MI Tier 3 Ollama URL wrong on pods | MI | P2 | FOUND IN AUDIT | project_ecosystem_audit_20260404.md |
+| 5 | 1 lock-across-await in ws_handler.rs (game_launch_mutex held 648 lines) | Code Quality | P2 | KNOWN — was 23+, now 1 after `e3d1ae76` | project_launch_resilience_gaps.md |
 | 7 | MI Tier 4/5 mostly stub | MI | P3 | BY DESIGN | — |
 | 8 | Mesh gossip incomplete | MI | P3 | BY DESIGN | — |
 | 9 | Per-minute billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
-| 10 | rc-sentry, rc-sentry-ai not audited | Audit | P2 | GAP | project_ecosystem_audit_20260404.md |
+| 10 | rc-sentry fleet has 3 different builds, all missing latest 3 fix commits | Audit | P2 | D3 FINDING | — |
 | 11 | BILL-13 deferred billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
 | 12 | Wallet topup from POS not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
 | 13 | Linked racers wallet resolution not tested | Billing | P2 | COMMITTED | — |
 | 14 | Orphan auto-end incomplete cleanup | Billing | P2 | CODE FIX `bc100be7` — needs deploy | — |
+| 15 | POS rc-agent 20 commits behind pods (`c31997c0` vs `f05e324e`) | Pod Health | P2 | D3 FINDING — needs venue deploy | — |
+| 16 | POS SSH unreachable (IP changed .20→.130, WiFi DHCP) | Pod Health | P2 | D3 FINDING | — |
+| 17 | go2rtc frame endpoint returns 0 bytes (service runs, no frames) | Infrastructure | P3 | D3 FINDING — rc-watchdog correctly reports DOWN | — |
+| 18 | rc-watchdog boot persistence: HKCU Run key only (no admin schtask) | Infrastructure | P3 | D3 PARTIAL FIX — needs admin for schtask | — |
 
 ### Resolved Issues (recently closed — reference only)
 
 | Issue | Resolution | Commit | Date |
 |-------|-----------|--------|------|
+| MI Tier 3 Ollama URL wrong on pods (was #6) | STALE — URL is correct (`192.168.31.27:11434`), verified on Pod 1 + Pod 8 | D3 audit | 2026-04-06 |
+| rc-watchdog stale build on James | Killed Mar-31 instance (PID 19132), started fresh build, added HKCU Run key | D3 audit | 2026-04-06 |
 | PausedDisconnect kills session on reconnect | Per-disconnect pause_seconds timeout + orphan cleanup | `bc100be7` | 2026-04-06 |
 | Agent dies during AC launch | SHM access violation fix | multiple | 2026-04-06 |
 | Watchdog Session 0 broken | CreateProcessAsUser fix | multiple | 2026-04-06 |
