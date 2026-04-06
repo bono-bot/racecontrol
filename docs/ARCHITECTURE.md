@@ -234,7 +234,11 @@ pub struct AppState {
 | **game_launcher.rs** | GameManager — route launches to pods via WS |
 | **game_doctor.rs** | Diagnose game launch failures |
 | **pod_monitor.rs** | Heartbeat polling (:8090/health every 10s) |
-| **pod_healer.rs** | Auto-restart failing pods (detect offline, retry with backoff) |
+| **pod_healer.rs** | 3-tier graduated recovery: Tier 1 restart via sentry → Tier 2 WoL → Tier 3 AI + WhatsApp |
+| **fleet_healer.rs** | Correlated failure detection (3+ pods same symptom = fleet-wide pattern), SSH repair dispatch |
+| **fleet_kb.rs** | Mesh intelligence KB: fleet_solutions, fleet_experiments, audit_known_issues tables |
+| **wol.rs** | Wake-on-LAN: context-aware magic packet with MAINTENANCE_MODE/OTA pre-checks |
+| **lobby.rs** | Synchronous multiplayer lobby (LobbyManager, ready-check, 120s timeout) |
 | **auth/middleware.rs** | JWT validation, RBAC (customer, cashier, manager, superadmin) |
 | **auth/rate_limit.rs** | tower_governor rate limiting per IP |
 | **mesh_handler.rs** | Pod gossip aggregation, distributed learning |
@@ -251,22 +255,57 @@ pub struct AppState {
 
 | Module | Purpose |
 |--------|---------|
-| **ac_launcher.rs** | Assetto Corsa process spawning |
+| **ac_launcher.rs** | VMS SimLauncher clone: zero-block launch via `launch-ac.bat` subprocess. Config writing + bat spawn + immediate return (<1s). Event loop discovers PID. |
 | **game_process.rs** | Generic game execution framework |
-| **lock_screen.rs** | Windows blanking/kiosk mode via Edge |
+| **lock_screen.rs** | Windows blanking/kiosk mode via Edge. NVIDIA Surround failure detection. |
 | **overlay.rs** | HUD overlay (league table, FFB meter) |
 | **driving_detector.rs** | Steering wheel input monitoring (OpenFFBoard) |
 | **ffb_controller.rs** | Force feedback tuning (NM adjustment) |
 | **diagnostic_engine.rs** | AI-driven self-healing (Tier 1-4) |
 | **knowledge_base.rs** | Local SQLite KB for Tier 2 diagnostics |
 | **process_guard.rs** | Allowlist enforcement (fetch from server every 5min) |
+| **safe_mode.rs** | WMI watcher for anti-cheat safe mode. Tasklist fallback if PowerShell fails. |
 | **remote_ops.rs** | HTTP server (:8090, receives commands from server/sentry) |
-| **ws_handler.rs** | WebSocket message handling |
+| **ws_handler.rs** | WebSocket handling + GAME_LAUNCHING sentinel (RAII guard) |
+| **csv_lap_fallback.rs** | VMS pattern: saves laps to `C:\RacingPoint\laps-offline.csv` when WS disconnected |
+| **off_track_detector.rs** | Debounced isValidLap transition detection (1s on, 0.5s off) |
+| **launch_verifier.rs** | 4-stage launch verification: ProcessAlive → SharedMemory → OnTrack |
 | **dxgi_capture.rs** | D3D11 desktop screenshot for diagnostics |
 | **self_heal.rs** | Tier 1 deterministic fixes (kill orphans, clear temp) |
-| **launch_verifier.rs** | Post-launch window detection |
 | **inactivity_monitor.rs** | Detect idle sessions (5min -> auto-stop) |
 | **session_enforcer.rs** | Billing session lifecycle |
+
+### AC Python Plugin (`plugins/assetto_corsa/`)
+
+Runs INSIDE the AC process. VMS `SPageFile_VMSC_AC` clone.
+
+| File | Purpose |
+|------|---------|
+| **RaceControl.py** | Entry point: acMain, acUpdate, acShutdown + render callback |
+| **rclib/classes.py** | Shared memory struct: 64-car CarData, BoardData leaderboard, camera control |
+| **rclib/telemetry.py** | Writer: spin-wait protocol, on-track via render timing, multi-car, leaderboard |
+
+**Shared memory:** `rcpmf_telemetry` — rc-agent reads this instead of `acpmf_*` directly.
+
+**Status protocol (7 states):** UNINITIALIZED(0), BLANKED(1), WRITING(2), READING(3), IDLE(4), INVALID(5), SHUTDOWN(6)
+
+**Data flow:**
+```
+AC Engine → acpmf_* shared memory → RC Plugin (Python, 60Hz)
+  → rcpmf_telemetry (custom shared memory with 64 cars + leaderboard)
+  → rc-agent reads safely (no raw pointer crash risk)
+  → WS to server → dashboard/leaderboard/spectator
+  → CSV fallback on WS disconnect
+```
+
+### Deploy Files (`deploy/`)
+
+| File | Purpose |
+|------|---------|
+| **launch-ac.bat** | VMS SimLauncher clone: SP + MP modes. cmd.exe parents acs.exe (not rc-agent). |
+| **steam_appid.txt** | `480` (Spacewar). Prevents Steam from killing rc-agent. VMS ships same. |
+| **rc-agent.exe.manifest** | `asInvoker` elevation. Prevents anti-cheat from flagging elevated process. |
+| **README-deploy-files.md** | Documentation for pod deploy files |
 
 ---
 
@@ -313,9 +352,12 @@ Supports current + previous secret for grace period during key rotation.
 - **rc-agent self_monitor** — detects own health degradation
 - **RCWatchdog** (Windows Service) — restarts rc-agent in Session 1 after crash
 - **rc-sentry** — exec daemon, can restart rc-agent from outside
-- **server pod_monitor** — heartbeat polling, WoL for offline pods
+- **server pod_healer** — 3-tier graduated recovery: Tier 1 restart via sentry → Tier 2 WoL → Tier 3 AI + WhatsApp
+- **server fleet_healer** — correlated failure detection (3+ pods same symptom = fleet-wide pattern)
 - **rc-watchdog on James** — monitors fleet, AI diagnosis, escalation
-- **MAINTENANCE_MODE** sentinel — blocks restarts after 3 crashes in 10min
+- **MAINTENANCE_MODE** sentinel — blocks restarts after 3 crashes in 10min (auto-clears after 30min)
+- **GAME_LAUNCHING** sentinel — RAII guard in ws_handler, suppresses watchdog restart during game launch (5min TTL)
+- **SetConsoleCtrlHandler** — logs `termination.log` on external kill, cleans sentinels before exit
 
 **WARNING:** These systems can fight each other. See CLAUDE.md "Cross-Process Recovery Awareness".
 
@@ -359,11 +401,16 @@ touch crates/<crate>/build.rs
 3. **Never hold lock across `.await`** — Clone in tight `{}` block
 4. **SQLx compile-time validation** — `query_as!()` macros
 5. **Feature flags at runtime** — Single binary, runtime toggling (FF-01+)
-6. **Sentinel files** — MAINTENANCE_MODE, OTA_DEPLOYING, RCAGENT_SELF_RESTART
+6. **Sentinel files** — MAINTENANCE_MODE, OTA_DEPLOYING, GAME_LAUNCHING, HEAL_IN_PROGRESS, RCAGENT_SELF_RESTART (RAII guards with TTL auto-expiry)
 7. **Boot resilience** — `spawn_periodic_refetch()` for any data fetched at startup
 8. **Service key auth** — Constant-time comparison for inter-service HTTP
 9. **Mesh gossip** — Pods learn from each other via aggregated error patterns
 10. **Cloud sync dual authority** — Venue authoritative on billing/laps, cloud on drivers/pricing
+11. **VMS zero-block launch** — `launch-ac.bat` is a transient subprocess (like VMS SimLauncher). rc-agent spawns it and returns in <1s. Event loop discovers game PID via `find_game_pid()`.
+12. **SetConsoleCtrlHandler** — Logs termination reason (Ctrl+C, Close, Logoff, Shutdown, taskkill) to `termination.log` and cleans sentinel files before dying
+13. **CSV lap fallback** — Laps saved to `laps-offline.csv` when WS disconnected. Never lose lap data.
+14. **AC plugin shared memory** — Custom `rcpmf_telemetry` buffer with 64-car array, leaderboard, camera control. Spin-wait protocol prevents reader/writer races. rc-agent reads this instead of `acpmf_*` directly.
+15. **asInvoker manifest** — External `.manifest` file prevents Windows from elevating rc-agent (anti-cheat compatibility, VMS pattern)
 
 ---
 

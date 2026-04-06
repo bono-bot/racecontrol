@@ -1,0 +1,88 @@
+{
+  "findings": [
+    {
+      "id": "vms-gap-game-launching-sentinel",
+      "problem_key": "watchdog_kills_agent_during_launch",
+      "severity": "P0",
+      "symptom_patterns": ["agent dies during game launch", "rc-agent killed during AC", "watchdog restart during launch", "health timeout during game"],
+      "root_cause": "Watchdog polled /health during launch_ac() blocking. Health timeout triggered false restart. Fixed: GAME_LAUNCHING sentinel (RAII guard) suppresses watchdog during launch.",
+      "fix_description": "GAME_LAUNCHING sentinel in ws_handler.rs (RAII guard with 5min TTL). Watchdog reads sentinel at service.rs:293 and skips restart cycle.",
+      "fix_status": "code_fixed",
+      "fixed_in_build": "8510946f",
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "GAME_LAUNCHING sentinel fix deployed in build 8510946f. If this symptom recurs, check: (1) sentinel file at C:\\RacingPoint\\GAME_LAUNCHING exists during launch, (2) watchdog logs show 'skipping restart+rollback', (3) sentinel TTL hasn't expired (5min max)."
+    },
+    {
+      "id": "vms-gap-zero-block-launch",
+      "problem_key": "launch_ac_blocks_http_server",
+      "severity": "P0",
+      "symptom_patterns": ["agent unresponsive during launch", "health check fails during game start", "HTTP timeout 8090 during AC"],
+      "root_cause": "launch_ac() blocked for 40s+ (polling + stability check). HTTP server on same thread couldn't respond. Fixed: zero-block launch via bat subprocess + event loop PID discovery.",
+      "fix_description": "launch_ac() now returns in <1s. Bat subprocess handles kill+launch. Event loop discovers PID via find_game_pid(). Post-launch window management done by periodic tick.",
+      "fix_status": "code_fixed",
+      "fixed_in_build": "b688c3ea",
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "Zero-block launch deployed in b688c3ea. Agent should return from launch_ac() in <1s. If blocking recurs, check: launch-ac.bat exists at C:\\RacingPoint\\, event loop WaitingForLive state transitions."
+    },
+    {
+      "id": "vms-gap-csv-lap-fallback",
+      "problem_key": "lap_data_lost_on_ws_disconnect",
+      "severity": "P1",
+      "symptom_patterns": ["lap not recorded", "missing lap data", "WS disconnect lap lost", "lap time not saved"],
+      "root_cause": "LapCompleted sent only via WS. If WS disconnected, lap data silently dropped. Fixed: CSV fallback saves to laps-offline.csv when send fails.",
+      "fix_description": "csv_lap_fallback.rs: saves lap to C:\\RacingPoint\\laps-offline.csv when ws_tx.send() fails. VMS pattern — laps are never lost.",
+      "fix_status": "code_fixed",
+      "fixed_in_build": "d697bc91",
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "CSV lap fallback deployed in d697bc91. Check C:\\RacingPoint\\laps-offline.csv for unsync'd laps. TODO: implement sync-back on WS reconnect."
+    },
+    {
+      "id": "vms-gap-wmi-safe-mode-silent-fail",
+      "problem_key": "safe_mode_wmi_watcher_fails_silently",
+      "severity": "P1",
+      "symptom_patterns": ["process guard kills game", "game killed by process_guard", "WMI watcher not running", "PowerShell failed to start"],
+      "root_cause": "If PowerShell WMI watcher fails to start, no error visible. Process guard runs during protected game launch. Fixed: tasklist fallback poller (5s) detects protected games without WMI.",
+      "fix_description": "safe_mode.rs: spawn_tasklist_fallback() polls tasklist every 5s for protected game exe names. Used when WMI watcher fails.",
+      "fix_status": "code_fixed",
+      "fixed_in_build": "d697bc91",
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "Tasklist fallback deployed in d697bc91. If safe mode still not activating: check rc-agent logs for 'Tasklist fallback' messages. Verify PROTECTED_EXE_NAMES list matches actual game .exe names."
+    },
+    {
+      "id": "vms-gap-termination-detection",
+      "problem_key": "agent_killed_externally_no_log",
+      "severity": "P1",
+      "symptom_patterns": ["agent disappeared", "rc-agent died silently", "no crash log", "process killed no trace"],
+      "root_cause": "External taskkill or system shutdown killed rc-agent with no log. Fixed: SetConsoleCtrlHandler logs termination reason to termination.log and cleans sentinel files.",
+      "fix_description": "main.rs: SetConsoleCtrlHandler catches CTRL_C, CTRL_CLOSE, CTRL_LOGOFF, CTRL_SHUTDOWN. Writes to C:\\RacingPoint\\termination.log with reason code and timestamp.",
+      "fix_status": "code_fixed",
+      "fixed_in_build": "8510946f",
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "Check C:\\RacingPoint\\termination.log for last kill reason. If file absent, the process was killed by TerminateProcess (bypasses ctrl handler). Check Sysmon or Event Viewer."
+    },
+    {
+      "id": "vms-gap-edge-blanking",
+      "problem_key": "edge_blanking_unreliable",
+      "severity": "P0",
+      "symptom_patterns": ["blanking not showing", "desktop visible", "Edge crashed", "SNSS restore", "blanking slow start", "edge_process_count 0"],
+      "root_cause": "Edge browser blanking uses ~300MB RAM, 2-5s cold start, SNSS session restore, state race (state=Blank before browser verified). VMS uses native MFC dialog (~5MB, instant). This is NOT YET FIXED — it is a known architectural gap.",
+      "fix_description": "NOT FIXED. Requires replacing Edge with native Win32 fullscreen window (CBlankingDlg equivalent). Workarounds: SNSS cleanup, Preferences patching, predictive_maintenance edge count check.",
+      "fix_status": "pending",
+      "fixed_in_build": null,
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "KNOWN GAP: Edge blanking is unreliable. Check edge_process_count at :18924/debug. If 0 with state=blanked, Edge launch failed. Temporary fix: restart rc-agent. Permanent fix: native Win32 blanking (not yet implemented)."
+    },
+    {
+      "id": "vms-gap-binary-rename",
+      "problem_key": "rollback_renames_running_binary",
+      "severity": "P1",
+      "symptom_patterns": ["rc-agent-failed.exe", "binary rename during launch", "rollback corrupted binary"],
+      "root_cause": "rollback_manager.rs renames rc-agent.exe → rc-agent-failed.exe on crash detection. VMS never renames binaries. If rollback triggers during launch timeout, can corrupt running process. NOT YET FIXED.",
+      "fix_description": "NOT FIXED. Requires disabling binary rename in rollback_manager.rs (VMS pattern: single binary, SCM restart only).",
+      "fix_status": "pending",
+      "fixed_in_build": null,
+      "affects_targets": ["pod_1","pod_2","pod_3","pod_4","pod_5","pod_6","pod_7","pod_8"],
+      "escalation_message": "KNOWN GAP: rollback_manager may rename rc-agent.exe during launch. If rc-agent-failed.exe exists alongside rc-agent.exe, a rollback was triggered. Check rollback-state.json for depth count."
+    }
+  ]
+}
