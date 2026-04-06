@@ -6,6 +6,23 @@
 
 ---
 
+## Reference Docs (read thoroughly, not skim)
+
+Before debugging, read the relevant docs from `docs/`:
+
+| Doc | When to read | Lines |
+|-----|-------------|-------|
+| `ARCHITECTURE.md` | EVERY session — system overview, crate map, topology, WS protocol, recovery tiers, network map | 434 |
+| `ERROR-CATALOG.md` | When you see an error — known root causes + fixes indexed by symptom | ~320 |
+| `SERVICE-REFERENCE.md` | When debugging a specific binary — modules, config, ports, common failures | ~420 |
+| `DATA-FLOW-DIAGRAMS.md` | When tracing a data flow bug — 9 diagrams showing where data breaks | ~530 |
+| `LOG-LOCATIONS.md` | When you need to find evidence — every log file on every machine | ~200 |
+| `API.md` | When debugging an endpoint — all ~403 routes across 7 auth tiers | varies |
+
+**Order:** ARCHITECTURE (understand the system) → ERROR-CATALOG (known issue?) → LOG-LOCATIONS (find evidence) → SERVICE-REFERENCE (understand the binary) → DATA-FLOW-DIAGRAMS (trace the flow).
+
+---
+
 ## Step 0 — Has This Been Solved Before? (MANDATORY — do this FIRST)
 
 Before investigating ANYTHING:
