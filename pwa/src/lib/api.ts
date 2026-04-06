@@ -727,6 +727,7 @@ export const api = {
   // Registration
   register: (data: {
     name: string;
+    phone: string;
     nickname?: string;
     dob: string;
     email?: string;

@@ -7,6 +7,7 @@ import { api, isLoggedIn } from "@/lib/api";
 export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
   const [email, setEmail] = useState("");
   const [guardianName, setGuardianName] = useState("");
@@ -47,6 +48,10 @@ export default function RegisterPage() {
       setError("Date of birth is required");
       return;
     }
+    if (phone.length !== 10 || !/^[6-9]/.test(phone)) {
+      setError("Enter a valid 10-digit Indian mobile number");
+      return;
+    }
     if (!waiverConsent) {
       setError("You must accept the safety waiver");
       return;
@@ -62,6 +67,7 @@ export default function RegisterPage() {
     try {
       const res = await api.register({
         name: name.trim(),
+        phone: phone.trim(),
         dob,
         email: email.trim() || undefined,
         waiver_consent: waiverConsent,
@@ -123,6 +129,19 @@ export default function RegisterPage() {
           onChange={(e) => setDob(e.target.value)}
           max={new Date().toISOString().split("T")[0]}
           className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-rp-red transition-colors mb-5 [color-scheme:dark]"
+        />
+
+        {/* Phone Number */}
+        <label className="block text-sm font-medium text-neutral-400 mb-2">
+          Phone Number *
+        </label>
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="10-digit mobile number"
+          className="w-full bg-rp-card border border-rp-border rounded-xl px-4 py-3.5 text-white placeholder-zinc-600 focus:outline-none focus:border-rp-red transition-colors mb-5"
         />
 
         {/* Minor warning + guardian fields */}
@@ -189,7 +208,7 @@ export default function RegisterPage() {
 
         <button
           onClick={handleSubmit}
-          disabled={loading || !waiverConsent || name.trim().length < 2 || !dob}
+          disabled={loading || !waiverConsent || name.trim().length < 2 || !dob || phone.length !== 10}
           className="w-full bg-rp-red text-white font-semibold py-4 rounded-xl disabled:opacity-50 active:bg-rp-red-light transition-colors text-lg"
         >
           {loading ? "Registering..." : "Complete Registration"}

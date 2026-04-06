@@ -13,5 +13,6 @@ pub mod mesh_types;
 pub mod survival_types;
 pub mod fleet_event;
 pub mod safety;
+pub mod diagnostic_types;
 #[cfg(feature = "tokio")]
 pub mod boot_resilience;

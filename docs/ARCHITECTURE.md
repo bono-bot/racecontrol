@@ -1127,23 +1127,38 @@ GSD ("Get Stuff Done") is the AI-assisted development methodology used for all R
 | `UI-SPEC.md` | `.planning/phases/<N>/` | Frontend design contract |
 | `UI-REVIEW.md` | `.planning/phases/<N>/` | Post-build visual audit |
 
-### 20.3 Shipped Milestones (34 total)
+### 20.3 Shipped Milestones (49+ total, updated 2026-04-06)
 
 Key milestones in shipping order (most recent first):
 
-| Version | Name | Phases | Key Deliverable |
-|---------|------|--------|-----------------|
-| v36.0 | Config Management & Policy Engine | 295-299 | AgentConfig, server-pushed config, game presets, policy rules |
-| v34.0 | Time-Series Metrics & Dashboards | 285-291 | SQLite TSDB, dashboard, Prometheus, WhatsApp alerts |
-| v28.0 | Leaderboard & Telemetry | 251-255 | Telemetry persistence, driver ratings, real-time WS |
-| v27.0 | Workflow Integrity & Compliance | 251-260 | DB foundation, financial atomicity, FSM hardening, security |
-| v26.0 | Meshed Intelligence | 229-240 | 5-tier AI diagnosis, 9 modules, gossip mesh |
-| v22.0 | Feature Management & OTA | — | Feature flags, OTA pipeline, standing rules |
-| v20.0 | Admin Dashboard | — | Fleet/billing/drivers/events/games/control room |
-| v19.0 | Cafe Inventory & Ordering | — | Menu/inventory/ordering/receipts/promotions |
-| v18.0 | Seamless Execution | — | Relay, chain orchestration, quality gates |
-| v17.0 | Cloud Platform | — | VPS deploy, PWA at racingpoint.cloud |
-| v3.0 | Billing & POS | — | Wallet, sessions, kiosk/web/admin POS |
+| Version | Name | Phases | Shipped | Key Deliverable |
+|---------|------|--------|---------|-----------------|
+| v43.0 | Self-Audit & Visual Regression | 325-328 | 2026-04-06 | Page crawler, visual regression, deploy enforcement, AI self-audit |
+| v40.0 | Game Launch Reliability | 311-314 | 2026-04-03 | WS ACK protocol, GameState resilience, billing atomicity |
+| v39.0 | Session Trace ID & Metrics | 310 | 2026-04-02 | session_id propagation for E2E traceability |
+| v38.0 | Security Hardening & Ops Maturity | 305-309 | 2026-04-02 | mTLS, WS auth, RBAC, audit logs, security audit script |
+| v37.0 | Data Resilience & Multi-Venue Prep | 300-303 | 2026-04-02 | SQLite backup, cloud sync v2, event archive, multi-venue schema |
+| v36.0 | Config Management & Policy Engine | 295-299 | 2026-04-01 | AgentConfig, server-pushed config, game presets, policy rules |
+| v35.0 | Structured Retraining & Model Lifecycle | 290-294 | 2026-04-01 | Model evaluation store, KB promotion, retrain data export |
+| v34.0 | Time-Series Metrics & Dashboards | 285-291 | 2026-04-01 | SQLite TSDB, dashboard, Prometheus, WhatsApp alerts |
+| v32.0 | Autonomous Meshed Intelligence | 273-279 | 2026-04-01 | MI wire producers, intelligence report v2 |
+| v31.0 | Autonomous Survival System | 265-268 | 2026-04-06 | Server deployed, closed (pods have newer builds) |
+| v28.0 | Leaderboard & Telemetry | 251-255 | 2026-03-29 | Telemetry persistence, driver ratings, real-time WS |
+| v27.0 | Workflow Integrity & Compliance | 251-260 | 2026-03-29 | DB foundation, financial atomicity, FSM hardening, security |
+| v26.0 | Meshed Intelligence | 229-240 | 2026-03-28 | 5-tier AI diagnosis, 9 modules, gossip mesh |
+| v25.0 | Debug-First-Time-Right | — | 2026-03-26 | Error catalog, diagnostic playbook, log locations |
+| v24.0 | Game Launch & Billing Rework | 195-201 | 2026-03-26 | PlayableSignal, launch flow rework |
+| v23.0 | Audit Protocol v4.0 | — | 2026-03-25 | 60-phase automated runner, parallel engine |
+| v22.0 | Feature Management & OTA | — | 2026-03-25 | Feature flags, OTA pipeline, standing rules |
+| v20.0 | Admin Dashboard | — | 2026-03-24 | Fleet/billing/drivers/events/games/control room |
+| v19.0 | Cafe Inventory & Ordering | — | 2026-03-22 | Menu/inventory/ordering/receipts/promotions |
+| v18.0 | Seamless Execution | — | 2026-03-22 | Relay, chain orchestration, quality gates |
+| v17.0 | Cloud Platform | — | 2026-03-22 | VPS deploy, PWA at racingpoint.cloud |
+| v3.0 | Billing & POS | — | 2026-03-24 | Wallet, sessions, kiosk/web/admin POS |
+
+**Active milestones:** v42.0 MI Migration (0/4 phases — only remaining active milestone)
+
+**Standing rule:** After completing any milestone via `/gsd:complete-milestone`, update BOTH this table AND `~/.claude/projects/C--Users-bono/memory/gsd-projects.md`.
 
 ### 20.4 Subagent Gates (Mandatory per phase type)
 
