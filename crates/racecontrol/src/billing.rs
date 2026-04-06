@@ -1215,6 +1215,36 @@ pub async fn handle_game_status_update(
                 }
             }
         }
+        AcStatus::Error => {
+            // Launch failed (timeout or process died) — clean up waiting state, no charge
+            tracing::warn!("Pod {} launch FAILED (AcStatus::Error) — cleaning up, no charge", pod_id);
+            // Remove from waiting_for_game if still pending
+            let removed = state.billing.waiting_for_game.write().await.remove(pod_id);
+            if let Some(entry) = removed {
+                tracing::info!("Cleaned up waiting_for_game for pod {} (was waiting {}ms)",
+                    pod_id, entry.waiting_since.elapsed().as_millis());
+                // If pre-committed (kiosk staff path), refund the wallet debit
+                if let Some(ref pre_data) = entry.pre_committed {
+                    tracing::warn!("Pod {} had pre-committed session {} — needs refund", pod_id, pre_data.session_id);
+                    // Mark session as cancelled in DB
+                    let _ = sqlx::query(
+                        "UPDATE billing_sessions SET status = 'cancelled', ended_at = datetime('now') WHERE id = ? AND status = 'pending'",
+                    )
+                    .bind(&pre_data.session_id)
+                    .execute(&state.db)
+                    .await
+                    .map_err(|e| tracing::error!("Failed to cancel pre-committed session {}: {}", pre_data.session_id, e));
+                }
+            }
+            // Also clear GameTracker state so the pod isn't stuck in "Launching"
+            {
+                let mut games = state.game_launcher.active_games.write().await;
+                if let Some(tracker) = games.get_mut(pod_id) {
+                    tracker.game_state = rc_common::types::GameState::Idle;
+                    tracing::info!("GameTracker reset to Idle for pod {} after launch error", pod_id);
+                }
+            }
+        }
     }
 }
 
