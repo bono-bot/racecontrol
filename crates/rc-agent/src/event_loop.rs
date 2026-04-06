@@ -223,9 +223,11 @@ pub async fn run(
                 // Check exec sentinel flags (bypasses WS command channel)
                 if crate::remote_ops::BLANK_SCREEN_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
                     let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
-                    if !billing_on && state.lock_screen.is_idle_or_blanked() {
+                    if !billing_on {
                         tracing::info!(target: LOG_TARGET, "Blanking screen via exec sentinel");
                         state.lock_screen.show_blank_screen();
+                    } else {
+                        tracing::warn!(target: LOG_TARGET, "RCAGENT_BLANK_SCREEN ignored — billing active");
                     }
                 }
                 if crate::remote_ops::CLEAR_SCREEN_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
