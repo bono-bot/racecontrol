@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-06 23:30 IST | James | c036768c | fix: 3 per-minute billing bugs (P1 money-loss). BUG1: finalize_billing_start() hardcoded billing_mode="package" — per-minute sessions via kiosk path expired instantly (0s play, ₹100 charged). BUG2: compute_refund() returned 0 for per-minute (allocated=0 guard). BUG3: hardcoded rates in compute_refund. New: compute_per_minute_refund(), BillingStartData carries per-minute fields, 3 refund paths fixed. 13/13 billing tests pass. |
 | 2026-04-06 22:49 IST | James | d324e4e5 | feat: PWA registration phone field + GSD quick task plans. Session fixes: wallet topup field name (f01bd396), data retention anonymization (06bd78bc), cloud racecontrol rebuilt+deployed (07e98db8), web dashboard rebuilt+deployed to server .23. Playwright verified: billing Cash topup works (no 422). |
 | 2026-04-06 22:20 IST | James | f01bd396 | fix: WalletTopupModal.tsx sent payment_method but server TopupRequest expects method → 422 "missing field method". Changed to method. Web dashboard rebuilt+deployed to .23. |
 | 2026-04-06 21:40 IST | James | 06bd78bc | fix: data retention job anonymized newly registered drivers (LEGAL-08). last_activity_at IS NULL matched unraced customers. Added created_at check. Restored "Uday Singh Test" data on cloud+venue. |

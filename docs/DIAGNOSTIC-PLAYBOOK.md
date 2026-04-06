@@ -479,9 +479,9 @@ go2rtc started from HKLM Run key (`start-go2rtc.bat`) can end up in Session 0 wh
 | 5 | 1 lock-across-await in ws_handler.rs (game_launch_mutex held 648 lines) | Code Quality | P2 | KNOWN — was 23+, now 1 after `e3d1ae76` | project_launch_resilience_gaps.md |
 | 7 | MI Tier 4/5 mostly stub | MI | P3 | BY DESIGN | — |
 | 8 | Mesh gossip incomplete | MI | P3 | BY DESIGN | — |
-| 9 | Per-minute billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
+| 9 | Per-minute billing not E2E tested | Billing | P1 | 3 BUGS FIXED `c036768c` (finalize hardcode, refund=0, hardcoded rates). NEEDS VENUE E2E | — |
 | 10 | rc-sentry fleet has 3 different builds, all missing latest 3 fix commits | Audit | P2 | D3 FINDING | — |
-| 11 | BILL-13 deferred billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
+| 11 | BILL-13 deferred billing not E2E tested | Billing | P1 | BUG FIXED `c036768c` (finalize per-minute path). NEEDS VENUE E2E | — |
 | 12 | Wallet topup from POS not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
 | 13 | Linked racers wallet resolution not tested | Billing | P2 | COMMITTED | — |
 | 14 | Orphan auto-end incomplete cleanup | Billing | P2 | CODE FIX `bc100be7` — needs deploy | — |
