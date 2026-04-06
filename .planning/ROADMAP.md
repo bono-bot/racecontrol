@@ -552,7 +552,7 @@ Plans:
 ### Phases
 
 - [x] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04 (completed 2026-04-06)
-- [ ] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04
+- [x] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04 (completed 2026-04-06)
 - [ ] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03
 - [ ] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
 
@@ -586,7 +586,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 326-01: Playwright visual regression tests with baselines, masking config, and before/after workflow
+- [x] 326-01: Playwright visual regression tests with baselines, masking config, and before/after workflow
 
 ### Phase 327: Enforcement & Deploy Integration
 **Goal**: Frontend completion claims require screenshot evidence, and deploys automatically detect visual regressions
@@ -624,7 +624,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
-| 326. Visual Regression Tests | 0/1 | Not started | - |
+| 326. Visual Regression Tests | 1/1 | Complete   | 2026-04-06 |
 | 327. Enforcement & Deploy Integration | 0/2 | Not started | - |
 | 328. AI Self-Audit | 0/1 | Not started | - |
 

@@ -16,10 +16,10 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 ### Visual Regression
 
-- [ ] **VR-01**: Playwright toHaveScreenshot() tests for critical pages with baseline comparison
-- [ ] **VR-02**: Dynamic content masking (timestamps, counters, live metrics) per-page configuration
-- [ ] **VR-03**: Baselines stored in git alongside test files
-- [ ] **VR-04**: Before/after screenshot capture integrated into frontend fix workflow
+- [x] **VR-01**: Playwright toHaveScreenshot() tests for critical pages with baseline comparison
+- [x] **VR-02**: Dynamic content masking (timestamps, counters, live metrics) per-page configuration
+- [x] **VR-03**: Baselines stored in git alongside test files
+- [x] **VR-04**: Before/after screenshot capture integrated into frontend fix workflow
 
 ### Enforcement Hooks
 
@@ -68,10 +68,10 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 | CRAWL-02 | Phase 325 | Complete |
 | CRAWL-03 | Phase 325 | Complete |
 | CRAWL-04 | Phase 325 | Complete |
-| VR-01 | Phase 326 | Pending |
-| VR-02 | Phase 326 | Pending |
-| VR-03 | Phase 326 | Pending |
-| VR-04 | Phase 326 | Pending |
+| VR-01 | Phase 326 | Complete |
+| VR-02 | Phase 326 | Complete |
+| VR-03 | Phase 326 | Complete |
+| VR-04 | Phase 326 | Complete |
 | HOOK-01 | Phase 327 | Pending |
 | HOOK-02 | Phase 327 | Pending |
 | HOOK-03 | Phase 327 | Pending |
