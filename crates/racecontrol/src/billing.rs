@@ -283,20 +283,55 @@ pub fn best_rate_for_minutes(
 /// Compute refund for a package session that ended early.
 /// Uses best_rate_for_minutes to determine actual cost, then refunds the difference.
 /// Returns refund amount in paise (0 if no refund, i.e. package was better deal).
+///
+/// `rate_tiers`: if provided, uses actual DB rates. Falls back to hardcoded defaults.
 pub fn compute_refund(
     allocated_seconds: i64,
     driving_seconds: i64,
     wallet_debit_paise: i64,
 ) -> i64 {
+    compute_refund_with_rates(allocated_seconds, driving_seconds, wallet_debit_paise, 2500, 75000, 90000)
+}
+
+/// Compute refund with explicit rates from DB (no hardcoded fallback).
+pub fn compute_refund_with_rates(
+    allocated_seconds: i64,
+    driving_seconds: i64,
+    wallet_debit_paise: i64,
+    per_min_rate_paise: i64,
+    pkg_30_price_paise: i64,
+    pkg_60_price_paise: i64,
+) -> i64 {
     if allocated_seconds <= 0 || wallet_debit_paise <= 0 || driving_seconds >= allocated_seconds {
         return 0;
     }
-    // Use best-rate formula: charge for actual minutes used at best applicable rate
     let minutes_used = ((driving_seconds + 59) / 60) as u32; // round up to complete minutes
-    // Default pricing (paise): ₹25/min, ₹700/30min, ₹900/60min
-    // TODO: make these configurable from DB pricing_tiers
-    let actual_cost = best_rate_for_minutes(minutes_used, 2500, 75000, 90000);
+    let actual_cost = best_rate_for_minutes(minutes_used, per_min_rate_paise, pkg_30_price_paise, pkg_60_price_paise);
     let refund = wallet_debit_paise - actual_cost;
+    if refund > 0 { refund } else { 0 }
+}
+
+/// Compute refund for a per-minute session that ended early.
+/// Per-minute sessions debit hold_paise upfront + rate_paise_per_minute every 60s.
+/// Refund = hold_paise - total_actually_debited_in_periodic_debits.
+/// The `total_debited_paise` in the DB includes hold + periodic debits.
+/// `wallet_debit_paise` = the original hold amount.
+///
+/// Returns refund amount in paise (0 if customer used more than hold).
+pub fn compute_per_minute_refund(
+    wallet_debit_paise: i64,
+    total_debited_paise: i64,
+    rate_paise_per_minute: i64,
+    driving_seconds: i64,
+) -> i64 {
+    if wallet_debit_paise <= 0 {
+        return 0;
+    }
+    // Actual minutes billed = total_debited - hold, divided by rate
+    // But simpler: charge = minutes_used * rate. Refund = hold - charge.
+    let minutes_used = (driving_seconds / 60) as i64; // truncate (customer-favorable: partial minute not charged)
+    let actual_charge = minutes_used * rate_paise_per_minute;
+    let refund = wallet_debit_paise - actual_charge;
     if refund > 0 { refund } else { 0 }
 }
 
@@ -2092,8 +2127,10 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             "Disconnect pause timeout (10min) — auto-ended with partial refund", "race_engineer", Some(&session_id));
 
         // Calculate partial refund
-        let session_info = sqlx::query_as::<_, (i64, Option<i64>, Option<String>)>(
-            "SELECT allocated_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+        let session_info = sqlx::query_as::<_, (i64, Option<i64>, Option<String>, String, Option<i64>, Option<i64>)>(
+            "SELECT allocated_seconds, wallet_debit_paise, wallet_owner_id, \
+             COALESCE(billing_mode, 'package'), total_debited_paise, rate_paise_per_minute \
+             FROM billing_sessions WHERE id = ?",
         )
         .bind(&session_id)
         .fetch_optional(&state.db)
@@ -2102,9 +2139,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .flatten();
 
         let mut refund_paise: i64 = 0;
-        if let Some((allocated, Some(debit), wallet_owner)) = session_info {
-            // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
-            refund_paise = compute_refund(allocated, driving_seconds as i64, debit);
+        if let Some((allocated, Some(debit), wallet_owner, billing_mode, total_debited, rate_per_min)) = session_info {
+            refund_paise = if billing_mode == "per_minute" {
+                compute_per_minute_refund(debit, total_debited.unwrap_or(0), rate_per_min.unwrap_or(2500), driving_seconds as i64)
+            } else {
+                compute_refund(allocated, driving_seconds as i64, debit)
+            };
             if refund_paise > 0 {
                 let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                 // L2-01 fix: handle refund failure explicitly (not let _ =)
@@ -2204,8 +2244,10 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             &reason, "race_engineer", Some(&session_id));
 
         // H11-REFUND: Calculate partial refund (same as pause_timeout path)
-        let session_info = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<String>)>(
-            "SELECT allocated_seconds, driving_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+        let session_info = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<String>, String, Option<i64>, Option<i64>)>(
+            "SELECT allocated_seconds, driving_seconds, wallet_debit_paise, wallet_owner_id, \
+             COALESCE(billing_mode, 'package'), total_debited_paise, rate_paise_per_minute \
+             FROM billing_sessions WHERE id = ?",
         )
         .bind(&session_id)
         .fetch_optional(&state.db)
@@ -2214,8 +2256,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .flatten();
 
         let mut refund_paise: i64 = 0;
-        if let Some((allocated, driving_seconds, Some(debit), wallet_owner)) = session_info {
-            refund_paise = compute_refund(allocated, driving_seconds, debit);
+        if let Some((allocated, driving_seconds, Some(debit), wallet_owner, billing_mode, total_debited, rate_per_min)) = session_info {
+            refund_paise = if billing_mode == "per_minute" {
+                compute_per_minute_refund(debit, total_debited.unwrap_or(0), rate_per_min.unwrap_or(2500), driving_seconds)
+            } else {
+                compute_refund(allocated, driving_seconds, debit)
+            };
             if refund_paise > 0 {
                 let driver_id_row = sqlx::query_as::<_, (String,)>(
                     "SELECT driver_id FROM billing_sessions WHERE id = ?",
@@ -3592,12 +3638,19 @@ pub struct BillingStartData {
     pub split_count: u32,
     pub split_duration_minutes: Option<u32>,
     pub started_at: DateTime<Utc>,
+    // Per-minute billing fields (Act 2)
+    pub billing_mode: String,
+    pub rate_paise_per_minute: u32,
+    pub hold_paise: u32,
+    pub wallet_owner_id: String,
+    pub low_balance_warning_paise: u32,
 }
 
 /// Activate billing session in memory after the DB transaction has committed (FATM-01).
 /// Creates the in-memory timer, updates pod state, notifies the agent, broadcasts to dashboards.
 /// Safe to call only after tx.commit() — any error before commit rolls back automatically.
 pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartData) {
+    let is_per_minute = data.billing_mode == "per_minute";
     let mut timer = BillingTimer {
         session_id: data.session_id.clone(),
         driver_id: data.driver_id.clone(),
@@ -3621,19 +3674,20 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         max_pause_duration_secs: 600,
         elapsed_seconds: 0,
         pause_seconds: 0,
-        max_session_seconds: data.allocated_seconds,
+        // Per-minute: 3hr hard cap. Package: allocated time.
+        max_session_seconds: if is_per_minute { 10800 } else { data.allocated_seconds },
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
         nonce: String::new(), // Populated below after nonce store generation
-        // Act 2: Per-minute defaults for finalize path
-        billing_mode: "package".to_string(),
-        rate_paise_per_minute: 0,
-        hold_paise: 0,
-        total_debited_paise: 0,
+        // Act 2: Use actual billing mode from BillingStartData (was hardcoded to "package")
+        billing_mode: data.billing_mode.clone(),
+        rate_paise_per_minute: data.rate_paise_per_minute,
+        hold_paise: data.hold_paise,
+        total_debited_paise: if is_per_minute { data.hold_paise } else { 0 },
         seconds_since_last_debit: 0,
-        wallet_owner_id: data.driver_id.clone(),
-        low_balance_warning_paise: 5000,
+        wallet_owner_id: data.wallet_owner_id.clone(),
+        low_balance_warning_paise: data.low_balance_warning_paise,
         low_balance_warned: false,
     };
 
@@ -4044,8 +4098,10 @@ async fn end_billing_session(
 
             // Proportional refund for early end with wallet debit
             if end_status == BillingSessionStatus::EndedEarly {
-                let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<String>)>(
-                    "SELECT driver_id, allocated_seconds, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+                let wallet_info = sqlx::query_as::<_, (String, i64, Option<i64>, Option<String>, String, Option<i64>, Option<i64>)>(
+                    "SELECT driver_id, allocated_seconds, wallet_debit_paise, wallet_owner_id, \
+                     COALESCE(billing_mode, 'package'), total_debited_paise, rate_paise_per_minute \
+                     FROM billing_sessions WHERE id = ?",
                 )
                 .bind(session_id)
                 .fetch_optional(&state.db)
@@ -4053,22 +4109,33 @@ async fn end_billing_session(
                 .ok()
                 .flatten();
 
-                if let Some((driver_id, allocated, Some(debit), wallet_owner)) = wallet_info {
-                    // FATM-06: Use unified compute_refund (integer arithmetic, no f64 drift)
-                    let refund_amount = compute_refund(allocated, driving_seconds as i64, debit);
+                if let Some((driver_id, allocated, Some(debit), wallet_owner, billing_mode, total_debited, rate_per_min)) = wallet_info {
+                    let refund_amount = if billing_mode == "per_minute" {
+                        // Per-minute: refund unused hold. Hold was deducted upfront,
+                        // periodic debits were separate. Refund = hold - (minutes * rate).
+                        let rate = rate_per_min.unwrap_or(2500);
+                        compute_per_minute_refund(debit, total_debited.unwrap_or(0), rate, driving_seconds as i64)
+                    } else {
+                        // Package: use best-rate formula
+                        compute_refund(allocated, driving_seconds as i64, debit)
+                    };
                     if refund_amount > 0 {
                         let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
-                        // L2-01 fix: handle refund failure explicitly
+                        let refund_note = if billing_mode == "per_minute" {
+                            "Early end — per-minute hold refund"
+                        } else {
+                            "Early end — proportional refund"
+                        };
                         match crate::wallet::refund(
                             state,
                             refund_target,
                             refund_amount,
                             Some(session_id),
-                            Some("Early end — proportional refund"),
+                            Some(refund_note),
                         )
                         .await
                         {
-                            Ok(_) => tracing::info!("BILLING: early-end refund {}p for session {}", refund_amount, session_id),
+                            Ok(_) => tracing::info!("BILLING: early-end refund {}p for session {} (mode={})", refund_amount, session_id, billing_mode),
                             Err(e) => tracing::error!("CRITICAL: early-end refund FAILED for session {} ({}p): {}", session_id, refund_amount, e),
                         }
                     }

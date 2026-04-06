@@ -3490,9 +3490,11 @@ async fn start_billing(
         }
     }
 
-    // Look up tier (name + duration + price + trial flag)
-    let tier_info = sqlx::query_as::<_, (String, i64, i64, bool)>(
-        "SELECT name, duration_minutes, price_paise, is_trial FROM pricing_tiers WHERE id = ? AND is_active = 1",
+    // Look up tier (name + duration + price + trial flag + per-minute billing fields)
+    let tier_info = sqlx::query_as::<_, (String, i64, i64, bool, String, Option<i64>, Option<i64>, Option<i64>)>(
+        "SELECT name, duration_minutes, price_paise, is_trial, \
+         COALESCE(billing_mode, 'package'), rate_paise_per_minute, minimum_hold_paise, low_balance_warning_paise \
+         FROM pricing_tiers WHERE id = ? AND is_active = 1",
     )
     .bind(&pricing_tier_id)
     .fetch_optional(&state.db)
@@ -3500,7 +3502,7 @@ async fn start_billing(
     .ok()
     .flatten();
 
-    let (tier_name, tier_duration_minutes, tier_price_paise, is_trial) = match tier_info {
+    let (tier_name, tier_duration_minutes, tier_price_paise, is_trial, tier_billing_mode, tier_rate_per_min, tier_hold, tier_low_warn) = match tier_info {
         Some(t) => t,
         None => return Json(json!({ "error": format!("Pricing tier '{}' not found or inactive", pricing_tier_id) })),
     };
@@ -3821,8 +3823,8 @@ async fn start_billing(
          (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status, custom_price_paise, \
           started_at, staff_id, split_count, split_duration_minutes, \
           wallet_debit_paise, discount_paise, coupon_id, original_price_paise, discount_reason, idempotency_key, \
-          guardian_present, is_minor_session, venue_id, wallet_owner_id) \
-         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          guardian_present, is_minor_session, venue_id, wallet_owner_id, billing_mode, rate_paise_per_minute) \
+         VALUES (?, ?, ?, ?, ?, 'waiting_for_game', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&session_id)
     .bind(driver_id)
@@ -3844,6 +3846,8 @@ async fn start_billing(
     .bind(is_minor)
     .bind(&state.config.venue.venue_id)
     .bind(&wallet_owner_id)
+    .bind(&tier_billing_mode)
+    .bind(tier_rate_per_min)
     .execute(&mut *tx)
     .await {
         drop(tx); // rolls back wallet debit atomically
@@ -3972,6 +3976,12 @@ async fn start_billing(
         split_count: final_split_count,
         split_duration_minutes,
         started_at: now, // placeholder — overwritten to game-live time on activation
+        // Per-minute billing fields from pricing tier
+        billing_mode: tier_billing_mode.clone(),
+        rate_paise_per_minute: tier_rate_per_min.unwrap_or(0) as u32,
+        hold_paise: if tier_billing_mode == "per_minute" { tier_hold.unwrap_or(10000) as u32 } else { 0 },
+        wallet_owner_id: wallet_owner_id.clone(),
+        low_balance_warning_paise: tier_low_warn.unwrap_or(5000) as u32,
     }).await;
 
     // Phase 307 AUDIT-03: Log billing session start for hash chain coverage
