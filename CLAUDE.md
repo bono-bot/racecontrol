@@ -312,6 +312,13 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
 - **Workflow Assumptions Require User Confirmation.** When tracing code paths to understand a business workflow, ALWAYS present findings as "here's what the code does — is this how it actually works?" before building features on top. Code traces reveal implementation, not intent. The user's description of the real workflow overrides code.
   _Why: 2026-04-03 — assumed customer enters PIN on kiosk (code has PIN modal), that wallet top-up exists on POS (it didn't), that 12-step wizard is the customer flow (it's staff-only). All wrong._
 
+### Self-Audit (v43.0)
+
+- **Run page self-audit at frontend session start.** Before modifying any frontend code (tsx, jsx, css, Next.js pages), run `bash tests/page-audit/self-audit.sh` to capture current page screenshots and generate the audit prompt. Then read `tests/page-audit/audit-prompt.md` -- for each page listed, use the Read tool to view the screenshot image and compare against the description file. Write anomalies to `tests/page-audit/audit-report.md`. This establishes baseline awareness: if a page is already broken before your changes, you know to fix it or avoid making it worse.
+  _Why: Code-only fixes shipped 9+ times without anyone looking at the actual pages. The self-audit forces visual verification before AND after changes._
+- **After frontend changes, re-run self-audit.** After completing frontend modifications, run `bash tests/page-audit/self-audit.sh` again and compare the new screenshots against descriptions. Any NEW anomalies introduced by your changes must be fixed before marking done.
+  _Why: Without a post-change audit, regressions go undetected until a customer reports them._
+
 ### Testing & Verification
 
 - **Verify the EXACT behavior path, not proxies.** After deploying a fix, test the EXACT data flow that was broken: input string → transform → parse → decision → action. Health endpoints and build IDs prove the binary is running, NOT that the bug is fixed. A 2-character difference (`"` quotes on curl output) kept all 8 pods flickering through two deploy cycles because the proxy checks (health OK, build_id correct) all passed while the actual parse path failed silently.
