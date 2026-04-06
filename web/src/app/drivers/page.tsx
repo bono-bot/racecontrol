@@ -65,7 +65,7 @@ export default function DriversPage() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="bg-rp-card/50 rounded px-2 py-1.5">
                   <div className="text-rp-grey">Laps</div>
                   <div className="text-neutral-300 font-mono">{driver.total_laps}</div>
@@ -74,6 +74,12 @@ export default function DriversPage() {
                   <div className="text-rp-grey">Track Time</div>
                   <div className="text-neutral-300 font-mono">
                     {formatDuration(driver.total_time_ms)}
+                  </div>
+                </div>
+                <div className="bg-rp-card/50 rounded px-2 py-1.5">
+                  <div className="text-rp-grey">Wallet</div>
+                  <div className="text-neutral-300 font-mono">
+                    {"\u20B9"}{Math.floor((driver.wallet_balance_paise ?? 0) / 100)}
                   </div>
                 </div>
               </div>

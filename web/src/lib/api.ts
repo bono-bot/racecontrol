@@ -790,6 +790,7 @@ export interface Driver {
   linked_to?: string | null;
   has_used_trial?: boolean;
   waiver_signed?: boolean;
+  wallet_balance_paise?: number;
 }
 
 export interface KioskPinResponse {

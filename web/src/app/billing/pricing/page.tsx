@@ -5,7 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { api } from "@/lib/api";
 import type { PricingTier, BillingRate } from "@/lib/api";
 
-const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
+const formatCredits = (paise: number) => `${Math.floor((paise ?? 0) / 100)} cr`;
 
 const SIM_TYPE_LABELS: Record<string, string> = {
   assetto_corsa: "AC",

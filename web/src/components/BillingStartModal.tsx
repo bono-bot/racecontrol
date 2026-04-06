@@ -24,7 +24,7 @@ interface BillingStartModalProps {
   onStart: (data: BillingStartData) => void;
 }
 
-const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
+const formatCredits = (paise: number) => `${Math.floor((paise ?? 0) / 100)} cr`;
 
 export default function BillingStartModal({
   podId,

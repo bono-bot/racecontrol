@@ -2172,12 +2172,13 @@ async fn list_drivers(
             return Json(json!({ "error": "Search query too short or invalid" }));
         }
         let q = format!("%{}%", sanitized);
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>)>(
-            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
-                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at, linked_to
-             FROM drivers
-             WHERE name LIKE ?1 COLLATE NOCASE OR phone LIKE ?2 OR customer_id LIKE ?3
-             ORDER BY name LIMIT 50",
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>)>(
+            "SELECT d.id, d.name, d.email, d.phone, d.total_laps, d.total_time_ms, d.customer_id,
+                    COALESCE(d.waiver_signed, 0), COALESCE(d.has_used_trial, 0), d.created_at, d.linked_to,
+                    w.balance_paise
+             FROM drivers d LEFT JOIN wallets w ON w.driver_id = d.id
+             WHERE d.name LIKE ?1 COLLATE NOCASE OR d.phone LIKE ?2 OR d.customer_id LIKE ?3
+             ORDER BY d.name LIMIT 50",
         )
         .bind(&q)
         .bind(&q)
@@ -2185,10 +2186,12 @@ async fn list_drivers(
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>)>(
-            "SELECT id, name, email, phone, total_laps, total_time_ms, customer_id,
-                    COALESCE(waiver_signed, 0), COALESCE(has_used_trial, 0), created_at, linked_to
-             FROM drivers ORDER BY created_at DESC",
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>)>(
+            "SELECT d.id, d.name, d.email, d.phone, d.total_laps, d.total_time_ms, d.customer_id,
+                    COALESCE(d.waiver_signed, 0), COALESCE(d.has_used_trial, 0), d.created_at, d.linked_to,
+                    w.balance_paise
+             FROM drivers d LEFT JOIN wallets w ON w.driver_id = d.id
+             ORDER BY d.created_at DESC",
         )
         .fetch_all(&state.db)
         .await
@@ -2217,7 +2220,7 @@ async fn list_drivers(
                     "id": d.0, "name": d.1, "email": email, "phone": phone,
                     "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
                     "waiver_signed": d.7, "has_used_trial": d.8, "created_at": d.9,
-                    "linked_to": d.10,
+                    "linked_to": d.10, "wallet_balance_paise": d.11.unwrap_or(0),
                 })
             }).collect();
             Json(json!({ "drivers": list, "total": total, "waiver_count": waiver_count }))

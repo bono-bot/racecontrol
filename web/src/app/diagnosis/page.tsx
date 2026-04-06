@@ -482,7 +482,7 @@ export default function DiagnosisPage() {
                 { label: "Hardened", value: meshStats.hardened },
                 {
                   label: "Total Cost",
-                  value: `$${meshStats.total_cost.toFixed(2)}`,
+                  value: `$${(meshStats.total_cost ?? 0).toFixed(2)}`,
                 },
               ].map((s) => (
                 <div
@@ -533,7 +533,7 @@ export default function DiagnosisPage() {
                     <span>
                       Confidence: {(sol.confidence * 100).toFixed(0)}%
                     </span>
-                    <span>Cost: ${sol.cost_to_diagnose.toFixed(2)}</span>
+                    <span>Cost: ${(sol.cost_to_diagnose ?? 0).toFixed(2)}</span>
                     <span>Fix: {sol.fix_type}</span>
                     <span>Node: {sol.source_node}</span>
                   </div>

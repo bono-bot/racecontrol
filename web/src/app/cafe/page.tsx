@@ -28,7 +28,7 @@ import {
 } from "@/lib/api";
 import type { BroadcastResult } from "@/lib/api";
 
-const formatRupees = (paise: number) => `\u20b9${(paise / 100).toFixed(2)}`;
+const formatRupees = (paise: number) => `\u20b9${((paise ?? 0) / 100).toFixed(2)}`;
 
 interface FormData {
   name: string;
@@ -185,8 +185,8 @@ export default function CafePage() {
       name: item.name,
       description: item.description || "",
       category_id: item.category_id,
-      selling_price_rupees: (item.selling_price_paise / 100).toFixed(2),
-      cost_price_rupees: (item.cost_price_paise / 100).toFixed(2),
+      selling_price_rupees: ((item.selling_price_paise ?? 0) / 100).toFixed(2),
+      cost_price_rupees: ((item.cost_price_paise ?? 0) / 100).toFixed(2),
       is_countable: item.is_countable,
       stock_quantity: String(item.stock_quantity),
       low_stock_threshold: String(item.low_stock_threshold),
@@ -305,8 +305,8 @@ export default function CafePage() {
         .map((r) => ({
           name: r.name,
           category: r.category,
-          selling_price_paise: Math.round(parseFloat(r.selling_price) * 100),
-          cost_price_paise: Math.round(parseFloat(r.cost_price) * 100),
+          selling_price_paise: Math.round((parseFloat(r.selling_price) || 0) * 100),
+          cost_price_paise: Math.round((parseFloat(r.cost_price) || 0) * 100),
           description: r.description || null,
         }));
       const res = await api.confirmCafeImport(validRows);
@@ -1526,7 +1526,7 @@ function PromoPanel({
   const [comboBundlePriceRupees, setComboBundlePriceRupees] = useState<string>(() => {
     if (promo?.promo_type === "combo") {
       const cfg = JSON.parse(promo.config) as ComboConfig;
-      return (cfg.bundle_price_paise / 100).toFixed(2);
+      return ((cfg.bundle_price_paise ?? 0) / 100).toFixed(2);
     }
     return "";
   });
@@ -1580,7 +1580,7 @@ function PromoPanel({
   const [gamingBundlePriceRupees, setGamingBundlePriceRupees] = useState<string>(() => {
     if (promo?.promo_type === "gaming_bundle") {
       const cfg = JSON.parse(promo.config) as GamingBundleConfig;
-      return (cfg.bundle_price_paise / 100).toFixed(2);
+      return ((cfg.bundle_price_paise ?? 0) / 100).toFixed(2);
     }
     return "";
   });

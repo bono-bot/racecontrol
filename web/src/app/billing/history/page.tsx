@@ -16,13 +16,13 @@ interface RefundModalProps {
 }
 
 function RefundModal({ session, onClose, onSuccess }: RefundModalProps) {
-  const [amount, setAmount] = useState<number>(Math.floor(session.price_paise / 100));
+  const [amount, setAmount] = useState<number>(Math.floor((session.price_paise ?? 0) / 100));
   const [method, setMethod] = useState<RefundMethod>("wallet");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const maxCredits = Math.floor(session.price_paise / 100);
+  const maxCredits = Math.floor((session.price_paise ?? 0) / 100);
 
   async function handleSubmit() {
     if (!reason.trim()) { setError("Reason is required"); return; }
@@ -124,7 +124,7 @@ function RefundModal({ session, onClose, onSuccess }: RefundModalProps) {
   );
 }
 
-const formatCredits = (paise: number) => `${Math.floor(paise / 100)} cr`;
+const formatCredits = (paise: number) => `${Math.floor((paise ?? 0) / 100)} cr`;
 
 function formatMMSS(seconds: number): string {
   const m = Math.floor(seconds / 60);

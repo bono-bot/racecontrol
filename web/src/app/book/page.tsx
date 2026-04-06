@@ -148,7 +148,7 @@ export default function BookPage() {
                     {tier.has_discount && (
                       <span className="line-through text-[#5A5A5A] text-sm mr-1">
                         {"\u20B9"}
-                        {(tier.base_price_paise / 100).toFixed(0)}
+                        {((tier.base_price_paise ?? 0) / 100).toFixed(0)}
                       </span>
                     )}
                     <span
@@ -157,7 +157,7 @@ export default function BookPage() {
                       }`}
                     >
                       {"\u20B9"}
-                      {(tier.dynamic_price_paise / 100).toFixed(0)}
+                      {((tier.dynamic_price_paise ?? 0) / 100).toFixed(0)}
                     </span>
                   </div>
                 </div>
