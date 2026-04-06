@@ -12,6 +12,14 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=GIT_HASH_FORCE");
 
+    // VMS PATTERN: asInvoker manifest — deployed as external file.
+    // Windows reads `rc-agent.exe.manifest` automatically if it's next to the exe.
+    // VMS Connect uses the same requestedExecutionLevel=asInvoker pattern to:
+    // 1. Prevent anti-cheat from flagging the process as elevated
+    // 2. Ensure consistent behavior regardless of parent process elevation
+    // The manifest file is in deploy/ and must be copied to C:\RacingPoint\ alongside the exe.
+    println!("cargo:rerun-if-changed=rc-agent.exe.manifest");
+
     // Watch .git/HEAD (detects branch switches) AND the actual ref file
     // (detects new commits on the current branch). Without the ref file,
     // cargo caches the old GIT_HASH across commits on the same branch.

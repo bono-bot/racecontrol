@@ -341,9 +341,15 @@ pub async fn run(
                             state.overlay.on_lap_completed(&lap);
                             // Phase 251: Track current lap_id for telemetry persistence
                             conn.current_lap_id = Some(lap.id.clone());
-                            let msg = AgentMessage::LapCompleted(lap);
+                            let msg = AgentMessage::LapCompleted(lap.clone());
                             let json = serde_json::to_string(&msg)?;
-                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                            // VMS PATTERN: CSV fallback when WS is disconnected.
+                            // VMS writes laps to local CSV when network is down.
+                            // We send via WS and fall back to CSV if send fails.
+                            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                                tracing::warn!(target: LOG_TARGET, "WS send failed for lap — saving to CSV fallback");
+                                crate::csv_lap_fallback::save_lap_to_csv(&lap);
+                            }
                         }
 
                         // Phase 251: Stamp frame with current lap_id before sending

@@ -222,6 +222,68 @@ while ($true) {
     rx
 }
 
+/// Fallback for when WMI watcher fails: poll tasklist every 5 seconds for protected games.
+/// Less efficient than WMI events but catches games that WMI missed.
+/// Returns a receiver that emits exe names when new protected processes appear.
+pub fn spawn_tasklist_fallback() -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel::<String>();
+
+    std::thread::spawn(move || {
+        tracing::info!(target: LOG_TARGET, "Tasklist fallback: polling every 5s for protected games");
+        let mut known_pids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+
+            let output = std::process::Command::new("tasklist")
+                .args(["/FO", "CSV", "/NH"])
+                .output();
+
+            let output = match output {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                // CSV format: "exe.exe","pid","Session Name","Session#","Mem Usage"
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() < 2 {
+                    continue;
+                }
+                let exe = parts[0].trim_matches('"');
+                let pid = parts[1].trim_matches('"');
+
+                let is_protected = PROTECTED_EXE_NAMES
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case(exe));
+
+                if is_protected {
+                    let key = format!("{}:{}", exe, pid);
+                    if known_pids.insert(key) {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            exe = %exe,
+                            pid = %pid,
+                            "Tasklist fallback: protected process detected"
+                        );
+                        if tx.send(exe.to_string()).is_err() {
+                            return; // Receiver dropped
+                        }
+                    }
+                }
+            }
+
+            // Prune PIDs of exited processes (keep set from growing unbounded)
+            if known_pids.len() > 100 {
+                known_pids.clear();
+            }
+        }
+    });
+
+    rx
+}
+
 // ─── Startup detection ────────────────────────────────────────────────────────
 
 /// One-time sysinfo scan to detect any already-running protected game at startup.

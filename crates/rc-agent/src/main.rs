@@ -3,6 +3,7 @@ mod ac_launcher;
 mod ai_debugger;
 mod app_state;
 mod budget_tracker;
+mod csv_lap_fallback;
 mod feature_flags;
 mod billing_guard;
 mod event_loop;
