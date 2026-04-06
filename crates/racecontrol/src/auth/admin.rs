@@ -191,10 +191,14 @@ pub async fn admin_login(
             let s = ADMIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
             s.locked_until.is_some()
         };
+        // FIX: Store locked_until in SQLite datetime format (YYYY-MM-DD HH:MM:SS),
+        // NOT RFC3339 (2026-04-06T07:22:10+00:00). restore_lockout_from_db() compares
+        // with datetime('now') which returns SQLite format. RFC3339's 'T' > ' ' (space)
+        // means the comparison NEVER expires — lockout becomes permanent.
         let locked_str = if lockout_active {
             Some(chrono::Utc::now()
                 .checked_add_signed(chrono::Duration::seconds(LOCKOUT_DURATION_SECS as i64))
-                .map(|t| t.to_rfc3339())
+                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
                 .unwrap_or_default())
         } else {
             None
@@ -359,5 +363,26 @@ mod tests {
         let app = test_router(state);
         let resp = app.oneshot(login_request("1234")).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    /// REGRESSION: locked_until must be stored in SQLite datetime format (YYYY-MM-DD HH:MM:SS),
+    /// NOT RFC3339 (2026-04-06T07:22:10+00:00). restore_lockout_from_db() compares with
+    /// datetime('now') which returns SQLite format. RFC3339's 'T' char (ASCII 84) > ' ' (ASCII 32)
+    /// means string comparison NEVER expires — lockout becomes permanent.
+    /// Bug found 2026-04-06: admin locked out permanently, survived server restarts.
+    #[test]
+    fn locked_until_format_must_be_sqlite_compatible() {
+        let future = chrono::Utc::now()
+            .checked_add_signed(chrono::Duration::seconds(LOCKOUT_DURATION_SECS as i64))
+            .unwrap();
+        let formatted = future.format("%Y-%m-%d %H:%M:%S").to_string();
+        // Must NOT contain 'T' (RFC3339 separator) — SQLite datetime('now') uses space
+        assert!(!formatted.contains('T'),
+            "locked_until must use space separator (SQLite format), not 'T' (RFC3339). Got: {}", formatted);
+        // Must match pattern YYYY-MM-DD HH:MM:SS
+        assert!(formatted.len() == 19, "Expected 19 chars (YYYY-MM-DD HH:MM:SS), got {}: {}", formatted.len(), formatted);
+        assert_eq!(&formatted[4..5], "-");
+        assert_eq!(&formatted[10..11], " ");
+        assert_eq!(&formatted[13..14], ":");
     }
 }
