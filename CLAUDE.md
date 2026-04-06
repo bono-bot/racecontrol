@@ -590,6 +590,16 @@ Before fixing any bug, follow this structured process. Do NOT jump from symptom 
 
 The 4-Tier order tells you WHERE to look. The Cause Elimination Process tells you HOW to reason. Use both together.
 
+### Reference Docs (CGP Standing Rule #18)
+
+Before investigating from scratch, consult `docs/`:
+- `ERROR-CATALOG.md` — Known errors indexed by symptom with root causes and fixes
+- `LOG-LOCATIONS.md` — Every log file on every machine + quick debug commands
+- `SERVICE-REFERENCE.md` — Per-binary deep dive: modules, config, ports, common failures
+- `DATA-FLOW-DIAGRAMS.md` — 9 flow diagrams showing where data can break (incl. Mesh Intelligence)
+- `ARCHITECTURE.md` — System overview: crates, topology, WebSocket protocol, recovery tiers
+- `API.md` — All ~403 endpoints across 7 auth tiers
+
 ---
 
 ## Billing and Rates

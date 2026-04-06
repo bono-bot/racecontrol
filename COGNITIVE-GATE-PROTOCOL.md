@@ -209,6 +209,23 @@ Clearing backlog means one of:
 
 _Why: "Pick up in next session" appeared in 5+ memory files. None were ever picked up. Each new session started fresh with new problems. The backlog hook ensures incomplete work is visible every turn, not buried in memory files nobody re-reads._
 
+## Standing Rule #18 — Debugging Reference Docs (v4.3, 2026-04-06)
+
+Before investigating any production issue, consult the debugging reference docs in `docs/`:
+
+| Doc | Use When |
+|-----|----------|
+| `SERVICE-REFERENCE.md` | Need per-binary details: modules, config, ports, common failures, debug checklists |
+| `ERROR-CATALOG.md` | Encountered a known error — check root cause + fix before investigating from scratch |
+| `LOG-LOCATIONS.md` | Need to find logs — lists every log file on every machine + quick debug commands |
+| `DATA-FLOW-DIAGRAMS.md` | Tracing a data flow bug — 9 flow diagrams showing where data can break |
+| `ARCHITECTURE.md` | Need system overview — crates, topology, WebSocket protocol, recovery tiers |
+| `API.md` | Need endpoint reference — all ~403 routes across 7 auth tiers |
+
+**Order:** ERROR-CATALOG (known issue?) → LOG-LOCATIONS (find evidence) → SERVICE-REFERENCE (understand the binary) → DATA-FLOW-DIAGRAMS (trace the flow). Architecture/API are reference, not debugging entry points.
+
+_Why: Same class as "check LOGBOOK/git/memory BEFORE investigating" (feedback_diagnostic_order.md). These docs capture the accumulated knowledge from 34 shipped milestones, 60-phase audits, and 14-model MMA runs. Investigating from scratch when the answer is already documented wastes session time and rediscovers known issues._
+
 ---
 
 ## Predecessor
