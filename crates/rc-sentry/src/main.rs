@@ -24,6 +24,9 @@ mod tier1_fixes;
 mod debug_memory;
 // ollama module is now in rc-common — see rc_common::ollama
 mod mi_knowledge_base;
+mod mi_debug_state;
+mod mi_diagnostic_engine;
+mod mi_tier_engine;
 mod session1_spawn;
 mod screen_verify;
 #[cfg(feature = "mesh")]
@@ -402,6 +405,13 @@ fn main() {
         }
     }
 
+    // Spawn Meshed Intelligence diagnostic engine + tier engine (Phase 322)
+    mi_debug_state::init();
+    let (mi_trigger_tx, mi_trigger_rx) = std::sync::mpsc::channel();
+    mi_diagnostic_engine::spawn(mi_trigger_tx);
+    mi_tier_engine::spawn(mi_trigger_rx);
+    tracing::info!("MI diagnostic engine + tier engine spawned");
+
     const MAX_CONCURRENT_CONNECTIONS: usize = 32;
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
     loop {
@@ -512,6 +522,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         ("OPTIONS", _) => return send_cors_preflight(&mut stream),
         ("GET", "/health") => return handle_health(&mut stream),
         ("GET", "/version") => return handle_version(&mut stream),
+        ("GET", "/mi/debug") => return handle_mi_debug(&mut stream),
         _ => {} // Fall through to protected routes
     }
 
@@ -523,6 +534,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
 
     match (method, path) {
         ("POST", "/exec") => handle_exec(&mut stream, &request),
+        ("POST", "/mi/trigger") => handle_mi_trigger(&mut stream, &request),
         ("GET", "/flags") => handle_flags(&mut stream),
         ("GET", p) if p.starts_with("/files") => handle_files(&mut stream, p),
         ("GET", "/processes") => handle_processes(&mut stream),
@@ -753,6 +765,42 @@ fn handle_processes(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Er
         })
         .collect();
     send_response(stream, 200, &serde_json::to_string(&procs)?)
+}
+
+/// GET /mi/debug — return MI debug state snapshot (recent triggers + last diagnosis).
+fn handle_mi_debug(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let snap = mi_debug_state::snapshot();
+    let body = serde_json::to_string(&snap).unwrap_or_else(|_| r#"{"error":"serialize failed"}"#.to_string());
+    send_response(stream, 200, &body)
+}
+
+/// POST /mi/trigger — parse DiagnosticTrigger from body, run tier engine synchronously,
+/// return TierDiagnosis as JSON. Protected by X-Service-Key (same as /exec).
+fn handle_mi_trigger(stream: &mut TcpStream, request: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let body = request
+        .find("\r\n\r\n")
+        .map(|i| &request[i + 4..])
+        .or_else(|| request.find("\n\n").map(|i| &request[i + 2..]))
+        .unwrap_or("");
+
+    let trigger: rc_common::diagnostic_types::DiagnosticTrigger = match serde_json::from_str(body) {
+        Ok(t) => t,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid trigger JSON: {}", e)});
+            return send_response(stream, 400, &err.to_string());
+        }
+    };
+
+    tracing::info!(target: "mi-trigger", trigger = ?trigger, "Manual trigger received via /mi/trigger");
+
+    // Run diagnosis synchronously in this handler thread
+    let diagnosis = mi_tier_engine::run_diagnosis(&trigger);
+    mi_debug_state::record_trigger(&trigger);
+    mi_debug_state::record_diagnosis(&diagnosis);
+
+    let body = serde_json::to_string(&diagnosis)
+        .unwrap_or_else(|_| r#"{"error":"serialize failed"}"#.to_string());
+    send_response(stream, 200, &body)
 }
 
 fn send_response(

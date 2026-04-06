@@ -13,6 +13,7 @@
 
 use rusqlite::{params, Connection};
 use rc_common::diagnostic_types::{DiagnosticTrigger, SolutionRecord};
+use serde::{Deserialize, Serialize};
 
 const LOG_TARGET: &str = "mi-knowledge-base";
 pub const KB_PATH: &str = r"C:\RacingPoint\mesh_kb.db";
@@ -20,6 +21,16 @@ pub const HIGH_CONFIDENCE_THRESHOLD: f64 = 0.8;
 
 /// A lightweight error type wrapping rusqlite and generic errors.
 type KbResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+/// A hardened rule entry from the hardened_rules table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardenedRule {
+    pub id: String,
+    pub matchers: Vec<String>,
+    pub action: String,
+    pub confidence: f64,
+    pub provenance: String,
+}
 
 /// The local knowledge base -- wraps a rusqlite Connection.
 pub struct KnowledgeBase {
@@ -66,6 +77,14 @@ impl KnowledgeBase {
 
             CREATE INDEX IF NOT EXISTS idx_solutions_hash ON solutions(problem_hash);
             CREATE INDEX IF NOT EXISTS idx_solutions_key ON solutions(problem_key);
+
+            CREATE TABLE IF NOT EXISTS hardened_rules (
+                id TEXT PRIMARY KEY,
+                matchers TEXT NOT NULL,
+                action TEXT NOT NULL,
+                confidence REAL DEFAULT 1.0,
+                provenance TEXT DEFAULT 'manual'
+            );
         ",
         )?;
 
@@ -246,6 +265,34 @@ impl KnowledgeBase {
             "Solution stored in MI KB"
         );
         Ok(())
+    }
+
+    /// Get all hardened rules from the hardened_rules table.
+    pub fn get_hardened_rules(&self) -> KbResult<Vec<HardenedRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, matchers, action, confidence, provenance FROM hardened_rules"
+        )?;
+
+        let rules = stmt.query_map([], |row| {
+            let matchers_json: String = row.get(1)?;
+            let matchers: Vec<String> = serde_json::from_str(&matchers_json)
+                .unwrap_or_default();
+            Ok(HardenedRule {
+                id: row.get(0)?,
+                matchers,
+                action: row.get(2)?,
+                confidence: row.get(3)?,
+                provenance: row.get(4)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for rule in rules {
+            if let Ok(r) = rule {
+                result.push(r);
+            }
+        }
+        Ok(result)
     }
 
     /// Count total solutions in the KB.
