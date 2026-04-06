@@ -27,6 +27,7 @@ mod mi_knowledge_base;
 mod mi_debug_state;
 mod mi_diagnostic_engine;
 mod mi_tier_engine;
+mod mma_budget;
 mod session1_spawn;
 mod screen_verify;
 #[cfg(feature = "mesh")]
