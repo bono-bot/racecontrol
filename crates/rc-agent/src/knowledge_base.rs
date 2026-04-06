@@ -21,57 +21,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::diagnostic_engine::DiagnosticTrigger;
 
+// Phase 322: Solution type now lives in rc-common as SolutionRecord.
+// Backward-compatible type alias so all existing rc-agent code continues unchanged.
+pub type Solution = rc_common::diagnostic_types::SolutionRecord;
+
 const LOG_TARGET: &str = "knowledge-base";
 pub const KB_PATH: &str = r"C:\RacingPoint\mesh_kb.db";
 pub const HIGH_CONFIDENCE_THRESHOLD: f64 = 0.8;
-
-/// A row from the solutions table, returned by lookup().
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Solution {
-    pub id: String,
-    pub problem_key: String,
-    pub problem_hash: String,
-    pub symptoms: String,
-    pub environment: String,
-    pub root_cause: String,
-    pub fix_action: String,
-    pub fix_type: String,
-    pub success_count: i64,
-    pub fail_count: i64,
-    pub confidence: f64,
-    pub cost_to_diagnose: f64,
-    pub models_used: Option<String>,
-    pub source_node: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub version: i64,
-    pub ttl_days: i64,
-    pub tags: Option<String>,
-    /// MMA diagnostic methodology that found this solution.
-    /// Values: "scanner_enumeration", "reasoner_absence", "sre_stuck_state",
-    /// "code_expert_session0", "security_checklist", "consensus_5model",
-    /// "deterministic", "fleet_gossip", or model-specific role names.
-    /// Enables the fleet to learn not just WHAT to fix but HOW to diagnose.
-    pub diagnosis_method: Option<String>,
-    /// MMA-First Protocol: whether this is a workaround or permanent fix.
-    /// Values: "workaround", "permanent", "pending_permanent", "fallback"
-    #[serde(default = "default_fix_permanence")]
-    pub fix_permanence: String,
-    /// How many times Q1 has applied this solution (issue recurrence count).
-    #[serde(default)]
-    pub recurrence_count: i64,
-    /// Links a workaround to its permanent replacement solution ID.
-    #[serde(default)]
-    pub permanent_fix_id: Option<String>,
-    /// ISO 8601 timestamp of last Q1 application.
-    #[serde(default)]
-    pub last_recurrence: Option<String>,
-    /// ISO 8601 timestamp of last Q4 permanent fix attempt.
-    #[serde(default)]
-    pub permanent_attempt_at: Option<String>,
-}
-
-fn default_fix_permanence() -> String { "workaround".to_string() }
 
 /// A row from the experiments table.
 #[allow(dead_code)]

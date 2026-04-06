@@ -28,7 +28,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::config::NodeType;
@@ -36,83 +35,17 @@ use crate::failure_monitor::FailureMonitorState;
 use crate::udp_heartbeat::HeartbeatStatus;
 use rc_common::fleet_event::FleetEvent;
 
+// Re-export DiagnosticTrigger from rc-common (Phase 322: shared types extraction).
+// All rc-agent modules that import `crate::diagnostic_engine::DiagnosticTrigger`
+// continue to work unchanged via this re-export.
+pub use rc_common::diagnostic_types::DiagnosticTrigger;
+
 const LOG_TARGET: &str = "diagnostic-engine";
 const SCAN_INTERVAL_SECS: u64 = 300; // 5 minutes per DIAG-07
 const STARTUP_GRACE_SECS: u64 = 60; // don't scan immediately — let rc-agent fully init
 const WS_DISCONNECT_TRIGGER_SECS: u64 = 30; // DIAG-01: ws disconnect threshold
 const ERROR_SPIKE_THRESHOLD: u64 = 5; // DIAG-01: errors/min before spike is declared
 const VIOLATION_SPIKE_DELTA: u64 = 50; // DIAG-01: violation count increase before spike
-
-/// All possible reasons a diagnostic cycle can be triggered.
-/// Sent as part of DiagnosticEvent to the tier engine.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DiagnosticTrigger {
-    /// Scheduled 5-minute periodic scan (DIAG-07)
-    Periodic,
-    /// rc-agent health endpoint not responding
-    HealthCheckFail,
-    /// WerFault or abnormal process exit detected
-    ProcessCrash { process_name: String },
-    /// Game launch timed out (>90s, no game_pid)
-    GameLaunchFail,
-    /// Edge process count is 0 when blanking screen should be active
-    DisplayMismatch { expected_edge_count: u32, actual_edge_count: u32 },
-    /// Error log rate exceeded threshold (>5 errors/min)
-    ErrorSpike { errors_per_min: u64 },
-    /// WebSocket disconnected for more than 30s
-    WsDisconnect { disconnected_secs: u64 },
-    /// WebSocket instability — high reconnect frequency (>=3 reconnects in 5 min).
-    WsInstability { reconnects_5m: u64, reconnects_lifetime: u64 },
-    /// Unexpected sentinel file found in C:\RacingPoint\
-    SentinelUnexpected { file_name: String },
-    /// Process guard violation count spiked (delta >50 in 5 min)
-    ViolationSpike { delta: u64 },
-    /// Pre-flight check failed — emitted by ws_handler on BillingStarted failure.
-    /// The check_name identifies which of the 11 checks failed (e.g. "hid", "conspit_link").
-    /// Multiple PreFlightFailed events may be emitted per pre-flight run (one per failed check).
-    PreFlightFailed {
-        check_name: String,
-        detail: String,
-    },
-
-    // ─── POS-Specific Triggers (v26.0 Meshed Intelligence — POS node) ──────────
-    /// POS: Kiosk Edge browser not running or unresponsive
-    PosKioskDown { detail: String },
-    /// POS: Network connectivity to racecontrol server lost (HTTP probe failed)
-    PosNetworkDown { server_ip: String, detail: String },
-    /// POS: Billing API unresponsive or returning errors
-    PosBillingApiError { endpoint: String, status_code: u16 },
-    /// POS: WiFi signal degraded — high latency or weak signal during active operations
-    /// MMA consensus (4/4): RSSI < -70dBm or latency > 500ms = transaction risk
-    PosWifiDegraded { rssi_dbm: i32, latency_ms: u64 },
-    /// POS: Edge kiosk escaped — non-kiosk window in foreground (security + ops risk)
-    /// MMA consensus (4/4): foreground != msedge.exe for > 10s
-    PosKioskEscaped { foreground_process: String },
-
-    // ─── UI State Triggers (DIAG-01n: taskbar enforcement) ──────────────────
-    /// Taskbar was found visible when it should be hidden (kiosk mode active).
-    /// This indicates explorer.exe restarted and ShowWindow(SW_HIDE) was lost.
-    TaskbarVisible,
-
-    // ─── MMA-First Protocol Triggers (v31.0) ──────────────────────────────────
-    /// Game crashed mid-session (process exited while billing was active).
-    /// Rich context: exit code, session duration, game/track/car at time of crash.
-    GameMidSessionCrash { exit_code: Option<i32>, session_duration_secs: u64 },
-    /// Post-session quality analysis — lightweight MMA call after session ends.
-    /// Evaluates session quality (micro-stutters, telemetry gaps, FPS drops).
-    /// Quality score as integer percentage (0-100) to maintain Eq derive.
-    PostSessionAnalysis { session_quality_pct: u8 },
-    /// Pre-shift health audit — comprehensive check before venue opens.
-    /// Runs full MMA diagnosis on each pod's overnight health state.
-    PreShiftAudit,
-    /// Post-deploy verification — validates new binary after OTA deploy.
-    DeployVerification { new_build_id: String },
-
-    /// Phase 318 (LAUNCH-01): Server detected game launch timeout — no playable signal
-    /// within the configured window. Agent feeds this into tier engine for recovery.
-    /// elapsed_secs: total seconds from launch command to timeout.
-    GameLaunchTimeout { elapsed_secs: u64 },
-}
 
 /// A single diagnostic event emitted by this module and consumed by the tier engine.
 #[derive(Debug, Clone)]
