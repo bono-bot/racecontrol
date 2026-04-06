@@ -7469,6 +7469,7 @@ async fn customer_stats(
 #[serde(deny_unknown_fields)]
 struct CustomerRegisterRequest {
     name: String,
+    phone: Option<String>,
     nickname: Option<String>,
     email: Option<String>,
     dob: String,
@@ -7505,6 +7506,11 @@ async fn customer_register(
     if let Some(ref phone) = req.guardian_phone {
         if let Err(e) = crate::input_validation::validate_phone(phone) {
             return Json(json!({ "error": format!("Guardian phone: {}", e) }));
+        }
+    }
+    if let Some(ref phone) = req.phone {
+        if let Err(e) = crate::input_validation::validate_phone(phone) {
+            return Json(json!({ "error": e }));
         }
     }
 
@@ -7549,6 +7555,7 @@ async fn customer_register(
     let result = sqlx::query(
         "UPDATE drivers SET
             name = ?, nickname = ?, email = ?, dob = ?,
+            phone = ?,
             waiver_signed = 1, waiver_signed_at = datetime('now'),
             waiver_version = 'v1.0',
             signature_data = ?,
@@ -7561,6 +7568,7 @@ async fn customer_register(
     .bind(&nickname)
     .bind(&req.email)
     .bind(&req.dob)
+    .bind(&req.phone)
     .bind(&req.signature_data)
     .bind(&req.guardian_name)
     .bind(&req.guardian_phone)
@@ -20977,14 +20985,19 @@ async fn run_pii_anonymization_cycle(state: Arc<AppState>) {
 
     // Find drivers inactive beyond the threshold who have not yet been anonymized
     // and have not already revoked consent (those are handled immediately on revocation).
+    // BUG FIX (2026-04-06): last_activity_at IS NULL matched newly registered drivers
+    // who hadn't raced yet. Added created_at check to exclude drivers created within
+    // the retention window — a driver registered 17 minutes ago is NOT "inactive for 24 months."
     let inactive_drivers: Vec<(String,)> = sqlx::query_as(
         "SELECT id FROM drivers
          WHERE (last_activity_at IS NULL
                 OR last_activity_at < datetime('now', '-' || ? || ' months'))
+           AND created_at < datetime('now', '-' || ? || ' months')
            AND COALESCE(pii_anonymized, 0) = 0
            AND COALESCE(consent_revoked, 0) = 0
          LIMIT 500",
     )
+    .bind(pii_inactive_months)
     .bind(pii_inactive_months)
     .fetch_all(&state.db)
     .await
