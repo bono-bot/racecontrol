@@ -52,6 +52,10 @@ pub struct SentryConfig {
     /// Mesh connectivity configuration.
     #[serde(default)]
     pub mesh: MeshConfig,
+
+    /// Direct WhatsApp alert configuration (MON-04).
+    #[serde(default)]
+    pub alert_config: AlertConfig,
 }
 
 fn default_service_name() -> String { "rc-agent".to_string() }
@@ -139,6 +143,57 @@ impl Default for SentryConfig {
             startup_log: default_startup_log(),
             stderr_log: default_stderr_log(),
             mesh: MeshConfig::default(),
+            alert_config: AlertConfig::default(),
+        }
+    }
+}
+
+/// Direct WhatsApp alert configuration for MON-04.
+/// Bypasses server relay -- alerts fire even when server is down.
+#[derive(Clone, Deserialize)]
+pub struct AlertConfig {
+    /// Whether direct WhatsApp alerts are enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Evolution API base URL (e.g. "http://srv1422716.hstgr.cloud:8080")
+    #[serde(default)]
+    pub whatsapp_url: String,
+    /// Evolution API instance name (e.g. "racing-point-staff")
+    #[serde(default)]
+    pub whatsapp_instance: String,
+    /// Evolution API key (apikey header value)
+    #[serde(default)]
+    pub whatsapp_api_key: String,
+    /// Phone number to alert (E.164 without +, e.g. "917075778180")
+    #[serde(default)]
+    pub whatsapp_number: String,
+    /// COMMS_PSK value (stored alongside alert config for future mesh use)
+    #[serde(default)]
+    pub comms_psk: String,
+}
+
+impl std::fmt::Debug for AlertConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AlertConfig")
+            .field("enabled", &self.enabled)
+            .field("whatsapp_url", &self.whatsapp_url)
+            .field("whatsapp_instance", &self.whatsapp_instance)
+            .field("whatsapp_api_key", &if self.whatsapp_api_key.is_empty() { "(empty)" } else { "[REDACTED]" })
+            .field("whatsapp_number", &self.whatsapp_number)
+            .field("comms_psk", &if self.comms_psk.is_empty() { "(empty)" } else { "[REDACTED]" })
+            .finish()
+    }
+}
+
+impl Default for AlertConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            whatsapp_url: String::new(),
+            whatsapp_instance: String::new(),
+            whatsapp_api_key: String::new(),
+            whatsapp_number: String::new(),
+            comms_psk: String::new(),
         }
     }
 }
@@ -173,4 +228,87 @@ pub fn load() -> &'static SentryConfig {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alert_config_defaults() {
+        let cfg = AlertConfig::default();
+        assert!(!cfg.enabled);
+        assert!(cfg.whatsapp_url.is_empty());
+        assert!(cfg.whatsapp_instance.is_empty());
+        assert!(cfg.whatsapp_api_key.is_empty());
+        assert!(cfg.whatsapp_number.is_empty());
+        assert!(cfg.comms_psk.is_empty());
+    }
+
+    #[test]
+    fn alert_config_deserialize_full() {
+        let toml_str = r#"
+service_name = "rc-agent"
+health_addr = "127.0.0.1:8090"
+health_path = "/health"
+service_port = 8090
+process_name = "rc-agent.exe"
+start_script = "C:\\RacingPoint\\start-rcagent.bat"
+service_toml = "C:\\RacingPoint\\rc-agent.toml"
+startup_log = "C:\\RacingPoint\\rc-agent-startup.log"
+stderr_log = "C:\\RacingPoint\\rc-agent-stderr.log"
+
+[alert_config]
+enabled = true
+whatsapp_url = "http://srv1422716.hstgr.cloud:8080"
+whatsapp_instance = "racing-point-staff"
+whatsapp_api_key = "secret-api-key-123"
+whatsapp_number = "917075778180"
+comms_psk = "secret-psk-456"
+"#;
+        let cfg: SentryConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.alert_config.enabled);
+        assert_eq!(cfg.alert_config.whatsapp_url, "http://srv1422716.hstgr.cloud:8080");
+        assert_eq!(cfg.alert_config.whatsapp_instance, "racing-point-staff");
+        assert_eq!(cfg.alert_config.whatsapp_api_key, "secret-api-key-123");
+        assert_eq!(cfg.alert_config.whatsapp_number, "917075778180");
+        assert_eq!(cfg.alert_config.comms_psk, "secret-psk-456");
+    }
+
+    #[test]
+    fn alert_config_deserialize_missing() {
+        // TOML without [alert_config] should still deserialize with defaults
+        let toml_str = r#"
+service_name = "rc-agent"
+health_addr = "127.0.0.1:8090"
+health_path = "/health"
+service_port = 8090
+process_name = "rc-agent.exe"
+start_script = "C:\\RacingPoint\\start-rcagent.bat"
+service_toml = "C:\\RacingPoint\\rc-agent.toml"
+startup_log = "C:\\RacingPoint\\rc-agent-startup.log"
+stderr_log = "C:\\RacingPoint\\rc-agent-stderr.log"
+"#;
+        let cfg: SentryConfig = toml::from_str(toml_str).unwrap();
+        assert!(!cfg.alert_config.enabled);
+        assert!(cfg.alert_config.whatsapp_url.is_empty());
+        assert!(cfg.alert_config.whatsapp_api_key.is_empty());
+    }
+
+    #[test]
+    fn alert_config_debug_redacts_secrets() {
+        let cfg = AlertConfig {
+            enabled: true,
+            whatsapp_url: "http://example.com:8080".to_string(),
+            whatsapp_instance: "test-instance".to_string(),
+            whatsapp_api_key: "super-secret-key".to_string(),
+            whatsapp_number: "917075778180".to_string(),
+            comms_psk: "super-secret-psk".to_string(),
+        };
+        let debug_output = format!("{:?}", cfg);
+        assert!(debug_output.contains("[REDACTED]"), "Debug output should contain [REDACTED]");
+        assert!(!debug_output.contains("super-secret-key"), "Debug output must NOT contain the actual API key");
+        assert!(!debug_output.contains("super-secret-psk"), "Debug output must NOT contain the actual PSK");
+        assert!(debug_output.contains("917075778180"), "Debug output should show the phone number (not a secret)");
+    }
 }
