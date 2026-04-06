@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-06 18:34 IST | James | 70626c9c | deploy: fleet-wide 70626c9c — server + 8 pods + cloud. SHA256 deploy fix (7f49a5f8), billing type fix (4e64d84d). |
 | 2026-04-06 17:40 IST | James | e3d1ae76 | fix: 8 launch resilience + lock safety fixes. P0: WaitingForLive 180→60s + dead game detection + AcStatus::Error. P0: blanking state race (browser-gated). P1: 6 lock-across-await in 3 files. P1: rollback sentinel guard, WMI fallback, build parity bat cleanup. P2: kiosk API rewrites. |
 | 2026-04-06 16:34 IST | James | 24d181d4 | fix: SP launch skips CM (--race flag doesn't exist), uses direct acs.exe. Pod 1 CM path added. |
 | 2026-04-06 13:15 IST | James | 4a260afb | docs: 6 debugging reference docs (ARCHITECTURE, API 403 endpoints, SERVICE-REFERENCE all 7 binaries, ERROR-CATALOG, DATA-FLOW-DIAGRAMS 9 flows incl Mesh Intelligence, LOG-LOCATIONS). Fix: 2 production unwraps (rc-agent mutex expect, rc-common ollama expect). Full codebase audit confirmed: game timeout, crash loop detection, cloud sync, boot resilience all implemented. |
