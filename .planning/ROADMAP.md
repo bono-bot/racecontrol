@@ -567,7 +567,7 @@ Plans:
   2. Crawler authenticates via saved Playwright storageState (staff PIN) -- no manual login needed per run
   3. Screenshots are saved to `tests/screenshots/{app}/{route}/{timestamp}.png` with consistent naming
   4. Crawler accepts flags to target a specific app or specific page instead of always doing a full crawl
-**Plans**: TBD
+**Plans**: 1 plan
 **UI hint**: yes
 
 Plans:
