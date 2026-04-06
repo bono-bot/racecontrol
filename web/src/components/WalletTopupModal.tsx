@@ -87,7 +87,7 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
     try {
       const res = await fetchApi<{ status?: string; new_balance_paise?: number; error?: string }>(
         `/wallet/${selectedDriver.id}/topup`,
-        { method: "POST", body: JSON.stringify({ amount_paise: effectiveAmount, payment_method: method }) }
+        { method: "POST", body: JSON.stringify({ amount_paise: effectiveAmount, method: method }) }
       );
       if (res.error) {
         setError(res.error);
