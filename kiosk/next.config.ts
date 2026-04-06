@@ -19,6 +19,16 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    // Proxy API calls to racecontrol server so kiosk at :3300 works standalone
+    const apiDest = process.env.NEXT_PUBLIC_API_URL || "http://192.168.31.23:8080";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiDest}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

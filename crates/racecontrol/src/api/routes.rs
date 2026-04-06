@@ -1302,28 +1302,25 @@ async fn unrestrict_pod(
 ) -> Json<Value> {
     let unrestrict = body.get("unrestrict").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    let senders = state.agent_senders.read().await;
-    let Some(sender) = senders.get(&id) else {
-        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    // Clone sender, drop lock (standing rule: no lock across .await)
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        match senders.get(&id) {
+            Some(s) if !s.is_closed() => s.clone(),
+            _ => return Json(json!({ "error": format!("Pod {} not connected", id) })),
+        }
     };
-    if sender.is_closed() {
-        return Json(json!({ "error": format!("Pod {} not connected", id) }));
-    }
 
     if unrestrict {
-        // 1. Clear lock screen
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearLockScreen)).await;
-        // 2. Enter debug mode (deactivates kiosk enforcement, restores taskbar)
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterDebugMode {
             employee_name: "Staff (admin panel)".to_string(),
         })).await;
-        // 3. Disable kiosk lockdown via settings (prevents re-activation on next settings broadcast)
         let mut settings = std::collections::HashMap::new();
         settings.insert("kiosk_lockdown_enabled".to_string(), "false".to_string());
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings })).await;
         tracing::info!("Pod {} UNRESTRICTED for employee training", id);
     } else {
-        // Re-restrict: re-enable kiosk lockdown + blank screen
         let mut settings = std::collections::HashMap::new();
         settings.insert("kiosk_lockdown_enabled".to_string(), "true".to_string());
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings })).await;
@@ -1353,13 +1350,14 @@ async fn freedom_mode_pod(
 ) -> Json<Value> {
     let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    let senders = state.agent_senders.read().await;
-    let Some(sender) = senders.get(&id) else {
-        return Json(json!({ "error": format!("Pod {} not connected", id) }));
+    // Clone sender, drop lock (standing rule: no lock across .await)
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        match senders.get(&id) {
+            Some(s) if !s.is_closed() => s.clone(),
+            _ => return Json(json!({ "error": format!("Pod {} not connected", id) })),
+        }
     };
-    if sender.is_closed() {
-        return Json(json!({ "error": format!("Pod {} not connected", id) }));
-    }
 
     if enabled {
         let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::EnterFreedomMode)).await;

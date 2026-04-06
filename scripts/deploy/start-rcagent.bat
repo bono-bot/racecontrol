@@ -77,5 +77,9 @@ if exist rc-agent.exe ren rc-agent.exe rc-agent-prev.exe 1>nul 2>nul
 ping -n 2 127.0.0.1 >nul
 if exist rc-agent.exe del /Q rc-agent.exe 1>nul 2>nul
 ren "%STAGED%" rc-agent.exe 1>nul
+rem --- Clean up ALL remaining staged binaries to prevent parity drift ---
+for /f "delims=" %%G in ('dir /B rc-agent-????????*.exe 2^>nul') do (
+    if not "%%G"=="rc-agent-prev.exe" del /Q "%%G" 1>nul 2>nul
+)
 :start_agent
 start "" /D C:\RacingPoint rc-agent.exe

@@ -595,30 +595,36 @@ pub async fn start_ac_server(
 
     // Launch Content Manager on each selected pod with JSON launch_args
     // (fixes: agent expects JSON with game_mode "multi", not raw acmanager:// URI)
-    let agent_senders = state.agent_senders.read().await;
-    for pod_id in &pod_ids {
-        if let Some(sender) = agent_senders.get(pod_id) {
-            let launch_json = serde_json::json!({
-                "car": config.cars.first().unwrap_or(&"ks_ferrari_488_gt3".to_string()),
-                "track": &config.track,
-                "track_config": &config.track_config,
-                "game_mode": "multi",
-                "server_ip": &lan_ip,
-                "server_http_port": config.http_port,
-                "server_password": &config.password,
-                "session_type": "race",
-            });
-            let cmd = CoreToAgentMessage::LaunchGame {
-                sim_type: SimType::AssettoCorsa,
-                launch_args: Some(launch_json.to_string()),
-                force_clean: false,
-                duration_minutes: None,
-            };
-            let _ = sender.send(CoreMessage::wrap(cmd)).await;
-            tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
-        } else {
-            tracing::warn!("Pod {} not connected, skipping launch", pod_id);
-        }
+    // Clone senders, drop lock, then send (standing rule: no lock across .await)
+    let senders_snapshot: Vec<(String, _)> = {
+        let agent_senders = state.agent_senders.read().await;
+        pod_ids.iter().filter_map(|pod_id| {
+            agent_senders.get(pod_id).map(|s| (pod_id.clone(), s.clone()))
+        }).collect()
+    };
+    let missing: Vec<_> = pod_ids.iter().filter(|p| !senders_snapshot.iter().any(|(id, _)| id == *p)).collect();
+    for pod_id in missing {
+        tracing::warn!("Pod {} not connected, skipping launch", pod_id);
+    }
+    for (pod_id, sender) in &senders_snapshot {
+        let launch_json = serde_json::json!({
+            "car": config.cars.first().unwrap_or(&"ks_ferrari_488_gt3".to_string()),
+            "track": &config.track,
+            "track_config": &config.track_config,
+            "game_mode": "multi",
+            "server_ip": &lan_ip,
+            "server_http_port": config.http_port,
+            "server_password": &config.password,
+            "session_type": "race",
+        });
+        let cmd = CoreToAgentMessage::LaunchGame {
+            sim_type: SimType::AssettoCorsa,
+            launch_args: Some(launch_json.to_string()),
+            force_clean: false,
+            duration_minutes: None,
+        };
+        let _ = sender.send(CoreMessage::wrap(cmd)).await;
+        tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
     }
 
     // Update DB status
@@ -725,12 +731,15 @@ pub async fn stop_ac_server(state: &Arc<AppState>, session_id: &str) -> anyhow::
         let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
     }
 
-    // Send StopGame to all assigned pods
-    let agent_senders = state.agent_senders.read().await;
-    for pod_id in &assigned_pods {
-        if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
-        }
+    // Send StopGame to all assigned pods (clone senders, drop lock first)
+    let stop_senders: Vec<_> = {
+        let agent_senders = state.agent_senders.read().await;
+        assigned_pods.iter().filter_map(|pod_id| {
+            agent_senders.get(pod_id).cloned()
+        }).collect()
+    };
+    for sender in &stop_senders {
+        let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
     }
 
     // Remove from active instances

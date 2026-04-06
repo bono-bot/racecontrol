@@ -112,6 +112,27 @@ pub fn perform_rollback(
     reason: &str,
     current_hash: &str,
 ) -> RollbackOutcome {
+    // Suppress rollback during game launch — renaming the binary while the agent
+    // is mid-launch can corrupt the on-disk image or cause false "crash" detection
+    let game_launching = install_dir.join("GAME_LAUNCHING");
+    if game_launching.is_file() {
+        tracing::warn!(
+            "GAME_LAUNCHING sentinel present — suppressing rollback (reason: {})",
+            reason
+        );
+        return RollbackOutcome::NoPreviousBinary; // Reuse existing variant to signal "not rolled back"
+    }
+
+    // Suppress rollback during OTA deploy
+    let ota_deploying = install_dir.join("OTA_DEPLOYING");
+    if ota_deploying.is_file() {
+        tracing::warn!(
+            "OTA_DEPLOYING sentinel present — suppressing rollback (reason: {})",
+            reason
+        );
+        return RollbackOutcome::NoPreviousBinary;
+    }
+
     let agent_exe = install_dir.join("rc-agent.exe");
     let prev_exe = install_dir.join("rc-agent-prev.exe");
     let failed_exe = install_dir.join("rc-agent-failed.exe");

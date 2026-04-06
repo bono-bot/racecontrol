@@ -28,7 +28,8 @@ pub type WsRx = futures_util::stream::SplitStream<
 >;
 
 /// Tracks the state of a game launch attempt for timeout/retry handling.
-/// BILL-01: 3-minute launch timeout with auto-retry once, cancel on second fail (no charge).
+/// AC: 60s timeout (CSP loads in <30s). Other sims: 180s fallback (no telemetry detection).
+/// Auto-retry once, cancel on second fail (no charge). If game process dies, skip retry.
 pub(crate) enum LaunchState {
     Idle,
     WaitingForLive {
@@ -37,6 +38,11 @@ pub(crate) enum LaunchState {
     },
     Live,
 }
+
+/// AC-specific launch timeout (60s). CSP + AC typically loads in <30s.
+const AC_LAUNCH_TIMEOUT_SECS: u64 = 60;
+/// Fallback timeout for sims without telemetry detection (EVO, WRC, Forza, FH5).
+const GENERIC_LAUNCH_TIMEOUT_SECS: u64 = 180;
 
 /// Crash recovery state machine (SESSION-03).
 /// Replaces the old crash_recovery_armed bool + crash_recovery_timer Sleep.
@@ -453,9 +459,37 @@ pub async fn run(
                 if let LaunchState::WaitingForLive { launched_at, attempt } = &conn.launch_state {
                     let launched_at = *launched_at;
                     let attempt = *attempt;
-                    if launched_at.elapsed() > Duration::from_secs(180) {
+                    let elapsed = launched_at.elapsed();
+
+                    // Check if game process died — skip retry, go straight to error
+                    let game_dead = state.game_process.as_mut()
+                        .map(|g| !g.is_running())
+                        .unwrap_or(true);
+
+                    if game_dead && elapsed > Duration::from_secs(5) {
+                        // Game process died during launch — no point retrying
+                        tracing::error!(target: LOG_TARGET,
+                            "AC game process died during launch (attempt {}, {}s elapsed) — cancelling",
+                            attempt, elapsed.as_secs());
+                        state.game_process = None;
+                        conn.launch_state = LaunchState::Idle;
+                        conn.game_running_since = None;
+                        conn.shm_defer_logged = false;
+                        let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
+
+                        let msg = AgentMessage::GameStatusUpdate {
+                            pod_id: state.pod_id.clone(),
+                            ac_status: AcStatus::Error,
+                            sim_type: Some(rc_common::types::SimType::AssettoCorsa),
+                        };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            let _ = ws_tx.send(Message::Text(json.into())).await;
+                        }
+                    } else if elapsed > Duration::from_secs(AC_LAUNCH_TIMEOUT_SECS) {
                         if attempt < 2 {
-                            tracing::warn!(target: LOG_TARGET, "AC launch timeout (attempt {}), retrying...", attempt);
+                            tracing::warn!(target: LOG_TARGET,
+                                "AC launch timeout {}s (attempt {}), game_alive={}, retrying...",
+                                elapsed.as_secs(), attempt, !game_dead);
                             if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
@@ -475,20 +509,21 @@ pub async fn run(
                                 attempt: attempt + 1,
                             };
                         } else {
-                            tracing::error!(target: LOG_TARGET, "AC launch failed twice, cancelling session (no charge)");
+                            tracing::error!(target: LOG_TARGET,
+                                "AC launch failed twice ({}s total), cancelling session (no charge)",
+                                elapsed.as_secs());
                             if let Some(ref mut proc) = state.game_process {
                                 let _ = proc.stop();
                             }
                             state.game_process = None;
                             conn.launch_state = LaunchState::Idle;
-                            // HARD-03: Reset shm defer state on game exit
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
                             let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                             let msg = AgentMessage::GameStatusUpdate {
                                 pod_id: state.pod_id.clone(),
-                                ac_status: AcStatus::Off,
+                                ac_status: AcStatus::Error,
                                 sim_type: Some(rc_common::types::SimType::AssettoCorsa),
                             };
                             if let Ok(json) = serde_json::to_string(&msg) {
@@ -545,6 +580,8 @@ pub async fn run(
             _ = conn.game_check_interval.tick() => {
                 // ─── Safe Mode: poll WMI watcher for externally launched games ──
                 // SAFE-01 secondary path: games launched outside rc-agent (e.g., Steam).
+                // Fallback: if WMI watcher is dead (PowerShell failed), detect_running_protected_game()
+                // polls tasklist every game_check tick (~2s) below.
                 {
                     let mut wmi_triggered = false;
                     if let Some(ref wmi_rx) = state.wmi_rx {
@@ -568,6 +605,19 @@ pub async fn run(
                                     tracing::info!(target: LOG_TARGET, "WMI: ENTER safe mode — game={} (no SimType variant)", exe_name);
                                 }
                             }
+                        }
+                    }
+                    // WMI fallback: if WMI didn't trigger and safe mode is not active,
+                    // poll tasklist for protected games. Catches externally launched games
+                    // even when PowerShell WMI watcher fails to start.
+                    if !wmi_triggered && !state.safe_mode.active && state.game_process.is_none() {
+                        if let Some(sim) = crate::safe_mode::detect_running_protected_game() {
+                            tracing::info!(target: LOG_TARGET,
+                                "Tasklist fallback detected protected game: {:?}", sim);
+                            state.safe_mode.enter(sim);
+                            state.safe_mode_active.store(true, std::sync::atomic::Ordering::SeqCst);
+                            state.safe_mode_cooldown_armed = false;
+                            wmi_triggered = true;
                         }
                     }
                     // If safe mode is active (WMI or LaunchGame) but game_process is None,
@@ -884,7 +934,7 @@ pub async fn run(
                                 // 180s grace period for games without telemetry/shared-memory
                             // detection (EVO, WRC, Forza, FH5). Gives customers time to
                             // navigate in-game menus before billing starts.
-                            if launched_at.elapsed() >= Duration::from_secs(180) {
+                            if launched_at.elapsed() >= Duration::from_secs(GENERIC_LAUNCH_TIMEOUT_SECS) {
                                     let game_alive = state.game_process.as_mut()
                                         .map(|g| g.is_running())
                                         .unwrap_or(false);

@@ -698,11 +698,8 @@ impl LockScreenManager {
     }
 
     /// Show a blank (black) screen — used between sessions when screen blanking is enabled.
+    /// State is set to ScreenBlanked only AFTER the browser is confirmed launched.
     pub fn show_blank_screen(&mut self) {
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            *state = LockScreenState::ScreenBlanked;
-        }
         #[cfg(windows)]
         // ─── SAFE-06: skip Focus Assist registry write during safe mode ───
         if !self.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
@@ -711,19 +708,37 @@ impl LockScreenManager {
             tracing::info!(target: LOG_TARGET, "safe mode active — Focus Assist registry write deferred");
         }
         self.launch_browser();
+        // Gate state change on browser actually launching — prevents
+        // "state=blanked but no browser" when Edge fails to launch.
+        let browser_alive = self.browser_process.as_mut()
+            .map(|c| matches!(c.try_wait(), Ok(None)))
+            .unwrap_or(false);
+        if browser_alive || self.browser_disabled {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = LockScreenState::ScreenBlanked;
+        } else {
+            tracing::error!(target: LOG_TARGET,
+                "show_blank_screen: browser failed to launch — state NOT set to ScreenBlanked");
+        }
     }
 
     /// Show a branded configuration error screen.
     /// The `message` parameter is NOT shown to the customer — a generic message is used instead.
     /// Technical details should be logged separately via tracing::error!.
     pub fn show_config_error(&mut self, _message: &str) {
-        {
+        self.launch_browser();
+        let browser_alive = self.browser_process.as_mut()
+            .map(|c| matches!(c.try_wait(), Ok(None)))
+            .unwrap_or(false);
+        if browser_alive || self.browser_disabled {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::ConfigError {
                 message: "Configuration Error - contact staff".to_string(),
             };
+        } else {
+            tracing::error!(target: LOG_TARGET,
+                "show_config_error: browser failed to launch — state NOT set to ConfigError");
         }
-        self.launch_browser();
     }
 
     /// Clear/dismiss the lock screen.

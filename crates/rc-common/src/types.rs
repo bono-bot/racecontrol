@@ -342,6 +342,8 @@ pub enum AcStatus {
     Live,
     /// Game paused via ESC menu (STATUS=3) -- billing pauses
     Pause,
+    /// Launch failed (timeout or process died) -- no charge, server should clean up
+    Error,
 }
 
 // ─── Billing ────────────────────────────────────────────────────────────────
@@ -1519,6 +1521,7 @@ mod tests {
             (AcStatus::Replay, "\"replay\""),
             (AcStatus::Live, "\"live\""),
             (AcStatus::Pause, "\"pause\""),
+            (AcStatus::Error, "\"error\""),
         ];
         for (variant, expected_json) in variants {
             let json = serde_json::to_string(&variant).unwrap();

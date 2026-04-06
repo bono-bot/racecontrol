@@ -772,32 +772,39 @@ pub async fn handle_game_status_update(
                 if let Some(ref group_id) = entry.group_session_id {
                     // ── Multiplayer: coordinate billing across group ──────────
                     let group_id = group_id.clone();
-                    let mut mp = state.billing.multiplayer_waiting.write().await;
 
-                    // Get or create MultiplayerBillingWait entry
-                    if !mp.contains_key(&group_id) {
-                        // First pod for this group — query expected pods from DB
+                    // Check if group exists (read lock, cheap)
+                    let needs_init = !state.billing.multiplayer_waiting.read().await.contains_key(&group_id);
+
+                    // If first pod for this group, query DB WITHOUT holding the lock
+                    let expected_pods_from_db: Option<Vec<String>> = if needs_init {
                         // BILL-10: Reject billing on DB failure (no silent unwrap_or_default)
-                        let pod_ids: Vec<String> = match sqlx::query_scalar(
+                        match sqlx::query_scalar(
                             "SELECT pod_id FROM group_session_members WHERE group_session_id = ? AND status = 'validated' AND pod_id IS NOT NULL",
                         )
                         .bind(&group_id)
                         .fetch_all(&state.db)
                         .await
                         {
-                            Ok(ids) => ids,
+                            Ok(ids) => Some(ids),
                             Err(e) => {
                                 tracing::error!(
                                     "group_session_members query failed for group {} — billing REJECTED: {}",
                                     group_id, e
                                 );
-                                // Drop mp lock before acquiring waiting_for_game to avoid lock ordering issue
-                                drop(mp);
-                                // Re-insert entry so it's not lost; billing will be retried on next LIVE signal
                                 state.billing.waiting_for_game.write().await.insert(pod_id.to_string(), entry);
                                 return;
                             }
-                        };
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Now acquire write lock (DB query already done)
+                    let mut mp = state.billing.multiplayer_waiting.write().await;
+
+                    if !mp.contains_key(&group_id) {
+                        let pod_ids = expected_pods_from_db.unwrap_or_default();
 
                         let expected: HashSet<String> = if pod_ids.is_empty() {
                             // Fallback: if no DB results, just expect this pod
@@ -1236,12 +1243,11 @@ pub async fn handle_game_status_update(
                     .map_err(|e| tracing::error!("Failed to cancel pre-committed session {}: {}", pre_data.session_id, e));
                 }
             }
-            // Also clear GameTracker state so the pod isn't stuck in "Launching"
+            // Remove GameTracker so the pod isn't stuck in "Launching"
             {
                 let mut games = state.game_launcher.active_games.write().await;
-                if let Some(tracker) = games.get_mut(pod_id) {
-                    tracker.game_state = rc_common::types::GameState::Idle;
-                    tracing::info!("GameTracker reset to Idle for pod {} after launch error", pod_id);
+                if games.remove(pod_id).is_some() {
+                    tracing::info!("GameTracker removed for pod {} after launch error", pod_id);
                 }
             }
         }

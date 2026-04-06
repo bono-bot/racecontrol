@@ -1863,7 +1863,7 @@ mod tests {
     #[test]
     fn test_game_status_update_all_ac_statuses() {
         use crate::types::AcStatus;
-        for status in [AcStatus::Off, AcStatus::Replay, AcStatus::Live, AcStatus::Pause] {
+        for status in [AcStatus::Off, AcStatus::Replay, AcStatus::Live, AcStatus::Pause, AcStatus::Error] {
             let msg = AgentMessage::GameStatusUpdate {
                 pod_id: "pod_1".to_string(),
                 ac_status: status,
