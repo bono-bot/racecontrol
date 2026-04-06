@@ -35,9 +35,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 ### AI Self-Audit
 
-- [ ] **AUDIT-01**: Page description files documenting expected behavior per page (what data, what layout, what interactions)
-- [ ] **AUDIT-02**: James reads fresh screenshots via Read tool and compares against descriptions
-- [ ] **AUDIT-03**: Anomaly report generated listing pages that don't match expected behavior
+- [x] **AUDIT-01**: Page description files documenting expected behavior per page (what data, what layout, what interactions)
+- [x] **AUDIT-02**: James reads fresh screenshots via Read tool and compares against descriptions
+- [x] **AUDIT-03**: Anomaly report generated listing pages that don't match expected behavior
 - [ ] **AUDIT-04**: Self-audit runs at session start when working on frontend tasks
 
 ## Future Requirements
@@ -78,9 +78,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 | DEPLOY-01 | Phase 327 | Complete |
 | DEPLOY-02 | Phase 327 | Complete |
 | DEPLOY-03 | Phase 327 | Complete |
-| AUDIT-01 | Phase 328 | Pending |
-| AUDIT-02 | Phase 328 | Pending |
-| AUDIT-03 | Phase 328 | Pending |
+| AUDIT-01 | Phase 328 | Complete |
+| AUDIT-02 | Phase 328 | Complete |
+| AUDIT-03 | Phase 328 | Complete |
 | AUDIT-04 | Phase 328 | Pending |
 
 **Coverage:**
