@@ -34,6 +34,7 @@ mod screen_verify;
 mod cognitive_gate;
 #[cfg(feature = "mesh")]
 mod mesh_client;
+mod peer_channel;
 
 use rc_common::recovery::{RecoveryAuthority, RecoveryAction, RecoveryDecision};
 #[cfg(feature = "watchdog")]
@@ -417,6 +418,118 @@ fn main() {
     mma_engine::spawn(mma_rx);
     tracing::info!("MI diagnostic engine + tier engine + MMA engine spawned");
 
+    // Phase 324: Spawn peer gossip channel (direct pod-to-pod UDP)
+    let peer_cfg = cfg.peer.clone();
+    if peer_cfg.enabled {
+        tracing::info!(target: "peer-gossip",
+            node_id = %peer_cfg.node_id,
+            peer_count = peer_cfg.peers.len(),
+            gossip_port = peer_cfg.gossip_port,
+            "starting peer gossip channel"
+        );
+
+        let gossip_rx = peer_channel::spawn_receiver(peer_cfg.gossip_port, &SHUTDOWN_REQUESTED);
+
+        // Gossip sender thread: drains the queue and sends UDP unicast to all peers
+        let send_peer_cfg = peer_cfg.clone();
+        let gossip_send_rx = peer_channel::init_gossip_sender();
+        std::thread::Builder::new()
+            .name("peer-gossip-tx".to_string())
+            .spawn(move || {
+                let local_ip = send_peer_cfg.peers.get(&send_peer_cfg.node_id)
+                    .cloned().unwrap_or_default();
+                let peer_ips: Vec<String> = send_peer_cfg.peers.values()
+                    .filter(|ip| **ip != local_ip) // Don't send to self
+                    .cloned()
+                    .collect();
+                let peer_ip_refs: Vec<&str> = peer_ips.iter().map(|s| s.as_str()).collect();
+                for msg in gossip_send_rx {
+                    peer_channel::send_gossip(&msg, &peer_ip_refs, send_peer_cfg.gossip_port);
+                }
+                tracing::warn!(target: "peer-gossip", "gossip sender channel closed -- exiting");
+            })
+            .expect("spawn peer-gossip-tx");
+
+        // Gossip processor: receives GossipMessages from peers, stores solutions in local KB
+        let proc_peer_cfg = peer_cfg.clone();
+        std::thread::Builder::new()
+            .name("peer-gossip-proc".to_string())
+            .spawn(move || {
+                for msg in gossip_rx {
+                    match msg {
+                        peer_channel::GossipMessage::SolutionUpdate {
+                            from, problem_key, problem_hash,
+                            fix_action, confidence, source_node, seq, ..
+                        } => {
+                            tracing::info!(
+                                target: "peer-gossip",
+                                from = %from, problem_key = %problem_key,
+                                confidence = confidence, seq = seq,
+                                "received solution gossip -- storing in local KB"
+                            );
+                            if let Ok(kb) = mi_knowledge_base::KnowledgeBase::open(mi_knowledge_base::KB_PATH) {
+                                let now = chrono::Utc::now().to_rfc3339();
+                                let solution = rc_common::diagnostic_types::SolutionRecord {
+                                    id: format!("gossip_{}_{}", source_node, problem_hash),
+                                    problem_key: problem_key.clone(),
+                                    problem_hash: problem_hash.clone(),
+                                    symptoms: "gossip".to_string(),
+                                    environment: "{}".to_string(),
+                                    root_cause: format!("gossip from {}", from),
+                                    fix_action,
+                                    fix_type: "deterministic".to_string(),
+                                    success_count: 1,
+                                    fail_count: 0,
+                                    confidence,
+                                    cost_to_diagnose: 0.0,
+                                    models_used: None,
+                                    source_node,
+                                    created_at: now.clone(),
+                                    updated_at: now,
+                                    version: 1,
+                                    ttl_days: 90,
+                                    tags: Some("[\"fleet_gossip\"]".to_string()),
+                                    diagnosis_method: Some("peer_gossip".to_string()),
+                                    fix_permanence: "workaround".to_string(),
+                                    recurrence_count: 0,
+                                    permanent_fix_id: None,
+                                    last_recurrence: None,
+                                    permanent_attempt_at: None,
+                                };
+                                match kb.store_solution(&solution) {
+                                    Ok(()) => tracing::info!(
+                                        target: "peer-gossip",
+                                        problem_key = %problem_key,
+                                        "gossip solution stored in local KB"
+                                    ),
+                                    Err(e) => tracing::warn!(
+                                        target: "peer-gossip",
+                                        "store_solution failed: {e}"
+                                    ),
+                                }
+                            }
+                        }
+                        peer_channel::GossipMessage::Ping { from, seq, .. } => {
+                            tracing::debug!(target: "peer-gossip", from = %from, seq = seq, "received ping -- sending pong");
+                            // Reply to pings: look up sender's IP
+                            if let Some(peer_ip) = proc_peer_cfg.peers.get(&from) {
+                                let pong = peer_channel::build_pong(&proc_peer_cfg.node_id, seq);
+                                peer_channel::send_gossip(&pong, &[peer_ip.as_str()], proc_peer_cfg.gossip_port);
+                            } else {
+                                tracing::warn!(target: "peer-gossip", from = %from, "ping from unknown peer -- no pong sent");
+                            }
+                        }
+                        peer_channel::GossipMessage::Pong { from, seq, .. } => {
+                            tracing::info!(target: "peer-gossip", from = %from, seq = seq, "received pong -- peer reachable");
+                        }
+                    }
+                }
+            })
+            .expect("spawn peer-gossip-proc");
+    } else {
+        tracing::info!(target: "peer-gossip", "peer gossip disabled (peer.enabled=false)");
+    }
+
     const MAX_CONCURRENT_CONNECTIONS: usize = 32;
     let mut handles: Vec<std::thread::JoinHandle<()>> = Vec::new();
     loop {
@@ -528,6 +641,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
         ("GET", "/health") => return handle_health(&mut stream),
         ("GET", "/version") => return handle_version(&mut stream),
         ("GET", "/mi/debug") => return handle_mi_debug(&mut stream),
+        ("GET", "/kb/solutions") => return handle_kb_solutions(&mut stream),
         _ => {} // Fall through to protected routes
     }
 
@@ -540,6 +654,7 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     match (method, path) {
         ("POST", "/exec") => handle_exec(&mut stream, &request),
         ("POST", "/mi/trigger") => handle_mi_trigger(&mut stream, &request),
+        ("POST", "/peer/ping") => handle_peer_ping(&mut stream),
         ("GET", "/mma/status") => handle_mma_status(&mut stream),
         ("GET", "/gate/last-plan") => handle_gate_last_plan(&mut stream),
         ("GET", "/flags") => handle_flags(&mut stream),
@@ -828,6 +943,43 @@ fn handle_mi_trigger(stream: &mut TcpStream, request: &str) -> Result<(), Box<dy
     send_response(stream, 200, &body)
 }
 
+/// GET /kb/solutions — return solution count from MI knowledge base (public, no auth).
+fn handle_kb_solutions(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    match mi_knowledge_base::KnowledgeBase::open(mi_knowledge_base::KB_PATH) {
+        Ok(kb) => {
+            let count = kb.solution_count().unwrap_or(0);
+            let resp = serde_json::json!({
+                "solution_count": count,
+                "kb_path": mi_knowledge_base::KB_PATH,
+            });
+            send_response(stream, 200, &resp.to_string())
+        }
+        Err(e) => {
+            let resp = serde_json::json!({ "error": e.to_string() });
+            send_response(stream, 500, &resp.to_string())
+        }
+    }
+}
+
+/// POST /peer/ping — send gossip ping to all configured peers (protected).
+fn handle_peer_ping(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = sentry_config::load();
+    if !cfg.peer.enabled {
+        return send_response(stream, 503, r#"{"error":"peer gossip disabled"}"#);
+    }
+    let peer_count = cfg.peer.peers.len();
+    let node_id = &cfg.peer.node_id;
+    let ping = peer_channel::build_ping(node_id);
+    let peer_ips: Vec<&str> = cfg.peer.peers.values().map(|s| s.as_str()).collect();
+    peer_channel::send_gossip(&ping, &peer_ips, cfg.peer.gossip_port);
+    let resp = serde_json::json!({
+        "status": "pings_sent",
+        "from": node_id,
+        "peers_pinged": peer_count,
+    });
+    send_response(stream, 200, &resp.to_string())
+}
+
 fn send_response(
     stream: &mut TcpStream,
     status: u16,
@@ -836,9 +988,12 @@ fn send_response(
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         429 => "Too Many Requests",
+        500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "Error",
     };
     let response = format!(

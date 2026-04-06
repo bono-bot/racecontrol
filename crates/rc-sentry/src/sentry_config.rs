@@ -56,6 +56,10 @@ pub struct SentryConfig {
     /// Direct WhatsApp alert configuration (MON-04).
     #[serde(default)]
     pub alert_config: AlertConfig,
+
+    /// Peer-to-peer gossip and coordinated launch (Phase 324).
+    #[serde(default)]
+    pub peer: PeerConfig,
 }
 
 fn default_service_name() -> String { "rc-agent".to_string() }
@@ -144,7 +148,48 @@ impl Default for SentryConfig {
             stderr_log: default_stderr_log(),
             mesh: MeshConfig::default(),
             alert_config: AlertConfig::default(),
+            peer: PeerConfig::default(),
         }
+    }
+}
+
+/// Peer-to-peer gossip configuration for Phase 324.
+#[derive(Clone, Deserialize, Default)]
+pub struct PeerConfig {
+    /// Enable direct pod-to-pod gossip and coordinated launch
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// This pod's node ID (e.g. "pod_1")
+    #[serde(default)]
+    pub node_id: String,
+
+    /// UDP port for gossip messages (default 8092)
+    #[serde(default = "default_gossip_port")]
+    pub gossip_port: u16,
+
+    /// TCP port for coordinated launch (default 8093)
+    #[serde(default = "default_launch_port")]
+    pub launch_port: u16,
+
+    /// Known peers: node_id -> IP address
+    /// e.g. { "pod_1" = "192.168.31.89", "pod_2" = "192.168.31.33" }
+    #[serde(default)]
+    pub peers: std::collections::HashMap<String, String>,
+}
+
+fn default_gossip_port() -> u16 { 8092 }
+fn default_launch_port() -> u16 { 8093 }
+
+impl std::fmt::Debug for PeerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerConfig")
+            .field("enabled", &self.enabled)
+            .field("node_id", &self.node_id)
+            .field("gossip_port", &self.gossip_port)
+            .field("launch_port", &self.launch_port)
+            .field("peer_count", &self.peers.len())
+            .finish()
     }
 }
 

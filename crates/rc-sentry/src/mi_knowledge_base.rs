@@ -354,6 +354,33 @@ impl KnowledgeBase {
         Ok(result)
     }
 
+    /// Store a solution and queue it for peer gossip propagation (Phase 324).
+    /// This is the preferred entry point for the tier engine -- it stores locally
+    /// AND notifies the gossip sender thread.
+    pub fn store_solution_and_gossip(
+        &self,
+        solution: &SolutionRecord,
+        gossip_from: &str,
+    ) -> KbResult<()> {
+        self.store_solution(solution)?;
+
+        // Queue gossip message for peer broadcast
+        // Truncate fix_action to ensure it fits in a single UDP datagram
+        let max_len = solution.fix_action.len().min(300);
+        let fix_action_trunc = &solution.fix_action[..max_len];
+        let msg = crate::peer_channel::build_solution_update(
+            gossip_from,
+            &solution.problem_key,
+            &solution.problem_hash,
+            fix_action_trunc,
+            solution.confidence,
+            &solution.source_node,
+        );
+        crate::peer_channel::queue_gossip(msg);
+
+        Ok(())
+    }
+
     /// Count total solutions in the KB.
     pub fn solution_count(&self) -> KbResult<i64> {
         let count: i64 = self

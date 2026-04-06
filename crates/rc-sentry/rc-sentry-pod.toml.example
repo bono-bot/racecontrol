@@ -1,0 +1,35 @@
+# rc-sentry.toml -- deployed to C:\RacingPoint\rc-sentry.toml on each pod
+# Replace pod_N values with the actual pod number
+
+service_name = "rc-agent"
+health_addr = "127.0.0.1:8090"
+health_path = "/health"
+service_port = 8090
+process_name = "rc-agent.exe"
+start_script = "C:\\RacingPoint\\start-rcagent.bat"
+service_toml = "C:\\RacingPoint\\rc-agent.toml"
+startup_log = "C:\\RacingPoint\\rc-agent-startup.log"
+stderr_log = "C:\\RacingPoint\\rc-agent-stderr.log"
+
+[peer]
+enabled = true
+node_id = "pod_1"            # CHANGE TO: pod_1, pod_2, ..., pod_8
+
+gossip_port = 8092
+launch_port = 8093
+
+[peer.peers]
+pod_1 = "192.168.31.89"
+pod_2 = "192.168.31.33"
+pod_3 = "192.168.31.28"
+pod_4 = "192.168.31.88"
+pod_5 = "192.168.31.86"
+pod_6 = "192.168.31.87"
+pod_7 = "192.168.31.38"
+pod_8 = "192.168.31.91"
+
+[mesh]
+enabled = false  # Set to true if Bono hub is reachable
+
+[alert_config]
+enabled = false  # Set to true with whatsapp credentials
