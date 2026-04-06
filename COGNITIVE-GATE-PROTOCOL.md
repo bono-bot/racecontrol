@@ -1,4 +1,4 @@
-# Cognitive Gate Protocol v4.0
+# Cognitive Gate Protocol v4.3 — "Backlog Gate"
 
 **Purpose:** Prevent false completion claims. Everything else is secondary.
 
@@ -166,6 +166,48 @@ SESSION METRICS: Claims: N | Corrections: N | FCR: N% | G9s: N | Overhead: ~N%
 | G2 fleet scope formatted table | Moved into H4 (target enumeration). The grep IS the verification, not a table filled after the fact. |
 | G3 (Apply Now), G6 (Context Parking), G7 (Tool Verification), G8 (Dependency Cascade) | Moved to soft gates S2-S4. These help when followed but pretending they're hard created false confidence. |
 | 169 gate items classification | Complexity without proportional benefit. 5 hard + 5 soft + 10 rules = 20 things to remember, not 169. |
+
+---
+
+## Standing Rule #16 — Definition of Shipped (v4.3, 2026-04-06)
+
+A milestone/phase/fix is NOT "SHIPPED", "DONE", "RESOLVED", or "FIXED" until ALL of:
+1. Code committed AND pushed to remote
+2. Binary built from that commit
+3. Deployed to ALL applicable targets (Server, Pods, POS, Cloud)
+4. Behavior verified on at least ONE target (not just health/build_id)
+5. Memory file updated with deploy evidence (commit hash + target + date)
+
+Memory files MUST use these statuses:
+- **COMMITTED** — code in git, not deployed
+- **DEPLOYED-PARTIAL** — deployed to some targets, not all
+- **DEPLOYED** — on all targets, not behavior-verified
+- **VERIFIED** — deployed + behavior evidence recorded
+- **DEFERRED** — intentionally postponed (with reason + date)
+
+"SHIPPED", "DONE", "RESOLVED", "FIXED" are ALIASES for VERIFIED only.
+Any memory file using these words without deploy evidence violates this rule.
+
+_Why: 20 items across 6 sessions were marked SHIPPED/DONE/RESOLVED when they were only COMMITTED. The memory file felt like completion but was documentation of incompletion. Root cause: treating "committed to git" as the finish line instead of "verified working in production on all targets."_
+
+## Standing Rule #17 — Session-Start Backlog Review (v4.3, 2026-04-06)
+
+**Hook:** `backlog-enforce.js` (UserPromptSubmit) — scans memory for incomplete work every prompt.
+
+At the start of every session (enforced by hook):
+1. Hook scans all `project_*.md` memory files for incomplete work patterns (NOT DEPLOYED, PENDING, INCOMPLETE, etc.)
+2. Items matching are surfaced as context on every prompt
+3. If count >= 3 (WIP limit) AND user is requesting new feature work, Claude must clear backlog first
+4. User can explicitly override ("ignore backlog", "skip backlog") — Claude notes the override
+
+Clearing backlog means one of:
+- Deploy + verify → update memory to VERIFIED
+- Explicitly close → update memory to DEFERRED with reason
+- User says "won't fix" → update memory to CLOSED
+
+**"Next session" is NOT a valid disposition.** If you can't finish it now, mark it DEFERRED with a concrete reason, not "pending."
+
+_Why: "Pick up in next session" appeared in 5+ memory files. None were ever picked up. Each new session started fresh with new problems. The backlog hook ensures incomplete work is visible every turn, not buried in memory files nobody re-reads._
 
 ---
 

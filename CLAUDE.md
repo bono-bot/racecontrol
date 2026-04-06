@@ -1,10 +1,10 @@
 # Racing Point eSports — Project Context
 
-## ⛩️ Cognitive Gate Protocol v4.0 (MANDATORY — READ FIRST)
+## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
 
-**Root cause (researched):** RLHF trains AI agents to produce completion-signaling language. 45.4% of AI PRs claim unimplemented changes. 147 rules created compliance theater. v4.0: 5 hard gates + 13 standing rules, measured by False Claim Rate.
+**Root cause (researched):** RLHF trains AI agents to produce completion-signaling language. 45.4% of AI PRs claim unimplemented changes. 147 rules created compliance theater. v4.3: 5 hard gates + backlog gate + 17 standing rules, measured by False Claim Rate.
 
 **5 Hard Gates (hook-enforced, cannot skip):**
 
@@ -16,13 +16,15 @@
 | **H4** | Before "all/everywhere" | Grep + per-target list BEFORE assertion |
 | **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0 |
 
+**Backlog Gate (v4.3):** `backlog-enforce.js` scans memory every prompt for undeployed/pending work. WIP >= 3 blocks new features. COMMITTED ≠ SHIPPED — must be deployed + verified. "Next session" banned as disposition.
+
 **Scope:** All systems — venue, cloud, PWA, WhatsApp, comms-link. E2E = customer journey.
 
 **Tools:** `check-alive.sh` (multi-probe), `verify-action.sh` (contradiction test), `pod-verify.sh` (fleet check).
 
 **Metrics:** `Claims: N | Corrections: N | FCR: N% | G9s: N` — reported at session end.
 
-**Hooks:** `cgp-enforce.js` (H1 hard block) + `cgp-session-inject.js` (H1-H5 reminders).
+**Hooks:** `cgp-enforce.js` (H1 hard block) + `cgp-session-inject.js` (H1-H5 reminders) + `backlog-enforce.js` (WIP gate).
 
 ---
 
