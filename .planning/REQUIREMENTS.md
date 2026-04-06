@@ -1,82 +1,93 @@
-# Requirements: v42.0 Meshed Intelligence Migration
+# Requirements: v43.0 Self-Audit & Visual Regression System
 
-**Defined:** 2026-04-03
-**Core Value:** Move MI tier engine from rc-agent to rc-sentry — eliminate the blind spot where rc-agent death kills the entire self-healing system.
+**Defined:** 2026-04-06
+**Core Value:** James autonomously verifies all frontend pages before/after fixes — eliminating blind code-only fixes.
 
-## v42.0 Requirements
+## v43.0 Requirements
 
-Requirements for this milestone. Each maps to roadmap phases.
+Requirements for visual regression and self-audit system. Each maps to roadmap phases.
 
-### MI Core Migration (MIG)
+### Page Crawler
 
-- [ ] **MIG-01**: Tier engine (5-tier decision tree) runs inside rc-sentry, diagnosing rc-agent health from outside
-- [ ] **MIG-02**: Diagnostic engine (anomaly detection, trigger classification) runs in rc-sentry with full event channel
-- [ ] **MIG-03**: Knowledge base (SQLite solution DB, pattern matching, KB lifecycle) runs in rc-sentry
-- [ ] **MIG-04**: MMA engine (OpenRouter multi-model audit) + budget tracker runs in rc-sentry
-- [ ] **MIG-05**: rc-agent retains thin MI proxy that forwards telemetry to rc-sentry (backward compatible during migration)
-- [ ] **MIG-06**: Cognitive gate + diagnosis planner moved to rc-sentry for structured fix planning
+- [ ] **CRAWL-01**: Script visits all pages across web (:3200), admin (:3201), and kiosk (:3300) and captures full-page screenshots
+- [ ] **CRAWL-02**: Script authenticates via saved staff PIN state (Playwright storageState)
+- [ ] **CRAWL-03**: Screenshots saved to structured directory: `tests/screenshots/{app}/{route}/{timestamp}.png`
+- [ ] **CRAWL-04**: Script can target specific apps or pages (not always full crawl)
 
-### External Monitoring (MON)
+### Visual Regression
 
-- [ ] **MON-01**: rc-sentry monitors rc-agent via process inspection (tasklist) + health endpoint polling, independent of rc-agent API
-- [ ] **MON-02**: Server pod_healer falls back to rc-sentry :8091 when rc-agent :8090 is unreachable
-- [ ] **MON-03**: Crash loop breaker detects 3+ restarts in 10min, applies exponential backoff, clears stale sentinels automatically
-- [ ] **MON-04**: COMMS_PSK deployed to all 8 pods + POS, watchdog sends WhatsApp/Bono alerts when rc-agent dies
-- [ ] **MON-05**: rc-sentry captures and analyzes pod screenshots for visual verification of blanking/kiosk state
+- [ ] **VR-01**: Playwright toHaveScreenshot() tests for critical pages with baseline comparison
+- [ ] **VR-02**: Dynamic content masking (timestamps, counters, live metrics) per-page configuration
+- [ ] **VR-03**: Baselines stored in git alongside test files
+- [ ] **VR-04**: Before/after screenshot capture integrated into frontend fix workflow
 
-### True Mesh Intelligence (MESH)
+### Enforcement Hooks
 
-- [ ] **MESH-01**: Pod-to-pod direct communication channel (not just via server) for low-latency coordination
-- [ ] **MESH-02**: Multiplayer game state sync — pods hosting the same F1 25 or AC session can coordinate launch/stop
-- [ ] **MESH-03**: Fleet-wide solution gossip propagates through mesh (pod discovers fix → direct broadcast to peers)
+- [ ] **HOOK-01**: Claude Code hook blocks "fixed/done/resolved" claims for frontend changes unless screenshot evidence exists
+- [ ] **HOOK-02**: Hook only triggers for frontend-related changes (Next.js, CSS, React) — not Rust backend or scripts
+- [ ] **HOOK-03**: Hook checks for screenshot file newer than last code edit in session
+
+### Deploy Integration
+
+- [ ] **DEPLOY-01**: Page crawler auto-runs after deploy-nextjs.sh completes
+- [ ] **DEPLOY-02**: Build hash verification table showing expected vs running build on all targets
+- [ ] **DEPLOY-03**: Deploy script exits with failure if page crawler finds visual regressions
+
+### AI Self-Audit
+
+- [ ] **AUDIT-01**: Page description files documenting expected behavior per page (what data, what layout, what interactions)
+- [ ] **AUDIT-02**: James reads fresh screenshots via Read tool and compares against descriptions
+- [ ] **AUDIT-03**: Anomaly report generated listing pages that don't match expected behavior
+- [ ] **AUDIT-04**: Self-audit runs at session start when working on frontend tasks
 
 ## Future Requirements
 
-Deferred to future milestones. Tracked but not in current roadmap.
+### Extended Coverage
 
-### Autonomous Actions (v32.0 scope)
-
-- **AUTO-01**: Autonomous game launch fix + cascade (diagnose → fix → retry → KB harden → gossip)
-- **AUTO-02**: Predictive alert → action pipeline (connect predictive_maintenance to tier engine)
-- **AUTO-03**: Experience scoring integration (auto-flag/remove low-scoring pods)
-- **AUTO-04**: Revenue protection triggers (game running without billing, session ended but game active)
+- **EXT-01**: PWA customer app crawling (requires OTP test account)
+- **EXT-02**: Cloud endpoint visual regression (Bono VPS URLs)
+- **EXT-03**: Cross-browser testing (Chrome, Edge, Firefox)
+- **EXT-04**: Mobile viewport screenshots for PWA
+- **EXT-05**: Performance baseline tracking (page load times)
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Full v32.0 autonomous actions | Requires MI migration first — this milestone provides the foundation |
-| Multi-venue cloud KB sync | Deferred — single venue focus for now |
-| rc-sentry GUI operations | rc-sentry runs in Session 0 (services) — GUI stays in rc-agent |
-| Replacing rc-agent entirely | rc-agent still needed for game launch, lock screen, Edge control |
-| tokio runtime in rc-sentry | Keep std threads for now — evaluate async migration separately |
+| Cloud visual testing services (Percy, Chromatic) | Overkill for single-developer, adds external dependency |
+| BackstopJS | Redundant — Playwright already installed with same capabilities |
+| Cross-browser rendering comparison | All targets use same Chrome/Edge engine |
+| Video recording of page interactions | Screenshots sufficient for static verification |
+| Automated bug fixing based on visual diffs | AI identifies issues, human/James fixes them |
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MIG-01 | Phase 322 | Pending |
-| MIG-02 | Phase 322 | Pending |
-| MIG-03 | Phase 322 | Pending |
-| MIG-04 | Phase 323 | Pending |
-| MIG-05 | Phase 322 | Pending |
-| MIG-06 | Phase 323 | Pending |
-| MON-01 | Phase 321 | Pending |
-| MON-02 | Phase 321 | Pending |
-| MON-03 | Phase 321 | Pending |
-| MON-04 | Phase 321 | Pending |
-| MON-05 | Phase 321 | Pending |
-| MESH-01 | Phase 324 | Pending |
-| MESH-02 | Phase 324 | Pending |
-| MESH-03 | Phase 324 | Pending |
+| CRAWL-01 | TBD | Pending |
+| CRAWL-02 | TBD | Pending |
+| CRAWL-03 | TBD | Pending |
+| CRAWL-04 | TBD | Pending |
+| VR-01 | TBD | Pending |
+| VR-02 | TBD | Pending |
+| VR-03 | TBD | Pending |
+| VR-04 | TBD | Pending |
+| HOOK-01 | TBD | Pending |
+| HOOK-02 | TBD | Pending |
+| HOOK-03 | TBD | Pending |
+| DEPLOY-01 | TBD | Pending |
+| DEPLOY-02 | TBD | Pending |
+| DEPLOY-03 | TBD | Pending |
+| AUDIT-01 | TBD | Pending |
+| AUDIT-02 | TBD | Pending |
+| AUDIT-03 | TBD | Pending |
+| AUDIT-04 | TBD | Pending |
 
 **Coverage:**
-- v42.0 requirements: 14 total
-- Mapped to phases: 14
-- Unmapped: 0 (100% coverage)
+- v43.0 requirements: 17 total
+- Mapped to phases: 0
+- Unmapped: 17
 
 ---
-*Requirements defined: 2026-04-03*
-*Last updated: 2026-04-03 — traceability filled after roadmap creation*
+*Requirements defined: 2026-04-06*
+*Last updated: 2026-04-06 after initial definition*
