@@ -501,40 +501,19 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         let bat_args_ref: Vec<&str> = bat_args.iter().map(|s| s.as_str()).collect();
         match Command::new("cmd").args(&bat_args_ref).current_dir(r"C:\RacingPoint").spawn() {
             Ok(_child) => {
-                // VMS pattern: launcher is transient — we don't track its PID.
-                // Poll for acs.exe (launched by the bat, not by us).
-                let timeout = if is_mp { 30u64 } else { 15u64 };
-                match wait_for_ac_process(timeout) {
-                    Ok(pid) => pid,
-                    Err(e) => {
-                        tracing::warn!(target: LOG_TARGET, "launch-ac.bat didn't produce acs.exe in {}s: {} — fallback", timeout, e);
-                        diag.fallback_used = true;
-                        if is_mp {
-                            // MP fallback: try CM URI directly
-                            if find_cm_exe().is_some() {
-                                tracing::info!(target: LOG_TARGET, "MP fallback: trying Content Manager URI...");
-                                let _ = launch_via_cm(params);
-                                std::thread::sleep(std::time::Duration::from_secs(5));
-                                diag.cm_log_errors = read_cm_log_errors();
-                                diag.cm_exit_code = get_cm_exit_code();
-                            }
-                        }
-                        // Check if AC appeared from any fallback
-                        match find_acs_pid() {
-                            Some(pid) => pid,
-                            None => {
-                                // Final fallback: direct acs.exe
-                                tracing::warn!(target: LOG_TARGET, "Final fallback: direct acs.exe launch");
-                                let child = Command::new(ac_dir.join("acs.exe"))
-                                    .current_dir(&ac_dir)
-                                    .spawn()
-                                    .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                find_acs_pid().unwrap_or(child.id())
-                            }
-                        }
-                    }
-                }
+                // VMS ZERO-BLOCK PATTERN: SimLauncher spawns AC then EXITS.
+                // VMS Connect NEVER waits for acs.exe — the event loop detects it
+                // via shared memory (WaitingForLive state).
+                //
+                // We do the same: the bat handles kill→launch→verify internally.
+                // We just need to confirm the bat spawned. The event loop's
+                // WaitingForLive polls shared memory to detect when AC is alive.
+                //
+                // One quick PID check after a brief pause — if AC is already up
+                // (bat is fast), return it. If not, return 0 and let the event
+                // loop discover it. This makes launch_ac() near-instant.
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                find_acs_pid().unwrap_or(0)
             }
             Err(e) => {
                 tracing::warn!(target: LOG_TARGET, "launch-ac.bat spawn failed: {} — direct launch", e);
@@ -546,16 +525,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         tracing::info!(target: LOG_TARGET, "No launch-ac.bat — launching directly");
         direct_launch_fallback(&ac_dir, is_mp, params, &mut cm_error, &mut diag)?
     };
-    // Verify PID consistency (AC-04)
-    let fresh_pid = find_acs_pid().unwrap_or(pid);
-    if fresh_pid != pid {
-        tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — using tasklist PID", pid, fresh_pid);
-    }
-    let pid = fresh_pid;
-    // BREADCRUMB: AC spawn succeeded
+    // BREADCRUMB: launch spawned
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
-        .and_then(|mut f| { use std::io::Write; writeln!(f, "AC spawned PID={} ts={:?}", pid, std::time::SystemTime::now()) });
-    tracing::info!(target: LOG_TARGET, "AC launched with PID {} — verifying race.ini exists...", pid);
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "AC spawn PID={} ts={:?}", pid, std::time::SystemTime::now()) });
+    tracing::info!(target: LOG_TARGET, "AC launch dispatched (pid={}) — event loop takes over from here", pid);
+
     // Post-launch verification: confirm race.ini was written (E2E found it missing)
     {
         let race_ini_check = dirs_next::document_dir()
@@ -570,20 +544,12 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
     }
 
-    // VMS PATTERN: Return immediately after AC process confirmed alive.
-    // Post-launch window management (minimize Conspit, foreground game) is done by
-    // the event loop's periodic overlay_topmost_interval tick — NOT here.
-    // This reduces launch_ac() blocking from ~40s to ~5s, keeping the HTTP server responsive.
-    //
-    // Quick 3s stability check only (was 30s) — just enough to confirm AC didn't crash on start.
-    tracing::info!(target: LOG_TARGET, "Quick stability check (3s)...");
-    wait_for_ac_ready(3);
-    // One fast minimize pass — the event loop tick will enforce this periodically.
-    minimize_conspit_window();
-
-    // BREADCRUMB: launch_ac() completed successfully
-    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
-        .and_then(|mut f| { use std::io::Write; writeln!(f, "launch_ac() COMPLETE pid={} cm_err={:?} ts={:?}", pid, cm_error, std::time::SystemTime::now()) });
+    // VMS ZERO-BLOCK PATTERN: Return immediately. No stability check, no minimize,
+    // no foreground. The event loop handles ALL post-launch concerns:
+    // - WaitingForLive detects AC via shared memory polling
+    // - overlay_topmost_interval tick minimizes Conspit + enforces foreground
+    // - ProcessMonitor detects crash via PID polling
+    // This makes launch_ac() complete in <1s (was 40s → 5s → now <1s).
 
     Ok(LaunchResult { pid, cm_error, diagnostics: diag })
 }

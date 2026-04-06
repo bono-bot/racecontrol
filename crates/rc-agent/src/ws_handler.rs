@@ -658,9 +658,16 @@ pub async fn handle_ws_message(
                 match launch_result {
                     Ok(result) => {
                         if let Ok(mut err_slot) = state.last_launch_error.lock() { *err_slot = result.cm_error.clone(); }
+                        // VMS zero-block: pid may be 0 if acs.exe hasn't appeared yet.
+                        // When pid=0, keep GameState::Launching so the event loop's
+                        // find_game_pid() discovery (line 583-587) kicks in and
+                        // transitions to Running when acs.exe appears.
+                        let has_pid = result.pid > 0;
+                        let report_state = if has_pid { GameState::Running } else { GameState::Launching };
+                        let report_pid = if has_pid { Some(result.pid) } else { None };
                         let info = GameLaunchInfo {
                             pod_id: pod_id_clone.clone(), sim_type: launch_sim,
-                            game_state: GameState::Running, pid: Some(result.pid),
+                            game_state: report_state, pid: report_pid,
                             launched_at: Some(Utc::now()), error_message: result.cm_error.clone(),
                             diagnostics: Some(rc_common::types::LaunchDiagnostics {
                                 cm_attempted: result.diagnostics.cm_attempted,
@@ -673,12 +680,14 @@ pub async fn handle_ws_message(
                             playable_at: None, ready_delay_ms: None, launch_stage: None,
                             session_id: None,
                         };
-                        game_process::persist_pid(result.pid);
+                        if has_pid {
+                            game_process::persist_pid(result.pid);
+                        }
                         state.game_process = Some(game_process::GameProcess {
-                            sim_type: launch_sim, state: GameState::Running,
-                            child: None, pid: Some(result.pid), last_exit_code: None,
+                            sim_type: launch_sim, state: report_state,
+                            child: None, pid: report_pid, last_exit_code: None,
                         });
-                        let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = Some(result.pid); });
+                        let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = report_pid; });
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json_str.into())).await;
