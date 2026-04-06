@@ -37,6 +37,7 @@ playwright-report/
 test-results/
 tests/e2e/results/
 tests/e2e/report/
+tests/screenshots/
 
 # Added by Phase 170 — repo hygiene
 .env.*
