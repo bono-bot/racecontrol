@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-06 21:13 IST | James | 95386277 | docs(D6): Infrastructure audit — PLAYBOOK Section K added. HEALTHY: comms-link (REALTIME, tests PASS), Tailscale (all 16 nodes), Ollama (2 models), rc-watchdog. FIXED: POS SSH config .20→.130, go2rtc.yaml hardcoded NVR creds (env vars not resolving in Session 0). OPEN: go2rtc needs reboot, rc-sentry mixed builds (Pod 1 -2 commits, Pods 5-7 -3 commits), POS rc-agent 20 behind, rc-process-guard/people-tracker not running (P3). |
 | 2026-04-06 20:30 IST | James | 4efa0062 | docs(D1): DIAGNOSTIC-PLAYBOOK billing issues — 5 new open (per-minute, BILL-13, topup, linked racers, orphan), PausedDisconnect moved to resolved, D1 E2E venue-day checklist added. |
 | 2026-04-06 20:19 IST | James | bc100be7 | fix: D1 PausedDisconnect per-disconnect timer + orphaned session cleanup. PausedDisconnect now uses per-disconnect pause_seconds (reset on each disconnect/reconnect) instead of cumulative total_paused_seconds — prevents brief network blips from accumulating and auto-ending sessions. Orphaned session cleanup now clears pod billing state + notifies agent + broadcasts dashboard. |
 | 2026-04-06 20:02 IST | James | b49998c5 | fix: D2 game launch debug session. #4: venue_id missing on pods table (added to migration list). #5: Phase 313 verified + ROADMAP closed (all 4 GSTATE criteria met, code in deployed build). Cluster A venue E2E test plan written. |
