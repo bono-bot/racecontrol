@@ -659,6 +659,7 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                             if timer.status == rc_common::types::BillingSessionStatus::PausedDisconnect {
                                                 timer.status = rc_common::types::BillingSessionStatus::Active;
                                                 timer.offline_since = None;
+                                                timer.pause_seconds = 0; // Reset per-disconnect counter on resume
                                                 tracing::info!(
                                                     "Resumed PausedDisconnect timer for session {} on pod {} — customer is back",
                                                     session_id, canonical_id

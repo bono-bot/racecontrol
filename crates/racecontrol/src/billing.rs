@@ -1382,13 +1382,17 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // ─── Handle PausedDisconnect state ────────────────────────────────
         if timer.status == BillingSessionStatus::PausedDisconnect {
             // Do NOT increment driving_seconds — billing is frozen
+            timer.pause_seconds += 1;
             timer.total_paused_seconds += 1;
 
-            // Check if pause timeout exceeded (10 min default)
-            if timer.total_paused_seconds > timer.max_pause_duration_secs {
+            // Check if THIS disconnect's pause timeout exceeded (10 min default).
+            // Uses per-disconnect pause_seconds (reset on each disconnect entry),
+            // NOT cumulative total_paused_seconds — so brief network blips don't
+            // accumulate and kill the session prematurely.
+            if timer.pause_seconds > timer.max_pause_duration_secs {
                 tracing::info!(
-                    "Disconnect pause timeout for session {} on pod {} ({}s paused) — auto-ending with refund",
-                    timer.session_id, pod_id, timer.total_paused_seconds
+                    "Disconnect pause timeout for session {} on pod {} ({}s this pause, {}s total paused) — auto-ending with refund",
+                    timer.session_id, pod_id, timer.pause_seconds, timer.total_paused_seconds
                 );
                 pause_timeout_end.push((
                     pod_id.clone(),
@@ -1467,8 +1471,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     }
                 }
                 timer.pause_count += 1;
+                timer.pause_seconds = 0; // Reset per-disconnect timer (each disconnect gets fresh 10-min window)
                 timer.last_paused_at = Some(Utc::now());
-                // Note: total_paused_seconds will be incremented each tick while paused
 
                 tracing::info!(
                     "Billing paused due to disconnect: session={} pod={} pause_count={}",
@@ -2812,6 +2816,32 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                         // Remove from in-memory timers if still present
                         let mut timers = state.billing.active_timers.write().await;
                         timers.retain(|_, t| t.session_id != *session_id);
+                        drop(timers); // Release lock before async work
+
+                        // Clear pod billing state + notify agent + broadcast dashboard
+                        {
+                            let mut pods = state.pods.write().await;
+                            if let Some(pod) = pods.get_mut(pod_id.as_str()) {
+                                pod.billing_session_id = None;
+                                pod.current_driver = None;
+                                pod.status = rc_common::types::PodStatus::Idle;
+                                let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
+                            }
+                        }
+                        // Notify agent: session ended (snapshot sender to avoid lock across .await)
+                        let sender_clone = {
+                            let agent_senders = state.agent_senders.read().await;
+                            agent_senders.get(pod_id.as_str()).cloned()
+                        };
+                        if let Some(sender) = sender_clone {
+                            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
+                                billing_session_id: session_id.clone(),
+                                driver_name: String::new(),
+                                total_laps: 0,
+                                best_lap_ms: None,
+                                driving_seconds: *driving_secs as u32,
+                            })).await;
+                        }
                     }
                     _ => {
                         // Already finalized by another path — just flag
@@ -5809,6 +5839,78 @@ mod tests {
         // Should NOT be able to pause again (pause_count >= 3)
         assert!(timer.pause_count >= 3);
         // The tick loop checks pause_count < 3 before pausing
+    }
+
+    #[test]
+    fn disconnect_timeout_uses_per_disconnect_not_cumulative() {
+        // Scenario: customer disconnects twice with reconnect in between.
+        // Each disconnect should get a fresh 10-minute (600s) window.
+        // Bug (before fix): total_paused_seconds was used for timeout,
+        // so 300s from first disconnect + 301s from second = auto-end.
+        // Fix: pause_seconds (per-disconnect, reset on entry) is used instead.
+
+        let mut timer = BillingTimer {
+            session_id: "test-cumulative".into(),
+            driver_id: "d1".into(),
+            driver_name: "Test".into(),
+            pod_id: "p1".into(),
+            pricing_tier_name: "30 Minutes".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 100,
+            status: BillingSessionStatus::PausedDisconnect,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: Some(Utc::now()),
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 1,
+            total_paused_seconds: 0,
+            last_paused_at: Some(Utc::now()),
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 100,
+            pause_seconds: 0, // Fresh disconnect
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+            nonce: String::new(),
+            ..Default::default()
+        };
+
+        // Simulate 300 ticks while disconnected (5 minutes)
+        for _ in 0..300 {
+            timer.pause_seconds += 1;
+            timer.total_paused_seconds += 1;
+        }
+        assert_eq!(timer.pause_seconds, 300);
+        assert_eq!(timer.total_paused_seconds, 300);
+
+        // Pod reconnects — simulate what ws/mod.rs reconnect handler does
+        timer.status = BillingSessionStatus::Active;
+        timer.offline_since = None;
+        timer.pause_seconds = 0; // Reset per-disconnect counter
+
+        // Pod disconnects again — simulate what tick_all_timers does on disconnect entry
+        timer.status = BillingSessionStatus::PausedDisconnect;
+        timer.pause_count += 1; // Now 2
+        timer.pause_seconds = 0; // Reset per-disconnect timer (each disconnect gets fresh window)
+
+        // Simulate 301 more ticks while disconnected (just over 5 more minutes)
+        for _ in 0..301 {
+            timer.pause_seconds += 1;
+            timer.total_paused_seconds += 1;
+        }
+
+        // total_paused_seconds = 601 (cumulative) — would have triggered timeout with old code
+        assert_eq!(timer.total_paused_seconds, 601);
+        // pause_seconds = 301 (this disconnect only) — NOT over 600, session survives
+        assert_eq!(timer.pause_seconds, 301);
+        assert!(timer.pause_seconds <= timer.max_pause_duration_secs,
+            "Session should NOT auto-end: per-disconnect pause_seconds ({}) <= max ({})",
+            timer.pause_seconds, timer.max_pause_duration_secs);
     }
 
     #[test]

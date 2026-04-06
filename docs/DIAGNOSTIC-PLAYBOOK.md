@@ -426,12 +426,12 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 | 1 | E2E SP launch with billing not tested | Game Launch | P0 | NEEDS VENUE | project_game_launch_testing.md |
 | 2 | Pod 2 different AC error dialog | Game Launch | P1 | UNVERIFIED | project_game_launch_testing.md |
 | 3 | Game exits after load on some pods | Game Launch | P1 | UNVERIFIED | project_game_launch_testing.md |
-| 4 | venue_id column WARN in server logs | Server | P2 | OPEN | — |
+| 4 | venue_id column WARN in server logs | Server | P2 | CODE FIX `b49998c5` — needs deploy | — |
 | 5 | 23+ lock-across-await remain in codebase | Code Quality | P2 | KNOWN | project_launch_resilience_gaps.md |
 | 6 | MI Tier 3 Ollama URL wrong on pods | MI | P2 | FOUND IN AUDIT | project_ecosystem_audit_20260404.md |
 | 7 | MI Tier 4/5 mostly stub | MI | P3 | BY DESIGN | — |
 | 8 | Mesh gossip incomplete | MI | P3 | BY DESIGN | — |
-| 9 | PausedDisconnect kills session on reconnect | Billing | P1 | IN CODE | project_ecosystem_audit_20260404.md |
+| 9 | PausedDisconnect kills session on reconnect | Billing | P1 | CODE FIX `bc100be7` — needs deploy | project_ecosystem_audit_20260404.md |
 | 10 | rc-sentry, rc-sentry-ai not audited | Audit | P2 | GAP | project_ecosystem_audit_20260404.md |
 
 ### Resolved Issues (recently closed — reference only)
