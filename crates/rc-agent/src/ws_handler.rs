@@ -365,6 +365,9 @@ pub async fn handle_ws_message(
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes } => {
+            // BREADCRUMB: Write to file before any game launch logic runs
+            let _ = std::fs::write(r"C:\RacingPoint\launch-breadcrumb.txt",
+                format!("LaunchGame received: sim={:?} force_clean={} ts={:?}\n", launch_sim, force_clean, std::time::SystemTime::now()));
             // Phase 312: Send CommandAck immediately to confirm receipt (WSCMD-01).
             // The server waits up to 5s for this ACK before returning success to the API caller.
             // Launch failures are reported separately via GameStateUpdate(Error).
@@ -474,6 +477,10 @@ pub async fn handle_ws_message(
                     Err(e) => tracing::warn!(target: LOG_TARGET, "pre_load_game_preset panicked (non-fatal): {}", e),
                 }
             }
+
+            // BREADCRUMB: pre-launch checks passed, about to enter sim-specific code
+            let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+                .and_then(|mut f| { use std::io::Write; writeln!(f, "Pre-launch checks done, entering sim={:?}", launch_sim) });
 
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }

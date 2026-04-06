@@ -317,6 +317,9 @@ fn validate_content_id(value: &str, field: &str) -> Result<()> {
 const VALID_SESSION_TYPES: &[&str] = &["practice", "hotlap", "race", "trackday", "weekend", "race_weekend"];
 
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
+    // BREADCRUMB: log entry to file for crash diagnosis
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "launch_ac() called: car={} track={} ts={:?}", params.car, params.track, std::time::SystemTime::now()) });
     tracing::info!(target: LOG_TARGET, "AC launch: {} @ {} for {}", params.car, params.track, params.driver);
 
     // Validate session_type at launch boundary — reject typos/unknown values early
@@ -338,7 +341,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     }
 
     // Step 0: Ensure all config files exist (self-healing bootstrap)
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP0: bootstrap_ac_config...") });
     bootstrap_ac_config()?;
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP0: done") });
 
     // Step 1: Kill existing AC
     tracing::info!(target: LOG_TARGET, "Killing existing AC...");
@@ -359,9 +366,15 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     }
 
     // Step 2: Write race.ini + assists.ini + apps preset
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP1: kill done. STEP2: write_race_ini...") });
     tracing::info!(target: LOG_TARGET, "Writing race.ini + assists.ini + apps preset...");
     write_race_ini(params)?;
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP2: race.ini done, assists...") });
     write_assists_ini(params)?;
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP2: assists done, apps...") });
     write_apps_preset()?;
 
     // RESIL-07: Reset FFB settings each session — no FFB leakage from previous sessions.
@@ -523,6 +536,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
         fresh_pid
     };
+    // BREADCRUMB: AC spawn succeeded
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "AC spawned PID={} ts={:?}", pid, std::time::SystemTime::now()) });
     tracing::info!(target: LOG_TARGET, "AC launched with PID {} — verifying race.ini exists...", pid);
     // Post-launch verification: confirm race.ini was written (E2E found it missing)
     {
@@ -551,6 +567,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     minimize_background_windows();
     bring_game_to_foreground();
 
+    // BREADCRUMB: launch_ac() completed successfully
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "launch_ac() COMPLETE pid={} cm_err={:?} ts={:?}", pid, cm_error, std::time::SystemTime::now()) });
     Ok(LaunchResult { pid, cm_error, diagnostics: diag })
 }
 
