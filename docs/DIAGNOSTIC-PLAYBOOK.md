@@ -97,7 +97,14 @@ Any → Completed | EndedEarly | Cancelled | CancelledNoPlayable
 - **F-05 refund calc** — FIXED `5d1ea000`: reads original value before UPDATE
 - **Double-end race** — FIXED: CAS in authoritative_end_session()
 - **Stale auto-cancel losing money** — FIXED `8184d4f3`: refund wallet on stale cancel
-- **PausedDisconnect killing session on reconnect** — Found in ecosystem audit, status: IN CODE
+- **PausedDisconnect cumulative timeout** — FIXED `bc100be7`: per-disconnect pause_seconds instead of cumulative total_paused_seconds. Each disconnect gets fresh 10-min window.
+- **Orphan auto-end incomplete cleanup** — FIXED `bc100be7`: clears pod status + notifies agent + broadcasts dashboard update
+
+### D1 E2E verification needed (venue day)
+- Per-minute billing debit cycle (create session, verify wallet debited every 60s)
+- BILL-13 deferred billing (start billing, launch game, verify timer starts on AcStatus::Live)
+- Wallet topup from POS (staff tops up wallet at :3200/billing, verify balance increases)
+- Linked racers wallet resolution (child racer session charges parent wallet)
 
 ### Billing debug commands
 ```bash
@@ -431,13 +438,18 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 | 6 | MI Tier 3 Ollama URL wrong on pods | MI | P2 | FOUND IN AUDIT | project_ecosystem_audit_20260404.md |
 | 7 | MI Tier 4/5 mostly stub | MI | P3 | BY DESIGN | — |
 | 8 | Mesh gossip incomplete | MI | P3 | BY DESIGN | — |
-| 9 | PausedDisconnect kills session on reconnect | Billing | P1 | CODE FIX `bc100be7` — needs deploy | project_ecosystem_audit_20260404.md |
+| 9 | Per-minute billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
 | 10 | rc-sentry, rc-sentry-ai not audited | Audit | P2 | GAP | project_ecosystem_audit_20260404.md |
+| 11 | BILL-13 deferred billing not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
+| 12 | Wallet topup from POS not E2E tested | Billing | P1 | COMMITTED, NEEDS VENUE | — |
+| 13 | Linked racers wallet resolution not tested | Billing | P2 | COMMITTED | — |
+| 14 | Orphan auto-end incomplete cleanup | Billing | P2 | CODE FIX `bc100be7` — needs deploy | — |
 
 ### Resolved Issues (recently closed — reference only)
 
 | Issue | Resolution | Commit | Date |
 |-------|-----------|--------|------|
+| PausedDisconnect kills session on reconnect | Per-disconnect pause_seconds timeout + orphan cleanup | `bc100be7` | 2026-04-06 |
 | Agent dies during AC launch | SHM access violation fix | multiple | 2026-04-06 |
 | Watchdog Session 0 broken | CreateProcessAsUser fix | multiple | 2026-04-06 |
 | WaitingForLive 180s deadlock | 60s timeout + dead game detection | `e3d1ae76` | 2026-04-06 |
