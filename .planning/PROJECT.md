@@ -136,6 +136,32 @@ The pod management stack is reliable and well-structured: rc-sentry is a hardene
 - Cascade is recursive per standing rules — fix one pod → gossip to fleet → verify on each pod
 - KB promotion lifecycle exists (Discovered → Candidate → Fleet-Verified → Hardened) but "Hardened" doesn't generate Tier 1 code yet
 
+## Current Milestone: v43.0 Self-Audit & Visual Regression System
+
+**Goal:** James autonomously verifies all frontend pages before/after fixes using Playwright screenshots, with hook-enforced compliance and deploy script integration — eliminating the "fix blind from code" failure mode.
+
+**Target features:**
+- Page Crawler — Playwright script visiting all 70+ pages across 3 apps (web :3200, admin :3201, kiosk :3300), capturing full-page screenshots with saved auth state
+- Screenshot Enforcement Hook — Claude Code hook blocking "fixed/done/resolved" claims for frontend changes unless screenshot evidence exists in the session
+- Deploy Script Integration — Auto-run page crawler after every deploy, build hash verification table across all targets
+- AI Self-Audit — Page description files defining expected behavior per page; James reads screenshots + descriptions to identify anomalies without user intervention
+- Visual Regression Tests — Playwright toHaveScreenshot() with masking for dynamic content, baselines stored in git
+
+**Constraints:**
+- Playwright already installed on James machine — extend existing infrastructure, don't rebuild
+- Must handle auth (staff PIN for web/kiosk, customer OTP for PWA — start with staff apps)
+- Dynamic data (timestamps, counters, live metrics) must be masked for visual comparison
+- Page crawler must work against both local (:3200/:3201/:3300) and cloud (Bono VPS) endpoints
+- Hook enforcement must not block non-frontend work (Rust backend, deploy scripts, etc.)
+- Baselines stored in git alongside test files — same machine = consistent rendering
+- Must integrate with existing deploy scripts (deploy-nextjs.sh, deploy-server.sh)
+
+**Research evidence (2026-04-06):**
+- 4 parallel research agents mapped: 70+ pages, 400+ API endpoints, 60+ DB tables, existing tools
+- Existing tools underutilized: 35+ Playwright E2E tests, visual-verify.js, rc-doctor, verify-action.sh, verify-fix.sh
+- User feedback: "correctness over speed", "you built it, you should know it", "no point being faster if we're wrong"
+- Gap identified: tools exist but aren't used systematically in fix cycles
+
 ## Current Milestone: v23.1 Audit Protocol v5.0 — Cross-Service Validation & Gap Closure
 
 **Goal:** Close 19 gaps found in audit protocol v4.0 where checks passed but user-visible systems were broken. Five gap patterns: Wrong Layer (checking infrastructure not the consuming service), Count vs Health (counting items without verifying they work), Missing Config Validation (env vars/credentials unchecked), Missing Dashboard/UI Check (backend passes but user page untested), Missing Cross-Service Dependency (services checked independently but dependency chain unverified).
