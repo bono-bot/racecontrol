@@ -612,10 +612,11 @@ Plans:
   2. James can read a fresh screenshot via the Read tool and compare it against the page description to spot anomalies
   3. Running the self-audit produces an anomaly report listing pages that do not match expected behavior with specific discrepancies
   4. When James starts a session involving frontend work, the self-audit runs automatically to establish baseline awareness of current state
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 328-01: Page description files and AI self-audit workflow
+- [ ] 328-01: Page descriptions + self-audit script + anomaly report
+- [ ] 328-02: Session-start hook + CLAUDE.md self-audit standing rules
 
 ---
 
@@ -626,6 +627,6 @@ Plans:
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
 | 326. Visual Regression Tests | 1/1 | Complete    | 2026-04-06 |
 | 327. Enforcement & Deploy Integration | 2/2 | Complete    | 2026-04-06 |
-| 328. AI Self-Audit | 0/1 | Not started | - |
+| 328. AI Self-Audit | 0/2 | Not started | - |
 
 *Last updated: 2026-04-06 -- roadmap created*
