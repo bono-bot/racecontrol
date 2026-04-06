@@ -23,9 +23,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 ### Enforcement Hooks
 
-- [ ] **HOOK-01**: Claude Code hook blocks "fixed/done/resolved" claims for frontend changes unless screenshot evidence exists
-- [ ] **HOOK-02**: Hook only triggers for frontend-related changes (Next.js, CSS, React) -- not Rust backend or scripts
-- [ ] **HOOK-03**: Hook checks for screenshot file newer than last code edit in session
+- [x] **HOOK-01**: Claude Code hook blocks "fixed/done/resolved" claims for frontend changes unless screenshot evidence exists
+- [x] **HOOK-02**: Hook only triggers for frontend-related changes (Next.js, CSS, React) -- not Rust backend or scripts
+- [x] **HOOK-03**: Hook checks for screenshot file newer than last code edit in session
 
 ### Deploy Integration
 
@@ -72,9 +72,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 | VR-02 | Phase 326 | Complete |
 | VR-03 | Phase 326 | Complete |
 | VR-04 | Phase 326 | Complete |
-| HOOK-01 | Phase 327 | Pending |
-| HOOK-02 | Phase 327 | Pending |
-| HOOK-03 | Phase 327 | Pending |
+| HOOK-01 | Phase 327 | Complete |
+| HOOK-02 | Phase 327 | Complete |
+| HOOK-03 | Phase 327 | Complete |
 | DEPLOY-01 | Phase 327 | Complete |
 | DEPLOY-02 | Phase 327 | Complete |
 | DEPLOY-03 | Phase 327 | Complete |

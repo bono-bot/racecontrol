@@ -553,7 +553,7 @@ Plans:
 
 - [x] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04 (completed 2026-04-06)
 - [x] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04 (completed 2026-04-06)
-- [ ] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03
+- [x] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03 (completed 2026-04-06)
 - [ ] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
 
 ---
@@ -600,7 +600,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 327-01: Claude Code enforcement hook (screenshot evidence gate for frontend claims)
+- [x] 327-01: Claude Code enforcement hook (screenshot evidence gate for frontend claims)
 - [x] 327-02: Deploy script integration (auto-crawl after deploy, hash verification table, regression gate)
 
 ### Phase 328: AI Self-Audit
@@ -625,7 +625,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
 | 326. Visual Regression Tests | 1/1 | Complete    | 2026-04-06 |
-| 327. Enforcement & Deploy Integration | 1/2 | In Progress|  |
+| 327. Enforcement & Deploy Integration | 2/2 | Complete   | 2026-04-06 |
 | 328. AI Self-Audit | 0/1 | Not started | - |
 
 *Last updated: 2026-04-06 -- roadmap created*
