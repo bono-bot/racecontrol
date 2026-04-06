@@ -153,6 +153,66 @@ fn default_fix_permanence() -> String {
     "workaround".to_string()
 }
 
+/// A single step in a structured fix plan produced by rc-sentry's DiagnosisPlanner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlannedAction {
+    pub step: u8,
+    /// Shell command or descriptive instruction (not always executable directly).
+    pub command: String,
+    /// "safe" | "caution" | "dangerous"
+    pub risk_level: String,
+    /// How to undo this step if it makes things worse.
+    pub rollback: String,
+    /// What should be observable after this step succeeds.
+    pub expected_outcome: String,
+}
+
+/// A structured fix plan produced by rc-sentry's cognitive gate + diagnosis planner.
+/// Exposed via :8091/gate/last-plan endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosisPlan {
+    /// Canonical name of the failure pattern (e.g. "rc-agent-crash", "game-stuck").
+    pub trigger_name: String,
+    /// Which MI tier produced this plan.
+    pub tier: u8,
+    /// Ordered list of actions to resolve the failure.
+    pub actions: Vec<PlannedAction>,
+    /// ISO-8601 UTC timestamp when plan was generated.
+    pub created_at: String,
+    /// Confidence that these actions will resolve the issue (0.0-1.0).
+    pub confidence: f64,
+    /// Summary of cognitive gate results (G0/G5/G7 pass/fail/skipped).
+    pub gate_summary: Vec<String>,
+}
+
+/// Map a DiagnosticTrigger to a stable problem key for KB lookup.
+/// Matches the logic in rc-agent/src/knowledge_base.rs -- must stay in sync.
+pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
+    match trigger {
+        DiagnosticTrigger::HealthCheckFail => "health_check_fail".into(),
+        DiagnosticTrigger::ProcessCrash { process_name } =>
+            format!("process_crash:{}", process_name.to_lowercase()),
+        DiagnosticTrigger::GameLaunchFail => "game_launch_fail".into(),
+        DiagnosticTrigger::GameLaunchTimeout { .. } => "game_launch_timeout".into(),
+        DiagnosticTrigger::DisplayMismatch { .. } => "display_mismatch".into(),
+        DiagnosticTrigger::ErrorSpike { .. } => "error_spike".into(),
+        DiagnosticTrigger::WsDisconnect { .. } => "ws_disconnect".into(),
+        DiagnosticTrigger::WsInstability { .. } => "ws_instability".into(),
+        DiagnosticTrigger::SentinelUnexpected { file_name } =>
+            format!("sentinel_unexpected:{}", file_name.to_lowercase()),
+        DiagnosticTrigger::ViolationSpike { .. } => "violation_spike".into(),
+        DiagnosticTrigger::PreFlightFailed { check_name, .. } =>
+            format!("preflight_failed:{}", check_name.to_lowercase()),
+        DiagnosticTrigger::TaskbarVisible => "taskbar_visible".into(),
+        DiagnosticTrigger::GameMidSessionCrash { .. } => "game_mid_session_crash".into(),
+        DiagnosticTrigger::PostSessionAnalysis { .. } => "post_session_analysis".into(),
+        DiagnosticTrigger::PreShiftAudit => "pre_shift_audit".into(),
+        DiagnosticTrigger::DeployVerification { .. } => "deploy_verification".into(),
+        DiagnosticTrigger::Periodic => "periodic".into(),
+        _ => format!("unknown:{:?}", trigger).to_lowercase(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
