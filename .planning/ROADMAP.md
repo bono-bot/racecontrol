@@ -14,9 +14,9 @@
 - ✅ **v38.0 Security Hardening & Operational Maturity** — Phases 305-309 (shipped 2026-04-02)
 - ✅ **v39.0 Session Trace ID & Metrics** — Phase 310 (shipped 2026-04-02)
 - ✅ **v40.0 Game Launch Reliability** — Phases 311-314 (shipped 2026-04-03)
-- 🔨 **v41.0 Game Intelligence System** — Phases 315-320
+- ✅ **v41.0 Game Intelligence System** — Phases 315-320 (shipped 2026-04-03)
+- ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
 - 📋 **v42.0 Meshed Intelligence Migration** — Phases 321-324
-- 📋 **v43.0 Self-Audit & Visual Regression System** — Phases 325-328
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
@@ -159,9 +159,9 @@ Plans:
 - [x] **Phase 315: Shared Types Foundation** — LAUNCH-02
 - [x] **Phase 316: Agent Content Scanner & Boot Validation** — INV-01, INV-04, COMBO-01, COMBO-02
  (completed 2026-04-03)
-- [ ] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04
+- [x] **Phase 317: Server Inventory & Fleet Intelligence** — INV-02, COMBO-03, COMBO-04, LAUNCH-03, LAUNCH-04 (completed 2026-04-03)
 - [x] **Phase 318: Launch Intelligence** — LAUNCH-01, LAUNCH-05 (completed 2026-04-03)
-- [ ] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03
+- [x] **Phase 319: Reliability Dashboard** — DASH-01, DASH-02, DASH-03 (completed 2026-04-03)
 - [x] **Phase 320: Kiosk Game Filtering** — INV-03, COMBO-05 (completed 2026-04-03)
 
 ---
@@ -206,7 +206,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 317-01-PLAN.md -- game_inventory.rs (pod_game_inventory + combo_validation_flags tables, upsert fns, fleet_validity, auto-disable), WS handlers for GameInventoryUpdate + ComboValidationReport, fleet_validity in GET /api/v1/presets
+- [x] 317-01-PLAN.md -- game_inventory.rs (pod_game_inventory + combo_validation_flags tables, upsert fns, fleet_validity, auto-disable), WS handlers for GameInventoryUpdate + ComboValidationReport, fleet_validity in GET /api/v1/presets
 - [x] 317-02-PLAN.md -- crash loop WhatsApp fix (EscalationRequest path), ChainFailureState in AppState, chain failure detection in GameStateUpdate handler
 
 ### Phase 318: Launch Intelligence
@@ -236,7 +236,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 319-01-PLAN.md -- Fleet game matrix (GET /api/v1/fleet/game-matrix from pod_game_inventory) + combo reliability table (GET /api/v1/admin/combo-list from combo_reliability, sortable, red highlight < 70%) added to /games/reliability page
+- [x] 319-01-PLAN.md -- Fleet game matrix (GET /api/v1/fleet/game-matrix from pod_game_inventory) + combo reliability table (GET /api/v1/admin/combo-list from combo_reliability, sortable, red highlight < 70%) added to /games/reliability page
 - [x] 319-02-PLAN.md -- Launch timeline viewer at /games/timeline: GET /api/v1/launch-timeline/recent endpoint + expandable per-launch detail with checkpoint timestamps
 
 ### Phase 320: Kiosk Game Filtering
@@ -488,7 +488,11 @@ Plans:
   3. After 3 rc-agent restarts within 10 minutes, rc-sentry stops restarting (exponential backoff applies), clears the `MAINTENANCE_MODE` sentinel automatically after the backoff window, and sends a WhatsApp alert naming the pod and restart count
   4. When rc-agent dies on any pod, a WhatsApp message reaches Uday/staff naming the pod — COMMS_PSK is deployed to all 8 pods and the watchdog alert path is live
   5. rc-sentry can capture a pod screenshot and analyze pixel patterns to verify that the blanking screen is actually displayed (not just that the Edge process exists)
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 321-01-PLAN.md — Dual-detection watchdog + MON-02/MON-03 verification
+- [ ] 321-02-PLAN.md — Direct WhatsApp alert via Evolution API
+- [ ] 321-03-PLAN.md — Screenshot-based blanking verification
 
 ### Phase 322: MI Core Engine Migration
 **Goal**: The tier engine, diagnostic engine, knowledge base, and telemetry proxy are running in rc-sentry — rc-agent continues working via a thin forwarding proxy during and after migration
