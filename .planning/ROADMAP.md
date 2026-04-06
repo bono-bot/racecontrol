@@ -627,6 +627,6 @@ Plans:
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
 | 326. Visual Regression Tests | 1/1 | Complete    | 2026-04-06 |
 | 327. Enforcement & Deploy Integration | 2/2 | Complete    | 2026-04-06 |
-| 328. AI Self-Audit | 2/2 | Complete   | 2026-04-06 |
+| 328. AI Self-Audit | 2/2 | Complete    | 2026-04-06 |
 
 *Last updated: 2026-04-06 -- roadmap created*
