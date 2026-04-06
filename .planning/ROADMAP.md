@@ -16,7 +16,7 @@
 - ✅ **v40.0 Game Launch Reliability** — Phases 311-314 (shipped 2026-04-03)
 - ✅ **v41.0 Game Intelligence System** — Phases 315-320 (shipped 2026-04-03)
 - ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
-- 📋 **v42.0 Meshed Intelligence Migration** — Phases 321-324
+- ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---

@@ -1134,6 +1134,7 @@ Key milestones in shipping order (most recent first):
 | Version | Name | Phases | Shipped | Key Deliverable |
 |---------|------|--------|---------|-----------------|
 | v43.0 | Self-Audit & Visual Regression | 325-328 | 2026-04-06 | Page crawler, visual regression, deploy enforcement, AI self-audit |
+| v42.0 | Meshed Intelligence Migration | 321-324 | 2026-04-07 | MI engine in rc-sentry, MMA+cognitive gate, peer gossip, coordinated launch |
 | v40.0 | Game Launch Reliability | 311-314 | 2026-04-03 | WS ACK protocol, GameState resilience, billing atomicity |
 | v39.0 | Session Trace ID & Metrics | 310 | 2026-04-02 | session_id propagation for E2E traceability |
 | v38.0 | Security Hardening & Ops Maturity | 305-309 | 2026-04-02 | mTLS, WS auth, RBAC, audit logs, security audit script |
@@ -1156,7 +1157,7 @@ Key milestones in shipping order (most recent first):
 | v17.0 | Cloud Platform | — | 2026-03-22 | VPS deploy, PWA at racingpoint.cloud |
 | v3.0 | Billing & POS | — | 2026-03-24 | Wallet, sessions, kiosk/web/admin POS |
 
-**Active milestones:** v42.0 MI Migration (0/4 phases — only remaining active milestone)
+**Active milestones:** None — all milestones shipped as of 2026-04-07
 
 **Standing rule:** After completing any milestone via `/gsd:complete-milestone`, update BOTH this table AND `~/.claude/projects/C--Users-bono/memory/gsd-projects.md`.
 
