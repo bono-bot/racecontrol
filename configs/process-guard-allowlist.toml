@@ -141,6 +141,11 @@ category = "system"
 machines = ["all"]
 
 [[process_guard.allowed]]
+name = "sysmon64.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
 name = "SearchHost.exe"
 category = "system"
 machines = ["all"]
