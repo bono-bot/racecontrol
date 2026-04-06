@@ -554,7 +554,7 @@ Plans:
 - [x] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04 (completed 2026-04-06)
 - [x] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04 (completed 2026-04-06)
 - [x] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03 (completed 2026-04-06)
-- [ ] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
+- [x] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04 (completed 2026-04-06)
 
 ---
 
@@ -616,7 +616,7 @@ Plans:
 
 Plans:
 - [x] 328-01: Page descriptions + self-audit script + anomaly report
-- [ ] 328-02: Session-start hook + CLAUDE.md self-audit standing rules
+- [x] 328-02: Session-start hook + CLAUDE.md self-audit standing rules
 
 ---
 
@@ -627,6 +627,6 @@ Plans:
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
 | 326. Visual Regression Tests | 1/1 | Complete    | 2026-04-06 |
 | 327. Enforcement & Deploy Integration | 2/2 | Complete    | 2026-04-06 |
-| 328. AI Self-Audit | 1/2 | In Progress|  |
+| 328. AI Self-Audit | 2/2 | Complete   | 2026-04-06 |
 
 *Last updated: 2026-04-06 -- roadmap created*
