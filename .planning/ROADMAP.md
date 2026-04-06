@@ -38,7 +38,7 @@ See `.planning/milestones/` for archived roadmaps and requirements per milestone
 
 - [x] **Phase 311: Launch-Billing Coordination Guard** — LBILL-01, LBILL-02, LBILL-03
 - [x] **Phase 312: WS ACK Protocol** — WSCMD-01, WSCMD-02, WSCMD-03, WSCMD-04
-- [ ] **Phase 313: Game State Resilience** — GSTATE-01, GSTATE-02, GSTATE-03
+- [x] **Phase 313: Game State Resilience** — GSTATE-01, GSTATE-02, GSTATE-03
 - [x] **Phase 314: Billing Atomicity** — BATOM-01, BATOM-02
 
 ---
@@ -112,7 +112,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 313-01-PLAN.md -- GSTATE-01/02/03: Launching hard-cap timeout, smart WS reconciliation, stop ACK cleanup
+- [x] 313-01-PLAN.md -- GSTATE-01/02/03: Launching hard-cap timeout, smart WS reconciliation, stop ACK cleanup (c0219f30, eb0db70b)
 
 ---
 

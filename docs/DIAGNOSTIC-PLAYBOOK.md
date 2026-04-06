@@ -457,13 +457,13 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 
 All 4 phases (325-328) DONE: page crawler, visual regression tests, enforcement hooks, AI self-audit.
 
-### Active: v40.0 Game Launch Reliability (3/4 phases done)
+### Completed: v40.0 Game Launch Reliability (4/4 phases done — SHIPPED)
 
 | Phase | Status | What's left |
 |-------|--------|-------------|
 | 311: Launch-Billing Guard | DONE | — |
 | 312: WS ACK Protocol | DONE | — |
-| **313: GameState Resilience** | **CHECKBOX UNCHECKED** | Code committed (`c0219f30`/`eb0db70b`) — verify behavior matches GSTATE-01/02/03 success criteria, then close |
+| 313: GameState Resilience | DONE | All 4 success criteria verified against deployed code. ROADMAP + plan checkboxes closed 2026-04-06. |
 | 314: Billing Atomicity | DONE | — |
 
 ### Active: v41.0 Game Intelligence System (4/6 phases done)

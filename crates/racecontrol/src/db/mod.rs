@@ -3849,6 +3849,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         "session_feedback", "memberships", "pod_reservations",
         "game_launch_requests", "system_events", "split_sessions",
         "virtual_queue", "review_nudges", "multiplayer_results",
+        "pods",
     ] {
         let _ = sqlx::query(&format!(
             "ALTER TABLE {} ADD COLUMN venue_id TEXT NOT NULL DEFAULT 'racingpoint-hyd-001'",

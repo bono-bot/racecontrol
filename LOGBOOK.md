@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-06 20:02 IST | James | b49998c5 | fix: D2 game launch debug session. #4: venue_id missing on pods table (added to migration list). #5: Phase 313 verified + ROADMAP closed (all 4 GSTATE criteria met, code in deployed build). Cluster A venue E2E test plan written. |
 | 2026-04-06 19:37 IST | James | 60fd86cf | docs: DIAGNOSTIC-PLAYBOOK.md — structured debugging entry point. 10 domains, per-domain debug commands, open/resolved issue tracking. Cluster-first methodology saved to memory. |
 | 2026-04-06 18:34 IST | James | 70626c9c | deploy: fleet-wide 70626c9c — server + 8 pods + cloud. SHA256 deploy fix (7f49a5f8), billing type fix (4e64d84d). |
 | 2026-04-06 17:40 IST | James | e3d1ae76 | fix: 8 launch resilience + lock safety fixes. P0: WaitingForLive 180→60s + dead game detection + AcStatus::Error. P0: blanking state race (browser-gated). P1: 6 lock-across-await in 3 files. P1: rollback sentinel guard, WMI fallback, build parity bat cleanup. P2: kiosk API rewrites. |
