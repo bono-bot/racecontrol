@@ -64,3 +64,6 @@ target/
 
 # Auto-detect runtime state (not committed)
 audit/results/auto-detect-cooldown.json
+
+# Page crawler auth cache
+tests/page-crawler/.auth/
