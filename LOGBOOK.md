@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-06 20:30 IST | James | 4efa0062 | docs(D1): DIAGNOSTIC-PLAYBOOK billing issues — 5 new open (per-minute, BILL-13, topup, linked racers, orphan), PausedDisconnect moved to resolved, D1 E2E venue-day checklist added. |
 | 2026-04-06 20:19 IST | James | bc100be7 | fix: D1 PausedDisconnect per-disconnect timer + orphaned session cleanup. PausedDisconnect now uses per-disconnect pause_seconds (reset on each disconnect/reconnect) instead of cumulative total_paused_seconds — prevents brief network blips from accumulating and auto-ending sessions. Orphaned session cleanup now clears pod billing state + notifies agent + broadcasts dashboard. |
 | 2026-04-06 20:02 IST | James | b49998c5 | fix: D2 game launch debug session. #4: venue_id missing on pods table (added to migration list). #5: Phase 313 verified + ROADMAP closed (all 4 GSTATE criteria met, code in deployed build). Cluster A venue E2E test plan written. |
 | 2026-04-06 19:37 IST | James | 60fd86cf | docs: DIAGNOSTIC-PLAYBOOK.md — structured debugging entry point. 10 domains, per-domain debug commands, open/resolved issue tracking. Cluster-first methodology saved to memory. |
