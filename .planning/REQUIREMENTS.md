@@ -9,10 +9,10 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 ### Page Crawler
 
-- [ ] **CRAWL-01**: Script visits all pages across web (:3200), admin (:3201), and kiosk (:3300) and captures full-page screenshots
-- [ ] **CRAWL-02**: Script authenticates via saved staff PIN state (Playwright storageState)
-- [ ] **CRAWL-03**: Screenshots saved to structured directory: `tests/screenshots/{app}/{route}/{timestamp}.png`
-- [ ] **CRAWL-04**: Script can target specific apps or pages (not always full crawl)
+- [x] **CRAWL-01**: Script visits all pages across web (:3200), admin (:3201), and kiosk (:3300) and captures full-page screenshots
+- [x] **CRAWL-02**: Script authenticates via saved staff PIN state (Playwright storageState)
+- [x] **CRAWL-03**: Screenshots saved to structured directory: `tests/screenshots/{app}/{route}/{timestamp}.png`
+- [x] **CRAWL-04**: Script can target specific apps or pages (not always full crawl)
 
 ### Visual Regression
 
@@ -64,10 +64,10 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CRAWL-01 | Phase 325 | Pending |
-| CRAWL-02 | Phase 325 | Pending |
-| CRAWL-03 | Phase 325 | Pending |
-| CRAWL-04 | Phase 325 | Pending |
+| CRAWL-01 | Phase 325 | Complete |
+| CRAWL-02 | Phase 325 | Complete |
+| CRAWL-03 | Phase 325 | Complete |
+| CRAWL-04 | Phase 325 | Complete |
 | VR-01 | Phase 326 | Pending |
 | VR-02 | Phase 326 | Pending |
 | VR-03 | Phase 326 | Pending |

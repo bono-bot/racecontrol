@@ -551,7 +551,7 @@ Plans:
 
 ### Phases
 
-- [ ] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04
+- [x] **Phase 325: Page Crawler** — CRAWL-01, CRAWL-02, CRAWL-03, CRAWL-04 (completed 2026-04-06)
 - [ ] **Phase 326: Visual Regression Tests** — VR-01, VR-02, VR-03, VR-04
 - [ ] **Phase 327: Enforcement & Deploy Integration** — HOOK-01, HOOK-02, HOOK-03, DEPLOY-01, DEPLOY-02, DEPLOY-03
 - [ ] **Phase 328: AI Self-Audit** — AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
@@ -571,7 +571,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 325-01: Page crawler script with auth, full crawl, and selective targeting
+- [x] 325-01: Page crawler script with auth, full crawl, and selective targeting
 
 ### Phase 326: Visual Regression Tests
 **Goal**: Frontend changes are automatically compared against known-good baselines, with dynamic content properly masked
@@ -623,7 +623,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 325. Page Crawler | 0/1 | Not started | - |
+| 325. Page Crawler | 1/1 | Complete   | 2026-04-06 |
 | 326. Visual Regression Tests | 0/1 | Not started | - |
 | 327. Enforcement & Deploy Integration | 0/2 | Not started | - |
 | 328. AI Self-Audit | 0/1 | Not started | - |
