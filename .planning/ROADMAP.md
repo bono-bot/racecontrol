@@ -582,7 +582,7 @@ Plans:
   2. Dynamic content (timestamps, counters, live metrics) is masked per-page so legitimate data changes do not trigger false failures
   3. Baseline screenshots are committed in git alongside test files and update via --update-snapshots
   4. Running the visual regression suite before and after a frontend fix produces a clear before/after comparison
-**Plans**: TBD
+**Plans**: 1 plan
 **UI hint**: yes
 
 Plans:
