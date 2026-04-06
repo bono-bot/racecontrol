@@ -471,7 +471,7 @@ Plans:
 
 ### Phases
 
-- [ ] **Phase 321: External Monitoring & Alert Chain** — MON-01, MON-02, MON-03, MON-04, MON-05
+- [x] **Phase 321: External Monitoring & Alert Chain** — MON-01, MON-02, MON-03, MON-04, MON-05 (completed 2026-04-06)
 - [ ] **Phase 322: MI Core Engine Migration** — MIG-01, MIG-02, MIG-03, MIG-05
 - [ ] **Phase 323: MMA Engine & Cognitive Gate Migration** — MIG-04, MIG-06
 - [ ] **Phase 324: True Mesh Intelligence** — MESH-01, MESH-02, MESH-03
@@ -492,7 +492,7 @@ Plans:
 Plans:
 - [x] 321-01-PLAN.md — Dual-detection watchdog + MON-02/MON-03 verification
 - [x] 321-02-PLAN.md — Direct WhatsApp alert via Evolution API
-- [ ] 321-03-PLAN.md — Screenshot-based blanking verification
+- [x] 321-03-PLAN.md — Screenshot-based blanking verification
 
 ### Phase 322: MI Core Engine Migration
 **Goal**: The tier engine, diagnostic engine, knowledge base, and telemetry proxy are running in rc-sentry — rc-agent continues working via a thin forwarding proxy during and after migration
@@ -532,7 +532,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 321. External Monitoring & Alert Chain | 2/3 | In Progress|  |
+| 321. External Monitoring & Alert Chain | 3/3 | Complete   | 2026-04-06 |
 | 322. MI Core Engine Migration | 0/TBD | Not started | - |
 | 323. MMA Engine & Cognitive Gate Migration | 0/TBD | Not started | - |
 | 324. True Mesh Intelligence | 0/TBD | Not started | - |
