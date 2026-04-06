@@ -449,6 +449,55 @@ If violation_count_24h > 100 on all pods = empty allowlist (server was down at b
 
 ---
 
+## GSD Milestone Status (from `.planning/ROADMAP.md`)
+
+**Check ROADMAP.md at session start** — incomplete GSD phases are unfinished features that may explain bugs.
+
+### Recently Completed: v43.0 Self-Audit & Visual Regression (2026-04-06)
+
+All 4 phases (325-328) DONE: page crawler, visual regression tests, enforcement hooks, AI self-audit.
+
+### Active: v40.0 Game Launch Reliability (3/4 phases done)
+
+| Phase | Status | What's left |
+|-------|--------|-------------|
+| 311: Launch-Billing Guard | DONE | — |
+| 312: WS ACK Protocol | DONE | — |
+| **313: GameState Resilience** | **CHECKBOX UNCHECKED** | Code committed (`c0219f30`/`eb0db70b`) — verify behavior matches GSTATE-01/02/03 success criteria, then close |
+| 314: Billing Atomicity | DONE | — |
+
+### Active: v41.0 Game Intelligence System (4/6 phases done)
+
+| Phase | Status | What's left |
+|-------|--------|-------------|
+| 315: Shared Types | DONE | — |
+| 316: Agent Content Scanner | DONE | — |
+| **317: Server Inventory** | **PARTIAL** | Plan 317-01: `pod_game_inventory` table, `fleet_validity` field, WS handlers for GameInventoryUpdate + ComboValidationReport |
+| 318: Launch Intelligence | DONE | — |
+| **319: Reliability Dashboard** | **PARTIAL** | Plan 319-01: fleet game matrix page (`/games/reliability`), combo reliability table with red highlight < 70% |
+| 320: Kiosk Game Filtering | DONE | — |
+
+### Queued (not started)
+
+| Milestone | Phases | Depends on |
+|-----------|--------|------------|
+| v42.0 Meshed Intelligence Migration | 321-324 | v41.0 |
+
+### Also incomplete
+
+- v39.0 Phase 310: Plan 310-02 (dashboard trace endpoint) — DEFERRED
+
+### How GSD connects to debugging
+
+Incomplete GSD phases can **cause** bugs in the open issues list:
+- Phase 317 incomplete → kiosk may show games that aren't installed → silent launch failure (D2)
+- Phase 313 unverified → GameTracker may still get stuck in edge cases (D2)
+- Phase 319 incomplete → no visibility into which combos are reliable (makes D2 debugging harder)
+
+**Rule:** Fix D2 bugs first, then complete the GSD phases that prevent those bugs from recurring.
+
+---
+
 ## The Rules for Using This Playbook
 
 1. **Step 0 is not optional.** Check memory/LOGBOOK/git BEFORE investigating.
