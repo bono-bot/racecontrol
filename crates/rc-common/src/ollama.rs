@@ -152,7 +152,7 @@ pub fn query_async(
             let result = query_crash(&crash_context, None, None);
             on_result(result);
         })
-        .expect("spawn ollama thread");
+        .ok(); // Failing to spawn is non-fatal; on_result simply never fires
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

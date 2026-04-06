@@ -513,8 +513,13 @@ async fn main() -> Result<()> {
     #[cfg(windows)]
     let _mutex_guard = {
         use std::ffi::CString;
-        let name = CString::new("Global\\RacingPoint_RCAgent_SingleInstance")
-            .expect("mutex name contains no null bytes");
+        let name = match CString::new("Global\\RacingPoint_RCAgent_SingleInstance") {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("Failed to create mutex name CString");
+                std::process::exit(1);
+            }
+        };
         let handle = unsafe {
             winapi::um::synchapi::CreateMutexA(
                 std::ptr::null_mut(),
