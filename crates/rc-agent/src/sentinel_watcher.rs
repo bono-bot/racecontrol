@@ -84,6 +84,47 @@ pub fn spawn(tx: mpsc::Sender<AgentMessage>, pod_id: String) {
 
         tracing::info!(target: LOG_TARGET, "watching {} for sentinel files", WATCH_DIR);
 
+        // Initial scan: report current sentinel state so the server gets accurate
+        // active_sentinels on every agent reconnect. Without this, stale sentinel
+        // state on the server persists indefinitely (clear_on_disconnect is disabled
+        // by design, and only FS change events update state).
+        {
+            let watch_path = Path::new(WATCH_DIR);
+            for &sentinel in KNOWN_SENTINELS {
+                let sentinel_path = watch_path.join(sentinel);
+                let action = if sentinel_path.exists() { "created" } else { "deleted" };
+
+                tracing::info!(
+                    target: LOG_TARGET,
+                    sentinel = sentinel,
+                    action = action,
+                    pod = %pod_id,
+                    "initial sentinel sync"
+                );
+
+                const IST_OFFSET_SECS: i32 = 5 * 3600 + 30 * 60;
+                let timestamp = match chrono::FixedOffset::east_opt(IST_OFFSET_SECS) {
+                    Some(ist) => chrono::Utc::now().with_timezone(&ist).to_rfc3339(),
+                    None => chrono::Utc::now().to_rfc3339(),
+                };
+
+                let msg = AgentMessage::SentinelChange {
+                    pod_id: pod_id.clone(),
+                    file: sentinel.to_string(),
+                    action: action.to_string(),
+                    timestamp,
+                };
+
+                if tx.blocking_send(msg).is_err() {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "WS sender channel closed during initial sync — stopping sentinel watcher"
+                    );
+                    return;
+                }
+            }
+        }
+
         // Bug #16: Use recv_timeout so thread doesn't hang forever if watcher dies silently
         const RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 

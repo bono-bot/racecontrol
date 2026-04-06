@@ -1155,6 +1155,22 @@ name = "musnotificationux.exe"
 category = "system"
 machines = ["all"]
 
+# --- Added 2026-04-06: GPU monitoring + Windows system processes (false violations on all pods) ---
+[[process_guard.allowed]]
+name = "nvidia-smi.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "csc.exe"
+category = "system"
+machines = ["all"]
+
+[[process_guard.allowed]]
+name = "wermgr.exe"
+category = "system"
+machines = ["all"]
+
 [process_guard.overrides.pod]
 allow_extra_autostart = [
   "StartRCAgent",
@@ -1202,4 +1218,9 @@ allow_extra_autostart = [
   "RC-Update",
   "RacingPoint-PodAgent",
   "RacingPoint-RcAgent",
+  # --- Added 2026-04-06: recurring schtask violations from pods ---
+  "DiagFull",
+  "RC-Test",
+  "RunPlatformExperienceHelper_FirstRun",
+  "SoftLandingCreativeManagementTask",
 ]
