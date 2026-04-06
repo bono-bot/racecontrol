@@ -23,6 +23,7 @@ mod tier1_fixes;
 #[cfg(feature = "ai-diagnosis")]
 mod debug_memory;
 // ollama module is now in rc-common — see rc_common::ollama
+mod mi_knowledge_base;
 mod session1_spawn;
 mod screen_verify;
 #[cfg(feature = "mesh")]
