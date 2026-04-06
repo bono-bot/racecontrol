@@ -38,7 +38,7 @@ export type GameId = typeof GAMES[number]['id'];
 
 // ─── Pricing Tiers ───────────────────────────────────────────
 export const TIERS = [
-  { name: '30min', durationMin: 30, pricePaise: 75000, mode: 'package' as const, isTrial: false },
+  { name: '30min', durationMin: 30, pricePaise: 70000, mode: 'package' as const, isTrial: false },
   { name: '60min', durationMin: 60, pricePaise: 90000, mode: 'package' as const, isTrial: false },
   { name: 'trial', durationMin: 5, pricePaise: 0, mode: 'package' as const, isTrial: true },
   { name: 'per_minute', durationMin: 0, pricePaise: 0, mode: 'per_minute' as const, isTrial: false, ratePerMin: 2500 },
@@ -66,7 +66,7 @@ export const PAUSE_TYPES = ['manual', 'game_pause', 'disconnect', 'crash_recover
 export type PauseType = typeof PAUSE_TYPES[number];
 
 // ─── Session Types ───────────────────────────────────────────
-export const SESSION_TYPES = ['Practice', 'Qualifying', 'Race', 'Hotlap'] as const;
+export const SESSION_TYPES = ['practice', 'qualifying', 'race', 'hotlap', 'trackday', 'weekend', 'race_weekend'] as const;
 
 // ─── Billing Session Statuses ────────────────────────────────
 export const BILLING_STATUSES = [

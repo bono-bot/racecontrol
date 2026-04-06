@@ -4230,21 +4230,114 @@ async fn stop_billing(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let found = billing::end_billing_session_public(&state, &id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
+    // E2E-FIX: Check DB status — if waiting_for_game, use CancelledNoPlayable path
+    // instead of EndedEarly (FSM rejects EndEarly from WaitingForGame).
+    let db_status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM billing_sessions WHERE id = ? AND ended_at IS NULL",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let (end_status, log_action, audit_to) = match db_status.as_deref() {
+        Some("waiting_for_game") | Some("pending") => {
+            // Cancel with full refund — game never became playable
+            // Refund wallet first (same pattern as LBILL auto-cancel)
+            let refund_info: Option<(String, Option<i64>, Option<String>)> = sqlx::query_as(
+                "SELECT driver_id, wallet_debit_paise, wallet_owner_id FROM billing_sessions WHERE id = ?",
+            )
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some((driver_id, Some(debit), wallet_owner)) = &refund_info {
+                if *debit > 0 {
+                    let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
+                    match crate::wallet::credit(
+                        &state,
+                        refund_target,
+                        *debit,
+                        "refund_session",
+                        Some(id.as_str()),
+                        Some("Staff-cancelled: game never reached playable state"),
+                        None,
+                    ).await {
+                        Ok(_) => tracing::info!(
+                            "BILLING: Refunded {}p for staff-cancelled waiting_for_game session {} (driver={})",
+                            debit, id, driver_id
+                        ),
+                        Err(e) => tracing::error!(
+                            "BILLING: Failed to refund {}p for session {}: {}",
+                            debit, id, e
+                        ),
+                    }
+                }
+            }
+
+            // Update DB directly (session is not in active_timers)
+            let _ = sqlx::query(
+                "UPDATE billing_sessions SET status = 'cancelled_no_playable', ended_at = datetime('now') \
+                 WHERE id = ? AND ended_at IS NULL",
+            )
+            .bind(&id)
+            .execute(&state.db)
+            .await;
+
+            // Remove from in-memory waiting_for_game map
+            if let Some((_, ref driver_id, _, _wallet_owner)) = refund_info.as_ref().map(|r| (&id, &r.0, r.1, &r.2)) {
+                // Find pod_id from DB
+                let pod_id_opt: Option<String> = sqlx::query_scalar(
+                    "SELECT pod_id FROM billing_sessions WHERE id = ?",
+                )
+                .bind(&id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+                if let Some(ref pod_id) = pod_id_opt {
+                    let normalized = pod_id.replace('-', "_");
+                    state.billing.waiting_for_game.write().await.remove(&normalized);
+                    tracing::info!("Cleared waiting_for_game entry for pod {} (session {} staff-cancelled)", pod_id, id);
+                }
+            }
+
+            state.billing_nonce_store.remove(&id).await;
+            crate::activity_log::log_pod_activity(
+                &state, "server", "billing", "Session Cancelled (No Playable)",
+                &format!("session_id={} — staff-cancelled from waiting_for_game", id),
+                "staff", Some(&id),
+            );
+            crate::billing_replay::insert_audit_log(
+                &state.db, &id, "unknown", "stop", "waiting_for_game", "cancelled_no_playable", None, "staff", &state.config.venue.venue_id,
+            ).await;
+            return Json(json!({ "ok": true, "end_status": "cancelled_no_playable", "refunded": true }));
+        }
+        _ => (
+            rc_common::types::BillingSessionStatus::EndedEarly,
+            "Session Ended",
+            "ended_early",
+        ),
+    };
+
+    let found = billing::end_billing_session_public(&state, &id, end_status, None).await;
     if found {
         // Phase 307 AUDIT-03: Log billing session end for hash chain coverage
         crate::activity_log::log_pod_activity(
             &state,
             "server",
             "billing",
-            "Session Ended",
+            log_action,
             &format!("session_id={}", id),
             "staff",
             Some(&id),
         );
         // Phase 283: Audit log + nonce cleanup
         crate::billing_replay::insert_audit_log(
-            &state.db, &id, "unknown", "stop", "active", "ended_early", None, "staff", &state.config.venue.venue_id,
+            &state.db, &id, "unknown", "stop", "active", audit_to, None, "staff", &state.config.venue.venue_id,
         ).await;
         state.billing_nonce_store.remove(&id).await;
         Json(json!({ "ok": true }))
