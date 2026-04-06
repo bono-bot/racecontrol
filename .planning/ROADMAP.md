@@ -490,7 +490,7 @@ Plans:
   5. rc-sentry can capture a pod screenshot and analyze pixel patterns to verify that the blanking screen is actually displayed (not just that the Edge process exists)
 **Plans**: 3 plans
 Plans:
-- [ ] 321-01-PLAN.md — Dual-detection watchdog + MON-02/MON-03 verification
+- [x] 321-01-PLAN.md — Dual-detection watchdog + MON-02/MON-03 verification
 - [x] 321-02-PLAN.md — Direct WhatsApp alert via Evolution API
 - [ ] 321-03-PLAN.md — Screenshot-based blanking verification
 
@@ -532,7 +532,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 321. External Monitoring & Alert Chain | 1/3 | In Progress|  |
+| 321. External Monitoring & Alert Chain | 2/3 | In Progress|  |
 | 322. MI Core Engine Migration | 0/TBD | Not started | - |
 | 323. MMA Engine & Cognitive Gate Migration | 0/TBD | Not started | - |
 | 324. True Mesh Intelligence | 0/TBD | Not started | - |

@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Discuss phase
-stopped_at: Completed 321-02-PLAN.md
+stopped_at: Completed 321-01-PLAN.md
 last_updated: "2026-04-06T16:48:23.021Z"
 last_activity: 2026-04-06
 progress:
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 321
-Plan: Not started
-Status: Discuss phase
+Plan: 01 complete, 02 next
+Status: executing
 Last activity: 2026-04-06
 
 Progress: [░░░░░░░░░░] 0% (v42.0)
@@ -58,6 +58,7 @@ rc-sentry today: 3,952 lines (7 files)
 
 - [2026-04-06]: Strictly sequential — each phase depends on previous
 - [Phase 321]: Extracted build_whatsapp_alert_request() as testable helper for OnceLock config
+- [Phase 321-01]: Dual-detection FSM: fail-open tasklist, restart_suppressed check, MON-02/MON-03 verified
 
 ### Blockers/Concerns
 
@@ -65,6 +66,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-06T16:48:16.060Z
-Stopped at: Completed 321-02-PLAN.md
+Last session: 2026-04-06T16:48:50Z
+Stopped at: Completed 321-01-PLAN.md
 Resume file: None
