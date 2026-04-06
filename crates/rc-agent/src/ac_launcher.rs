@@ -462,10 +462,13 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     verify_safety_settings()?;
 
     // Step 3: Launch AC
-    // - Multiplayer: use Content Manager (handles server join handshake)
+    // - Multiplayer: use Content Manager (handles server join handshake via acmanager:// URI)
     // - Single-player: launch acs.exe directly (race.ini already written above)
-    //   CM's acmanager://race/config fails with "Settings are not specified"
-    //   if CM's Quick Drive preset was never configured on this pod.
+    //   CM is NOT used for SP because:
+    //   1. CM's --race flag doesn't exist (silently ignored, just opens CM GUI)
+    //   2. acmanager://race/config fails with "Settings are not specified"
+    //      unless CM's Quick Drive preset was configured on the pod
+    //   3. Direct acs.exe reads our pre-written race.ini; CSP loads via DLL hook regardless
     let mut cm_error: Option<String> = None;
     let mut diag = LaunchDiagnostics::default();
 
@@ -1333,6 +1336,7 @@ fn find_cm_exe() -> Option<std::path::PathBuf> {
     let candidates = [
         r"C:\Users\User\Desktop\Content Manager.exe",
         r"C:\Users\User\Desktop\content-manager\Content Manager.exe",
+        r"C:\Users\SIM 1\Downloads\content-manager\Content Manager.exe", // Pod 1 has different user
         r"C:\RacingPoint\Content Manager.exe",
         r"C:\Users\bono\Desktop\Content Manager.exe",
     ];

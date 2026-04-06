@@ -32,15 +32,12 @@ REM Route by mode
 if /I "%MODE%"=="mp" goto :launch_mp
 
 REM ─── SINGLE PLAYER ───────────────────────────────────────────────────────
+REM SP always uses direct acs.exe launch. race.ini is pre-written by rc-agent.
+REM CM's --race flag does not exist (silently ignored), and acmanager://race/config
+REM fails with "Settings are not specified" unless CM Quick Drive was configured.
+REM CM is only needed for MP (server join handshake via acmanager:// URI).
 :launch_sp
-if not defined CM_EXE goto :sp_direct
-echo Launching via Content Manager (SP): !CM_EXE!
-start "" "!CM_EXE!" --race
-ping -n 8 127.0.0.1 >nul
-goto :verify_launch
-
-:sp_direct
-echo WARNING: Content Manager not found — launching acs.exe directly
+echo Launching acs.exe directly (SP mode, race.ini pre-configured by rc-agent)
 start "" /D "%AC_DIR%" acs.exe
 goto :verify_launch
 
