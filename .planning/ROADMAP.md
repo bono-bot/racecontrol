@@ -601,7 +601,7 @@ Plans:
 
 Plans:
 - [ ] 327-01: Claude Code enforcement hook (screenshot evidence gate for frontend claims)
-- [ ] 327-02: Deploy script integration (auto-crawl after deploy, hash verification table, regression gate)
+- [x] 327-02: Deploy script integration (auto-crawl after deploy, hash verification table, regression gate)
 
 ### Phase 328: AI Self-Audit
 **Goal**: James autonomously identifies pages that look wrong by comparing live screenshots against documented expected behavior
@@ -625,7 +625,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 325. Page Crawler | 1/1 | Complete    | 2026-04-06 |
 | 326. Visual Regression Tests | 1/1 | Complete    | 2026-04-06 |
-| 327. Enforcement & Deploy Integration | 0/2 | Not started | - |
+| 327. Enforcement & Deploy Integration | 1/2 | In Progress|  |
 | 328. AI Self-Audit | 0/1 | Not started | - |
 
 *Last updated: 2026-04-06 -- roadmap created*

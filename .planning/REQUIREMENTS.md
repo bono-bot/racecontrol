@@ -29,9 +29,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 
 ### Deploy Integration
 
-- [ ] **DEPLOY-01**: Page crawler auto-runs after deploy-nextjs.sh completes
-- [ ] **DEPLOY-02**: Build hash verification table showing expected vs running build on all targets
-- [ ] **DEPLOY-03**: Deploy script exits with failure if page crawler finds visual regressions
+- [x] **DEPLOY-01**: Page crawler auto-runs after deploy-nextjs.sh completes
+- [x] **DEPLOY-02**: Build hash verification table showing expected vs running build on all targets
+- [x] **DEPLOY-03**: Deploy script exits with failure if page crawler finds visual regressions
 
 ### AI Self-Audit
 
@@ -75,9 +75,9 @@ Requirements for visual regression and self-audit system. Each maps to roadmap p
 | HOOK-01 | Phase 327 | Pending |
 | HOOK-02 | Phase 327 | Pending |
 | HOOK-03 | Phase 327 | Pending |
-| DEPLOY-01 | Phase 327 | Pending |
-| DEPLOY-02 | Phase 327 | Pending |
-| DEPLOY-03 | Phase 327 | Pending |
+| DEPLOY-01 | Phase 327 | Complete |
+| DEPLOY-02 | Phase 327 | Complete |
+| DEPLOY-03 | Phase 327 | Complete |
 | AUDIT-01 | Phase 328 | Pending |
 | AUDIT-02 | Phase 328 | Pending |
 | AUDIT-03 | Phase 328 | Pending |
