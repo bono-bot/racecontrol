@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v40.0
-milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Completed 328-02-PLAN.md
-last_updated: "2026-04-06T14:07:40.284Z"
+milestone: v42.0
+milestone_name: Meshed Intelligence Migration
+status: executing
+stopped_at: Starting Phase 321
+last_updated: "2026-04-06T18:00:00.000Z"
 last_activity: 2026-04-06
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,57 +18,52 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-06)
+See: .planning/PROJECT.md
 
-**Core value:** James autonomously verifies all frontend pages before/after fixes -- eliminating blind code-only fixes.
-**Current focus:** Phase 328 — ai-self-audit
+**Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
+**Current focus:** Phase 321 — External Monitoring & Alert Chain
 
 ## Current Position
 
-Phase: 328
+Phase: 321
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Discuss phase
 Last activity: 2026-04-06
 
-Progress: [░░░░░░░░░░] 0% (v43.0)
-
-## Performance Metrics
-
-**Velocity:**
-
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+Progress: [░░░░░░░░░░] 0% (v42.0)
 
 ## Accumulated Context
 
-### From Research (2026-04-06)
+### Migration Scope (measured 2026-04-06)
 
-- 70+ frontend pages across 3 apps (PWA: 33, Web: 32, Kiosk: 10)
-- Existing Playwright infrastructure: 35+ E2E tests, visual-verify.js, verify-pod-screen.js
-- Staff PIN auth via Playwright storageState (defer PWA customer OTP to future)
-- Hooks go in ~/.claude/hooks/ (Node.js files)
-- Deploy scripts in racecontrol/scripts/
+| Module | Lines | Target Phase |
+|--------|-------|-------------|
+| tier_engine.rs | 2,968 | 322 |
+| mma_engine.rs | 1,891 | 323 |
+| knowledge_base.rs | 1,470 | 322 |
+| diagnostic_engine.rs | 783 | 322 |
+| cognitive_gate.rs | 733 | 323 |
+| mesh_gossip.rs | 465 | 322 |
+| mma_cache.rs | 215 | 323 |
+| diagnostic_log.rs | 91 | 322 |
+| **Total** | **8,616** | |
+
+rc-sentry today: 3,952 lines (7 files)
+
+### Dependency Chain
+
+321 (Monitoring) → 322 (Core MI) → 323 (MMA+Gate) → 324 (Mesh)
 
 ### Decisions
 
-- [2026-04-06]: 4-phase structure: Crawler -> Visual Regression -> Enforcement+Deploy -> AI Self-Audit
-- [2026-04-06]: No cloud services (Percy/Chromatic), no BackstopJS -- Playwright built-in is sufficient
-- [2026-04-06]: Start with staff apps (web/kiosk/admin), defer PWA customer auth to future
-- [Phase 325]: Staff PIN auth (1234) via validate-pin endpoint for crawler authentication
-- [Phase 326]: Added typescript and @types/node devDeps for type checking (not previously installed)
-- [Phase 327]: Hash mismatches are warnings not failures; deploy-verify.sh is standalone-callable
-- [Phase 327]: PostToolUse additionalContext warning pattern for screenshot enforcement -- softer than deny/block
-- [Phase 328]: Page descriptions kept concise (20-30 lines) as AI reference docs with known failure modes from CLAUDE.md
-- [Phase 328]: Word-boundary regex for hook keyword matching prevents false positives
+- [2026-04-06]: Strictly sequential — each phase depends on previous
 
 ### Blockers/Concerns
 
-- PWA auth requires customer OTP test account -- deferred to EXT-01
-- Dynamic content masking needs per-page config -- address in Phase 326
+- None yet
 
 ## Session Continuity
 
-Last session: 2026-04-06T14:03:33.885Z
-Stopped at: Completed 328-02-PLAN.md
+Last session: 2026-04-06
+Stopped at: Starting Phase 321
 Resume file: None
