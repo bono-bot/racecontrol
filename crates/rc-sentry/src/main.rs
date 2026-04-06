@@ -540,6 +540,8 @@ fn handle(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     match (method, path) {
         ("POST", "/exec") => handle_exec(&mut stream, &request),
         ("POST", "/mi/trigger") => handle_mi_trigger(&mut stream, &request),
+        ("GET", "/mma/status") => handle_mma_status(&mut stream),
+        ("GET", "/gate/last-plan") => handle_gate_last_plan(&mut stream),
         ("GET", "/flags") => handle_flags(&mut stream),
         ("GET", p) if p.starts_with("/files") => handle_files(&mut stream, p),
         ("GET", "/processes") => handle_processes(&mut stream),
@@ -770,6 +772,24 @@ fn handle_processes(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Er
         })
         .collect();
     send_response(stream, 200, &serde_json::to_string(&procs)?)
+}
+
+/// GET /mma/status — return MMA engine status (budget, last run, API key presence).
+fn handle_mma_status(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    let status = mma_engine::get_status();
+    let body = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+    send_response(stream, 200, &body)
+}
+
+/// GET /gate/last-plan — return the last cognitive gate diagnosis plan.
+fn handle_gate_last_plan(stream: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+    match cognitive_gate::get_last_plan() {
+        Some(plan) => {
+            let body = serde_json::to_string(&plan).unwrap_or_else(|_| r#"{"error":"serialize failed"}"#.to_string());
+            send_response(stream, 200, &body)
+        }
+        None => send_response(stream, 200, r#"{"plan":null,"message":"no diagnosis plan generated yet"}"#),
+    }
 }
 
 /// GET /mi/debug — return MI debug state snapshot (recent triggers + last diagnosis).

@@ -176,11 +176,27 @@ pub fn run_diagnosis(trigger: &DiagnosticTrigger) -> TierDiagnosis {
         return make_diagnosis(trigger, tier, "fixed", action, root_cause, confidence, true, &problem_key, &timestamp);
     }
 
-    // Tier 3/4/5: STUB
+    // Generate a deterministic fix plan via cognitive gate (no API cost).
+    // This ensures /gate/last-plan returns a plan even when MMA is unavailable.
+    let tier_diag = TierDiagnosis {
+        trigger: trigger.clone(),
+        tier: 2,  // Tier 2 produced no KB result
+        outcome: "no_kb_solution".into(),
+        action: String::new(),
+        root_cause: String::new(),
+        fix_type: String::new(),
+        confidence: 0.0,
+        fix_applied: false,
+        problem_hash: problem_key.clone(),
+        timestamp: timestamp.clone(),
+    };
+    crate::cognitive_gate::evaluate_and_plan(&tier_diag);
+
+    // Tier 3/4/5: dispatch to MMA engine if budget allows, otherwise stub
     let t345 = tier345_stub();
     match t345 {
         TierResult::Stub { tier } => {
-            make_diagnosis(trigger, tier, "stub", "Tier 3/4/5 stubbed", "Phase 323 will implement", 0.0, false, &problem_key, &timestamp)
+            make_diagnosis(trigger, tier, "stub", "Tier 3/4/5 stubbed — deterministic plan available at /gate/last-plan", "Tier 2 KB miss, cognitive gate generated fix plan", 0.0, false, &problem_key, &timestamp)
         }
         _ => {
             make_diagnosis(trigger, 5, "not_applicable", "no tier matched", "unknown", 0.0, false, &problem_key, &timestamp)

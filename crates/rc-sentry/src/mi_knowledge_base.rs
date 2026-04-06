@@ -208,6 +208,65 @@ impl KnowledgeBase {
         }
     }
 
+    /// Look up multiple solutions by problem_key (not hash), returning up to `limit` results
+    /// ordered by confidence descending. No confidence threshold — returns all matches.
+    /// Used by cognitive gate to gather competing hypotheses from prior fixes.
+    pub fn lookup_all(&self, problem_key: &str, limit: usize) -> KbResult<Vec<SolutionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, problem_key, problem_hash, symptoms, environment,
+                    root_cause, fix_action, fix_type, success_count, fail_count,
+                    confidence, cost_to_diagnose, models_used, source_node,
+                    created_at, updated_at, version, ttl_days, tags, diagnosis_method,
+                    fix_permanence, recurrence_count, permanent_fix_id, last_recurrence, permanent_attempt_at
+             FROM solutions
+             WHERE problem_key = ?1
+             ORDER BY confidence DESC
+             LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![problem_key, limit as i64], |row| {
+            Ok(SolutionRecord {
+                id: row.get(0)?,
+                problem_key: row.get(1)?,
+                problem_hash: row.get(2)?,
+                symptoms: row.get(3)?,
+                environment: row.get(4)?,
+                root_cause: row.get(5)?,
+                fix_action: row.get(6)?,
+                fix_type: row.get(7)?,
+                success_count: row.get(8)?,
+                fail_count: row.get(9)?,
+                confidence: row.get(10)?,
+                cost_to_diagnose: row.get(11)?,
+                models_used: row.get(12)?,
+                source_node: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+                version: row.get(16)?,
+                ttl_days: row.get(17)?,
+                tags: row.get(18)?,
+                diagnosis_method: row.get(19)?,
+                fix_permanence: row.get::<_, Option<String>>(20)?.unwrap_or_else(|| "workaround".to_string()),
+                recurrence_count: row.get::<_, Option<i64>>(21)?.unwrap_or(0),
+                permanent_fix_id: row.get(22)?,
+                last_recurrence: row.get(23)?,
+                permanent_attempt_at: row.get(24)?,
+            })
+        })?;
+
+        let mut solutions = Vec::new();
+        for row in rows {
+            match row {
+                Ok(sol) => solutions.push(sol),
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, "KB lookup_all row error: {}", e);
+                    break;
+                }
+            }
+        }
+        Ok(solutions)
+    }
+
     /// Store a solution in the local KB.
     /// Uses INSERT OR REPLACE -- if the same id exists, it is overwritten.
     pub fn store_solution(&self, solution: &SolutionRecord) -> KbResult<()> {

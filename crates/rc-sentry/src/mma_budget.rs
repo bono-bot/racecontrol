@@ -117,9 +117,13 @@ pub fn get_budget_status() -> MmaBudgetStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex as StdMutex;
+    // Tests share a static OnceLock — serialize them to avoid races
+    static TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     #[test]
     fn test_budget_cap_enforcement() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         reset_session();
         assert!(can_spend(4.99), "Should allow spend under cap");
         assert!(!can_spend(5.01), "Should deny spend over cap");
@@ -127,6 +131,7 @@ mod tests {
 
     #[test]
     fn test_record_spend_accumulates() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         reset_session();
         record_spend("model-a", 1.00);
         record_spend("model-b", 2.00);
@@ -136,6 +141,7 @@ mod tests {
 
     #[test]
     fn test_reset_clears_session() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         record_spend("model-a", 2.00);
         reset_session();
         assert!((session_spent() - 0.0).abs() < 0.001, "Should be 0 after reset");
@@ -143,6 +149,7 @@ mod tests {
 
     #[test]
     fn test_cap_hit_detection() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         reset_session();
         record_spend("model", SESSION_CAP_USD + 0.01);
         let status = get_budget_status();
