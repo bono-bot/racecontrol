@@ -669,6 +669,119 @@ pub fn escalate_to_whatsapp(
         pod_id,
         failure_count
     );
+
+    // MON-04: Also send via direct Evolution API (dual path)
+    let direct_msg = format!(
+        "[rc-sentry] Pod {} alert: {} consecutive failures. Last error: {}",
+        pod_id, failure_count, last_error
+    );
+    send_whatsapp_alert(pod_id, &direct_msg);
+}
+
+/// Build the HTTP request for a direct WhatsApp alert via Evolution API.
+/// Extracted for testability — the actual send uses TcpStream.
+fn build_whatsapp_alert_request(
+    whatsapp_url: &str,
+    whatsapp_instance: &str,
+    whatsapp_api_key: &str,
+    whatsapp_number: &str,
+    message: &str,
+) -> Option<(String, String)> {
+    let body = serde_json::json!({
+        "number": whatsapp_number,
+        "text": message,
+    });
+    let body_str = match serde_json::to_string(&body) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "WhatsApp alert JSON serialize failed: {}", e);
+            return None;
+        }
+    };
+
+    // Parse host:port from whatsapp_url (strip scheme, strip path)
+    let host_port = whatsapp_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("");
+
+    if host_port.is_empty() {
+        tracing::warn!(target: LOG_TARGET, "WhatsApp alert URL is empty after parsing");
+        return None;
+    }
+
+    let path = format!("/message/sendText/{}", whatsapp_instance);
+    let request = format!(
+        "POST {} HTTP/1.0\r\n\
+         Host: {}\r\n\
+         Content-Type: application/json\r\n\
+         apikey: {}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n{}",
+        path, host_port, whatsapp_api_key, body_str.len(), body_str
+    );
+
+    Some((request, host_port.to_string()))
+}
+
+/// MON-04: Direct WhatsApp alert via Evolution API.
+/// Bypasses server relay -- fires even when server is down.
+/// Uses std::net::TcpStream (no async, no reqwest).
+pub fn send_whatsapp_alert(pod_id: &str, message: &str) {
+    let cfg = crate::sentry_config::load();
+    let alert = &cfg.alert_config;
+
+    if !alert.enabled || alert.whatsapp_url.is_empty() {
+        tracing::debug!(target: LOG_TARGET, "WhatsApp direct alert disabled or not configured");
+        return;
+    }
+
+    let (request, host_port) = match build_whatsapp_alert_request(
+        &alert.whatsapp_url,
+        &alert.whatsapp_instance,
+        &alert.whatsapp_api_key,
+        &alert.whatsapp_number,
+        message,
+    ) {
+        Some(r) => r,
+        None => return,
+    };
+
+    // Resolve host:port to SocketAddr (supports DNS hostnames)
+    use std::net::ToSocketAddrs;
+    let addr = match host_port.to_socket_addrs() {
+        Ok(mut addrs) => match addrs.next() {
+            Some(a) => a,
+            None => {
+                tracing::warn!(target: LOG_TARGET, "WhatsApp URL '{}' resolved to no addresses", host_port);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "WhatsApp URL '{}' DNS resolution failed: {}", host_port, e);
+            return;
+        }
+    };
+
+    let timeout = Duration::from_secs(5);
+    match std::net::TcpStream::connect_timeout(&addr, timeout) {
+        Ok(mut stream) => {
+            if let Err(e) = stream.write_all(request.as_bytes()) {
+                tracing::warn!(target: LOG_TARGET, "WhatsApp direct alert write failed: {}", e);
+            } else {
+                tracing::info!(target: LOG_TARGET,
+                    "WhatsApp direct alert sent for pod {} to {}",
+                    pod_id, alert.whatsapp_number
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "WhatsApp direct alert connect failed to {}: {}", host_port, e);
+        }
+    }
 }
 
 /// Check if system recently booted (< 120 seconds uptime).
@@ -741,6 +854,13 @@ pub fn enter_maintenance_mode(reason: &str, restart_count: u32, _diagnostic_cont
                 }
             }
         }
+
+        // MON-04: Direct WhatsApp alert via Evolution API (dual path)
+        send_whatsapp_alert(&pod_id, &format!(
+            "[rc-sentry] Pod {} entered MAINTENANCE_MODE after {} restart attempts. Reason: {}",
+            pod_id, restart_count, reason
+        ));
+
         true
     }
 }
@@ -1410,5 +1530,74 @@ mod tests {
         // In test cfg, check_and_clear_maintenance must return NotInMaintenance
         let result = check_and_clear_maintenance();
         assert_eq!(result, ClearResult::NotInMaintenance);
+    }
+
+    // ─── MON-04 WhatsApp direct alert tests ──────────────────────────────────
+
+    #[test]
+    fn test_whatsapp_alert_formats_request() {
+        let result = build_whatsapp_alert_request(
+            "http://srv1422716.hstgr.cloud:8080",
+            "racing-point-staff",
+            "test-api-key-123",
+            "917075778180",
+            "Pod pod-1 is down!",
+        );
+        assert!(result.is_some(), "build_whatsapp_alert_request should return Some");
+        let (request, host_port) = result.unwrap();
+        assert_eq!(host_port, "srv1422716.hstgr.cloud:8080");
+        assert!(request.starts_with("POST /message/sendText/racing-point-staff HTTP/1.0\r\n"),
+            "Request should start with correct POST line, got: {}", &request[..80]);
+        assert!(request.contains("apikey: test-api-key-123"),
+            "Request should contain apikey header");
+        assert!(request.contains("Content-Type: application/json"),
+            "Request should contain Content-Type header");
+        assert!(request.contains("917075778180"),
+            "Request body should contain phone number");
+        assert!(request.contains("Pod pod-1 is down!"),
+            "Request body should contain message text");
+    }
+
+    #[test]
+    fn test_whatsapp_alert_disabled_noop() {
+        // build_whatsapp_alert_request doesn't check enabled — that's done in send_whatsapp_alert.
+        // But we can verify send_whatsapp_alert returns early by checking config defaults.
+        // With default config (enabled=false), send_whatsapp_alert is a no-op.
+        // Since OnceLock may already be initialized, we test the build helper with empty URL.
+        let result = build_whatsapp_alert_request("", "inst", "key", "num", "msg");
+        assert!(result.is_none(), "Empty URL should return None");
+    }
+
+    #[test]
+    fn test_whatsapp_alert_empty_url_noop() {
+        let result = build_whatsapp_alert_request("", "instance", "key", "917075778180", "test");
+        assert!(result.is_none(), "Empty whatsapp_url should return None from build helper");
+    }
+
+    #[test]
+    fn test_whatsapp_url_parse_strips_scheme() {
+        // Test with http:// prefix
+        let result = build_whatsapp_alert_request(
+            "http://host.example.com:8080/some/path",
+            "inst",
+            "key",
+            "917075778180",
+            "test",
+        );
+        let (_, host_port) = result.unwrap();
+        assert_eq!(host_port, "host.example.com:8080",
+            "Should strip http:// and path, keeping only host:port");
+
+        // Test with https:// prefix
+        let result2 = build_whatsapp_alert_request(
+            "https://secure.example.com:443/api",
+            "inst",
+            "key",
+            "917075778180",
+            "test",
+        );
+        let (_, host_port2) = result2.unwrap();
+        assert_eq!(host_port2, "secure.example.com:443",
+            "Should strip https:// and path, keeping only host:port");
     }
 }
