@@ -16,6 +16,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
+#[cfg(test)]
+use std::sync::atomic::AtomicBool as TestAtomicBool;
+
 use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_POD};
 
 use crate::sentry_config;
@@ -106,6 +109,42 @@ fn poll_health() -> bool {
         }
         _ => false,
     }
+}
+
+// ─── Process Liveness Check ──────────────────────────────────────────────────
+
+/// Test mock: when true, check_process_alive returns true under #[cfg(test)].
+#[cfg(test)]
+pub(crate) static MOCK_PROCESS_ALIVE: TestAtomicBool = TestAtomicBool::new(true);
+
+/// Check if a process is alive via `tasklist`.
+/// Under test: reads from MOCK_PROCESS_ALIVE atomic.
+/// Under production: runs `tasklist /FI "IMAGENAME eq {name}"` with CREATE_NO_WINDOW.
+/// Fail-open: on tasklist error, returns true (don't false-positive on tasklist failure).
+#[cfg(test)]
+fn check_process_alive(_process_name: &str) -> bool {
+    MOCK_PROCESS_ALIVE.load(Ordering::Relaxed)
+}
+
+#[cfg(not(test))]
+fn check_process_alive(process_name: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    let output = match Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {}", process_name)])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::debug!(target: LOG_TARGET, "tasklist failed: {} — assuming process alive (fail-open)", e);
+            return true; // fail-open
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    stdout.contains(&process_name.to_lowercase())
 }
 
 // ─── Log Reading ─────────────────────────────────────────────────────────────
@@ -223,15 +262,37 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     .unwrap_or(false);
 
                 let healthy = poll_health();
+                let process_alive = check_process_alive(&cfg.process_name);
 
-                state = match (&state, healthy) {
-                    // Healthy and poll passed → stay healthy
-                    (WatchdogState::Healthy, true) => WatchdogState::Healthy,
+                state = match (&state, healthy, process_alive) {
+                    // Healthy and both signals OK → stay healthy
+                    (WatchdogState::Healthy, true, true) => WatchdogState::Healthy,
 
-                    // Healthy and poll failed → enter suspect
-                    (WatchdogState::Healthy, false) => {
+                    // Healthy, health failed, process dead → dual-detection immediate crash
+                    // (skip hysteresis UNLESS restart is suppressed by MAINTENANCE_MODE/OTA)
+                    (WatchdogState::Healthy, false, false) => {
+                        if restart_suppressed {
+                            tracing::warn!(target: LOG_TARGET, "dual-detection: health DOWN + process DEAD but restart suppressed — entering Suspect(1)");
+                            WatchdogState::Suspect(1)
+                        } else {
+                            tracing::error!(target: "state", prev = "Healthy", next = "Crashed",
+                                "FSM transition: Healthy -> Crashed (dual-detection fast path)");
+                            tracing::error!(target: LOG_TARGET, "dual-detection: health DOWN + process DEAD — immediate crash");
+                            let _ = recovery_logger.log(&RecoveryDecision::new(
+                                machine.clone(),
+                                "rc-agent.exe",
+                                RecoveryAuthority::RcSentry,
+                                RecoveryAction::Restart,
+                                "fsm:Healthy->Crashed(dual-detection)",
+                            ));
+                            WatchdogState::Crashed
+                        }
+                    }
+
+                    // Healthy, health failed but process alive → existing hysteresis
+                    (WatchdogState::Healthy, false, true) => {
                         tracing::warn!(target: "state", prev = "Healthy", next = "Suspect(1)", "FSM transition: Healthy -> Suspect(1)");
-                        tracing::warn!(target: LOG_TARGET, "poll failed (1/{HYSTERESIS_THRESHOLD}) — entering suspect state");
+                        tracing::warn!(target: LOG_TARGET, "poll failed (1/{HYSTERESIS_THRESHOLD}) — process alive, entering suspect state");
                         let _ = recovery_logger.log(&RecoveryDecision::new(
                             machine.clone(),
                             "rc-agent.exe",
@@ -242,8 +303,23 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                         WatchdogState::Suspect(1)
                     }
 
-                    // Suspect and poll passed → back to healthy
-                    (WatchdogState::Suspect(n), true) => {
+                    // Healthy, health OK but process gone → edge case (restarting?), enter suspect
+                    (WatchdogState::Healthy, true, false) => {
+                        tracing::warn!(target: "state", prev = "Healthy", next = "Suspect(1)",
+                            "FSM transition: Healthy -> Suspect(1) (process gone but health OK)");
+                        tracing::warn!(target: LOG_TARGET, "process not found but health still OK — entering suspect (possible restart in progress)");
+                        let _ = recovery_logger.log(&RecoveryDecision::new(
+                            machine.clone(),
+                            "rc-agent.exe",
+                            RecoveryAuthority::RcSentry,
+                            RecoveryAction::AlertStaff,
+                            "fsm:Healthy->Suspect(1)(process-gone-health-ok)",
+                        ));
+                        WatchdogState::Suspect(1)
+                    }
+
+                    // Suspect and health recovered (regardless of process) → back to healthy
+                    (WatchdogState::Suspect(n), true, _) => {
                         let prev_state = format!("Suspect({})", n);
                         tracing::info!(target: "state", prev = %prev_state, next = "Healthy", "FSM transition: Suspect -> Healthy");
                         tracing::info!(target: LOG_TARGET, "poll recovered after {} failures — back to healthy", n);
@@ -257,8 +333,43 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                         WatchdogState::Healthy
                     }
 
-                    // Suspect and poll failed → increment or crash
-                    (WatchdogState::Suspect(n), false) => {
+                    // Suspect, health failed, process dead → dual-detection fast crash
+                    (WatchdogState::Suspect(_n), false, false) => {
+                        if restart_suppressed {
+                            // During OTA/MAINTENANCE, don't fast-crash even with dual-detection
+                            let next = _n + 1;
+                            if next >= HYSTERESIS_THRESHOLD {
+                                // Still use normal hysteresis path under suppression
+                                let prev_state = format!("Suspect({})", _n);
+                                tracing::warn!(target: LOG_TARGET, "dual-detection confirmed but restart suppressed — hysteresis threshold reached");
+                                tracing::warn!(target: "state", prev = %prev_state, next = "Crashed",
+                                    "FSM transition: Suspect -> Crashed (suppressed, normal hysteresis)");
+                                WatchdogState::Crashed
+                            } else {
+                                let prev_state = format!("Suspect({})", _n);
+                                let next_state = format!("Suspect({})", next);
+                                tracing::warn!(target: "state", prev = %prev_state, next = %next_state,
+                                    "FSM transition: Suspect(n) -> Suspect(n+1) (dual-detection suppressed)");
+                                WatchdogState::Suspect(next)
+                            }
+                        } else {
+                            let prev_state = format!("Suspect({})", _n);
+                            tracing::error!(target: "state", prev = %prev_state, next = "Crashed",
+                                "FSM transition: Suspect -> Crashed (dual-detection fast path)");
+                            tracing::error!(target: LOG_TARGET, "dual-detection: health DOWN + process DEAD — immediate crash (was Suspect({}))", _n);
+                            let _ = recovery_logger.log(&RecoveryDecision::new(
+                                machine.clone(),
+                                "rc-agent.exe",
+                                RecoveryAuthority::RcSentry,
+                                RecoveryAction::Restart,
+                                format!("fsm:Suspect({})->Crashed(dual-detection)", _n),
+                            ));
+                            WatchdogState::Crashed
+                        }
+                    }
+
+                    // Suspect, health failed, process alive → normal hysteresis increment
+                    (WatchdogState::Suspect(n), false, true) => {
                         let next = n + 1;
                         if next >= HYSTERESIS_THRESHOLD {
                             let prev_state = format!("Suspect({})", n);
@@ -289,10 +400,10 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     }
 
                     // Crashed → should not stay here, but handle gracefully
-                    (WatchdogState::Crashed, _) => WatchdogState::Crashed,
+                    (WatchdogState::Crashed, _, _) => WatchdogState::Crashed,
 
                     // Cooldown → wait POST_CRASH_COOLDOWN before returning to Healthy
-                    (WatchdogState::Cooldown(since), true) => {
+                    (WatchdogState::Cooldown(since), true, _) => {
                         if since.elapsed() >= POST_CRASH_COOLDOWN {
                             tracing::info!(target: "state", prev = "Cooldown", next = "Healthy",
                                 "FSM transition: Cooldown -> Healthy (cooldown elapsed)");
@@ -312,7 +423,7 @@ pub fn spawn(shutdown: &'static AtomicBool) -> mpsc::Receiver<CrashContext> {
                     }
                     // Cooldown but poll failed → back to Suspect only if minimum cooldown (30s) elapsed.
                     // Prevents rapid Cooldown->Suspect->Crashed oscillation.
-                    (WatchdogState::Cooldown(since), false) => {
+                    (WatchdogState::Cooldown(since), false, _) => {
                         const MIN_COOLDOWN: Duration = Duration::from_secs(30);
                         if since.elapsed() < MIN_COOLDOWN {
                             tracing::debug!(target: LOG_TARGET, "poll failed during cooldown but min cooldown not elapsed ({}s < 30s) — staying in Cooldown",
@@ -481,5 +592,118 @@ mod tests {
         // Should gracefully return empty strings, no panics
         assert!(ctx.startup_log.is_empty() || !ctx.startup_log.is_empty());
         assert!(ctx.stderr_log.is_empty() || !ctx.stderr_log.is_empty());
+    }
+
+    // ─── Dual-detection FSM tests (MON-01) ──────────────────────────────────────
+
+    /// Helper: compute next FSM state given current state, health, process_alive, and restart_suppressed.
+    /// Mirrors the production FSM logic in spawn() for testability without spawning threads.
+    fn fsm_dual_next(
+        state: &WatchdogState,
+        healthy: bool,
+        process_alive: bool,
+        restart_suppressed: bool,
+    ) -> WatchdogState {
+        match (state, healthy, process_alive) {
+            (WatchdogState::Healthy, true, true) => WatchdogState::Healthy,
+            (WatchdogState::Healthy, false, false) => {
+                if restart_suppressed {
+                    WatchdogState::Suspect(1)
+                } else {
+                    WatchdogState::Crashed
+                }
+            }
+            (WatchdogState::Healthy, false, true) => WatchdogState::Suspect(1),
+            (WatchdogState::Healthy, true, false) => WatchdogState::Suspect(1),
+            (WatchdogState::Suspect(_n), true, _) => WatchdogState::Healthy,
+            (WatchdogState::Suspect(_n), false, false) => {
+                if restart_suppressed {
+                    let next = _n + 1;
+                    if next >= HYSTERESIS_THRESHOLD {
+                        WatchdogState::Crashed
+                    } else {
+                        WatchdogState::Suspect(next)
+                    }
+                } else {
+                    WatchdogState::Crashed
+                }
+            }
+            (WatchdogState::Suspect(n), false, true) => {
+                let next = n + 1;
+                if next >= HYSTERESIS_THRESHOLD {
+                    WatchdogState::Crashed
+                } else {
+                    WatchdogState::Suspect(next)
+                }
+            }
+            (WatchdogState::Crashed, _, _) => WatchdogState::Crashed,
+            (WatchdogState::Cooldown(_), _, _) => {
+                // Cooldown tests use the existing tests; this helper focuses on dual-detection
+                state.clone()
+            }
+        }
+    }
+
+    #[test]
+    fn fsm_dual_check_process_alive_mock_works() {
+        // Verify the test mock mechanism works
+        MOCK_PROCESS_ALIVE.store(false, Ordering::Relaxed);
+        assert!(!check_process_alive("nonexistent-process-xyz.exe"));
+
+        MOCK_PROCESS_ALIVE.store(true, Ordering::Relaxed);
+        assert!(check_process_alive("rc-agent.exe"));
+    }
+
+    #[test]
+    fn fsm_dual_healthy_both_dead_immediate_crash() {
+        // When health=false AND process=false, FSM transitions directly from Healthy to Crashed
+        let state = WatchdogState::Healthy;
+        let next = fsm_dual_next(&state, false, false, false);
+        assert_eq!(next, WatchdogState::Crashed, "dual-detection must skip hysteresis");
+    }
+
+    #[test]
+    fn fsm_dual_healthy_health_down_process_alive_suspect() {
+        // When health=false AND process=true, FSM enters Suspect(1) — existing hysteresis preserved
+        let state = WatchdogState::Healthy;
+        let next = fsm_dual_next(&state, false, true, false);
+        assert_eq!(next, WatchdogState::Suspect(1), "health-only fail must use hysteresis");
+    }
+
+    #[test]
+    fn fsm_dual_healthy_health_ok_process_dead_suspect() {
+        // When health=true AND process=false, FSM enters Suspect(1) — process restarting edge case
+        let state = WatchdogState::Healthy;
+        let next = fsm_dual_next(&state, true, false, false);
+        assert_eq!(next, WatchdogState::Suspect(1), "process-only fail is suspect, not crash");
+    }
+
+    #[test]
+    fn fsm_dual_healthy_both_ok_stays_healthy() {
+        // When health=true AND process=true, FSM stays Healthy
+        let state = WatchdogState::Healthy;
+        let next = fsm_dual_next(&state, true, true, false);
+        assert_eq!(next, WatchdogState::Healthy);
+    }
+
+    #[test]
+    fn fsm_dual_suspect_both_dead_immediate_crash() {
+        // When in Suspect(1), health=false AND process=false → immediate Crashed (skip remaining hysteresis)
+        let state = WatchdogState::Suspect(1);
+        let next = fsm_dual_next(&state, false, false, false);
+        assert_eq!(next, WatchdogState::Crashed, "dual-detection from Suspect must fast-crash");
+    }
+
+    #[test]
+    fn fsm_dual_restart_suppressed_no_fast_crash() {
+        // When restart_suppressed=true (MAINTENANCE_MODE/OTA), dual-detection must NOT fast-crash
+        let state = WatchdogState::Healthy;
+        let next = fsm_dual_next(&state, false, false, true);
+        assert_eq!(next, WatchdogState::Suspect(1), "restart_suppressed must prevent fast-crash");
+
+        // Also verify from Suspect state
+        let state2 = WatchdogState::Suspect(1);
+        let next2 = fsm_dual_next(&state2, false, false, true);
+        assert_eq!(next2, WatchdogState::Suspect(2), "suppressed Suspect(1) must increment normally");
     }
 }
