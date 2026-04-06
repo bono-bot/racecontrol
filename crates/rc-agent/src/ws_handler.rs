@@ -24,6 +24,53 @@ use rc_common::types::*;
 
 const LOG_TARGET: &str = "ws";
 
+/// RAII guard for the GAME_LAUNCHING sentinel.
+/// Releases the sentinel on drop, ensuring it's always cleaned up
+/// even on early returns or errors during the launch flow.
+struct GameLaunchingSentinelGuard {
+    active: bool,
+}
+
+impl GameLaunchingSentinelGuard {
+    fn new() -> Self {
+        use rc_common::survival_types::{try_acquire_sentinel, SentinelKind, SurvivalLayer, ActionId};
+        let action_id = ActionId::new();
+        match try_acquire_sentinel(
+            SentinelKind::GameLaunching,
+            SurvivalLayer::Layer1Watchdog,
+            "game_launch",
+            300, // 5 min TTL — auto-expires if agent crashes during launch
+            &action_id,
+        ) {
+            Ok(true) => {
+                tracing::info!(target: LOG_TARGET, "GAME_LAUNCHING sentinel acquired — watchdog will defer restarts");
+                Self { active: true }
+            }
+            Ok(false) => {
+                tracing::warn!(target: LOG_TARGET, "GAME_LAUNCHING sentinel already held — proceeding anyway");
+                Self { active: false }
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, "Failed to acquire GAME_LAUNCHING sentinel: {} — proceeding without", e);
+                Self { active: false }
+            }
+        }
+    }
+}
+
+impl Drop for GameLaunchingSentinelGuard {
+    fn drop(&mut self) {
+        if self.active {
+            use rc_common::survival_types::{release_sentinel, SentinelKind};
+            if let Err(e) = release_sentinel(SentinelKind::GameLaunching) {
+                tracing::warn!(target: LOG_TARGET, "Failed to release GAME_LAUNCHING sentinel: {}", e);
+            } else {
+                tracing::info!(target: LOG_TARGET, "GAME_LAUNCHING sentinel released — watchdog resumed");
+            }
+        }
+    }
+}
+
 /// Type alias for the WebSocket send half.
 pub type WsTx = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<
@@ -481,6 +528,14 @@ pub async fn handle_ws_message(
             // BREADCRUMB: pre-launch checks passed, about to enter sim-specific code
             let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
                 .and_then(|mut f| { use std::io::Write; writeln!(f, "Pre-launch checks done, entering sim={:?}", launch_sim) });
+
+            // VMS PATTERN: Acquire GAME_LAUNCHING sentinel BEFORE any game spawn.
+            // The watchdog checks this sentinel and suppresses health-based restart during launch.
+            // VMS Connect never blocks its event loop during launch — SimLauncher is a separate
+            // transient process. Our sentinel achieves the same protection: the watchdog knows
+            // we're launching and won't kill us for a health timeout.
+            // RAII guard: sentinel auto-releases when _sentinel_guard drops (on any exit path).
+            let _sentinel_guard = GameLaunchingSentinelGuard::new();
 
             if launch_sim == SimType::AssettoCorsa {
                 if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
@@ -1014,6 +1069,8 @@ pub async fn handle_ws_message(
                     }
                 }
             }
+
+            // _sentinel_guard drops here — GAME_LAUNCHING sentinel auto-released (RAII)
         }
 
         CoreToAgentMessage::StopGame => {

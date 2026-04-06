@@ -1,20 +1,32 @@
 @echo off
-REM RaceControl AC Launcher — separate process for game launch isolation.
-REM Spawned by rc-agent as a disposable subprocess. If this process is killed
-REM (by CSP, Steam, anti-cheat), rc-agent survives and can detect the failure.
+REM RaceControl AC Launcher — VMS SimLauncher clone.
 REM
-REM Usage: launch-ac.bat <ac_dir> <mode> [server_ip] [server_port]
+REM This is a SEPARATE DISPOSABLE PROCESS, exactly like VMS's SimLauncher.exe.
+REM Spawned by rc-agent as an isolated subprocess. If this process is killed
+REM (by CSP, Steam, anti-cheat), rc-agent survives and detects the failure.
+REM
+REM KEY VMS PATTERN: cmd.exe becomes the parent of acs.exe, NOT rc-agent.
+REM If acs.exe crashes, the crash handler sees cmd.exe as parent — not rc-agent.
+REM This prevents anti-cheat from flagging rc-agent as the launcher.
+REM
+REM Usage: launch-ac.bat <ac_dir> <mode> [server_ip] [server_http_port] [password]
 REM   mode: sp (single player) or mp (multiplayer)
 REM
-REM VMS Pattern: SimLauncher.exe is a separate transient process that exits
-REM after AC is running. We do the same — this bat launches AC and exits.
+REM Exit codes:
+REM   0 = AC launched successfully
+REM   1 = AC directory not specified
+REM   2 = acs.exe not found
+REM   3 = acs.exe failed to start
+REM   4 = Content Manager not found (MP only)
+REM   5 = Content Manager launch failed (MP only)
 
 setlocal enabledelayedexpansion
 
 set AC_DIR=%~1
 set MODE=%~2
 set SERVER_IP=%~3
-set SERVER_PORT=%~4
+set SERVER_HTTP_PORT=%~4
+set SERVER_PASSWORD=%~5
 
 if "%AC_DIR%"=="" (
     echo ERROR: AC directory not specified
@@ -30,14 +42,48 @@ REM Kill any existing AC instances first (VMS pattern: double-launch prevention)
 taskkill /F /IM acs.exe >nul 2>&1
 taskkill /F /IM AssettoCorsa.exe >nul 2>&1
 
-REM Brief wait for process cleanup
+REM Brief wait for process cleanup (VMS uses similar delay)
 ping -n 2 127.0.0.1 >nul
 
-REM Launch AC — use start /B so this bat can exit independently
-echo Launching acs.exe from %AC_DIR%...
-start "" /D "%AC_DIR%" acs.exe
+REM ─── MULTIPLAYER MODE ─────────────────────────────────────────────────────
+if /I "%MODE%"=="mp" goto :launch_mp
 
-REM Wait briefly to confirm process started
+REM ─── SINGLE PLAYER MODE ───────────────────────────────────────────────────
+:launch_sp
+echo Launching acs.exe (single player) from %AC_DIR%...
+start "" /D "%AC_DIR%" acs.exe
+goto :verify_launch
+
+REM ─── MULTIPLAYER MODE ─────────────────────────────────────────────────────
+:launch_mp
+REM Try Content Manager first (handles server join handshake)
+set CM_EXE=
+REM Check common CM paths
+if exist "%AC_DIR%\Content Manager.exe" set CM_EXE=%AC_DIR%\Content Manager.exe
+if "%CM_EXE%"=="" if exist "%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe" set CM_EXE=%LOCALAPPDATA%\Programs\Content Manager\Content Manager.exe
+if "%CM_EXE%"=="" if exist "C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\Content Manager.exe" set CM_EXE=C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\Content Manager.exe
+
+if "%CM_EXE%"=="" goto :mp_direct
+echo Launching via Content Manager: %CM_EXE%
+
+REM Build CM URI for multiplayer
+set CM_URI=acmanager://race/online?ip=%SERVER_IP%^&httpPort=%SERVER_HTTP_PORT%
+if not "%SERVER_PASSWORD%"=="" set CM_URI=%CM_URI%^&password=%SERVER_PASSWORD%
+
+start "" "%CM_URI%"
+REM Wait longer for CM to load and launch AC
+ping -n 8 127.0.0.1 >nul
+goto :verify_launch
+
+REM Fallback: direct acs.exe with [REMOTE] ACTIVE=1 in race.ini
+:mp_direct
+echo Content Manager not found — launching acs.exe directly for multiplayer...
+start "" /D "%AC_DIR%" acs.exe
+goto :verify_launch
+
+REM ─── VERIFY LAUNCH ────────────────────────────────────────────────────────
+:verify_launch
+REM Wait for AC to start
 ping -n 3 127.0.0.1 >nul
 
 REM Check if acs.exe is running
@@ -47,5 +93,6 @@ if errorlevel 1 (
     exit /b 3
 )
 
-echo AC launched successfully
+echo AC launched successfully (mode=%MODE%)
+REM VMS pattern: launcher EXITS after game is running (transient, like SimLauncher)
 exit /b 0

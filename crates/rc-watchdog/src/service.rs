@@ -290,6 +290,10 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
                     tracing::info!("OTA_DEPLOYING active (action_id={}) — skipping restart cycle (SF-05)",
                         sentinel.action_id);
                 }
+                if let Some(sentinel) = check_sentinel(SentinelKind::GameLaunching) {
+                    tracing::info!("GAME_LAUNCHING active (action_id={}, ttl={}s) — skipping restart+rollback (launch resilience)",
+                        sentinel.action_id, sentinel.remaining_secs());
+                }
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }

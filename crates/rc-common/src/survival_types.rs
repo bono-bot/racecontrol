@@ -37,6 +37,10 @@ impl std::fmt::Display for ActionId {
 pub enum SentinelKind {
     HealInProgress,
     OtaDeploying,
+    /// Game is launching — suppress watchdog restart and rollback during launch.
+    /// Agent writes this before spawn, clears after game process is confirmed alive.
+    /// TTL: 300s (5 min max launch time before auto-expiry).
+    GameLaunching,
 }
 
 // ─── Survival Layer ──────────────────────────────────────────────────────────
@@ -97,12 +101,14 @@ impl HealSentinel {
 
 pub const HEAL_IN_PROGRESS_PATH: &str = r"C:\RacingPoint\HEAL_IN_PROGRESS";
 pub const OTA_DEPLOYING_PATH: &str = r"C:\RacingPoint\OTA_DEPLOYING";
+pub const GAME_LAUNCHING_PATH: &str = r"C:\RacingPoint\GAME_LAUNCHING";
 
 /// Returns the file path for a sentinel kind.
 pub fn sentinel_path(kind: SentinelKind) -> &'static str {
     match kind {
         SentinelKind::HealInProgress => HEAL_IN_PROGRESS_PATH,
         SentinelKind::OtaDeploying => OTA_DEPLOYING_PATH,
+        SentinelKind::GameLaunching => GAME_LAUNCHING_PATH,
     }
 }
 
@@ -215,6 +221,7 @@ pub fn release_sentinel(kind: SentinelKind) -> std::io::Result<()> {
 pub fn any_sentinel_active() -> bool {
     check_sentinel(SentinelKind::HealInProgress).is_some()
         || check_sentinel(SentinelKind::OtaDeploying).is_some()
+        || check_sentinel(SentinelKind::GameLaunching).is_some()
 }
 
 // Private helper — read and deserialize a sentinel file, return None on any error.

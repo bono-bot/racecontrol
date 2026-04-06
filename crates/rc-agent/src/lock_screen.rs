@@ -41,8 +41,20 @@ fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
         // Fallback to primary monitor
         let pw = unsafe { GetSystemMetrics(0) }; // SM_CXSCREEN
         let ph = unsafe { GetSystemMetrics(1) }; // SM_CYSCREEN
+        tracing::warn!("Virtual screen returned 0 — falling back to primary monitor {}x{}", pw, ph);
         (0, 0, pw, ph)
     } else {
+        // NVIDIA Surround failure detection: if virtual screen is suspiciously small
+        // (e.g. 1024x768) when we expect triple-wide (7680x1440), log a warning.
+        // This doesn't fix Surround — only a reboot can — but it makes the issue visible.
+        if w < 1920 || h < 1080 {
+            tracing::warn!(
+                "Virtual screen {}x{} is below minimum expected (1920x1080) — \
+                 NVIDIA Surround may have failed. Blanking will only cover partial display. \
+                 Fix: reboot the pod to restore Surround.",
+                w, h
+            );
+        }
         (x, y, w, h)
     }
 }

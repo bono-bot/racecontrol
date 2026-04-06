@@ -426,6 +426,41 @@ async fn main() -> Result<()> {
         SetUnhandledExceptionFilter(Some(seh_crash_handler));
     }
 
+    // VMS PATTERN: SetConsoleCtrlHandler — detect external termination.
+    // VMS Connect logs "PMTS: You've killed me:" when externally terminated.
+    // We do the same: log who killed us and clean up sentinel files before dying.
+    // Catches: Ctrl+C, Ctrl+Break, Console Close, Logoff, Shutdown, taskkill.
+    #[cfg(windows)]
+    unsafe {
+        use std::io::Write as _;
+        unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
+            let reason = match ctrl_type {
+                0 => "CTRL_C_EVENT",
+                1 => "CTRL_BREAK_EVENT",
+                2 => "CTRL_CLOSE_EVENT",
+                5 => "CTRL_LOGOFF_EVENT",
+                6 => "CTRL_SHUTDOWN_EVENT",
+                _ => "UNKNOWN",
+            };
+            let _ = std::fs::OpenOptions::new().create(true).append(true)
+                .open(r"C:\RacingPoint\termination.log")
+                .map(|mut f| {
+                    let _ = writeln!(f, "[TERMINATED] reason={} (code={}) time={}",
+                        reason, ctrl_type, chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+                });
+            // Clean up sentinel files so watchdog can restart us
+            let _ = std::fs::remove_file(r"C:\RacingPoint\GAME_LAUNCHING");
+            0 // Return FALSE to let the default handler run (process exits)
+        }
+        unsafe extern "system" {
+            fn SetConsoleCtrlHandler(
+                handler: Option<unsafe extern "system" fn(u32) -> i32>,
+                add: i32,
+            ) -> i32;
+        }
+        SetConsoleCtrlHandler(Some(ctrl_handler), 1);
+    }
+
     // SAFETY-01: Panic hook — zero FFB + log crash + show error lock screen + exit
     // Must be installed BEFORE any other init so even config-load panics are caught.
     // The hook is sync-only: no async, no allocator-dependent code, try_lock not lock.

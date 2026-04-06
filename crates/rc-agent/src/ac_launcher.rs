@@ -262,10 +262,20 @@ fn bootstrap_ac_config() -> Result<()> {
     std::fs::create_dir_all(&cfg_dir)?;
 
     // gui.ini — CSP kiosk mode (FORCE_START skips main menu)
+    // ALWAYS enforce FORCE_START=1, not just on first creation — CSP auto-updates can reset it.
     let gui_path = cfg_dir.join("gui.ini");
-    if !gui_path.exists() {
-        std::fs::write(&gui_path, "[SETTINGS]\r\nFORCE_START=1\r\nHIDE_MAIN_MENU=1\r\n")?;
-        tracing::info!(target: LOG_TARGET, "Bootstrap: created gui.ini (FORCE_START=1)");
+    let gui_content = "[SETTINGS]\r\nFORCE_START=1\r\nHIDE_MAIN_MENU=1\r\n";
+    let needs_write = if gui_path.exists() {
+        // Check if FORCE_START=1 is present; rewrite if missing or wrong
+        std::fs::read_to_string(&gui_path)
+            .map(|c| !c.contains("FORCE_START=1"))
+            .unwrap_or(true)
+    } else {
+        true
+    };
+    if needs_write {
+        std::fs::write(&gui_path, gui_content)?;
+        tracing::info!(target: LOG_TARGET, "Enforced gui.ini FORCE_START=1 (CSP reset protection)");
     }
 
     // video.ini — display settings (1080p fullscreen, reasonable quality)
@@ -317,6 +327,9 @@ fn validate_content_id(value: &str, field: &str) -> Result<()> {
 const VALID_SESSION_TYPES: &[&str] = &["practice", "hotlap", "race", "trackday", "weekend", "race_weekend"];
 
 pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
+    // NOTE: GAME_LAUNCHING sentinel is now managed by ws_handler::GameLaunchingSentinelGuard
+    // (RAII guard) which covers ALL game types, not just AC. No sentinel needed here.
+
     // BREADCRUMB: log entry to file for crash diagnosis
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "launch_ac() called: car={} track={} ts={:?}", params.car, params.track, std::time::SystemTime::now()) });
@@ -456,86 +469,89 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     let mut cm_error: Option<String> = None;
     let mut diag = LaunchDiagnostics::default();
 
-    let pid = if params.game_mode == "multi" && find_cm_exe().is_some() {
-        diag.cm_attempted = true;
-        tracing::info!(target: LOG_TARGET, "Launching multiplayer via Content Manager...");
-        launch_via_cm(params)?;
-        // AC-03: 30s timeout (was 15s) with progress logging at 5s intervals
-        match wait_for_ac_process(30) {
-            Ok(pid) => pid,
-            Err(e) => {
-                // CM failed — gather diagnostic info before falling back
-                let cm_diag = diagnose_cm_failure();
-                let error_detail = format!(
-                    "CM multiplayer launch failed: {}. Diagnostics: {}",
-                    e, cm_diag
-                );
-                tracing::error!(target: LOG_TARGET, "CM error: {}", error_detail);
-                cm_error = Some(error_detail);
-                diag.cm_log_errors = read_cm_log_errors();
-                diag.cm_exit_code = get_cm_exit_code();
-                diag.fallback_used = true;
+    // VMS SIMLAUNCHER CLONE: Launch AC via a SEPARATE disposable process.
+    //
+    // Architecture (identical to VMS):
+    // 1. launch-ac.bat is TRANSIENT — spawns AC then EXITS (like VMS SimLauncher.exe)
+    // 2. cmd.exe becomes parent of acs.exe, NOT rc-agent
+    // 3. If CSP/Steam/anti-cheat kills the launcher, rc-agent survives
+    // 4. Both SP and MP go through the bat — MP passes server params
+    // 5. Fallback: if bat missing or fails, launch acs.exe directly
+    let ac_dir = find_ac_dir()?;
+    let launcher_bat = std::path::Path::new(r"C:\RacingPoint\launch-ac.bat");
+    let is_mp = params.game_mode == "multi";
 
-                // Fall back to direct acs.exe (race.ini has [REMOTE] ACTIVE=1)
-                tracing::warn!(target: LOG_TARGET, "Falling back to direct acs.exe launch for multiplayer...");
-                let ac_dir = find_ac_dir()?;
-                let child = Command::new(ac_dir.join("acs.exe"))
-                    .current_dir(&ac_dir)
-                    .spawn()
-                    .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
-                // AC-04: Use find_acs_pid() for fresh PID -- child.id() may be stale if
-                // CM left an old acs.exe running. Brief wait for process to register.
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let fresh_pid = find_acs_pid().unwrap_or_else(|| {
-                    tracing::warn!(target: LOG_TARGET, "find_acs_pid() returned None after direct launch -- using spawn PID {}", child.id());
-                    child.id()
-                });
-                crate::game_process::persist_pid(fresh_pid);
-                fresh_pid
+    let pid = if launcher_bat.exists() {
+        let mode = if is_mp { "mp" } else { "sp" };
+        let mut bat_args: Vec<String> = vec![
+            "/C".to_string(),
+            launcher_bat.to_string_lossy().to_string(),
+            ac_dir.to_string_lossy().to_string(),
+            mode.to_string(),
+        ];
+        if is_mp {
+            bat_args.push(params.server_ip.clone());
+            bat_args.push(params.server_http_port.to_string());
+            if !params.server_password.is_empty() {
+                bat_args.push(params.server_password.clone());
+            }
+            diag.cm_attempted = true;
+        }
+        tracing::info!(target: LOG_TARGET, "VMS SimLauncher: launching via isolated subprocess (mode={})", mode);
+        let bat_args_ref: Vec<&str> = bat_args.iter().map(|s| s.as_str()).collect();
+        match Command::new("cmd").args(&bat_args_ref).current_dir(r"C:\RacingPoint").spawn() {
+            Ok(_child) => {
+                // VMS pattern: launcher is transient — we don't track its PID.
+                // Poll for acs.exe (launched by the bat, not by us).
+                let timeout = if is_mp { 30u64 } else { 15u64 };
+                match wait_for_ac_process(timeout) {
+                    Ok(pid) => pid,
+                    Err(e) => {
+                        tracing::warn!(target: LOG_TARGET, "launch-ac.bat didn't produce acs.exe in {}s: {} — fallback", timeout, e);
+                        diag.fallback_used = true;
+                        if is_mp {
+                            // MP fallback: try CM URI directly
+                            if find_cm_exe().is_some() {
+                                tracing::info!(target: LOG_TARGET, "MP fallback: trying Content Manager URI...");
+                                let _ = launch_via_cm(params);
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                                diag.cm_log_errors = read_cm_log_errors();
+                                diag.cm_exit_code = get_cm_exit_code();
+                            }
+                        }
+                        // Check if AC appeared from any fallback
+                        match find_acs_pid() {
+                            Some(pid) => pid,
+                            None => {
+                                // Final fallback: direct acs.exe
+                                tracing::warn!(target: LOG_TARGET, "Final fallback: direct acs.exe launch");
+                                let child = Command::new(ac_dir.join("acs.exe"))
+                                    .current_dir(&ac_dir)
+                                    .spawn()
+                                    .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                find_acs_pid().unwrap_or(child.id())
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, "launch-ac.bat spawn failed: {} — direct launch", e);
+                direct_launch_fallback(&ac_dir, is_mp, params, &mut cm_error, &mut diag)?
             }
         }
     } else {
-        let ac_dir = find_ac_dir()?;
-        // VMS pattern: launch AC via a SEPARATE disposable process (launch-ac.bat).
-        // If CSP/Steam/anti-cheat kills the launcher process, rc-agent survives.
-        // The bat exits after AC starts — it's transient, like VMS's SimLauncher.
-        let launcher_bat = std::path::Path::new(r"C:\RacingPoint\launch-ac.bat");
-        let pid = if launcher_bat.exists() {
-            tracing::info!(target: LOG_TARGET, "Launching AC via isolated subprocess (launch-ac.bat)...");
-            let _ = Command::new("cmd")
-                .args(["/C", &launcher_bat.to_string_lossy(), &ac_dir.to_string_lossy(), "sp"])
-                .current_dir(r"C:\RacingPoint")
-                .spawn()
-                .map_err(|e| tracing::warn!(target: LOG_TARGET, "launch-ac.bat failed: {} — falling back to direct", e));
-            // Wait for AC to appear (launched by the bat, not by us)
-            std::thread::sleep(std::time::Duration::from_secs(5));
-            match find_acs_pid() {
-                Some(pid) => pid,
-                None => {
-                    tracing::warn!(target: LOG_TARGET, "AC not found after launch-ac.bat — falling back to direct launch");
-                    let child = Command::new(ac_dir.join("acs.exe"))
-                        .current_dir(&ac_dir)
-                        .spawn()
-                        .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
-                    child.id()
-                }
-            }
-        } else {
-            tracing::info!(target: LOG_TARGET, "Launching acs.exe directly from {:?} (no launch-ac.bat found)...", ac_dir);
-            let child = Command::new(ac_dir.join("acs.exe"))
-                .current_dir(&ac_dir)
-                .spawn()
-                .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe from {:?}: {}", ac_dir, e))?;
-            child.id()
-        };
-        // Verify the spawned process is actually alive (spawn().is_ok() != process running)
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let fresh_pid = find_acs_pid().unwrap_or(pid);
-        if fresh_pid != pid {
-            tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — possible stale process", pid, fresh_pid);
-        }
-        fresh_pid
+        // No launch-ac.bat on disk — direct launch (backward compatible)
+        tracing::info!(target: LOG_TARGET, "No launch-ac.bat — launching directly");
+        direct_launch_fallback(&ac_dir, is_mp, params, &mut cm_error, &mut diag)?
     };
+    // Verify PID consistency (AC-04)
+    let fresh_pid = find_acs_pid().unwrap_or(pid);
+    if fresh_pid != pid {
+        tracing::warn!(target: LOG_TARGET, "spawn PID {} differs from tasklist PID {} — using tasklist PID", pid, fresh_pid);
+    }
+    let pid = fresh_pid;
     // BREADCRUMB: AC spawn succeeded
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "AC spawned PID={} ts={:?}", pid, std::time::SystemTime::now()) });
@@ -554,22 +570,21 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
     }
 
-    // Step 4: Wait for AC to load, then minimize Conspit Link
-    // (Don't kill Conspit Link — it crashes on force-restart. Just minimize it.)
-    // AC-02: Poll for AC process stability (max 30s) instead of hardcoded 8s sleep
-    tracing::info!(target: LOG_TARGET, "Waiting for AC to stabilize (up to 30s), then minimizing Conspit Link...");
-    wait_for_ac_ready(30);
+    // VMS PATTERN: Return immediately after AC process confirmed alive.
+    // Post-launch window management (minimize Conspit, foreground game) is done by
+    // the event loop's periodic overlay_topmost_interval tick — NOT here.
+    // This reduces launch_ac() blocking from ~40s to ~5s, keeping the HTTP server responsive.
+    //
+    // Quick 3s stability check only (was 30s) — just enough to confirm AC didn't crash on start.
+    tracing::info!(target: LOG_TARGET, "Quick stability check (3s)...");
+    wait_for_ac_ready(3);
+    // One fast minimize pass — the event loop tick will enforce this periodically.
     minimize_conspit_window();
-
-    // Step 5: Minimize background windows and bring game to foreground
-    tracing::info!(target: LOG_TARGET, "Minimizing background windows and focusing game...");
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    minimize_background_windows();
-    bring_game_to_foreground();
 
     // BREADCRUMB: launch_ac() completed successfully
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "launch_ac() COMPLETE pid={} cm_err={:?} ts={:?}", pid, cm_error, std::time::SystemTime::now()) });
+
     Ok(LaunchResult { pid, cm_error, diagnostics: diag })
 }
 
@@ -1368,6 +1383,42 @@ fn find_cm_exe() -> Option<std::path::PathBuf> {
 
 /// Launch AC via Content Manager's acmanager:// URI protocol.
 /// For single-player: `acmanager://race/config` (uses current race.ini)
+/// Direct launch fallback when launch-ac.bat is missing or fails.
+/// Handles both SP (direct acs.exe) and MP (CM URI → direct acs.exe).
+fn direct_launch_fallback(
+    ac_dir: &std::path::Path,
+    is_mp: bool,
+    params: &AcLaunchParams,
+    cm_error: &mut Option<String>,
+    diag: &mut LaunchDiagnostics,
+) -> Result<u32> {
+    if is_mp {
+        diag.cm_attempted = true;
+        if find_cm_exe().is_some() {
+            tracing::info!(target: LOG_TARGET, "Launching multiplayer via Content Manager...");
+            launch_via_cm(params)?;
+            match wait_for_ac_process(30) {
+                Ok(pid) => return Ok(pid),
+                Err(e) => {
+                    let cm_diag = diagnose_cm_failure();
+                    *cm_error = Some(format!("CM failed: {}. {}", e, cm_diag));
+                    diag.cm_log_errors = read_cm_log_errors();
+                    diag.cm_exit_code = get_cm_exit_code();
+                    diag.fallback_used = true;
+                    tracing::warn!(target: LOG_TARGET, "CM failed — falling back to direct acs.exe for MP");
+                }
+            }
+        }
+    }
+    // Direct acs.exe launch (SP, or MP after CM failure)
+    let child = Command::new(ac_dir.join("acs.exe"))
+        .current_dir(ac_dir)
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    Ok(find_acs_pid().unwrap_or(child.id()))
+}
+
 /// For multiplayer: `acmanager://race/online?ip=...&httpPort=...&password=...`
 ///
 /// SECURITY: All URI components are sanitized to prevent command injection.
