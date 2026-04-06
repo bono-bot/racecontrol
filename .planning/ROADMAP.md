@@ -597,7 +597,7 @@ Plans:
   2. Hook only fires for frontend-related file changes (Next.js pages, CSS, React components) -- Rust backend and script changes are unaffected
   3. After deploy-nextjs.sh completes, the page crawler runs automatically and the deploy exits with failure if visual regressions are detected
   4. Deploy output includes a build hash verification table showing expected vs running build on server and cloud targets
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
 - [ ] 327-01: Claude Code enforcement hook (screenshot evidence gate for frontend claims)
