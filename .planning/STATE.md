@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Phase 340 context gathered
-last_updated: "2026-04-07T15:46:23.155Z"
+status: executing
+stopped_at: Completed 340-01-PLAN.md
+last_updated: "2026-04-07T16:08:46.500Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
-**Current focus:** Phase 339 — api-endpoints
+**Current focus:** Phase 340 — admin-dashboard
 
 ## Current Position
 
-Phase: 339
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: 340 (admin-dashboard) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-04-07
 
 Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
@@ -74,6 +74,7 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 339]: transactions_count uses map_err+? for proper error propagation per CLAUDE.md no-unwrap rule
 - [Phase 339]: gateway_topup counted in total_rupee_deposits via starts_with(topup) OR exact match
 - [Phase 339]: Two-endpoint refund design: /refund for credits, /cash-refund for real money -- isolates MMA-203 security caps
+- [Phase 340]: SessionWithCurrency local interface extension for billing history currency_type display
 
 ### Blockers/Concerns
 
@@ -81,6 +82,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T15:46:23.150Z
-Stopped at: Phase 340 context gathered
-Resume file: .planning/phases/340-admin-dashboard/340-CONTEXT.md
+Last session: 2026-04-07T16:08:46.496Z
+Stopped at: Completed 340-01-PLAN.md
+Resume file: None
