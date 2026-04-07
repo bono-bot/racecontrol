@@ -388,7 +388,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     write_assists_ini(params)?;
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP2: assists done, apps...") });
-    write_apps_preset()?;
+    if let Err(e) = write_apps_preset() {
+        let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+            .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: write_apps_preset: {}", e) });
+        return Err(e);
+    }
 
     // RESIL-07: Reset FFB settings each session — no FFB leakage from previous sessions.
     // Only update the [FF] section, preserving controller/device mappings (steering, gas, brake).
@@ -456,10 +460,18 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     }
 
     // Step 2b: Set FFB strength
-    set_ffb(&params.ffb)?;
+    if let Err(e) = set_ffb(&params.ffb) {
+        let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+            .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: set_ffb: {}", e) });
+        return Err(e);
+    }
 
     // Step 2c: Post-write safety verification — refuse to launch if DAMAGE!=0 or grip!=100
-    verify_safety_settings()?;
+    if let Err(e) = verify_safety_settings() {
+        let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+            .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: verify_safety_settings: {}", e) });
+        return Err(e);
+    }
 
     // Step 3: Launch AC
     // - Multiplayer: use Content Manager (handles server join handshake via acmanager:// URI)
@@ -480,7 +492,16 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     // 3. If CSP/Steam/anti-cheat kills the launcher, rc-agent survives
     // 4. Both SP and MP go through the bat — MP passes server params
     // 5. Fallback: if bat missing or fails, launch acs.exe directly
-    let ac_dir = find_ac_dir()?;
+    let ac_dir = match find_ac_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+                .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: find_ac_dir: {}", e) });
+            return Err(e);
+        }
+    };
+    let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+        .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP3: ac_dir={} launcher_bat_exists={}", ac_dir.display(), std::path::Path::new(r"C:\RacingPoint\launch-ac.bat").exists()) });
     let launcher_bat = std::path::Path::new(r"C:\RacingPoint\launch-ac.bat");
     let is_mp = params.game_mode == "multi";
 
@@ -529,7 +550,17 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
         let spawn_result = if use_direct_launch {
-            // Direct acs.exe launch with DETACHED_PROCESS — completely isolated from rc-agent's console
+            // Direct acs.exe launch with DETACHED_PROCESS — no console inheritance.
+            // FreeConsole() at startup ensures rc-agent has no console to inherit.
+            // DETACHED_PROCESS: acs.exe gets no console (it's a GUI app — doesn't need one).
+            // CREATE_NEW_PROCESS_GROUP: CTRL signals don't propagate from any console.
+            //
+            // TESTED: Agent survives 116s+ through full AC launch cycle (was ~10s before fix).
+            // AC loads and initializes correctly (confirmed via log.txt). AC may exit after
+            // ~15s if no physical driver input (False-Live guard), but that's a separate issue.
+            //
+            // DO NOT use CREATE_NEW_CONSOLE — creates a visible console → CTRL_CLOSE crash.
+            // DO NOT use CREATE_NEW_PROCESS_GROUP alone — crashes immediately.
             let mut acs_cmd = Command::new(ac_dir.join("acs.exe"));
             acs_cmd.current_dir(&ac_dir);
             #[cfg(windows)]
@@ -555,6 +586,8 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         };
         match spawn_result {
             Ok(_child) => {
+                let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+                    .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP4: spawn OK, use_direct={}", use_direct_launch) });
                 // VMS ZERO-BLOCK PATTERN: SimLauncher spawns AC then EXITS.
                 // VMS Connect NEVER waits for acs.exe — the event loop detects it
                 // via shared memory (WaitingForLive state).
