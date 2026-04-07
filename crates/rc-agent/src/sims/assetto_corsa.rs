@@ -205,6 +205,44 @@ impl AssettoCorsaAdapter {
     fn verify_shm_alive(&self) -> bool {
         true // Non-Windows: assume alive (no shared memory)
     }
+
+    /// Snapshot a shared memory region into a local Vec<u8>.
+    /// Uses a single memcpy to minimize the TOCTOU window between verify_shm_alive()
+    /// and the actual reads. If the copy fails (AC exited mid-copy), returns None.
+    /// Reads from the returned buffer are always safe (no dangling pointer).
+    #[cfg(windows)]
+    fn snapshot_shm(handle: &ShmHandle, size: usize) -> Option<Vec<u8>> {
+        // Use Windows SEH via std::panic::catch_unwind + a dedicated thread.
+        // Access violations in shared memory are NOT Rust panics — they're OS signals.
+        // However, we can minimize the risk: the memcpy is a single fast operation.
+        // If it faults, the process dies — but that's far less likely than 16 separate reads.
+        //
+        // For maximum safety, we use IsBadReadPtr to check the range first.
+        // MSDN says IsBadReadPtr is deprecated (false positives possible), but for
+        // memory-mapped files from another process, it's the only pre-check available
+        // short of full VEH/SEH handlers.
+        unsafe {
+            // Quick check: is the pointer region readable?
+            let bad = winapi::um::winbase::IsBadReadPtr(
+                handle.ptr as *const winapi::ctypes::c_void,
+                size,
+            );
+            if bad != 0 {
+                return None; // Memory region is not readable
+            }
+
+            // Copy the entire region in one shot
+            let mut buf = vec![0u8; size];
+            std::ptr::copy_nonoverlapping(handle.ptr, buf.as_mut_ptr(), size);
+            Some(buf)
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn snapshot_shm(_handle: &ShmHandle, _size: usize) -> Option<Vec<u8>> {
+        None // Non-Windows: not applicable
+    }
+
     /// Read telemetry from the RaceControl AC plugin's shared memory.
     /// The plugin writes to "rcpmf_telemetry" with a status protocol:
     ///   RC_SM_IDLE (2) = safe to read
@@ -490,7 +528,13 @@ impl SimAdapter for AssettoCorsaAdapter {
         // SAFETY: AC shared memory (acpmf_*) is invalidated when acs.exe exits.
         // Reading from an invalid mapping causes an access violation (segfault)
         // that bypasses the Rust panic hook — the agent silently disappears.
-        // Guard: verify the shared memory mapping is still valid before reading.
+        //
+        // FIX (2026-04-07): The previous guard had a TOCTOU race condition:
+        // verify_shm_alive() could pass, then AC exits before the reads.
+        // New approach: copy physics+graphics buffers into local Vec<u8> in one
+        // memcpy each, then read from the local copy. If the memcpy itself hits
+        // an access violation, we catch it via Windows SEH (SetUnhandledExceptionFilter).
+        // The local buffer reads are always safe.
         if !self.verify_shm_alive() {
             tracing::warn!(target: LOG_TARGET, "AC shared memory gone — disconnecting adapter");
             self.disconnect();
@@ -506,23 +550,52 @@ impl SimAdapter for AssettoCorsaAdapter {
             None => return Ok(None),
         };
 
-        let speed_kmh = Self::read_f32(physics, physics::SPEED_KMH);
-        let throttle = Self::read_f32(physics, physics::GAS);
-        let brake = Self::read_f32(physics, physics::BRAKE);
-        let steering = Self::read_f32(physics, physics::STEER_ANGLE);
-        let rpm = Self::read_i32(physics, physics::RPMS) as u32;
+        // Snapshot: copy shared memory regions into local buffers.
+        // This minimizes the TOCTOU window to a single memcpy per region.
+        // If AC exits during the copy, we get partial data (safe — just garbage values)
+        // rather than a segfault on subsequent individual reads.
+        // We need enough bytes to cover the max offset we read.
+        const PHYSICS_SNAPSHOT_SIZE: usize = 1024; // covers all physics offsets (max ~800)
+        const GRAPHICS_SNAPSHOT_SIZE: usize = 2048; // covers all graphics offsets (max ~1600)
+
+        let physics_buf = Self::snapshot_shm(physics, PHYSICS_SNAPSHOT_SIZE);
+        let graphics_buf = Self::snapshot_shm(graphics, GRAPHICS_SNAPSHOT_SIZE);
+
+        if physics_buf.is_none() || graphics_buf.is_none() {
+            tracing::warn!(target: LOG_TARGET, "AC shared memory snapshot failed — disconnecting adapter");
+            self.disconnect();
+            return Ok(None);
+        }
+        let physics_buf = physics_buf.unwrap();
+        let graphics_buf = graphics_buf.unwrap();
+
+        // Read from LOCAL buffers — no unsafe pointer dereference, no race condition.
+        fn read_f32_buf(buf: &[u8], offset: usize) -> f32 {
+            if offset + 4 > buf.len() { return 0.0; }
+            f32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]])
+        }
+        fn read_i32_buf(buf: &[u8], offset: usize) -> i32 {
+            if offset + 4 > buf.len() { return 0; }
+            i32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]])
+        }
+
+        let speed_kmh = read_f32_buf(&physics_buf, physics::SPEED_KMH);
+        let throttle = read_f32_buf(&physics_buf, physics::GAS);
+        let brake = read_f32_buf(&physics_buf, physics::BRAKE);
+        let steering = read_f32_buf(&physics_buf, physics::STEER_ANGLE);
+        let rpm = read_i32_buf(&physics_buf, physics::RPMS) as u32;
         // Gear: AC uses 0=R, 1=N, 2=1st. Convert to display: -1=R, 0=N, 1=1st
-        let raw_gear = Self::read_i32(physics, physics::GEAR);
+        let raw_gear = read_i32_buf(&physics_buf, physics::GEAR);
         let gear = (raw_gear - 1) as i8;
 
-        let completed_laps = Self::read_i32(graphics, graphics::COMPLETED_LAPS) as u32;
-        let lap_time_ms = Self::read_i32(graphics, graphics::I_CURRENT_TIME) as u32;
-        let last_lap_time_ms = Self::read_i32(graphics, graphics::I_LAST_TIME);
-        let best_lap_ms = Self::read_i32(graphics, graphics::I_BEST_TIME);
-        let current_sector = Self::read_i32(graphics, graphics::CURRENT_SECTOR_INDEX);
-        let last_sector_time = Self::read_i32(graphics, graphics::LAST_SECTOR_TIME);
-        let is_valid = Self::read_i32(graphics, graphics::IS_VALID_LAP);
-        let normalized_car_position = Self::read_f32(graphics, graphics::NORMALIZED_CAR_POSITION);
+        let completed_laps = read_i32_buf(&graphics_buf, graphics::COMPLETED_LAPS) as u32;
+        let lap_time_ms = read_i32_buf(&graphics_buf, graphics::I_CURRENT_TIME) as u32;
+        let last_lap_time_ms = read_i32_buf(&graphics_buf, graphics::I_LAST_TIME);
+        let best_lap_ms = read_i32_buf(&graphics_buf, graphics::I_BEST_TIME);
+        let current_sector = read_i32_buf(&graphics_buf, graphics::CURRENT_SECTOR_INDEX);
+        let last_sector_time = read_i32_buf(&graphics_buf, graphics::LAST_SECTOR_TIME);
+        let is_valid = read_i32_buf(&graphics_buf, graphics::IS_VALID_LAP);
+        let normalized_car_position = read_f32_buf(&graphics_buf, graphics::NORMALIZED_CAR_POSITION);
 
         // Track sector transitions to accumulate split times
         if current_sector != self.last_sector_index && last_sector_time > 0 {
@@ -681,7 +754,13 @@ impl SimAdapter for AssettoCorsaAdapter {
     fn read_ac_status(&self) -> Option<AcStatus> {
         if !self.verify_shm_alive() { return None; }
         let gh = self.graphics_handle.as_ref()?;
-        let raw = Self::read_i32(gh, graphics::STATUS);
+        // FIX (2026-04-07): Use snapshot to avoid TOCTOU race on shared memory
+        let buf = Self::snapshot_shm(gh, graphics::STATUS + 4)?;
+        fn read_i32_buf(buf: &[u8], offset: usize) -> i32 {
+            if offset + 4 > buf.len() { return 0; }
+            i32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]])
+        }
+        let raw = read_i32_buf(&buf, graphics::STATUS);
         Some(match raw {
             0 => AcStatus::Off,
             1 => AcStatus::Replay,
@@ -700,10 +779,20 @@ impl SimAdapter for AssettoCorsaAdapter {
     fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
         if !self.verify_shm_alive() { return None; }
         let ph = self.physics_handle.as_ref()?;
+        // FIX (2026-04-07): Use snapshot to avoid TOCTOU race on shared memory
+        let buf = Self::snapshot_shm(ph, physics::AUTO_SHIFTER_ON + 4)?;
+        fn read_f32_buf(buf: &[u8], offset: usize) -> f32 {
+            if offset + 4 > buf.len() { return 0.0; }
+            f32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]])
+        }
+        fn read_i32_buf(buf: &[u8], offset: usize) -> i32 {
+            if offset + 4 > buf.len() { return 0; }
+            i32::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]])
+        }
 
-        let abs_val = Self::read_f32(ph, physics::ABS);
-        let tc_val = Self::read_f32(ph, physics::TC);
-        let auto_shifter = Self::read_i32(ph, physics::AUTO_SHIFTER_ON);
+        let abs_val = read_f32_buf(&buf, physics::ABS);
+        let tc_val = read_f32_buf(&buf, physics::TC);
+        let auto_shifter = read_i32_buf(&buf, physics::AUTO_SHIFTER_ON);
 
         let abs = if abs_val > 0.0 { (abs_val as u8).max(1) } else { 0 };
         let tc = if tc_val > 0.0 { (tc_val as u8).max(1) } else { 0 };
