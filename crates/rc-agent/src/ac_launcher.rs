@@ -1686,8 +1686,12 @@ fn direct_launch_fallback(
         }
     }
     // Direct acs.exe launch (SP, or MP after CM failure)
+    // BUG FIX: FreeConsole() invalidates stdio handles — must use Stdio::null()
     let child = Command::new(ac_dir.join("acs.exe"))
         .current_dir(ac_dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
     std::thread::sleep(std::time::Duration::from_millis(500));

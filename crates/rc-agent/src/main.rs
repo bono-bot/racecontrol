@@ -2237,6 +2237,35 @@ async fn main() -> Result<()> {
             }
         }
 
+        // Phase 332: Re-run mDNS discovery on WS disconnect.
+        // If the server's DHCP IP changed, mDNS will find the new address so we
+        // reconnect to the right host instead of retrying the stale IP forever.
+        if state.config.core.mdns_enabled {
+            if let Ok(Some(new_url)) = tokio::task::spawn_blocking(mdns_discovery::discover_server).await {
+                let current_base = state.config.core.url.clone();
+                if new_url != current_base {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "Phase 332: mDNS re-discovery found new server URL: {} (was {})",
+                        new_url, current_base
+                    );
+                    state.config.core.url = new_url.clone();
+                    // Rebuild the authenticated URL (PSK suffix)
+                    let new_authed = format!("{}{}", new_url, ws_psk_suffix);
+                    *active_url.write().await = new_authed;
+                    // Clear JWT -- new server address invalidates old JWT
+                    state.current_jwt = None;
+                    state.jwt_expires_at = None;
+                    // Reset attempt counter -- new IP deserves fresh fast retries
+                    reconnect_attempt = 0;
+                } else {
+                    tracing::debug!(target: LOG_TARGET, "Phase 332: mDNS re-discovery confirmed server IP unchanged");
+                }
+            } else {
+                tracing::debug!(target: LOG_TARGET, "Phase 332: mDNS re-discovery timed out -- keeping current URL");
+            }
+        }
+
         let delay = reconnect_delay_for_attempt(reconnect_attempt);
         tracing::warn!(target: LOG_TARGET, "Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
         tokio::time::sleep(delay).await;

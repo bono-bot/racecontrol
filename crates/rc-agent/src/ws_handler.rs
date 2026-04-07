@@ -111,8 +111,10 @@ pub(crate) async fn handle_ws_exec(
     };
 
     let result = timeout(Duration::from_millis(timeout_ms), async {
+        // Manual Stdio::null on stdin — tokio::process::Command, cannot use spawn_safe()
         let mut cmd_proc = tokio::process::Command::new("cmd");
-        cmd_proc.args(["/C", &cmd]).kill_on_drop(true);
+        cmd_proc.args(["/C", &cmd]).kill_on_drop(true)
+            .stdin(std::process::Stdio::null());
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
