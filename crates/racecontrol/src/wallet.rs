@@ -6,6 +6,15 @@ use uuid::Uuid;
 use crate::accounting;
 use crate::state::AppState;
 
+/// Determine currency_type from txn_type (per D-04, D-06, D-10, D-21).
+fn currency_type_for(txn_type: &str) -> &'static str {
+    match txn_type {
+        t if t.starts_with("topup_") => "rupee",
+        "refund_cash" => "rupee",
+        _ => "credit",  // bonus, adjustment, refund_session, refund_manual, debit_*, billing
+    }
+}
+
 /// Ensure a wallet row exists for the driver. Creates one if missing.
 pub async fn ensure_wallet(state: &Arc<AppState>, driver_id: &str) -> Result<(), String> {
     sqlx::query(
@@ -55,8 +64,9 @@ pub async fn get_wallet_info(
     state: &Arc<AppState>,
     driver_id: &str,
 ) -> Result<Option<rc_common::types::WalletInfo>, String> {
-    let row = sqlx::query_as::<_, (String, i64, i64, i64, Option<String>)>(
-        "SELECT driver_id, balance_paise, total_credited_paise, total_debited_paise, updated_at
+    let row = sqlx::query_as::<_, (String, i64, i64, i64, i64, i64, i64, Option<String>)>(
+        "SELECT driver_id, balance_paise, total_credited_paise, total_debited_paise,
+                rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise, updated_at
          FROM wallets WHERE driver_id = ?",
     )
     .bind(driver_id)
@@ -64,12 +74,21 @@ pub async fn get_wallet_info(
     .await
     .map_err(|e| format!("DB error: {}", e))?;
 
-    Ok(row.map(|r| rc_common::types::WalletInfo {
-        driver_id: r.0,
-        balance_paise: r.1,
-        total_credited_paise: r.2,
-        total_debited_paise: r.3,
-        updated_at: r.4,
+    Ok(row.map(|r| {
+        // D-14: max_cash_refund = rupee_deposited - rupee_refunded - total_debited, clamped to 0..=balance
+        let raw = r.4 - r.5 - r.3;
+        let max_cash_refund = raw.max(0).min(r.1); // clamp to [0, balance_paise]
+        rc_common::types::WalletInfo {
+            driver_id: r.0,
+            balance_paise: r.1,
+            total_credited_paise: r.2,
+            total_debited_paise: r.3,
+            rupee_deposited_paise: r.4,
+            rupee_refunded_paise: r.5,
+            bonus_credited_paise: r.6,
+            max_cash_refund,
+            updated_at: r.7,
+        }
     }))
 }
 
@@ -94,16 +113,24 @@ pub async fn credit_in_tx(
 
     let txn_id = Uuid::new_v4().to_string();
 
-    // Update wallet balance
+    // Determine which tracking column to increment (per D-01, D-02, D-03)
+    let is_topup = txn_type.starts_with("topup_");
+    let is_bonus = txn_type == "bonus" || txn_type == "adjustment";
+
+    // Update wallet balance + tracking columns
     sqlx::query(
         "UPDATE wallets SET
             balance_paise = balance_paise + ?,
             total_credited_paise = total_credited_paise + ?,
+            rupee_deposited_paise = rupee_deposited_paise + ?,
+            bonus_credited_paise = bonus_credited_paise + ?,
             updated_at = datetime('now')
          WHERE driver_id = ?",
     )
     .bind(amount_paise)
     .bind(amount_paise)
+    .bind(if is_topup { amount_paise } else { 0 })  // D-01
+    .bind(if is_bonus { amount_paise } else { 0 })   // D-02
     .bind(driver_id)
     .execute(&mut **tx)
     .await
@@ -119,11 +146,12 @@ pub async fn credit_in_tx(
     .map_err(|e| format!("DB error reading balance: {}", e))?;
     let new_balance = row.map(|r| r.0).unwrap_or(0);
 
-    // Record transaction
+    let ct = currency_type_for(txn_type);
+    // Record transaction (per D-20: include currency_type)
     sqlx::query(
         "INSERT INTO wallet_transactions \
-         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, idempotency_key, venue_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, idempotency_key, venue_id, currency_type) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&txn_id)
     .bind(driver_id)
@@ -135,6 +163,7 @@ pub async fn credit_in_tx(
     .bind(staff_id)
     .bind(idempotency_key)
     .bind(venue_id)
+    .bind(ct)
     .execute(&mut **tx)
     .await
     .map_err(|e| format!("DB error recording transaction: {}", e))?;
@@ -196,8 +225,9 @@ pub async fn credit(
             accounting::post_refund(state, driver_id, amount_paise, reference_id).await;
         }
         "adjustment" => {
-            // Adjustment credit: treat as manual correction
-            accounting::post_topup(state, driver_id, amount_paise, "topup_cash", staff_id, Some(&txn_id)).await;
+            // Adjustment credit: treat as bonus (per D-02 — bonus_credited_paise, not rupee)
+            // Changed from post_topup to post_bonus to match the column tracking
+            accounting::post_bonus(state, driver_id, amount_paise, Some(&txn_id)).await;
         }
         _ => {}
     }
@@ -264,13 +294,22 @@ pub async fn credit_wallet(
     .execute(db)
     .await;
 
+    // credit_wallet is used for incentive bonuses (bonus_registration, bonus_review, bonus_follow).
+    // It intentionally does NOT track rupee_deposited_paise because credit_wallet is never
+    // called for topup_* types — those go through credit() -> credit_in_tx() which handles
+    // rupee tracking. This is by design: incentive bonuses are always "credit" currency.
+    let is_bonus = txn_type == "bonus" || txn_type == "adjustment"
+        || txn_type == "bonus_registration" || txn_type == "bonus_review" || txn_type == "bonus_follow";
+
     // Credit wallet
     let result = sqlx::query_as::<_, (i64,)>(
         "UPDATE wallets SET balance_paise = balance_paise + ?, total_credited_paise = total_credited_paise + ?, \
+         bonus_credited_paise = bonus_credited_paise + ?, \
          updated_at = datetime('now') WHERE driver_id = ? RETURNING balance_paise",
     )
     .bind(amount_paise)
     .bind(amount_paise)
+    .bind(if is_bonus { amount_paise } else { 0 })
     .bind(driver_id)
     .fetch_optional(db)
     .await
@@ -280,9 +319,10 @@ pub async fn credit_wallet(
 
     // Log transaction (include balance_after_paise for audit trail)
     let txn_id = uuid::Uuid::new_v4().to_string();
+    let ct = currency_type_for(txn_type);
     if let Err(e) = sqlx::query(
-        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, venue_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, venue_id, currency_type) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&txn_id)
     .bind(driver_id)
@@ -292,6 +332,7 @@ pub async fn credit_wallet(
     .bind(reference_id)
     .bind(notes)
     .bind(venue_id)
+    .bind(ct)
     .execute(db)
     .await {
         tracing::error!("Failed to log wallet transaction for {}: {}", driver_id, e);
@@ -350,11 +391,11 @@ pub async fn debit_in_tx(
 
     let txn_id = Uuid::new_v4().to_string();
 
-    // Record transaction after successful debit
+    // Record transaction after successful debit (per D-06: currency_type = 'credit')
     sqlx::query(
         "INSERT INTO wallet_transactions \
-         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, idempotency_key, venue_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, idempotency_key, venue_id, currency_type) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'credit')",
     )
     .bind(&txn_id)
     .bind(driver_id)
@@ -462,8 +503,8 @@ pub async fn get_transactions(
     driver_id: &str,
     limit: i64,
 ) -> Vec<rc_common::types::WalletTransaction> {
-    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String)>(
-        "SELECT id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, created_at
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String, String)>(
+        "SELECT id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, currency_type, created_at
          FROM wallet_transactions WHERE driver_id = ? ORDER BY created_at DESC LIMIT ?",
     )
     .bind(driver_id)
@@ -482,7 +523,8 @@ pub async fn get_transactions(
             reference_id: r.5,
             notes: r.6,
             staff_id: r.7,
-            created_at: r.8,
+            currency_type: r.8,
+            created_at: r.9,
         })
         .collect()
 }

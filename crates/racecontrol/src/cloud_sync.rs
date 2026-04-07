@@ -477,11 +477,11 @@ pub(crate) async fn process_debit_intents(state: &Arc<AppState>) -> anyhow::Resu
                 .bind(new_balance).bind(amount).bind(driver_id)
                 .execute(&state.db).await?;
 
-                // Record wallet transaction
+                // Record wallet transaction (per D-20: include currency_type = 'credit' for all debits per D-06)
                 sqlx::query(
                     "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise,
-                     txn_type, reference_id, notes, created_at, venue_id)
-                     VALUES (?, ?, ?, ?, 'debit_session', ?, 'Remote booking debit', datetime('now'), ?)",
+                     txn_type, reference_id, notes, created_at, venue_id, currency_type)
+                     VALUES (?, ?, ?, ?, 'debit_session', ?, 'Remote booking debit', datetime('now'), ?, 'credit')",
                 )
                 .bind(&txn_id).bind(driver_id).bind(-amount).bind(new_balance).bind(reservation_id)
                 .bind(&state.config.venue.venue_id)
