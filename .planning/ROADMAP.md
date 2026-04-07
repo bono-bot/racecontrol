@@ -899,9 +899,9 @@ Plans:
   2. `cloud_sync.rs` upsert_wallet handles new columns
   3. `process_debit_intents` works with new schema (still debits from `balance_paise`)
   4. E2E test: topup ₹1000 → verify 1000 credits + bonus → spend 200 → verify balance → request cash refund → verify max = ₹800 (not ₹800 + bonus)
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 342-01-PLAN.md — Cloud sync push/pull new wallet columns + E2E test checklist
+- [x] 342-01-PLAN.md — Cloud sync push/pull new wallet columns + E2E test checklist
 
 ### Progress Table (v45.0)
 
@@ -912,6 +912,6 @@ Plans:
 | 339. API Endpoints | 2/2 | Complete    | 2026-04-07 |
 | 340. Admin Dashboard | 3/3 | Complete    | 2026-04-07 |
 | 341. POS + Kiosk Display | 0/TBD | Complete    | 2026-04-07 |
-| 342. Cloud Sync + E2E | 0/1 | In Progress | — |
+| 342. Cloud Sync + E2E | 1/1 | Complete   | 2026-04-07 |
 
 *Created: 2026-04-07 — business rules confirmed with Uday. See memory: project_credits_rupees_separation.md*
