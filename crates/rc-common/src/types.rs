@@ -778,13 +778,20 @@ pub struct AuthTokenInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletInfo {
     pub driver_id: String,
+    #[serde(rename = "balance_credits")]
     pub balance_paise: i64,
+    #[serde(rename = "total_credited")]
     pub total_credited_paise: i64,
+    #[serde(rename = "total_spent")]
     pub total_debited_paise: i64,
+    #[serde(rename = "rupee_deposited")]
     pub rupee_deposited_paise: i64,
+    #[serde(rename = "rupee_refunded")]
     pub rupee_refunded_paise: i64,
+    #[serde(rename = "bonus_credited")]
     pub bonus_credited_paise: i64,
     pub max_cash_refund: i64,  // computed, not stored (per D-19)
+    pub transactions_count: i64,  // D-04: total transaction count for this driver
     pub updated_at: Option<String>,
 }
 

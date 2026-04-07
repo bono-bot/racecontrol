@@ -74,6 +74,16 @@ pub async fn get_wallet_info(
     .await
     .map_err(|e| format!("DB error: {}", e))?;
 
+    // D-04: Count transactions for this driver
+    let txn_count = sqlx::query_as::<_, (i64,)>(
+        "SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .fetch_one(&state.db)
+    .await
+    .map(|r| r.0)
+    .map_err(|e| format!("Failed to count transactions: {}", e))?;
+
     Ok(row.map(|r| {
         // D-14: max_cash_refund = rupee_deposited - rupee_refunded - total_debited, clamped to 0..=balance
         let raw = r.4 - r.5 - r.3;
@@ -87,6 +97,7 @@ pub async fn get_wallet_info(
             rupee_refunded_paise: r.5,
             bonus_credited_paise: r.6,
             max_cash_refund,
+            transactions_count: txn_count,
             updated_at: r.7,
         }
     }))

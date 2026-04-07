@@ -9386,7 +9386,18 @@ async fn customer_wallet(
 
     match wallet::get_wallet_info(&state, &driver_id).await {
         Ok(Some(info)) => Json(json!({ "wallet": info })),
-        Ok(None) => Json(json!({ "wallet": { "driver_id": driver_id, "balance_paise": 0, "total_credited_paise": 0, "total_debited_paise": 0 } })),
+        Ok(None) => Json(json!({ "wallet": {
+            "driver_id": driver_id,
+            "balance_credits": 0,
+            "total_credited": 0,
+            "total_spent": 0,
+            "rupee_deposited": 0,
+            "rupee_refunded": 0,
+            "bonus_credited": 0,
+            "max_cash_refund": 0,
+            "transactions_count": 0,
+            "updated_at": null,
+        } })),
         Err(e) => Json(json!({ "error": e })),
     }
 }

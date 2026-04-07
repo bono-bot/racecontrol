@@ -241,6 +241,9 @@ async fn run_test_migrations(pool: &SqlitePool) {
             balance_paise INTEGER NOT NULL DEFAULT 0,
             total_credited_paise INTEGER NOT NULL DEFAULT 0,
             total_debited_paise INTEGER NOT NULL DEFAULT 0,
+            rupee_deposited_paise INTEGER NOT NULL DEFAULT 0,
+            rupee_refunded_paise INTEGER NOT NULL DEFAULT 0,
+            bonus_credited_paise INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT DEFAULT (datetime('now'))
         )"
     ).execute(pool).await.unwrap();
@@ -253,13 +256,15 @@ async fn run_test_migrations(pool: &SqlitePool) {
             balance_after_paise INTEGER NOT NULL,
             txn_type TEXT NOT NULL CHECK(txn_type IN (
                 'topup_cash','topup_card','topup_upi','topup_online',
+                'gateway_topup',
                 'debit_session','debit_cafe','debit_merchandise','debit_penalty',
-                'refund_session','refund_manual',
+                'refund_session','refund_manual','refund_cash',
                 'bonus','adjustment'
             )),
             reference_id TEXT,
             notes TEXT,
             staff_id TEXT,
+            currency_type TEXT NOT NULL DEFAULT 'credit',
             idempotency_key TEXT,
             created_at TEXT DEFAULT (datetime('now'))
         )"
