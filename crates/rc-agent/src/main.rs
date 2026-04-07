@@ -427,6 +427,20 @@ async fn main() -> Result<()> {
         SetUnhandledExceptionFilter(Some(seh_crash_handler));
     }
 
+    // FIX (2026-04-07): Detach from the parent console to prevent CTRL_CLOSE_EVENT.
+    // When start-rcagent.bat spawns rc-agent.exe, they share a console. When the bat
+    // window is closed (or by any console close), Windows sends CTRL_CLOSE_EVENT which
+    // kills the process after 5 seconds regardless of the handler return value.
+    // FreeConsole() detaches us from the bat's console entirely — no console = no close event.
+    #[cfg(windows)]
+    unsafe {
+        unsafe extern "system" {
+            fn FreeConsole() -> i32;
+        }
+        FreeConsole();
+        tracing::debug!("Detached from parent console (CTRL_CLOSE protection)");
+    }
+
     // VMS PATTERN: SetConsoleCtrlHandler — detect external termination.
     // VMS Connect logs "PMTS: You've killed me:" when externally terminated.
     // We do the same: log who killed us and clean up sentinel files before dying.
@@ -451,7 +465,18 @@ async fn main() -> Result<()> {
                 });
             // Clean up sentinel files so watchdog can restart us
             let _ = std::fs::remove_file(r"C:\RacingPoint\GAME_LAUNCHING");
-            0 // Return FALSE to let the default handler run (process exits)
+            // FIX (2026-04-07): Return TRUE (1) for CTRL_CLOSE_EVENT to PREVENT termination.
+            // The agent was being killed every ~30s by console close events from the
+            // launch-ac.bat subprocess. Even with CREATE_NO_WINDOW, Windows sends
+            // CTRL_CLOSE_EVENT when the console session changes (e.g., game takes focus).
+            // Return TRUE = "handled, don't terminate". Return FALSE = "let default run (exit)".
+            // Only allow actual shutdown/logoff to kill us (those can't be prevented anyway).
+            match ctrl_type {
+                2 => 1, // CTRL_CLOSE_EVENT — IGNORE (don't terminate)
+                0 => 1, // CTRL_C_EVENT — IGNORE (prevent external Ctrl+C kills)
+                1 => 1, // CTRL_BREAK_EVENT — IGNORE
+                _ => 0, // LOGOFF/SHUTDOWN — let default handler terminate
+            }
         }
         unsafe extern "system" {
             fn SetConsoleCtrlHandler(

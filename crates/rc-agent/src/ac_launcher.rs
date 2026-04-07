@@ -502,7 +502,24 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
         tracing::info!(target: LOG_TARGET, "VMS SimLauncher: launching via isolated subprocess (mode={})", mode);
         let bat_args_ref: Vec<&str> = bat_args.iter().map(|s| s.as_str()).collect();
-        match Command::new("cmd").args(&bat_args_ref).current_dir(r"C:\RacingPoint").spawn() {
+        // FIX (2026-04-07): CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW prevents the
+        // bat subprocess from sharing rc-agent's console. Without this, when the bat
+        // exits after spawning acs.exe, the console close event (CTRL_CLOSE_EVENT)
+        // propagates to rc-agent, killing it with STATUS_CONTROL_C_EXIT (0xC000013A).
+        // FIX (2026-04-07): CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW prevents the
+        // bat subprocess from sharing rc-agent's console. Without this, when the bat
+        // exits after spawning acs.exe, the console close event (CTRL_CLOSE_EVENT)
+        // propagates to rc-agent, killing it with STATUS_CONTROL_C_EXIT (0xC000013A).
+        let mut cmd = Command::new("cmd");
+        cmd.args(&bat_args_ref).current_dir(r"C:\RacingPoint");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+        }
+        match cmd.spawn() {
             Ok(_child) => {
                 // VMS ZERO-BLOCK PATTERN: SimLauncher spawns AC then EXITS.
                 // VMS Connect NEVER waits for acs.exe — the event loop detects it
