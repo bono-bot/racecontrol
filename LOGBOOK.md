@@ -3,6 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-07 20:02 IST | James | 3e3779eb | feat(338-02): cash_refund + get_max_cash_refund in wallet.rs — TOCTOU-safe cap check inside tx, D-07 signature (no refund_method), Dr. wallet Cr. cash journal via post_cash_refund. |
+| 2026-04-07 20:02 IST | James | 307ee0d8 | feat(338-02): post_cash_refund in accounting.rs — reverse of post_topup, Dr. acc_wallet Cr. acc_cash/acc_bank per D-12. |
 | 2026-04-07 19:41 IST | James | fc229481 | docs(338-01): complete wallet-core-logic plan 01 — WalletInfo/WalletTransaction structs + all wallet functions updated with rupee_deposited_paise, bonus_credited_paise, currency_type tracking. 832 tests pass. |
 | 2026-04-07 19:41 IST | James | d464a08e | feat(338-01): wallet functions — currency_type_for() helper, credit_in_tx/credit_wallet/debit_in_tx INSERTs include currency_type, get_wallet_info fetches new columns + computes max_cash_refund, cloud_sync.rs process_debit_intents INSERT fixed (D-20). |
 | 2026-04-07 19:41 IST | James | 1ec42704 | feat(338-01): WalletInfo gains rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise, max_cash_refund; WalletTransaction gains currency_type. |

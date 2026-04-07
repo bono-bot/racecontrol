@@ -821,7 +821,7 @@ Phase Dependency Graph:
 ### Phases
 
 - [x] **Phase 337: DB Schema Migration** — WAL-01: Add rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise to wallets. Add currency_type to wallet_transactions. Backfill from existing txn_type. (completed 2026-04-07)
-- [ ] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits.
+- [x] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits. (completed 2026-04-07)
 - [ ] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk.
 - [ ] **Phase 340: Admin Dashboard** — WAL-04: Add credit management panel to billing/reports and billing/history. Show rupee deposits vs bonus credits. Cash refund button with max-refundable calculation. Deploy to BOTH local (.23:3201) and cloud.
 - [ ] **Phase 341: POS + Kiosk Display** — WAL-05: Fix ₹ symbol on drivers page → "credits". Verify POS billing page shows credits. Kiosk pricing shows credits (already correct). Ensure unified API contract.
@@ -849,10 +849,10 @@ Plans:
   4. Cash refund increments `rupee_refunded_paise`
   5. Credit refund (game reset) only touches `balance_paise` — no rupee tracking
   6. Accounting journal: cash refund → Dr. acc_wallet Cr. acc_cash/bank; credit refund → Dr. acc_wallet Cr. acc_refunds
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 338-01-PLAN.md — Update structs + credit/debit functions with rupee/bonus tracking
-- [ ] 338-02-PLAN.md — Add cash_refund + get_max_cash_refund + accounting journal
+- [x] 338-02-PLAN.md — Add cash_refund + get_max_cash_refund + accounting journal
 
 ### Phase 339: API Endpoints
 **Goal**: Unified wallet API response consumed by admin, POS, and kiosk.
@@ -893,7 +893,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
-| 338. Wallet Core Logic | 1/2 | In Progress|  |
+| 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
 | 339. API Endpoints | 0/TBD | Not Started | — |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |
