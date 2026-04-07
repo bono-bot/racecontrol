@@ -453,6 +453,7 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/wallet/{driver_id}/transactions", get(wallet_transactions))
         .route("/wallet/{driver_id}/debit", post(debit_wallet_manual))
         .route("/wallet/{driver_id}/refund", post(refund_wallet))
+        .route("/wallet/{driver_id}/cash-refund", post(cash_refund_wallet))
         // Waivers (admin-facing)
         .route("/waivers", get(list_waivers))
         .route("/waivers/check", get(check_waiver))
@@ -9234,6 +9235,13 @@ struct RefundRequest {
     reference_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CashRefundRequest {
+    amount_paise: i64,
+    notes: Option<String>,
+}
+
 async fn refund_wallet(
     State(state): State<Arc<AppState>>,
     Path(driver_id): Path<String>,
@@ -9391,6 +9399,49 @@ async fn refund_wallet(
             "status": "ok",
             "new_balance_paise": new_balance,
         })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// POST /wallet/{driver_id}/cash-refund — Return real money to customer (D-11).
+/// Admin/manager only — same auth tier as refund_wallet.
+async fn cash_refund_wallet(
+    State(state): State<Arc<AppState>>,
+    Path(driver_id): Path<String>,
+    claims: Option<axum::Extension<crate::auth::middleware::StaffClaims>>,
+    Json(req): Json<CashRefundRequest>,
+) -> Json<Value> {
+    // D-15: Extract staff_id from StaffClaims
+    let staff_id = claims.map(|c| c.0.sub.clone());
+
+    // D-16: Pre-check — show cap in error message (actual enforcement is TOCTOU-safe inside cash_refund)
+    let max_refund = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
+    if req.amount_paise > max_refund {
+        return Json(json!({
+            "error": format!("Cash refund of {}p exceeds maximum allowed {}p", req.amount_paise, max_refund),
+            "max_cash_refund": max_refund,
+        }));
+    }
+
+    // D-15: Call wallet::cash_refund — staff_id extracted from StaffClaims
+    match wallet::cash_refund(
+        &state,
+        &driver_id,
+        req.amount_paise,
+        staff_id.as_deref(),
+        req.notes.as_deref(),
+    ).await {
+        Ok((new_balance, _txn_id)) => {
+            // D-14: Success response with type differentiation
+            let remaining = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
+            Json(json!({
+                "status": "ok",
+                "type": "cash_refund",
+                "amount": req.amount_paise,
+                "new_balance_credits": new_balance,
+                "max_cash_refund_remaining": remaining,
+            }))
+        }
         Err(e) => Json(json!({ "error": e })),
     }
 }
