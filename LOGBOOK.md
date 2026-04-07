@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-07 19:30 IST | James | 3bf1dfcc | fix: cloud sync staff_members + billing_rates pull path missing. Staff pushed venue→cloud but never pulled cloud→venue. Same for billing_rates. Bidirectional sync now complete. |
+| 2026-04-07 19:00 IST | James | 2abbe0b7 | fix: move billing/rates, billing/report/daily, flags GET to staff routes. POS/kiosk returned 403 for staff tokens — admin-only gate blocked POS dashboard pages. POST/PUT/DELETE remain admin-gated. |
+| 2026-04-07 18:00 IST | James | 482d9275 | fix: POS 404 — WOW6432Node registry had :3300/billing (kiosk). Edge is 32-bit, reads WOW6432Node. Deleted entry. Added MI PosWrongUrl diagnostic: EnumWindows checks Edge title, tier1 auto-restarts with :3200/billing. |
 | 2026-04-07 11:10 IST | James | d616ee10 | fix: P1 agent crash during AC game launch — root cause was CTRL_CLOSE_EVENT from inherited console. SP mode now launches acs.exe directly with DETACHED_PROCESS (bypasses bat). Agent survived 235s+ on Pod 3 (was crashing at ~10s). Also: FreeConsole() at startup (87fce40f), SHM snapshot safety (43248538). Fleet deployed to all 8 pods. |
 | 2026-04-07 11:10 IST | James | cec317fe | fix: rsservcmd.exe added to process guard allowlist (AMD GPU driver). Deployed to server config. |
 | 2026-04-07 11:10 IST | James | 9018ce76 | fix: billing stop for waiting_for_game + server deploy. Server+cloud both on 9018ce76. Verified: staff can cancel waiting_for_game sessions with full wallet refund. |
