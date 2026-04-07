@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-stopped_at: Completed 329-01-PLAN.md
+stopped_at: Completed 329-02-PLAN.md
 last_updated: "2026-04-07T09:05:00.911Z"
 last_activity: 2026-04-06
 progress:
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md
 ## Current Position
 
 Phase: 324
-Plan: 01 complete, 02 next
+Plan: 02 complete, 03 next
 Status: executing
 Last activity: 2026-04-06
 
@@ -63,6 +63,8 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 324-01]: Pure std::net UDP gossip, OnceLock global queue, ephemeral send socket, 120s seen-set TTL
 - [Phase 324]: TCP for coordinated launch (reliability over UDP), deterministic initiator selection (lowest pod#), 200ms ACK timeout with graceful fallback
 - [Phase 329]: Module named native_lock/ to coexist with lock_screen.rs (Plan 03 renames)
+- [Phase 329-02]: PIN dots rendered as GDI Ellipse circles for crisp rendering at 7680x1440
+- [Phase 329-02]: Timer color warnings: red at 60s, yellow at 300s, white otherwise
 
 ### Blockers/Concerns
 
@@ -71,5 +73,5 @@ rc-sentry today: 3,952 lines (7 files)
 ## Session Continuity
 
 Last session: 2026-04-07T09:04:53.555Z
-Stopped at: Completed 329-01-PLAN.md
+Stopped at: Completed 329-02-PLAN.md
 Resume file: None

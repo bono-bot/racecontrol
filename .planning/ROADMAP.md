@@ -688,7 +688,7 @@ Plans:
 
 Plans:
 - [x] 329-01-PLAN.md — Win32 window foundation + font embedding + non-interactive state painters
-- [ ] 329-02-PLAN.md — PIN entry keyboard handling + QR code renderer + ActiveSession timer
+- [x] 329-02-PLAN.md — PIN entry keyboard handling + QR code renderer + ActiveSession timer
 - [ ] 329-03-PLAN.md — Remaining state painters + Edge code removal + Pod 8 visual verification
 
 ### Phase 330: Native On-Track Display + Off-Track Blanking
