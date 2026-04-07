@@ -61,11 +61,11 @@ const BINARY_VALIDATION_INTERVAL: u32 = 10;
 /// calls tasklist and feeds its stdout here.
 pub fn output_contains_agent(stdout: &str) -> bool {
     // BUG-66: Match exact "rc-agent.exe" and exclude renamed binaries like
-    // rc-agent-failed.exe or rc-agent-prev.exe that may appear in tasklist.
+    // rc-agent-prev.exe that may appear in tasklist.
+    // v331: rc-agent-failed.exe exclusion removed (binary rename no longer happens).
     stdout.lines().any(|line| {
         let lower = line.to_ascii_lowercase();
         lower.contains("rc-agent.exe")
-            && !lower.contains("rc-agent-failed")
             && !lower.contains("rc-agent-prev")
     })
 }
@@ -598,24 +598,22 @@ mod tests {
         assert!(!output_contains_agent(output));
     }
 
-    // BUG-66: Renamed/failed binaries must NOT match
-    #[test]
-    fn test_output_excludes_agent_failed() {
-        let output = "rc-agent-failed.exe          12345 Console  1   45,000 K\r\n";
-        assert!(!output_contains_agent(output));
-    }
-
+    // BUG-66: Renamed binaries must NOT match
     #[test]
     fn test_output_excludes_agent_prev() {
         let output = "rc-agent-prev.exe            12345 Console  1   45,000 K\r\n";
         assert!(!output_contains_agent(output));
     }
 
+    // v331: rc-agent-failed.exe no longer created by rollback_manager.
+    // output_contains_agent still correctly excludes any hypothetical
+    // rc-agent-* variants because it matches exact "rc-agent.exe".
+
     #[test]
-    fn test_output_agent_with_failed_also_present() {
-        // Both rc-agent.exe and rc-agent-failed.exe — should still detect agent
+    fn test_output_agent_with_prev_also_present() {
+        // Both rc-agent.exe and rc-agent-prev.exe — should still detect agent
         let output = "rc-agent.exe                 1234 Console  1   45,000 K\r\n\
-                      rc-agent-failed.exe          5678 Console  1   45,000 K\r\n";
+                      rc-agent-prev.exe            5678 Console  1   45,000 K\r\n";
         assert!(output_contains_agent(output));
     }
 

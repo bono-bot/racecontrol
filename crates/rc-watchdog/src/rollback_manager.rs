@@ -2,10 +2,12 @@
 //!
 //! When rc-agent fails validation or enters a restart loop, this module:
 //! 1. Kills rc-agent.exe (if running)
-//! 2. Renames rc-agent.exe → rc-agent-failed.exe
-//! 3. Renames rc-agent-prev.exe → rc-agent.exe
-//! 4. Tracks rollback depth (max 3 before giving up)
-//! 5. Sends WhatsApp alert via Bono comms-link
+//! 2. Renames rc-agent-prev.exe → rc-agent.exe (restore previous good binary)
+//! 3. Tracks rollback depth (max 3 before giving up)
+//! 4. Sends WhatsApp alert via Bono comms-link
+//!
+//! v331: Binary rename to rc-agent-failed.exe removed — MAINTENANCE_MODE is the
+//! crash loop protection. rc-agent-prev.exe handling preserved for deploy rollback.
 //!
 //! All file operations are synchronous — runs in the service poll loop.
 //! On Windows, rename-while-running is allowed (Windows locks delete but not rename).
@@ -89,7 +91,7 @@ impl RollbackState {
 /// Outcome of a rollback attempt.
 #[derive(Debug)]
 pub enum RollbackOutcome {
-    /// Successfully rolled back — rc-agent-prev.exe is now rc-agent.exe
+    /// Successfully rolled back — rc-agent-prev.exe replaced rc-agent.exe
     Success { depth: u32 },
     /// No previous binary available to roll back to
     NoPreviousBinary,
@@ -101,10 +103,11 @@ pub enum RollbackOutcome {
 
 /// Attempt to roll back rc-agent.exe to rc-agent-prev.exe.
 ///
+/// v331: binary rename removed -- MAINTENANCE_MODE is the crash loop protection.
 /// Steps:
 /// 1. Check rollback depth (SW-04)
 /// 2. Kill rc-agent.exe process
-/// 3. Rename current → failed, prev → current
+/// 3. Rename prev → current (rc-agent-prev.exe → rc-agent.exe)
 /// 4. Increment depth and save state
 /// 5. Alert Bono via WhatsApp (SW-13)
 pub fn perform_rollback(
@@ -135,7 +138,6 @@ pub fn perform_rollback(
 
     let agent_exe = install_dir.join("rc-agent.exe");
     let prev_exe = install_dir.join("rc-agent-prev.exe");
-    let failed_exe = install_dir.join("rc-agent-failed.exe");
 
     // Load current state
     let mut state = RollbackState::load();
@@ -175,31 +177,28 @@ pub fn perform_rollback(
     // Wait briefly for process to die
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Step 1: Remove old failed binary if present
-    if failed_exe.is_file() {
-        if let Err(e) = std::fs::remove_file(&failed_exe) {
-            tracing::warn!("Could not remove old rc-agent-failed.exe: {}", e);
-        }
-    }
+    // v331: Removed rc-agent-failed.exe rename step. The current rc-agent.exe is
+    // simply removed so prev can take its place. MAINTENANCE_MODE handles crash loops.
 
-    // Step 2: Rename current → failed (Windows allows rename of running exe)
+    // Remove current agent binary so prev can take its place
     if agent_exe.is_file() {
-        if let Err(e) = std::fs::rename(&agent_exe, &failed_exe) {
-            let msg = format!("Failed to rename rc-agent.exe → rc-agent-failed.exe: {}", e);
-            tracing::error!("{}", msg);
-            return RollbackOutcome::FileError(msg);
+        if let Err(e) = std::fs::remove_file(&agent_exe) {
+            // Windows allows rename of running exe but not delete — try rename as fallback
+            let backup = install_dir.join(format!("rc-agent-rolled-{}.exe",
+                chrono::Utc::now().format("%Y%m%d%H%M%S")));
+            if let Err(e2) = std::fs::rename(&agent_exe, &backup) {
+                let msg = format!("Failed to remove/rename rc-agent.exe: remove={}, rename={}", e, e2);
+                tracing::error!("{}", msg);
+                return RollbackOutcome::FileError(msg);
+            }
+            tracing::info!("Renamed current rc-agent.exe to {} (could not delete)", backup.display());
         }
-        tracing::info!("Renamed rc-agent.exe → rc-agent-failed.exe");
     }
 
-    // Step 3: Rename prev → current
+    // Rename prev → current
     if let Err(e) = std::fs::rename(&prev_exe, &agent_exe) {
         let msg = format!("Failed to rename rc-agent-prev.exe → rc-agent.exe: {}", e);
         tracing::error!("{}", msg);
-        // Try to recover: rename failed back to agent
-        if failed_exe.is_file() {
-            let _ = std::fs::rename(&failed_exe, &agent_exe);
-        }
         return RollbackOutcome::FileError(msg);
     }
     tracing::info!("Renamed rc-agent-prev.exe → rc-agent.exe (rollback complete)");
