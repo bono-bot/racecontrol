@@ -862,6 +862,10 @@ Plans:
   3. POST /wallet/{driver_id}/refund differentiates: `{ type: "credit_refund" | "cash_refund", amount, max_allowed }`
   4. GET /wallet/transactions includes `currency_type` per transaction
   5. Same response schema served on all ports (8080 API) — no per-frontend variants
+**Plans:** 2 plans
+Plans:
+- [ ] 339-01-PLAN.md — WalletInfo serde renames + handler response field updates (topup, webhook, transactions)
+- [ ] 339-02-PLAN.md — Cash refund endpoint + credit refund type differentiation
 
 ### Phase 340: Admin Dashboard
 **Goal**: Add credit/rupee management UI to admin portal, deployed locally AND on cloud.
