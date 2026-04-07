@@ -5,7 +5,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { useIdleTimeout } from "@/hooks/useIdleTimeout";
 
 // Pages accessible without PIN login
-const PUBLIC_ROUTES = ["/login", "/cameras", "/cameras/playback"];
+const PUBLIC_ROUTES = ["/login", "/cameras", "/cameras/playback", "/spectator", "/spectator/circuit"];
 
 function AuthLoadingSkeleton() {
   return (

@@ -54,6 +54,7 @@ export const WEB_ROUTES: AppRoute[] = [
   { path: '/telemetry', name: 'Telemetry', requiresAuth: true },
   { path: '/presenter', name: 'Presenter', requiresAuth: true },
   { path: '/leaderboard-display', name: 'Leaderboard Display', requiresAuth: true },
+  { path: '/spectator/circuit', name: 'Spectator Circuit', requiresAuth: false },
 ];
 
 // ---------------------------------------------------------------------------
