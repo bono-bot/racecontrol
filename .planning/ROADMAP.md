@@ -849,9 +849,9 @@ Plans:
   4. Cash refund increments `rupee_refunded_paise`
   5. Credit refund (game reset) only touches `balance_paise` — no rupee tracking
   6. Accounting journal: cash refund → Dr. acc_wallet Cr. acc_cash/bank; credit refund → Dr. acc_wallet Cr. acc_refunds
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 338-01-PLAN.md — Update structs + credit/debit functions with rupee/bonus tracking
+- [x] 338-01-PLAN.md — Update structs + credit/debit functions with rupee/bonus tracking
 - [ ] 338-02-PLAN.md — Add cash_refund + get_max_cash_refund + accounting journal
 
 ### Phase 339: API Endpoints
@@ -893,7 +893,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
-| 338. Wallet Core Logic | 0/TBD | Not Started | — |
+| 338. Wallet Core Logic | 1/2 | In Progress|  |
 | 339. API Endpoints | 0/TBD | Not Started | — |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |

@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Completed 337-01-PLAN.md
-last_updated: "2026-04-07T13:41:04.018Z"
+status: executing
+stopped_at: Completed 338-01-PLAN.md
+last_updated: "2026-04-07T14:12:34.212Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
-**Current focus:** Phase 337 — db-schema-migration
+**Current focus:** Phase 338 — wallet-core-logic
 
 ## Current Position
 
-Phase: 337 (db-schema-migration) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Phase: 338 (wallet-core-logic) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Last activity: 2026-04-07
 
 Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
@@ -66,6 +66,8 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 329-02]: PIN dots rendered as GDI Ellipse circles for crisp rendering at 7680x1440
 - [Phase 329-02]: Timer color warnings: red at 60s, yellow at 300s, white otherwise
 - [Phase 337-db-schema-migration]: Idempotent ALTER TABLE with let _ = pattern for wallet rupee/credit columns; DEFAULT 'credit' makes existing rows valid without explicit backfill
+- [Phase 338]: adjustment txn_type routes to post_bonus (not post_topup) to match bonus_credited_paise column tracking (D-02)
+- [Phase 338]: max_cash_refund computed in get_wallet_info: rupee_deposited - rupee_refunded - total_debited clamped to [0, balance] (D-14)
 
 ### Blockers/Concerns
 
@@ -73,6 +75,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T13:41:04.014Z
-Stopped at: Completed 337-01-PLAN.md
+Last session: 2026-04-07T14:12:34.208Z
+Stopped at: Completed 338-01-PLAN.md
 Resume file: None
