@@ -2494,6 +2494,8 @@ fn tier1_restart_edge_kiosk() -> bool {
     let edge_x86 = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
     let edge_path = if std::path::Path::new(edge_x64).exists() { edge_x64 } else { edge_x86 };
 
+    // BUG FIX: FreeConsole() invalidates stdio handles - must use Stdio::null()
+    // Intentional: Edge kiosk needs visible window - NOT a spawn_safe() candidate
     let result = std::process::Command::new(edge_path)
         .args([
             "--kiosk", &billing_url,
@@ -2502,6 +2504,9 @@ fn tier1_restart_edge_kiosk() -> bool {
             "--remote-debugging-port=9222",
             "--disable-session-crashed-bubble",
         ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn();
 
     match result {

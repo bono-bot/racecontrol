@@ -319,6 +319,10 @@ impl GameProcess {
         // Direct exe launch
         if let Some(exe_path) = &config.exe_path {
             let mut cmd = Command::new(exe_path);
+            // BUG FIX: FreeConsole() invalidates stdio handles - must use Stdio::null()
+            cmd.stdin(std::process::Stdio::null())
+               .stdout(std::process::Stdio::null())
+               .stderr(std::process::Stdio::null());
             if let Some(dir) = &config.working_dir {
                 cmd.current_dir(dir);
             }

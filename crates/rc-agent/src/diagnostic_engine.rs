@@ -426,11 +426,10 @@ fn count_recent_violation_lines() -> u64 {
 /// Returns the count of CLOSE_WAIT sockets (0 = healthy).
 pub fn count_close_wait_sockets() -> u64 {
     // Use absolute path to prevent PATH hijacking, with 10s timeout
+    // Migrated to spawn_safe_capture: stdin=null, CREATE_NO_WINDOW, stdout/stderr default for capture
     use std::time::Duration;
-    let child = std::process::Command::new(r"C:\Windows\System32\NETSTAT.EXE")
+    let child = rc_common::spawn_safe::spawn_safe_capture(r"C:\Windows\System32\NETSTAT.EXE")
         .args(["-n", "-p", "tcp"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
         .spawn();
     let output = match child {
         Ok(c) => c.wait_with_output(),

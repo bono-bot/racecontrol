@@ -217,8 +217,10 @@ async fn take_screenshot() -> Result<Vec<u8>, String> {
     );
 
     let output = {
+        // Manual Stdio::null on stdin - tokio::process::Command, cannot use spawn_safe()
         let mut cmd = tokio::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-Command", &ps_script]);
+        cmd.args(["-NoProfile", "-Command", &ps_script])
+            .stdin(std::process::Stdio::null());
         #[cfg(windows)]
         {
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW

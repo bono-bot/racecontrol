@@ -1279,6 +1279,15 @@ pub async fn handle_ws_message(
                     tracing::info!(target: LOG_TARGET, "Freedom mode DISABLED via remote settings");
                 }
             }
+            // Phase 330: Off-track blanking toggle via config push
+            if let Some(v) = settings.get("off_track_blanking_enabled") {
+                let enabled = v == "true";
+                state.off_track_detector.set_enabled(enabled);
+                if !enabled {
+                    state.off_track_blanking.hide();
+                }
+                tracing::info!(target: LOG_TARGET, "Off-track blanking set to: {}", enabled);
+            }
             // wallpaper_url no longer needed — native Win32 lock screen uses GDI painting
             if settings.contains_key("lock_screen_wallpaper_url") {
                 tracing::debug!(target: LOG_TARGET, "lock_screen_wallpaper_url ignored — native Win32 lock screen");
@@ -1762,7 +1771,7 @@ pub async fn handle_ws_message(
             } else {
                 tracing::info!(
                     target: LOG_TARGET,
-                    "ForceRelaunchBrowser received -- relaunching Edge lock screen"
+                    "ForceRelaunchBrowser received -- relaunching native lock screen"
                 );
                 state.lock_screen.close_browser();
                 state.lock_screen.launch_browser();

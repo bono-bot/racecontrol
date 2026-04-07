@@ -607,13 +607,15 @@ fn collect_gpu_metrics() -> Option<(f32, f32, u32, f32)> {
     #[cfg(windows)]
     use std::os::windows::process::CommandExt;
 
-    let mut cmd = std::process::Command::new("nvidia-smi");
+    let mut cmd = rc_common::spawn_safe::spawn_safe_capture("nvidia-smi");
     cmd.args([
         "--query-gpu=temperature.gpu,power.draw,memory.used,utilization.gpu",
         "--format=csv,noheader,nounits",
     ]);
 
     // Run at BELOW_NORMAL priority to avoid competing with game render thread
+    // NOTE: This overrides CREATE_NO_WINDOW from spawn_safe_capture,
+    // but BELOW_NORMAL_PRIORITY_CLASS is more important here for game perf.
     #[cfg(windows)]
     cmd.creation_flags(0x00004000); // BELOW_NORMAL_PRIORITY_CLASS
 

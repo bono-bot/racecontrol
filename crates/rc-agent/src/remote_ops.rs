@@ -873,8 +873,12 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
 
     // ── Detached fire-and-forget (used for self-update restarts) ────────────
     if req.detached {
+        // Manual Stdio::null - tokio::process::Command, cannot use spawn_safe()
         let mut cmd = Command::new("cmd");
-        cmd.args(["/C", &req.cmd]).kill_on_drop(false);
+        cmd.args(["/C", &req.cmd]).kill_on_drop(false)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
         // MMA-P2: Use only DETACHED_PROCESS (not combined with CREATE_NO_WINDOW).
         // CREATE_NO_WINDOW is silently ignored when combined with DETACHED_PROCESS.
         // DETACHED_PROCESS alone is sufficient for fire-and-forget spawning.
@@ -969,9 +973,11 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
     let normalized_cmd = req.cmd.replace("\\\\", "\\");
 
     let result = timeout(Duration::from_millis(timeout_ms), async {
+        // Manual Stdio::null on stdin - tokio::process::Command, cannot use spawn_safe()
         let mut cmd = Command::new("cmd");
         cmd.args(["/C", &normalized_cmd])
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            .stdin(std::process::Stdio::null());
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         cmd.output().await
@@ -1108,9 +1114,11 @@ struct CursorResponse {
 }
 
 async fn run_ps(script: &str, timeout_secs: u64) -> Result<std::process::Output, String> {
+    // Manual Stdio::null on stdin - tokio::process::Command, cannot use spawn_safe()
     let mut cmd = Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .kill_on_drop(true);
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     timeout(Duration::from_secs(timeout_secs), cmd.output())
@@ -1390,9 +1398,11 @@ fn map_single_key(key: &str) -> String {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async fn detect_local_ip() -> Option<String> {
+    // Manual Stdio::null on stdin - tokio::process::Command, cannot use spawn_safe()
     let mut cmd = Command::new("cmd");
     cmd.args(["/C", "ipconfig"])
-        .kill_on_drop(true);
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let output = cmd.output().await.ok()?;

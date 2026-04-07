@@ -414,6 +414,8 @@ pub fn relaunch_self() {
         "Start-Process 'C:\\RacingPoint\\rc-agent.exe' ",
         "-WorkingDirectory 'C:\\RacingPoint'"
     );
+    // Intentional: DETACHED_PROCESS for self-relaunch - not a spawn_safe() candidate.
+    // Stdin/stdout/stderr left default: PowerShell needs them for Start-Process.
     match std::process::Command::new("powershell")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd])
         .creation_flags(DETACHED_PROCESS)
