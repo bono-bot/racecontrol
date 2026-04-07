@@ -429,6 +429,7 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PreShiftAudit => "pre_shift_audit".to_string(),
         DiagnosticTrigger::DeployVerification { .. } => "deploy_verification".to_string(),
         DiagnosticTrigger::GameLaunchTimeout { .. } => "game_launch_timeout".to_string(),
+        DiagnosticTrigger::PosWrongUrl { .. } => "pos_wrong_url".to_string(),
     }
 }
 

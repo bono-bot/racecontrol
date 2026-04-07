@@ -274,7 +274,8 @@ mod tests {
             ts_unix: 1712345678,
             problem_key: "maintenance_mode_clear".to_string(),
             problem_hash: "abc123def456abcd".to_string(),
-            fix_action: "del MAINTENANCE_MODE && schtasks /Run /TN StartRCAgent".to_string(),
+            // v331: RCWatchdog is sole restart authority
+            fix_action: "del MAINTENANCE_MODE && taskkill /F /IM rc-agent.exe (RCWatchdog auto-restarts)".to_string(),
             confidence: 0.95,
             source_node: "pod_4".to_string(),
         };
@@ -314,7 +315,8 @@ mod tests {
     #[test]
     fn solution_update_with_long_fix_action_fits_mtu() {
         // Worst-case: long fix_action string
-        let long_fix = "del C:\\RacingPoint\\MAINTENANCE_MODE && del C:\\RacingPoint\\GRACEFUL_RELAUNCH && del C:\\RacingPoint\\rcagent-restart-sentinel.txt && schtasks /Run /TN StartRCAgent".to_string();
+        // v331: RCWatchdog is sole restart authority — kill agent, watchdog auto-restarts
+        let long_fix = "del C:\\RacingPoint\\MAINTENANCE_MODE && del C:\\RacingPoint\\GRACEFUL_RELAUNCH && del C:\\RacingPoint\\rcagent-restart-sentinel.txt && taskkill /F /IM rc-agent.exe".to_string();
         let msg = GossipMessage::SolutionUpdate {
             from: "pod_8".to_string(),
             seq: 9999,

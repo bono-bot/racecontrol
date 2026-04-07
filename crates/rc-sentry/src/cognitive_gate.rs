@@ -258,7 +258,8 @@ impl DiagnosisPlanner {
                         step: 3,
                         command: "RCWatchdog auto-restarts via WTSQueryUserToken+CreateProcessAsUser (no exec needed)".into(),
                         risk_level: "safe".into(),
-                        rollback: "schtasks /Run /TN StartRCAgent (ONLY if RCWatchdog service not running)".into(),
+                        // v331: RCWatchdog is sole restart authority
+                        rollback: "Kill rc-agent.exe -- RCWatchdog service will auto-restart in Session 1".into(),
                         expected_outcome: "rc-agent running in Session 1 (not Session 0) within 15 seconds".into(),
                     },
                     PlannedAction {

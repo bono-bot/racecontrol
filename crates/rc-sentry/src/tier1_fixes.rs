@@ -460,28 +460,16 @@ pub fn restart_service() -> CrashDiagResult {
     }
     #[cfg(not(test))]
     {
-        let cfg = sentry_config::load();
-
-        // BUG-001 fix: Do NOT write breadcrumb, do NOT spawn rc-agent.
-        // rc-watchdog will detect rc-agent is dead and spawn it in Session 1.
-        // We only log that we're delegating.
+        // v331: Fully neutered — log DELEGATED and return success. No breadcrumb
+        // cleanup, no schtask references, no process spawning. RCWatchdog is the
+        // sole restart authority.
         tracing::info!(target: LOG_TARGET,
-            "restart_service() DELEGATED to rc-watchdog (BUG-001/BUG-002 fix). \
-             rc-sentry no longer spawns rc-agent to prevent breadcrumb deadlock + bat kill cycle.");
+            "restart_service() DELEGATED to rc-watchdog. \
+             rc-sentry does not restart rc-agent — RCWatchdog auto-detects and spawns in Session 1.");
 
-        // Clean up any stale breadcrumb from previous versions
-        let _ = std::fs::remove_file(r"C:\RacingPoint\sentry-restart-breadcrumb.txt");
-
-        // Primary path: Session 1 spawn (SPAWN-03)
-        // Uses WTSQueryUserToken + CreateProcessAsUser to launch in interactive desktop.
-        // Falls back to schtasks if no active console session (e.g., before user login).
         CrashDiagResult {
             fix_type: "restart_delegated".to_string(),
-            detail: format!(
-                "{} restart delegated to rc-watchdog (BUG-001/BUG-002). \
-                 Sentry role: Tier 1 fixes only. Watchdog role: Session 1 spawn.",
-                cfg.service_name
-            ),
+            detail: "restart delegated to rc-watchdog — sentry role is Tier 1 fixes only".to_string(),
             success: true, // Report success so crash handler doesn't escalate
         }
     }
