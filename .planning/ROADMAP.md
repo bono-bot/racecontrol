@@ -875,10 +875,10 @@ Plans:
   3. Cash refund button shows max refundable amount and requires confirmation
   4. Credit adjustment button (admin adds/removes credits manually with reason)
   5. Dashboard accessible at `192.168.31.23:3201/billing/reports` AND `racingpoint.cloud:3201/billing/reports`
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [x] 340-01-PLAN.md — Wallet API module + reports summary cards + currency_type badges
-- [ ] 340-02-PLAN.md — Cash refund button + credit adjustment button
+- [x] 340-02-PLAN.md — Cash refund button + credit adjustment button
 - [ ] 340-03-PLAN.md — Build and deploy to local + cloud
 
 ### Phase 341: POS + Kiosk Display
@@ -904,7 +904,7 @@ Plans:
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
 | 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
 | 339. API Endpoints | 2/2 | Complete    | 2026-04-07 |
-| 340. Admin Dashboard | 1/3 | In Progress|  |
+| 340. Admin Dashboard | 2/3 | In Progress|  |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |
 | 342. Cloud Sync + E2E | 0/TBD | Not Started | — |
 
