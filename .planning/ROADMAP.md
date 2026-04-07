@@ -890,7 +890,7 @@ Plans:
   4. PWA wallet shows credits (verify already correct)
 **Plans:** 1/1 plans complete
 Plans:
-- [ ] 341-01-PLAN.md — Fix drivers page rupee to credits + verify POS/kiosk/PWA displays
+- [x] 341-01-PLAN.md — Fix drivers page rupee to credits + verify POS/kiosk/PWA displays
 
 ### Phase 342: Cloud Sync + E2E Verify
 **Goal**: Cloud sync pushes/pulls new wallet columns. Full E2E test of the financial flow.
