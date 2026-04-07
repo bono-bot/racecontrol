@@ -849,6 +849,10 @@ Plans:
   4. Cash refund increments `rupee_refunded_paise`
   5. Credit refund (game reset) only touches `balance_paise` — no rupee tracking
   6. Accounting journal: cash refund → Dr. acc_wallet Cr. acc_cash/bank; credit refund → Dr. acc_wallet Cr. acc_refunds
+**Plans:** 2 plans
+Plans:
+- [ ] 338-01-PLAN.md — Update structs + credit/debit functions with rupee/bonus tracking
+- [ ] 338-02-PLAN.md — Add cash_refund + get_max_cash_refund + accounting journal
 
 ### Phase 339: API Endpoints
 **Goal**: Unified wallet API response consumed by admin, POS, and kiosk.
