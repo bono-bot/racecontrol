@@ -18,7 +18,7 @@
 - ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
 - [x] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, shipped 2026-04-07)
-- [ ] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, financial model redesign)
+- [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
