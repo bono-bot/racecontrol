@@ -502,24 +502,58 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         }
         tracing::info!(target: LOG_TARGET, "VMS SimLauncher: launching via isolated subprocess (mode={})", mode);
         let bat_args_ref: Vec<&str> = bat_args.iter().map(|s| s.as_str()).collect();
-        // FIX (2026-04-07): CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW prevents the
-        // bat subprocess from sharing rc-agent's console. Without this, when the bat
-        // exits after spawning acs.exe, the console close event (CTRL_CLOSE_EVENT)
-        // propagates to rc-agent, killing it with STATUS_CONTROL_C_EXIT (0xC000013A).
-        // FIX (2026-04-07): CREATE_NEW_PROCESS_GROUP + CREATE_NO_WINDOW prevents the
-        // bat subprocess from sharing rc-agent's console. Without this, when the bat
-        // exits after spawning acs.exe, the console close event (CTRL_CLOSE_EVENT)
-        // propagates to rc-agent, killing it with STATUS_CONTROL_C_EXIT (0xC000013A).
-        let mut cmd = Command::new("cmd");
-        cmd.args(&bat_args_ref).current_dir(r"C:\RacingPoint");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+        // FIX (2026-04-07): For SP mode, skip the bat entirely and launch acs.exe directly.
+        // The bat spawns cmd.exe which creates console windows. Even with CREATE_NO_WINDOW,
+        // the bat's `start "" acs.exe` allocates a new console. When that console hierarchy
+        // changes (acs.exe takes exclusive fullscreen), CTRL_CLOSE_EVENT propagates to
+        // rc-agent, killing it with STATUS_CONTROL_C_EXIT (0xC000013A).
+        //
+        // For SP, rc-agent already: (1) kills old AC processes, (2) writes race.ini.
+        // The bat only adds: taskkill + verify + `start acs.exe`. We can do all of this
+        // directly with Command::new("acs.exe") + DETACHED_PROCESS.
+        //
+        // For MP, we still need the bat because it handles Content Manager URI launching.
+        let use_direct_launch = !is_mp;
+        if use_direct_launch {
+            tracing::info!(target: LOG_TARGET, "SP direct launch: spawning acs.exe without bat (console isolation)");
+            // Kill any existing AC processes first
+            {
+                #[cfg(windows)]
+                use std::os::windows::process::CommandExt;
+                let mut kill1 = Command::new("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
+                let mut kill2 = Command::new("taskkill"); kill2.args(&["/F", "/IM", "AssettoCorsa.exe"]);
+                #[cfg(windows)] { kill1.creation_flags(0x08000000); kill2.creation_flags(0x08000000); }
+                let _ = kill1.spawn().and_then(|mut c| c.wait());
+                let _ = kill2.spawn().and_then(|mut c| c.wait());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        match cmd.spawn() {
+        let spawn_result = if use_direct_launch {
+            // Direct acs.exe launch with DETACHED_PROCESS — completely isolated from rc-agent's console
+            let mut acs_cmd = Command::new(ac_dir.join("acs.exe"));
+            acs_cmd.current_dir(&ac_dir);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const DETACHED_PROCESS: u32 = 0x00000008;
+                const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+                acs_cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+            }
+            acs_cmd.spawn()
+        } else {
+            // MP mode: use bat for Content Manager URI handling
+            let mut cmd = Command::new("cmd");
+            cmd.args(&bat_args_ref).current_dir(r"C:\RacingPoint");
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+                cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+            }
+            cmd.spawn()
+        };
+        match spawn_result {
             Ok(_child) => {
                 // VMS ZERO-BLOCK PATTERN: SimLauncher spawns AC then EXITS.
                 // VMS Connect NEVER waits for acs.exe — the event loop detects it
