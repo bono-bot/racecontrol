@@ -859,13 +859,13 @@ Plans:
 **Success Criteria:**
   1. GET /wallet/{driver_id} returns: `{ balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund, total_spent, transactions_count }`
   2. POST /wallet/{driver_id}/topup response includes: `{ new_balance_credits, bonus_credits_granted, rupee_amount }`
-  3. POST /wallet/{driver_id}/refund differentiates: `{ type: "credit_refund" | "cash_refund", amount, max_allowed }`
+  3. POST /wallet/{driver_id}/refund returns `{ type: "credit_refund", new_balance_credits, max_cash_refund }`; POST /wallet/{driver_id}/cash-refund returns `{ type: "cash_refund", amount, new_balance_credits, max_cash_refund_remaining }`
   4. GET /wallet/transactions includes `currency_type` per transaction
   5. Same response schema served on all ports (8080 API) — no per-frontend variants
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 Plans:
 - [x] 339-01-PLAN.md — WalletInfo serde renames + handler response field updates (topup, webhook, transactions)
-- [ ] 339-02-PLAN.md — Cash refund endpoint + credit refund type differentiation
+- [x] 339-02-PLAN.md — Cash refund endpoint + credit refund type differentiation
 
 ### Phase 340: Admin Dashboard
 **Goal**: Add credit/rupee management UI to admin portal, deployed locally AND on cloud.
