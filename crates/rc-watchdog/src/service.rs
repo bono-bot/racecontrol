@@ -31,7 +31,7 @@ const SENTRY_BREADCRUMB_PATH: &str = r"C:\RacingPoint\sentry-restart-breadcrumb.
 
 /// Grace window for sentry breadcrumb: if rc-sentry restarted rc-agent within this many seconds,
 /// rc-watchdog defers and skips its own restart attempt.
-const SENTRY_GRACE_SECS: u64 = 30;
+const SENTRY_GRACE_SECS: u64 = 15;
 
 /// Default racecontrol URL if not found in config.
 const DEFAULT_CORE_URL: &str = "http://192.168.31.23:8080";
@@ -51,7 +51,7 @@ const MAINTENANCE_AUTO_CLEAR_SECS: u64 = 1800;
 /// Maximum consecutive sentry breadcrumb deferrals before watchdog takes over.
 /// At 5s poll interval, 6 deferrals = 30s — if sentry hasn't restarted agent
 /// after 30s of trying, its restart mechanism is broken.
-const SENTRY_DEFER_MAX: u32 = 6;
+const SENTRY_DEFER_MAX: u32 = 3;
 
 /// Interval between binary validation checks (every 10th poll cycle).
 const BINARY_VALIDATION_INTERVAL: u32 = 10;
@@ -377,6 +377,24 @@ pub fn run(_arguments: Vec<OsString>) -> anyhow::Result<()> {
         if sentry_breadcrumb_active(SENTRY_BREADCRUMB_PATH, SENTRY_GRACE_SECS) {
             sentry_defer_count += 1;
             if sentry_defer_count < SENTRY_DEFER_MAX {
+                // After 2 deferrals, probe health — if agent is alive, sentry succeeded
+                if sentry_defer_count >= 2 {
+                    if let Ok(alive) = std::process::Command::new("tasklist")
+                        .args(["/FI", "IMAGENAME eq rc-agent.exe", "/NH"])
+                        .output()
+                    {
+                        let out = String::from_utf8_lossy(&alive.stdout);
+                        if out.contains("rc-agent.exe") {
+                            tracing::info!(
+                                "Sentry restart confirmed via tasklist after {} deferrals — agent is running",
+                                sentry_defer_count
+                            );
+                            sentry_defer_count = 0;
+                            std::thread::sleep(POLL_INTERVAL);
+                            continue;
+                        }
+                    }
+                }
                 tracing::info!(
                     "grace window active: sentry-restart-breadcrumb.txt is recent, deferring ({}/{})",
                     sentry_defer_count, SENTRY_DEFER_MAX
