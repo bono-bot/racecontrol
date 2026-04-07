@@ -707,7 +707,11 @@ Plans:
   2. rollback_manager binary rename disabled — single binary, no prev/failed rename
   3. All Command::new() calls in rc-agent go through a single `spawn_safe()` helper that sets Stdio::null + appropriate creation_flags
   4. Agent survives 24h uptime through multiple game launch/stop cycles with zero restarts
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 331-01-PLAN.md — Create spawn_safe() helper in rc-common and migrate all 76 Command::new call sites
+- [ ] 331-02-PLAN.md — Single restart authority: remove binary rename, clean sentry dead code
 
 ### Phase 332: mDNS Auto-Discovery
 **Goal**: Pods auto-discover the racecontrol server via mDNS (`_racecontrol._tcp.local.`) instead of hardcoded IP in TOML config. Enables zero-config pod setup.
