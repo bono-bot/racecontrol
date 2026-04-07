@@ -684,7 +684,12 @@ Plans:
   6. Window uses HWND_TOPMOST + SetWindowPos to cover all monitors (same as current Edge --app approach)
   7. Memory footprint < 20MB (vs Edge ~300MB)
   8. No Stdio::null issues — native window doesn't inherit console handles
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 329-01-PLAN.md — Win32 window foundation + font embedding + non-interactive state painters
+- [ ] 329-02-PLAN.md — PIN entry keyboard handling + QR code renderer + ActiveSession timer
+- [ ] 329-03-PLAN.md — Remaining state painters + Edge code removal + Pod 8 visual verification
 
 ### Phase 330: Native On-Track Display + Off-Track Blanking
 **Goal**: Replace Edge-based in-session overlay with native Win32 GDI+ rendering. Add VMS-style off-track blanking (screen shows branding when car goes off-track mid-session).
