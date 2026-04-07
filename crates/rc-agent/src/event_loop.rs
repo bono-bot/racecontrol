@@ -247,9 +247,10 @@ pub async fn run(
                     let car = crate::remote_ops::TEST_LAUNCH_CAR.lock().map(|c| c.clone()).unwrap_or_default();
                     let track = crate::remote_ops::TEST_LAUNCH_TRACK.lock().map(|t| t.clone()).unwrap_or_default();
                     tracing::info!(target: LOG_TARGET, "TEST LAUNCH sentinel: car={} track={}", car, track);
-                    // Construct test launch params with sensible defaults
+                    // Construct test launch params — trackday with 3 AI opponents
+                    // Matches what kiosk sends for a typical session.
                     let test_json = format!(
-                        r#"{{"car":"{}","track":"{}","driver":"Test Driver","session_type":"practice","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+                        r#"{{"car":"{}","track":"{}","driver":"Test Driver","session_type":"trackday","ai_count":3,"ai_level":87,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
                         if car.is_empty() { "abarth500" } else { &car },
                         if track.is_empty() { "spa" } else { &track },
                     );
