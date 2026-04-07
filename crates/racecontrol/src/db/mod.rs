@@ -4140,67 +4140,66 @@ pub async fn migrate_pii_encryption(db: &SqlitePool, cipher: &FieldCipher) -> Re
         .map_err(|e| format!("Failed to query drivers for PII migration: {e}"))?;
 
     if rows.is_empty() {
-        tracing::info!("PII migration: no rows to migrate");
-        return Ok(());
-    }
+        tracing::info!("PII migration phase 1: no plaintext phones to encrypt");
+    } else {
+        let total = rows.len();
+        let mut migrated = 0usize;
 
-    let total = rows.len();
-    let mut migrated = 0usize;
+        for chunk in rows.chunks(100) {
+            let mut tx = db.begin().await.map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
-    for chunk in rows.chunks(100) {
-        let mut tx = db.begin().await.map_err(|e| format!("Failed to begin transaction: {e}"))?;
+            for (id, phone, email, name, guardian_phone) in chunk {
+                let phone = match phone {
+                    Some(p) if !p.is_empty() => p,
+                    _ => continue,
+                };
 
-        for (id, phone, email, name, guardian_phone) in chunk {
-            let phone = match phone {
-                Some(p) if !p.is_empty() => p,
-                _ => continue,
-            };
+                let phone_hash = cipher.hash_phone(phone);
+                let phone_enc = cipher.encrypt_field(phone).map_err(|e| format!("encrypt phone: {e}"))?;
 
-            let phone_hash = cipher.hash_phone(phone);
-            let phone_enc = cipher.encrypt_field(phone).map_err(|e| format!("encrypt phone: {e}"))?;
+                let email_enc: Option<String> = match email {
+                    Some(e) if !e.is_empty() => Some(cipher.encrypt_field(e).map_err(|er| format!("encrypt email: {er}"))?),
+                    _ => None,
+                };
 
-            let email_enc: Option<String> = match email {
-                Some(e) if !e.is_empty() => Some(cipher.encrypt_field(e).map_err(|er| format!("encrypt email: {er}"))?),
-                _ => None,
-            };
+                let name_enc: Option<String> = match name.as_str() {
+                    n if !n.is_empty() => Some(cipher.encrypt_field(n).map_err(|er| format!("encrypt name: {er}"))?),
+                    _ => None,
+                };
 
-            let name_enc: Option<String> = match name.as_str() {
-                n if !n.is_empty() => Some(cipher.encrypt_field(n).map_err(|er| format!("encrypt name: {er}"))?),
-                _ => None,
-            };
+                let (gp_hash, gp_enc): (Option<String>, Option<String>) = match guardian_phone {
+                    Some(gp) if !gp.is_empty() => {
+                        let h = cipher.hash_phone(gp);
+                        let e = cipher.encrypt_field(gp).map_err(|er| format!("encrypt guardian_phone: {er}"))?;
+                        (Some(h), Some(e))
+                    }
+                    _ => (None, None),
+                };
 
-            let (gp_hash, gp_enc): (Option<String>, Option<String>) = match guardian_phone {
-                Some(gp) if !gp.is_empty() => {
-                    let h = cipher.hash_phone(gp);
-                    let e = cipher.encrypt_field(gp).map_err(|er| format!("encrypt guardian_phone: {er}"))?;
-                    (Some(h), Some(e))
-                }
-                _ => (None, None),
-            };
+                sqlx::query(
+                    "UPDATE drivers SET phone_hash=?, phone_enc=?, email_enc=?, name_enc=?, \
+                     guardian_phone_hash=?, guardian_phone_enc=?, phone=NULL, email=NULL, \
+                     guardian_phone=NULL WHERE id=?"
+                )
+                .bind(&phone_hash)
+                .bind(&phone_enc)
+                .bind(&email_enc)
+                .bind(&name_enc)
+                .bind(&gp_hash)
+                .bind(&gp_enc)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to update driver {id}: {e}"))?;
 
-            sqlx::query(
-                "UPDATE drivers SET phone_hash=?, phone_enc=?, email_enc=?, name_enc=?, \
-                 guardian_phone_hash=?, guardian_phone_enc=?, phone=NULL, email=NULL, \
-                 guardian_phone=NULL WHERE id=?"
-            )
-            .bind(&phone_hash)
-            .bind(&phone_enc)
-            .bind(&email_enc)
-            .bind(&name_enc)
-            .bind(&gp_hash)
-            .bind(&gp_enc)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to update driver {id}: {e}"))?;
+                migrated += 1;
+            }
 
-            migrated += 1;
+            tx.commit().await.map_err(|e| format!("Failed to commit transaction: {e}"))?;
         }
 
-        tx.commit().await.map_err(|e| format!("Failed to commit transaction: {e}"))?;
+        tracing::info!("PII migration phase 1 complete: {migrated}/{total} rows encrypted");
     }
-
-    tracing::info!("PII migration complete: {migrated}/{total} rows encrypted");
 
     // Phase 2: Backfill phone_hash for records that have phone_enc but lost phone_hash.
     // This happens when phone was cleared (phone=NULL) before phone_hash was set,
