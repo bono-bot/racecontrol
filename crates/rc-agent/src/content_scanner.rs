@@ -5,6 +5,7 @@
 //! Called at startup and on WebSocket reconnect to racecontrol.
 
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 use chrono::Utc;
 use rc_common::types::{
@@ -16,8 +17,70 @@ use rc_common::types::{
 const LOG_TARGET: &str = "content-scanner";
 
 /// Default AC content path on pods.
-const AC_CONTENT_PATH: &str =
+pub const AC_CONTENT_PATH: &str =
     r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content";
+
+/// Hardcoded AC installation directory.
+/// All pods use the same Steam install path — no runtime discovery needed.
+/// VMS Connect pattern: know paths at compile time, not at launch time.
+pub fn ac_dir() -> PathBuf {
+    PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa")
+}
+
+// ─── Content Manifest Cache (VMS Connect pattern) ───────────────────────────
+//
+// Populated at boot by scan_ac_content(), refreshed every 5 minutes.
+// generate_trackday_ai() reads from this cache instead of scanning the filesystem
+// on every game launch — eliminating ~200ms of I/O per launch and preventing
+// race conditions where a car directory is partially written during a Steam update.
+
+static CONTENT_CACHE: RwLock<Option<ContentManifest>> = RwLock::new(None);
+
+/// Update the global content manifest cache.
+/// Called at boot (main.rs) and on periodic rescan.
+pub fn update_content_cache(manifest: &ContentManifest) {
+    if let Ok(mut cache) = CONTENT_CACHE.write() {
+        *cache = Some(manifest.clone());
+        tracing::info!(
+            target: LOG_TARGET,
+            "Content cache updated: {} cars, {} tracks",
+            manifest.cars.len(),
+            manifest.tracks.len()
+        );
+    }
+}
+
+/// Get the set of installed car IDs from the cached manifest.
+/// Returns empty Vec if cache hasn't been populated yet (pre-boot).
+pub fn cached_car_ids() -> Vec<String> {
+    CONTENT_CACHE
+        .read()
+        .ok()
+        .and_then(|cache| cache.as_ref().map(|m| {
+            m.cars.iter().map(|c| c.id.clone()).collect()
+        }))
+        .unwrap_or_default()
+}
+
+/// Get the set of installed track IDs from the cached manifest.
+pub fn cached_track_ids() -> Vec<String> {
+    CONTENT_CACHE
+        .read()
+        .ok()
+        .and_then(|cache| cache.as_ref().map(|m| {
+            m.tracks.iter().map(|t| t.id.clone()).collect()
+        }))
+        .unwrap_or_default()
+}
+
+/// Check if the content cache has been populated (at least one scan completed).
+pub fn is_cache_populated() -> bool {
+    CONTENT_CACHE
+        .read()
+        .ok()
+        .map(|cache| cache.is_some())
+        .unwrap_or(false)
+}
 
 /// Scan the default AC installation and return a content manifest.
 pub fn scan_ac_content() -> ContentManifest {

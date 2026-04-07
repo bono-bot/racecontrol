@@ -257,6 +257,11 @@ async fn inventory_rescan_loop(
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
+        // Refresh AC content manifest cache (VMS Connect pattern: keep car/track list current)
+        let ac_manifest = tokio::task::spawn_blocking(content_scanner::scan_ac_content).await;
+        if let Ok(manifest) = ac_manifest {
+            content_scanner::update_content_cache(&manifest);
+        }
         let pid = pod_id.clone();
         let pos = is_pos;
         match tokio::task::spawn_blocking(move || content_scanner::build_game_inventory(&pid, pos)).await {
@@ -2117,9 +2122,11 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Send content manifest after registration so core knows what's installed
+        // Send content manifest after registration so core knows what's installed.
+        // VMS Connect pattern: scan once at boot, cache for launch-time use.
         let manifest = content_scanner::scan_ac_content();
         tracing::info!(target: LOG_TARGET, "Scanned AC content: {} cars, {} tracks", manifest.cars.len(), manifest.tracks.len());
+        content_scanner::update_content_cache(&manifest);
         let manifest_msg = AgentMessage::ContentManifest(manifest);
         if let Ok(json) = serde_json::to_string(&manifest_msg) {
             if ws_tx.send(Message::Text(json.into())).await.is_err() {

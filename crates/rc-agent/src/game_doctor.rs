@@ -17,9 +17,8 @@ use std::path::Path;
 
 const LOG_TARGET: &str = "game-doctor";
 
-/// AC content directory on pods
-const AC_CONTENT_PATH: &str =
-    r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content";
+// AC content path: use content_scanner::AC_CONTENT_PATH (single source of truth).
+use crate::content_scanner::AC_CONTENT_PATH;
 
 /// Structured diagnosis result from the Game Doctor.
 #[derive(Debug, Clone)]
@@ -421,6 +420,11 @@ pub fn is_car_installed(car_id: &str) -> bool {
         tracing::warn!(target: LOG_TARGET, "Path traversal attempt in car_id: {:?}", car_id);
         return false;
     }
+    // VMS Connect pattern: check cache first (zero I/O), filesystem fallback
+    let cached = crate::content_scanner::cached_car_ids();
+    if !cached.is_empty() {
+        return cached.iter().any(|id| id == car_id);
+    }
     Path::new(AC_CONTENT_PATH).join("cars").join(car_id).exists()
 }
 
@@ -429,6 +433,11 @@ pub fn is_track_installed(track_id: &str) -> bool {
     if !is_safe_path_component(track_id) {
         tracing::warn!(target: LOG_TARGET, "Path traversal attempt in track_id: {:?}", track_id);
         return false;
+    }
+    // VMS Connect pattern: check cache first (zero I/O), filesystem fallback
+    let cached = crate::content_scanner::cached_track_ids();
+    if !cached.is_empty() {
+        return cached.iter().any(|id| id == track_id);
     }
     Path::new(AC_CONTENT_PATH).join("tracks").join(track_id).exists()
 }
@@ -484,18 +493,13 @@ pub fn pre_launch_validate(car: &str, track: &str, track_config: &str) -> Result
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
 fn find_ac_dir() -> Option<std::path::PathBuf> {
-    let candidates = [
-        r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa",
-        r"C:\Program Files\Steam\steamapps\common\assettocorsa",
-        r"D:\SteamLibrary\steamapps\common\assettocorsa",
-    ];
-    for dir in &candidates {
-        let p = Path::new(dir);
-        if p.join("acs.exe").exists() {
-            return Some(p.to_path_buf());
-        }
+    // VMS Connect pattern: use hardcoded path from content_scanner.
+    let dir = crate::content_scanner::ac_dir();
+    if dir.join("acs.exe").exists() {
+        Some(dir)
+    } else {
+        None
     }
-    None
 }
 
 fn find_acs_pid() -> Option<u32> {

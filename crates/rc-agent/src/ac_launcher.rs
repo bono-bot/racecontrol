@@ -265,16 +265,56 @@ fn bootstrap_ac_config() -> Result<()> {
         tracing::info!(target: LOG_TARGET, "Enforced gui.ini FORCE_START=1 (CSP reset protection)");
     }
 
-    // video.ini — display settings (1080p fullscreen, reasonable quality)
+    // video.ini — display settings.
+    // Racing Point pods use NVIDIA Surround: 7680x1440 @ 179Hz triple-screen.
+    // ALWAYS enforce correct resolution — wrong WIDTH/HEIGHT causes AC to render at
+    // wrong size (e.g. 4098x768) which may cause early exit or visual glitches.
+    // The [CAMERA] MODE=TRIPLE is also enforced for correct triple-screen rendering.
     let video_path = cfg_dir.join("video.ini");
     if !video_path.exists() {
         std::fs::write(&video_path, concat!(
             "[VIDEO]\r\n",
-            "FULLSCREEN=1\r\nWIDTH=1920\r\nHEIGHT=1080\r\nREFRESH=60\r\n",
-            "VSYNC=1\r\nAASAMPLES=2\r\nANISOTROPIC=8\r\n",
-            "SHADOW_MAP_SIZE=2048\r\nWORLD_DETAIL=1\r\nSMOKE=1\r\n",
+            "FULLSCREEN=1\r\nWIDTH=7680\r\nHEIGHT=1440\r\nREFRESH=179\r\n",
+            "VSYNC=0\r\nAASAMPLES=4\r\nANISOTROPIC=16\r\n",
+            "SHADOW_MAP_SIZE=4096\r\nWORLD_DETAIL=5\r\nSMOKE=5\r\n",
+            "FPS_CAP_MS=0\r\nDISABLE_LEGACY_HDR=1\r\nAAQUALITY=0\r\n",
+            "\r\n[CAMERA]\r\nMODE=TRIPLE\r\n",
         ))?;
-        tracing::info!(target: LOG_TARGET, "Bootstrap: created video.ini (1080p fullscreen)");
+        tracing::info!(target: LOG_TARGET, "Bootstrap: created video.ini (7680x1440 triple-screen)");
+    } else {
+        // Enforce correct resolution even if video.ini already exists.
+        // Content Manager or manual edits can set wrong resolution (e.g. 4098x768).
+        let content = std::fs::read_to_string(&video_path).unwrap_or_default();
+        let needs_fix = !content.contains("WIDTH=7680") || !content.contains("HEIGHT=1440");
+        if needs_fix {
+            // Patch WIDTH/HEIGHT/FULLSCREEN in existing file (preserve other settings)
+            let mut patched = String::with_capacity(content.len());
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("WIDTH=") {
+                    patched.push_str("WIDTH=7680\r\n");
+                } else if trimmed.starts_with("HEIGHT=") {
+                    patched.push_str("HEIGHT=1440\r\n");
+                } else if trimmed.starts_with("FULLSCREEN=") {
+                    patched.push_str("FULLSCREEN=1\r\n");
+                } else if trimmed.starts_with("REFRESH=") {
+                    patched.push_str("REFRESH=179\r\n");
+                } else {
+                    patched.push_str(line);
+                    patched.push_str("\r\n");
+                }
+            }
+            // Ensure CAMERA MODE=TRIPLE exists
+            if !patched.contains("MODE=TRIPLE") {
+                if patched.contains("[CAMERA]") {
+                    patched = patched.replace("[CAMERA]\r\n", "[CAMERA]\r\nMODE=TRIPLE\r\n");
+                } else {
+                    patched.push_str("\r\n[CAMERA]\r\nMODE=TRIPLE\r\n");
+                }
+            }
+            std::fs::write(&video_path, &patched)?;
+            tracing::info!(target: LOG_TARGET, "Enforced video.ini 7680x1440@179Hz triple-screen (was wrong resolution)");
+        }
     }
 
     // controls.ini — Conspit wheelbase defaults (bootstrap only if file missing)
@@ -479,14 +519,16 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     // 3. If CSP/Steam/anti-cheat kills the launcher, rc-agent survives
     // 4. Both SP and MP go through the bat — MP passes server params
     // 5. Fallback: if bat missing or fails, launch acs.exe directly
-    let ac_dir = match find_ac_dir() {
-        Ok(d) => d,
-        Err(e) => {
-            let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
-                .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: find_ac_dir: {}", e) });
-            return Err(e);
-        }
-    };
+    // VMS Connect pattern: hardcoded AC path — no runtime discovery needed.
+    // All pods use the same Steam install path. content_scanner::ac_dir() is the
+    // single source of truth (replaces the old find_ac_dir() which probed 3 candidates).
+    let ac_dir = crate::content_scanner::ac_dir();
+    if !ac_dir.join("acs.exe").exists() {
+        let e = anyhow::anyhow!("AC not found at {}", ac_dir.display());
+        let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
+            .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: ac_dir: {}", e) });
+        return Err(e);
+    }
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP3: ac_dir={} launcher_bat_exists={}", ac_dir.display(), std::path::Path::new(r"C:\RacingPoint\launch-ac.bat").exists()) });
     let launcher_bat = std::path::Path::new(r"C:\RacingPoint\launch-ac.bat");
@@ -959,34 +1001,54 @@ const MAX_AI_SINGLE_PLAYER: usize = 19;
 const DEFAULT_TRACKDAY_AI_COUNT: usize = 12;
 
 /// Generate default Track Day AI with mixed car classes.
-/// Validates each car against installed content — skips cars that don't exist on this pod.
+/// Uses the cached content manifest (VMS Connect pattern) — zero filesystem I/O at launch time.
 /// CSP crashes if race.ini references a missing car (discovered 2026-04-07).
 fn generate_trackday_ai(count: usize, ai_level: u32) -> Vec<AiCarSlot> {
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
 
-    // Filter car pool against installed content
-    let ac_dir = find_ac_dir().unwrap_or_default();
-    let cars_dir = ac_dir.join("content").join("cars");
-    let mut available_cars: Vec<&str> = TRACKDAY_CAR_POOL
-        .iter()
-        .filter(|car| {
-            let exists = cars_dir.join(car).exists();
-            if !exists {
-                tracing::debug!(target: LOG_TARGET, "AI car pool: {} not installed, skipping", car);
-            }
-            exists
-        })
-        .copied()
-        .collect();
+    // VMS Connect pattern: read installed cars from boot-time cache, not filesystem.
+    // Cache is populated by content_scanner::scan_ac_content() at startup and refreshed every 5min.
+    let installed_cars = crate::content_scanner::cached_car_ids();
+    let mut available_cars: Vec<&str> = if installed_cars.is_empty() {
+        // Fallback: cache not yet populated (shouldn't happen — scan runs before first launch).
+        // Do a one-time filesystem check to avoid launching with zero AI.
+        tracing::warn!(target: LOG_TARGET, "Content cache empty — falling back to filesystem scan");
+        let cars_dir = std::path::Path::new(crate::content_scanner::AC_CONTENT_PATH).join("cars");
+        TRACKDAY_CAR_POOL
+            .iter()
+            .filter(|car| {
+                let exists = cars_dir.join(car).exists();
+                if !exists {
+                    tracing::debug!(target: LOG_TARGET, "AI car pool: {} not installed, skipping", car);
+                }
+                exists
+            })
+            .copied()
+            .collect()
+    } else {
+        // Fast path: filter pool against cached manifest (zero I/O)
+        TRACKDAY_CAR_POOL
+            .iter()
+            .filter(|car| {
+                let found = installed_cars.iter().any(|id| id == *car);
+                if !found {
+                    tracing::debug!(target: LOG_TARGET, "AI car pool: {} not in content cache, skipping", car);
+                }
+                found
+            })
+            .copied()
+            .collect()
+    };
 
     if available_cars.is_empty() {
         tracing::warn!(target: LOG_TARGET, "No cars from trackday pool are installed — AI opponents disabled");
         return Vec::new();
     }
 
-    tracing::info!(target: LOG_TARGET, "AI car pool: {}/{} cars available on this pod",
-        available_cars.len(), TRACKDAY_CAR_POOL.len());
+    tracing::info!(target: LOG_TARGET, "AI car pool: {}/{} cars available (from {})",
+        available_cars.len(), TRACKDAY_CAR_POOL.len(),
+        if installed_cars.is_empty() { "filesystem fallback" } else { "content cache" });
 
     available_cars.shuffle(&mut rng);
     let names = pick_ai_names(count);
@@ -1639,20 +1701,10 @@ fn find_acs_pid() -> Option<u32> {
 }
 
 /// Find the AC installation directory
-fn find_ac_dir() -> Result<std::path::PathBuf> {
-    let candidates = [
-        r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa",
-        r"C:\Program Files\Steam\steamapps\common\assettocorsa",
-        r"D:\SteamLibrary\steamapps\common\assettocorsa",
-    ];
-    for dir in &candidates {
-        let p = Path::new(dir);
-        if p.join("acs.exe").exists() {
-            return Ok(p.to_path_buf());
-        }
-    }
-    anyhow::bail!("AC installation not found");
-}
+// find_ac_dir() REMOVED — replaced by content_scanner::ac_dir().
+// All pods use the same Steam install path. The old 3-candidate search added
+// ~50ms per launch and could fail if CWD was wrong. VMS Connect pattern:
+// hardcode known paths, validate at boot via content scan.
 
 /// Diagnose why Content Manager failed to launch AC.
 /// Checks: CM process state, CM log files, error dialog windows.
@@ -2108,6 +2160,20 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
 mod tests {
     use super::*;
 
+    /// Populate the content cache with all TRACKDAY_CAR_POOL cars for testing.
+    /// Without this, generate_trackday_ai() returns 0 cars (no AC installation on dev machine).
+    fn ensure_test_content_cache() {
+        use rc_common::types::{CarManifestEntry, ContentManifest, TrackManifestEntry, TrackConfigManifest};
+        let manifest = ContentManifest {
+            cars: TRACKDAY_CAR_POOL.iter().map(|id| CarManifestEntry { id: id.to_string() }).collect(),
+            tracks: vec![
+                TrackManifestEntry { id: "spa".to_string(), configs: vec![TrackConfigManifest { config: String::new(), has_ai: true, pit_count: Some(20) }] },
+                TrackManifestEntry { id: "monza".to_string(), configs: vec![TrackConfigManifest { config: String::new(), has_ai: true, pit_count: Some(20) }] },
+            ],
+        };
+        crate::content_scanner::update_content_cache(&manifest);
+    }
+
     #[test]
     fn dialog_processes_contains_required() {
         let required = [
@@ -2538,6 +2604,7 @@ mod tests {
 
     #[test]
     fn test_write_race_ini_trackday_default_ai() {
+        ensure_test_content_cache();
         let params = test_params("trackday");
         let ini = build_race_ini_string(&params);
         let sections = parse_ini(&ini);
@@ -2557,6 +2624,7 @@ mod tests {
 
     #[test]
     fn test_write_race_ini_trackday_mixed_models() {
+        ensure_test_content_cache();
         let params = test_params("trackday");
         let ini = build_race_ini_string(&params);
         let sections = parse_ini(&ini);
@@ -2771,6 +2839,7 @@ mod tests {
 
     #[test]
     fn test_trackday_default_ai_inherits_session_ai_level() {
+        ensure_test_content_cache();
         // Trackday with ai_level:75 and empty ai_cars must generate AI slots with ai_level=75
         let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"trackday","ai_level":75,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
@@ -3129,6 +3198,7 @@ mod tests {
 
     #[test]
     fn test_ai_count_generates_opponents_for_practice() {
+        ensure_test_content_cache();
         // Bug fix: kiosk sends ai_count=5 (not ai_cars), agent must auto-generate
         let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":5,"ai_level":75,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
@@ -3161,6 +3231,7 @@ mod tests {
 
     #[test]
     fn test_ai_count_race_mode() {
+        ensure_test_content_cache();
         // ai_count also works for race sessions, not just trackday
         let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"race","ai_count":3,"ai_level":98,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
@@ -3193,6 +3264,7 @@ mod tests {
 
     #[test]
     fn test_kiosk_launch_args_deserialization() {
+        ensure_test_content_cache();
         // Simulate exact JSON that kiosk sends after the fix
         let kiosk_json = r#"{
             "car": "ks_ferrari_sf15t",
@@ -3245,6 +3317,7 @@ mod tests {
 
     #[test]
     fn test_trackday_no_ai_count_gets_default_traffic() {
+        ensure_test_content_cache();
         // ai_count absent (None) on trackday should still get default mixed traffic
         let json = r#"{"car":"ks_ferrari_488","track":"vallelunga","session_type":"trackday","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
@@ -3259,6 +3332,7 @@ mod tests {
 
     #[test]
     fn test_ai_count_capped_at_max() {
+        ensure_test_content_cache();
         // ai_count=999 must be capped to MAX_AI_SINGLE_PLAYER (19)
         let json = r#"{"car":"ks_ferrari_488","track":"monza","session_type":"practice","ai_count":999,"ai_level":87,"server_ip":"","server_port":0,"server_http_port":0,"server_password":""}"#;
         let params: AcLaunchParams = serde_json::from_str(json).unwrap();
