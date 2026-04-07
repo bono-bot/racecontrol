@@ -2,6 +2,8 @@
 export interface PodFleetStatus {
   pod_number: number;
   pod_id?: string;
+  name?: string;
+  node_type?: string;
   ws_connected: boolean;
   http_reachable: boolean;
   version?: string;
@@ -17,6 +19,12 @@ export interface PodFleetStatus {
   last_violation_at?: string;
   idle_health_fail_count: number;
   idle_health_failures: string[];
+  /** Whether freedom mode is active (lock screen dismissed, no restrictions). */
+  freedom_mode?: boolean;
+  /** Whether the pod screen is blanked (black screen between sessions). */
+  screen_blanked?: boolean;
+  /** Current game state: "idle", "loading", "running", "error". */
+  game_state?: string;
 }
 
 export interface FleetHealthResponse {
