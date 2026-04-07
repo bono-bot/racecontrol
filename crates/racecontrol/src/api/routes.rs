@@ -9377,9 +9377,12 @@ async fn refund_wallet(
 
         // Get new balance after commit
         let new_balance = wallet::get_balance(&state, &driver_id).await.unwrap_or(0);
+        let max_cash = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
         return Json(json!({
             "status": "ok",
-            "new_balance_paise": new_balance,
+            "type": "credit_refund",
+            "new_balance_credits": new_balance,
+            "max_cash_refund": max_cash,
         }));
     }
 
@@ -9395,10 +9398,15 @@ async fn refund_wallet(
     )
     .await
     {
-        Ok(new_balance) => Json(json!({
-            "status": "ok",
-            "new_balance_paise": new_balance,
-        })),
+        Ok(new_balance) => {
+            let max_cash = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
+            Json(json!({
+                "status": "ok",
+                "type": "credit_refund",
+                "new_balance_credits": new_balance,
+                "max_cash_refund": max_cash,
+            }))
+        },
         Err(e) => Json(json!({ "error": e })),
     }
 }
