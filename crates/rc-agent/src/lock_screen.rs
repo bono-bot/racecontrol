@@ -19,6 +19,9 @@ fn hidden_cmd(program: &str) -> std::process::Command {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
+    // FreeConsole() at startup invalidates inherited stdio handles.
+    // Without Null redirection, spawn/output fails with ERROR_INVALID_HANDLE (os error 6).
+    cmd.stdin(std::process::Stdio::null());
     cmd
 }
 
@@ -887,6 +890,11 @@ impl LockScreenManager {
             }
             match std::process::Command::new(edge_path)
                 .args(&args)
+                // FreeConsole() at startup invalidates inherited stdio handles.
+                // Without Null redirection, spawn() fails with ERROR_INVALID_HANDLE (os error 6).
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .spawn()
             {
                 Ok(child) => {
