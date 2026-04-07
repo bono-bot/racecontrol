@@ -862,9 +862,9 @@ Plans:
   3. POST /wallet/{driver_id}/refund differentiates: `{ type: "credit_refund" | "cash_refund", amount, max_allowed }`
   4. GET /wallet/transactions includes `currency_type` per transaction
   5. Same response schema served on all ports (8080 API) — no per-frontend variants
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
-- [ ] 339-01-PLAN.md — WalletInfo serde renames + handler response field updates (topup, webhook, transactions)
+- [x] 339-01-PLAN.md — WalletInfo serde renames + handler response field updates (topup, webhook, transactions)
 - [ ] 339-02-PLAN.md — Cash refund endpoint + credit refund type differentiation
 
 ### Phase 340: Admin Dashboard
@@ -898,7 +898,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
 | 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
-| 339. API Endpoints | 0/TBD | Not Started | — |
+| 339. API Endpoints | 1/2 | In Progress|  |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |
 | 342. Cloud Sync + E2E | 0/TBD | Not Started | — |

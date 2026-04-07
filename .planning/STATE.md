@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: verifying
-stopped_at: Phase 339 context gathered
-last_updated: "2026-04-07T14:50:47.582Z"
+status: executing
+stopped_at: Completed 339-01-PLAN.md
+last_updated: "2026-04-07T15:25:48.773Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 4
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
-**Current focus:** Phase 338 — wallet-core-logic
+**Current focus:** Phase 339 — api-endpoints
 
 ## Current Position
 
-Phase: 338 (wallet-core-logic) — EXECUTING
+Phase: 339 (api-endpoints) — EXECUTING
 Plan: 2 of 2
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-04-07
 
 Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
@@ -70,6 +70,9 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 338]: max_cash_refund computed in get_wallet_info: rupee_deposited - rupee_refunded - total_debited clamped to [0, balance] (D-14)
 - [Phase 338-wallet-core-logic]: cash_refund defaults to method='cash' — Phase 339 API layer extends with actual method param
 - [Phase 338-wallet-core-logic]: TOCTOU-safe: cap check SELECT runs inside tx via &mut *tx, preventing concurrent over-refund
+- [Phase 339]: Serde renames keep Rust _paise fields stable; only JSON output renamed to credits terminology
+- [Phase 339]: transactions_count uses map_err+? for proper error propagation per CLAUDE.md no-unwrap rule
+- [Phase 339]: gateway_topup counted in total_rupee_deposits via starts_with(topup) OR exact match
 
 ### Blockers/Concerns
 
@@ -77,6 +80,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T14:50:47.578Z
-Stopped at: Phase 339 context gathered
-Resume file: .planning/phases/339-api-endpoints/339-CONTEXT.md
+Last session: 2026-04-07T15:25:48.769Z
+Stopped at: Completed 339-01-PLAN.md
+Resume file: None
