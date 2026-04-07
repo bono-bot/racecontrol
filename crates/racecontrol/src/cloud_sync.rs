@@ -1068,6 +1068,68 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
         }
     }
 
+    // Upsert staff_members (cloud admin changes propagate to venue)
+    // Same upsert logic as sync_push handler in routes.rs.
+    if let Some(staff) = body.get("staff_members").and_then(|v| v.as_array()) {
+        for s in staff {
+            let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO staff_members (id, name, phone, pin, is_active, role, created_at, updated_at, last_login_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name, phone = excluded.phone, pin = excluded.pin,
+                    is_active = excluded.is_active, role = excluded.role,
+                    updated_at = excluded.updated_at, last_login_at = excluded.last_login_at",
+            )
+            .bind(id)
+            .bind(s.get("name").and_then(|v| v.as_str()))
+            .bind(s.get("phone").and_then(|v| v.as_str()))
+            .bind(s.get("pin").and_then(|v| v.as_str()))
+            .bind(s.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(s.get("role").and_then(|v| v.as_str()).unwrap_or("staff"))
+            .bind(s.get("created_at").and_then(|v| v.as_str()))
+            .bind(s.get("updated_at").and_then(|v| v.as_str()))
+            .bind(s.get("last_login_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total_upserted += 1; }
+        }
+        if !staff.is_empty() {
+            tracing::info!("Cloud sync pull: {} staff_members", staff.len());
+        }
+    }
+
+    // Upsert billing_rates (admin sets rates on either side, both must see them)
+    if let Some(rates) = body.get("billing_rates").and_then(|v| v.as_array()) {
+        for rate in rates {
+            let id = rate.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO billing_rates (id, tier_name, tier_order, rate_per_min_paise, threshold_minutes, sim_type, is_active)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                    tier_name = excluded.tier_name, tier_order = excluded.tier_order,
+                    rate_per_min_paise = excluded.rate_per_min_paise,
+                    threshold_minutes = excluded.threshold_minutes,
+                    sim_type = excluded.sim_type, is_active = excluded.is_active",
+            )
+            .bind(id)
+            .bind(rate.get("tier_name").and_then(|v| v.as_str()))
+            .bind(rate.get("tier_order").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("rate_per_min_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("threshold_minutes").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("sim_type").and_then(|v| v.as_str()))
+            .bind(rate.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total_upserted += 1; }
+        }
+        if !rates.is_empty() {
+            tracing::info!("Cloud sync pull: {} billing_rates", rates.len());
+        }
+    }
+
     // Update sync timestamp
     let fallback_ts = chrono::Utc::now().to_rfc3339();
     let synced_at = body
