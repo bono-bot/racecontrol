@@ -6,8 +6,8 @@ import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { Video } from "lucide-react";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const SENTRY_BASE = "http://192.168.31.27:8096";
-const SENTRY_WS = "ws://192.168.31.27:8096";
+const SENTRY_BASE = process.env.NEXT_PUBLIC_SENTRY_URL || "http://192.168.31.27:8096";
+const SENTRY_WS = process.env.NEXT_PUBLIC_SENTRY_WS || "ws://192.168.31.27:8096";
 const ZONE_ORDER = ["entrance", "reception", "pods", "other"] as const;
 
 // ── TypeScript interfaces ──────────────────────────────────────────────────────

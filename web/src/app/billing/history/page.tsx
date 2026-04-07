@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import { api, fetchApi } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import type { DailyReport, BillingSessionRecord } from "@/lib/api";
 
@@ -31,23 +30,14 @@ function RefundModal({ session, onClose, onSuccess }: RefundModalProps) {
     setSubmitting(true);
     setError(null);
     try {
-      const token = getToken();
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/billing/${session.id}/refund`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            amount_paise: amount * 100,
-            method,
-            reason: reason.trim(),
-          }),
-        }
-      );
-      const data = await res.json();
+      const data = await fetchApi<{ error?: string }>(`/billing/${session.id}/refund`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount_paise: amount * 100,
+          method,
+          reason: reason.trim(),
+        }),
+      });
       if (data.error) {
         setError(data.error);
       } else {

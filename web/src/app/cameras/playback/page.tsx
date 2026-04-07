@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import Link from "next/link";
 
-const SENTRY_BASE = "http://192.168.31.27:8096";
+const SENTRY_BASE = process.env.NEXT_PUBLIC_SENTRY_URL || "http://192.168.31.27:8096";
 
 interface CameraInfo {
   name: string;

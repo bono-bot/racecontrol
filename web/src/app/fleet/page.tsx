@@ -104,7 +104,7 @@ export default function FleetHealthPage() {
         <EmptyState
           icon={<AlertTriangle className="w-12 h-12" />}
           headline="Fleet health unavailable"
-          hint="Check server connectivity at 192.168.31.23:8080"
+          hint="Check server connectivity — racecontrol API may be down"
         />
       )}
 
