@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",
-    "postbuild": "cp -r .next/static .next/standalone/.next/static 2>/dev/null; if [ -d public ]; then cp -r public .next/standalone/public; fi; echo 'postbuild: static assets copied to standalone'",
+    "postbuild": "cp -r .next/static .next/standalone/.next/static && if [ -d public ]; then cp -r public .next/standalone/public; fi && ls .next/standalone/.next/static/chunks/*.js >/dev/null 2>&1 && echo 'postbuild: static assets verified in standalone' || (echo 'ERROR: postbuild failed — static assets missing from standalone' && exit 1)",
     "start": "next start -p 3100",
     "lint": "eslint"
   },
