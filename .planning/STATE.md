@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-stopped_at: Completed 342-01-PLAN.md
-last_updated: "2026-04-07T16:56:45.203Z"
+stopped_at: Completed 333-01 MP Local Server + Sync Lobby
+last_updated: "2026-04-07T21:04:52.285Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 4
@@ -77,6 +77,8 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 340]: SessionWithCurrency local interface extension for billing history currency_type display
 - [Phase 340]: Cash Refund role-gated via AuthContext isAdmin; Credit Adjustment available to all staff
 - [Phase 342]: Cloud sync columns placed after updated_at before phone/email in push json_object; process_debit_intents confirmed unchanged per D-07
+- [Phase 333]: Direct acs.exe launch for MP eliminates Content Manager dependency entirely
+- [Phase 333]: Lobby sync uses 3s polling of acServer HTTP /INFO endpoint with 120s proceed-anyway timeout
 
 ### Blockers/Concerns
 
@@ -84,6 +86,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T16:54:22.469Z
-Stopped at: Completed 342-01-PLAN.md
+Last session: 2026-04-07T21:04:52.137Z
+Stopped at: Completed 333-01 MP Local Server + Sync Lobby
 Resume file: None
