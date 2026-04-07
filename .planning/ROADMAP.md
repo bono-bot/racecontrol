@@ -17,6 +17,7 @@
 - ✅ **v41.0 Game Intelligence System** — Phases 315-320 (shipped 2026-04-03)
 - ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
+- [ ] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, 13 gaps from VMS analysis)
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
@@ -634,3 +635,145 @@ Plans:
 | 328. AI Self-Audit | 2/2 | Complete    | 2026-04-06 |
 
 *Last updated: 2026-04-06 -- roadmap created*
+
+---
+
+## v44.0 VMS Architecture Integration
+
+**Goal:** Adopt 13 proven patterns from SRL VMS V5.0 — eliminate Edge browser dependency, unify restart authority, add multiplayer infrastructure, and close all operational gaps identified in the VMS gap analysis (2026-04-05).
+
+**Phases:** 8  |  **Coverage:** 13 gaps mapped from systematic customer-journey elimination
+
+**Why:** The Edge browser lock screen has caused 10+ bugs across 6 sessions (Stdio::null, session restore, startup boost, process counting, memory bloat, crash recovery). VMS uses native Win32 windows for blanking — zero browser bugs in 20+ years. Remaining 5 gaps are features VMS has that customers at competing venues expect.
+
+**Dependency graph:**
+```
+329 (Native Win32 Blanking) ──> 330 (On-Track Display + Off-Track Blanking)
+                                         │
+331 (Process Architecture)               │
+                                         v
+332 (mDNS Discovery)           335 (Circuit Viewer)
+         │
+         v
+333 (MP Local Server + Sync Lobby) ──> 334 (Follow-the-Server)
+                                              │
+                                     336 (Deploy Verification + E2E)
+```
+
+### Phases
+
+- [ ] **Phase 329: Native Win32 Lock Screen** — WIN-01, WIN-02, WIN-03, WIN-04, WIN-05
+- [ ] **Phase 330: Native On-Track Display + Off-Track Blanking** — OTD-01, OTD-02, OTD-03, OTD-04
+- [ ] **Phase 331: Process Architecture Cleanup** — PROC-01, PROC-02, PROC-03
+- [ ] **Phase 332: mDNS Auto-Discovery** — MDNS-01, MDNS-02, MDNS-03
+- [ ] **Phase 333: MP Local Server + Sync Lobby** — MP-01, MP-02, MP-03, MP-04
+- [ ] **Phase 334: Follow-the-Server Session Progression** — FTS-01, FTS-02, FTS-03
+- [ ] **Phase 335: Live Circuit Viewer (Spectator)** — CIV-01, CIV-02, CIV-03
+- [ ] **Phase 336: Deploy Verification & E2E Automation** — DVER-01, DVER-02, DVER-03
+
+### Phase 329: Native Win32 Lock Screen
+**Goal**: Replace Edge browser lock screen with a native Win32 window. Blanking, PIN entry, timer, session summary — all rendered via Win32 GDI+/Direct2D. Eliminates Edge dependency entirely.
+**Depends on**: None (foundational)
+**Requirements**: WIN-01, WIN-02, WIN-03, WIN-04, WIN-05
+**Success Criteria** (what must be TRUE):
+  1. Lock screen renders Racing Point branding (logo, red #E10600) on a native Win32 HWND spanning all monitors (7680x1440)
+  2. Edge browser is NOT launched at any point during the lock screen lifecycle
+  3. PIN entry works via native input handling (keyboard events, not DOM)
+  4. Timer display updates every second during active billing session
+  5. Session summary renders post-session stats (duration, laps, best lap)
+  6. Window uses HWND_TOPMOST + SetWindowPos to cover all monitors (same as current Edge --app approach)
+  7. Memory footprint < 20MB (vs Edge ~300MB)
+  8. No Stdio::null issues — native window doesn't inherit console handles
+**Plans**: TBD
+
+### Phase 330: Native On-Track Display + Off-Track Blanking
+**Goal**: Replace Edge-based in-session overlay with native Win32 GDI+ rendering. Add VMS-style off-track blanking (screen shows branding when car goes off-track mid-session).
+**Depends on**: Phase 329 (shares native rendering infrastructure)
+**Requirements**: OTD-01, OTD-02, OTD-03, OTD-04
+**Success Criteria** (what must be TRUE):
+  1. In-session HUD (timer, lap count, position) renders as native Win32 overlay
+  2. Off-track detection triggers via `isValidLap` transition in AC shared memory
+  3. When car goes off-track, blanking screen appears within 500ms showing Racing Point branding
+  4. When car returns to track, blanking hides within 500ms
+  5. Off-track blanking is configurable (enable/disable per session type)
+**Plans**: TBD
+
+### Phase 331: Process Architecture Cleanup
+**Goal**: Adopt VMS patterns — single restart authority (eliminate competing watchdog/sentry/schtask), remove binary rename (rollback_manager), fix Stdio::null at the root.
+**Depends on**: None
+**Requirements**: PROC-01, PROC-02, PROC-03
+**Success Criteria** (what must be TRUE):
+  1. Only ONE restart mechanism active: RCWatchdog service (SCM-style). Schtask and sentry restart paths removed.
+  2. rollback_manager binary rename disabled — single binary, no prev/failed rename
+  3. All Command::new() calls in rc-agent go through a single `spawn_safe()` helper that sets Stdio::null + appropriate creation_flags
+  4. Agent survives 24h uptime through multiple game launch/stop cycles with zero restarts
+**Plans**: TBD
+
+### Phase 332: mDNS Auto-Discovery
+**Goal**: Pods auto-discover the racecontrol server via mDNS (`_racecontrol._tcp.local.`) instead of hardcoded IP in TOML config. Enables zero-config pod setup.
+**Depends on**: None
+**Requirements**: MDNS-01, MDNS-02, MDNS-03
+**Success Criteria** (what must be TRUE):
+  1. Server broadcasts `_racecontrol._tcp.local.` via mDNS on startup
+  2. Pod agent discovers server without `[core] url` in TOML (falls back to TOML if mDNS fails)
+  3. Pod reconnects via mDNS if server IP changes (DHCP environment)
+**Plans**: TBD
+
+### Phase 333: MP Local Server + Sync Lobby
+**Goal**: Multiplayer sessions run a local AC dedicated server (like VMS SimLauncher) instead of Content Manager URI hack. Add synchronized lobby — all pods enter simultaneously, hold until ready, start in sync.
+**Depends on**: None (but benefits from Phase 332 for discovery)
+**Requirements**: MP-01, MP-02, MP-03, MP-04
+**Success Criteria** (what must be TRUE):
+  1. MP launch starts a local `acServer.exe` with generated `server_cfg.ini` + `entry_list.ini`
+  2. Pod clients connect to local server automatically (no CM URI)
+  3. Lobby holds until all assigned pods are connected (120s timeout, proceed-anyway)
+  4. Race start is synchronized across all pods (server controls session start)
+  5. If a pod disconnects mid-race, remaining pods continue (no full restart)
+**Plans**: TBD
+
+### Phase 334: Follow-the-Server Session Progression
+**Goal**: VMS-style automatic session progression — server cycles Practice → Qualifying → Race, kiosk binds to running server, pods auto-join as server advances.
+**Depends on**: Phase 333 (local server infrastructure)
+**Requirements**: FTS-01, FTS-02, FTS-03
+**Success Criteria** (what must be TRUE):
+  1. Staff configures a race weekend (practice + quali + race) in one action
+  2. Server automatically progresses through sessions (time-based or manual trigger)
+  3. Pods that join mid-weekend enter the current session (not restart from practice)
+  4. Session transition is visible on spectator display and dashboard
+**Plans**: TBD
+
+### Phase 335: Live Circuit Viewer (Spectator)
+**Goal**: Real-time car positions on a track map for lobby TVs / spectator displays. SVG-based rendering using normalized spline position from AC shared memory.
+**Depends on**: Phase 330 (off-track detection provides car position data)
+**Requirements**: CIV-01, CIV-02, CIV-03
+**Success Criteria** (what must be TRUE):
+  1. Web page at `/spectator/circuit` shows track outline with live car dots
+  2. Car positions update at 10Hz from AC telemetry via WebSocket
+  3. Works for all installed tracks (SVG generated from AC track data)
+  4. Displays on spectator TV (192.168.31.200) via Edge kiosk
+**Plans**: TBD
+
+### Phase 336: Deploy Verification & E2E Automation
+**Goal**: Automated post-deploy verification that checks blanking, game launch, and billing E2E — not just build_id. Plus automated deploy parity enforcement across all targets.
+**Depends on**: Phase 329 (native blanking changes verification approach)
+**Requirements**: DVER-01, DVER-02, DVER-03
+**Success Criteria** (what must be TRUE):
+  1. Post-deploy script checks: blanking active (edge/win32 count > 0), screenshot non-black, build_id matches, WS connected, Session 1
+  2. Deploy parity enforced: script checks Server + all 8 pods + POS + Cloud + comms-link builds and warns on drift
+  3. E2E test script: creates test billing session, launches game, verifies AC process alive + screenshot shows game, stops session, verifies refund — all automated
+**Plans**: TBD
+
+### Progress Table (v44.0)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 329. Native Win32 Lock Screen | 0/TBD | Not Started | — |
+| 330. On-Track Display + Off-Track Blanking | 0/TBD | Not Started | — |
+| 331. Process Architecture Cleanup | 0/TBD | Not Started | — |
+| 332. mDNS Auto-Discovery | 0/TBD | Not Started | — |
+| 333. MP Local Server + Sync Lobby | 0/TBD | Not Started | — |
+| 334. Follow-the-Server | 0/TBD | Not Started | — |
+| 335. Live Circuit Viewer | 0/TBD | Not Started | — |
+| 336. Deploy Verification & E2E | 0/TBD | Not Started | — |
+
+*Created: 2026-04-07 — from VMS gap analysis (13 items, systematic customer-journey elimination)*
