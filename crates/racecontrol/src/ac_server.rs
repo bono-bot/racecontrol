@@ -613,6 +613,7 @@ pub async fn start_ac_server(
             "track_config": &config.track_config,
             "game_mode": "multi",
             "server_ip": &lan_ip,
+            "server_port": config.udp_port,  // v44.0: was missing — clients can't connect without UDP port
             "server_http_port": config.http_port,
             "server_password": &config.password,
             "session_type": "race",
@@ -849,6 +850,7 @@ pub async fn retry_pod_join(
         "track_config": &config.track_config,
         "game_mode": "multi",
         "server_ip": &lan_ip,
+        "server_port": config.udp_port,  // v44.0: was missing — clients can't connect without UDP port
         "server_http_port": config.http_port,
         "server_password": &config.password,
         "session_type": "race",

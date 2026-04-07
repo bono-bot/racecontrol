@@ -521,9 +521,12 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         // directly with Command::new("acs.exe") + DETACHED_PROCESS.
         //
         // For MP, we still need the bat because it handles Content Manager URI launching.
-        let use_direct_launch = !is_mp;
+        // v44.0 Phase 333: ALL modes use direct acs.exe launch (SP and MP).
+        // MP previously used Content Manager URI via bat — fragile, caused CTRL_CLOSE_EVENT.
+        // Direct launch with [REMOTE] section in race.ini auto-connects to local AC server.
+        let use_direct_launch = true;
         if use_direct_launch {
-            tracing::info!(target: LOG_TARGET, "SP direct launch: spawning acs.exe without bat (console isolation)");
+            tracing::info!(target: LOG_TARGET, "Direct launch: spawning acs.exe (console isolation, mode={})", if is_mp { "MP" } else { "SP" });
             // Kill any existing AC processes first
             {
                 let mut kill1 = spawn_safe("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
@@ -533,6 +536,15 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
+        // VMS pattern: write steam_appid.txt = 480 (Spacewar) in AC directory.
+        // This makes acs.exe appear as the Spacewar app to Steam, preventing:
+        // - "Playing Assetto Corsa" status on Steam friends
+        // - Steam overlay activation during kiosk sessions
+        // - Aggressive Steam DRM checks on launch
+        if let Err(e) = std::fs::write(ac_dir.join("steam_appid.txt"), "480\n") {
+            tracing::warn!(target: LOG_TARGET, "Failed to write steam_appid.txt: {} (non-fatal)", e);
+        }
+
         let spawn_result = if use_direct_launch {
             // Direct acs.exe launch with DETACHED_PROCESS — no console inheritance.
             // FreeConsole() at startup ensures rc-agent has no console to inherit.
