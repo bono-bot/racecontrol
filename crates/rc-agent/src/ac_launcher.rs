@@ -589,13 +589,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     }
 
     // Step 3: Launch AC
-    // - Multiplayer: use Content Manager (handles server join handshake via acmanager:// URI)
-    // - Single-player: launch acs.exe directly (race.ini already written above)
-    //   CM is NOT used for SP because:
-    //   1. CM's --race flag doesn't exist (silently ignored, just opens CM GUI)
-    //   2. acmanager://race/config fails with "Settings are not specified"
-    //      unless CM's Quick Drive preset was configured on the pod
-    //   3. Direct acs.exe reads our pre-written race.ini; CSP loads via DLL hook regardless
+    // v44.0 Phase 333: Both SP and MP use direct acs.exe launch.
+    // MP connects to local AC server via race.ini [REMOTE] section.
+    // Content Manager is no longer used for any launch mode.
     let mut cm_error: Option<String> = None;
     let mut diag = LaunchDiagnostics::default();
 
@@ -1637,6 +1633,8 @@ fn verify_safety_settings() -> Result<()> {
 
 /// Find Content Manager executable on the pod.
 /// Checks common install locations used on our pods.
+/// DEPRECATED (v44.0 Phase 333): CM no longer used for launches.
+#[allow(dead_code)]
 fn find_cm_exe() -> Option<std::path::PathBuf> {
     let candidates = [
         r"C:\Users\User\Desktop\Content Manager.exe",
@@ -1656,43 +1654,42 @@ fn find_cm_exe() -> Option<std::path::PathBuf> {
     None
 }
 
-/// Launch AC via Content Manager's acmanager:// URI protocol.
-/// For single-player: `acmanager://race/config` (uses current race.ini)
-/// Direct launch fallback when launch-ac.bat is missing or fails.
-/// Handles both SP (direct acs.exe) and MP (CM URI → direct acs.exe).
+/// Direct launch fallback when the primary launch path fails.
+/// v44.0 Phase 333: Always uses direct acs.exe launch for both SP and MP.
+/// Content Manager is no longer used — race.ini [REMOTE] section handles MP connection.
 fn direct_launch_fallback(
     ac_dir: &std::path::Path,
-    is_mp: bool,
-    params: &AcLaunchParams,
-    cm_error: &mut Option<String>,
+    _is_mp: bool,
+    _params: &AcLaunchParams,
+    _cm_error: &mut Option<String>,
     diag: &mut LaunchDiagnostics,
 ) -> Result<u32> {
-    if is_mp {
-        diag.cm_attempted = true;
-        if find_cm_exe().is_some() {
-            tracing::info!(target: LOG_TARGET, "Launching multiplayer via Content Manager...");
-            launch_via_cm(params)?;
-            match wait_for_ac_process(30) {
-                Ok(pid) => return Ok(pid),
-                Err(e) => {
-                    let cm_diag = diagnose_cm_failure();
-                    *cm_error = Some(format!("CM failed: {}. {}", e, cm_diag));
-                    diag.cm_log_errors = read_cm_log_errors();
-                    diag.cm_exit_code = get_cm_exit_code();
-                    diag.fallback_used = true;
-                    tracing::warn!(target: LOG_TARGET, "CM failed — falling back to direct acs.exe for MP");
-                }
-            }
-        }
+    diag.fallback_used = true;
+    tracing::info!(target: LOG_TARGET, "Direct launch fallback: spawning acs.exe (race.ini already written)");
+
+    // Kill any lingering AC processes before launching
+    {
+        let mut kill1 = spawn_safe("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
+        let mut kill2 = spawn_safe("taskkill"); kill2.args(&["/F", "/IM", "AssettoCorsa.exe"]);
+        let _ = kill1.spawn().and_then(|mut c| c.wait());
+        let _ = kill2.spawn().and_then(|mut c| c.wait());
     }
-    // Direct acs.exe launch (SP, or MP after CM failure)
-    // BUG FIX: FreeConsole() invalidates stdio handles — must use Stdio::null()
-    let child = Command::new(ac_dir.join("acs.exe"))
-        .current_dir(ac_dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Direct acs.exe launch with DETACHED_PROCESS — same pattern as primary path
+    let mut acs_cmd = Command::new(ac_dir.join("acs.exe"));
+    acs_cmd.current_dir(ac_dir);
+    acs_cmd.stdin(std::process::Stdio::null());
+    acs_cmd.stdout(std::process::Stdio::null());
+    acs_cmd.stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        acs_cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+    let child = acs_cmd.spawn()
         .map_err(|e| anyhow::anyhow!("Failed to launch acs.exe: {}", e))?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     Ok(find_acs_pid().unwrap_or(child.id()))
@@ -1703,6 +1700,8 @@ fn direct_launch_fallback(
 /// SECURITY: All URI components are sanitized to prevent command injection.
 /// Shell metacharacters (&|;<>`"') in server_ip/password would escape the URI
 /// and execute arbitrary commands via `cmd /c start`.
+/// DEPRECATED (v44.0 Phase 333): CM no longer used for launches.
+#[allow(dead_code)]
 fn launch_via_cm(params: &AcLaunchParams) -> Result<()> {
     let uri = if params.game_mode == "multi" {
         // Sanitize: reject shell metacharacters that could escape URI context in cmd.exe
@@ -1844,6 +1843,8 @@ fn find_acs_pid() -> Option<u32> {
 
 /// Diagnose why Content Manager failed to launch AC.
 /// Checks: CM process state, CM log files, error dialog windows.
+/// DEPRECATED (v44.0 Phase 333): CM no longer used for launches.
+#[allow(dead_code)]
 fn diagnose_cm_failure() -> String {
     let mut findings = Vec::new();
 
@@ -1871,6 +1872,8 @@ fn diagnose_cm_failure() -> String {
 
 /// Get CM process exit code (if it has exited).
 /// Returns Some(-1) if CM exited (code unknown via tasklist), None if still running.
+/// DEPRECATED (v44.0 Phase 333): CM no longer used for launches.
+#[allow(dead_code)]
 fn get_cm_exit_code() -> Option<i32> {
     let output = spawn_safe_capture("tasklist")
         .args(["/FI", "IMAGENAME eq Content Manager.exe", "/FO", "CSV", "/NH"])
@@ -1906,6 +1909,8 @@ fn check_cm_process() -> Option<String> {
 
 /// Read Content Manager log files for recent error messages.
 /// CM stores logs in its data directory (next to exe) or %LOCALAPPDATA%.
+/// DEPRECATED (v44.0 Phase 333): CM no longer used for launches.
+#[allow(dead_code)]
 fn read_cm_log_errors() -> Option<String> {
     let log_paths = build_cm_log_paths();
 
