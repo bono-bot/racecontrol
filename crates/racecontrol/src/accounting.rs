@@ -548,6 +548,49 @@ pub async fn post_refund(
     }
 }
 
+/// Post journal entry for a cash refund (real money returned to customer).
+/// REVERSE of post_topup: Dr. Customer Wallet (liability decreases) | Cr. Cash/Bank (asset decreases)
+/// Per D-12: cash refund -> Dr. acc_wallet Cr. acc_cash/acc_bank
+pub async fn post_cash_refund(
+    state: &Arc<AppState>,
+    driver_id: &str,
+    amount_paise: i64,
+    method: &str,
+    staff_id: Option<&str>,
+    txn_id: Option<&str>,
+) {
+    // Determine which asset account the cash leaves from
+    let asset_account = match method {
+        "cash" => "acc_cash",
+        "bank" | "card" | "upi" | "online" => "acc_bank",
+        _ => "acc_cash",
+    };
+
+    let desc = format!("Cash refund ({}) for driver {}", method, driver_id);
+    if let Err(e) = post_journal_entry(
+        state,
+        &desc,
+        Some("wallet_transaction"),
+        txn_id,
+        staff_id,
+        &[
+            JournalLine {
+                account_id: "acc_wallet".to_string(),
+                debit_paise: amount_paise,
+                credit_paise: 0,
+            },
+            JournalLine {
+                account_id: asset_account.to_string(),
+                debit_paise: 0,
+                credit_paise: amount_paise,
+            },
+        ],
+    )
+    .await {
+        tracing::error!("journal entry failed: {}", e);
+    }
+}
+
 // ─── Financial Reports ──────────────────────────────────────────────────────
 
 /// Trial balance: sum of all debits and credits per account.
