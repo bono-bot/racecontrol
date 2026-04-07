@@ -79,7 +79,7 @@ export default function DriversPage() {
                 <div className="bg-rp-card/50 rounded px-2 py-1.5">
                   <div className="text-rp-grey">Wallet</div>
                   <div className="text-neutral-300 font-mono">
-                    {"\u20B9"}{Math.floor((driver.wallet_balance_paise ?? 0) / 100)}
+                    {Math.floor((driver.wallet_balance_paise ?? 0) / 100)} credits
                   </div>
                 </div>
               </div>
