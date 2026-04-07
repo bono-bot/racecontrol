@@ -92,3 +92,17 @@ done
 
 echo ""
 echo "=== Deploy complete ==="
+
+# Post-deploy enhanced verification
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo ""
+echo "=== Running post-deploy verification ==="
+bash "${SCRIPT_DIR}/verify-deploy.sh" "${GIT_HASH}" || {
+  echo "WARNING: Post-deploy verification found issues (see above)"
+}
+
+echo ""
+echo "=== Running fleet parity check ==="
+bash "${SCRIPT_DIR}/verify-parity.sh" "${GIT_HASH}" || {
+  echo "WARNING: Fleet parity check found mismatches (see above)"
+}

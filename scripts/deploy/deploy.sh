@@ -25,6 +25,24 @@ run_health_check() {
   }
 }
 
+run_verify_deploy() {
+  local expected_id="${1:-}"
+  echo ""
+  echo "--- Post-deploy verification (blanking, session, screenshot) ---"
+  bash "${SCRIPT_DIR}/verify-deploy.sh" "$expected_id" || {
+    echo "WARNING: Post-deploy verification found issues (see above)"
+    # Non-fatal — health check already passed, these are enhanced checks
+  }
+}
+
+run_verify_parity() {
+  echo ""
+  echo "--- Fleet parity check ---"
+  bash "${SCRIPT_DIR}/verify-parity.sh" || {
+    echo "WARNING: Fleet parity check found mismatches (see above)"
+  }
+}
+
 case "$SERVICE" in
   racecontrol)
     echo "=== Deploying racecontrol to server ${SERVER} ==="
@@ -43,6 +61,7 @@ case "$SERVICE" in
     ssh "ADMIN@${SERVER}" "cd /d C:\\RacingPoint && del racecontrol-old.exe 2>nul & ren racecontrol.exe racecontrol-old.exe & ren racecontrol-new.exe racecontrol.exe & taskkill /F /IM racecontrol.exe & schtasks /Run /TN StartRCTemp"
     sleep 5
     run_health_check
+    run_verify_parity
     ;;
   kiosk)
     echo "=== Deploying kiosk on server ${SERVER} ==="
@@ -112,6 +131,8 @@ case "$SERVICE" in
     kill $HTTP_PID 2>/dev/null
     sleep 5
     run_health_check
+    run_verify_deploy
+    run_verify_parity
     ;;
   cloud)
     echo "=== Deploying racecontrol to Cloud (Bono VPS) ==="
