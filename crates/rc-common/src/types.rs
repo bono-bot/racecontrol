@@ -781,6 +781,10 @@ pub struct WalletInfo {
     pub balance_paise: i64,
     pub total_credited_paise: i64,
     pub total_debited_paise: i64,
+    pub rupee_deposited_paise: i64,
+    pub rupee_refunded_paise: i64,
+    pub bonus_credited_paise: i64,
+    pub max_cash_refund: i64,  // computed, not stored (per D-19)
     pub updated_at: Option<String>,
 }
 
@@ -794,6 +798,7 @@ pub struct WalletTransaction {
     pub reference_id: Option<String>,
     pub notes: Option<String>,
     pub staff_id: Option<String>,
+    pub currency_type: String,  // 'rupee' or 'credit' (per D-04, D-06, D-21)
     pub created_at: String,
 }
 
