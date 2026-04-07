@@ -716,7 +716,7 @@ Plans:
 
 Plans:
 - [ ] 331-01-PLAN.md — Create spawn_safe() helper in rc-common and migrate all 76 Command::new call sites
-- [ ] 331-02-PLAN.md — Single restart authority: remove binary rename, clean sentry dead code
+- [x] 331-02-PLAN.md — Single restart authority: remove binary rename, clean sentry dead code
 
 ### Phase 332: mDNS Auto-Discovery
 **Goal**: Pods auto-discover the racecontrol server via mDNS (`_racecontrol._tcp.local.`) instead of hardcoded IP in TOML config. Enables zero-config pod setup.
@@ -778,7 +778,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 329. Native Win32 Lock Screen | 0/TBD | Not Started | — |
 | 330. On-Track Display + Off-Track Blanking | 0/TBD | Not Started | — |
-| 331. Process Architecture Cleanup | 0/TBD | Not Started | — |
+| 331. Process Architecture Cleanup | 1/2 | In Progress | 331-02 done |
 | 332. mDNS Auto-Discovery | 0/TBD | Not Started | — |
 | 333. MP Local Server + Sync Lobby | 0/TBD | Not Started | — |
 | 334. Follow-the-Server | 0/TBD | Not Started | — |
