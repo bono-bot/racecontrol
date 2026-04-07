@@ -221,6 +221,10 @@ pub struct TelemetryFrame {
     /// Used for circuit viewer display and off-track detection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalized_car_position: Option<f32>,
+
+    /// Whether car is in pit box or pit lane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_in_pit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

@@ -547,6 +547,7 @@ impl SimAdapter for F125Adapter {
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::F125),
             normalized_car_position: None, // F1 25 uses lap distance, not normalized position
+            is_in_pit: None,
         }))
     }
 

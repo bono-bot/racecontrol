@@ -309,6 +309,12 @@ pub struct AppState {
     /// Key: "{pod_id}:{sim_type:?}". Resets on success or 10-min window expiry.
     /// Never held across .await — clone/snapshot before async work.
     pub chain_failure_tracker: RwLock<HashMap<String, ChainFailureState>>,
+    /// Phase 334: Race weekend session progression manager.
+    /// Tracks active weekends (Practice → Qualifying → Race) with background polling.
+    pub weekend: crate::weekend::WeekendManager,
+    /// Phase 335: Track outline cache for spectator circuit viewer.
+    /// Parsed from AC fast_lane.ai files, normalized to 0-1 range.
+    pub track_outlines: crate::track_outline::TrackOutlineCache,
 }
 
 impl AppState {
@@ -400,6 +406,10 @@ impl AppState {
             // Phase 307: Initialized to GENESIS; main.rs loads actual last hash from DB after init_db()
             audit_last_hash: std::sync::Mutex::new("GENESIS".to_string()),
             chain_failure_tracker: RwLock::new(HashMap::new()),
+            weekend: crate::weekend::WeekendManager::new(),
+            track_outlines: crate::track_outline::TrackOutlineCache::new(
+                std::path::PathBuf::from("data/track_outlines")
+            ),
         }
     }
 

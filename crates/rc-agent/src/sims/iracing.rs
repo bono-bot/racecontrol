@@ -737,6 +737,7 @@ impl SimAdapter for IracingAdapter {
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::IRacing),
             normalized_car_position: None, // TODO: read from iRacing telemetry when available
+            is_in_pit: None,
         };
 
         let _ = is_on_track; // used via read_is_on_track_from_shm in trait method

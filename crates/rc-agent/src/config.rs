@@ -576,6 +576,7 @@ mod tests {
             ac_evo_telemetry_enabled: false,
             mma: MmaConfig::default(),
             launch_timeout: rc_common::types::LaunchTimeoutConfig::default(),
+            off_track_blanking_enabled: true,
         }
     }
 

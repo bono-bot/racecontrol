@@ -381,6 +381,13 @@ pub struct AgentConfig {
     /// `#[serde(default)]` ensures backward compatibility with agents that lack this field.
     #[serde(default)]
     pub launch_timeout: LaunchTimeoutConfig,
+    /// Phase 330: Off-track blanking overlay enabled.
+    #[serde(default = "default_off_track_blanking_enabled")]
+    pub off_track_blanking_enabled: bool,
+}
+
+fn default_off_track_blanking_enabled() -> bool {
+    true
 }
 
 impl Default for AgentConfig {
@@ -401,6 +408,7 @@ impl Default for AgentConfig {
             ac_evo_telemetry_enabled: false,
             mma: MmaConfig::default(),
             launch_timeout: LaunchTimeoutConfig::default(),
+            off_track_blanking_enabled: default_off_track_blanking_enabled(),
         }
     }
 }

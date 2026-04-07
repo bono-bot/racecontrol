@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 const LOG_TARGET: &str = "off-track";
 
 /// Debounce: how long the off-track signal must persist before triggering overlay.
-const DEBOUNCE_ON: Duration = Duration::from_millis(1000);
+/// 300ms debounce + 200ms telemetry poll = ~500ms total response time.
+const DEBOUNCE_ON: Duration = Duration::from_millis(300);
 /// Debounce: how long the on-track signal must persist before hiding overlay.
 const DEBOUNCE_OFF: Duration = Duration::from_millis(500);
 
@@ -41,16 +42,30 @@ impl OffTrackDetector {
         }
     }
 
-    /// Update with new telemetry data. Returns true if the overlay state changed.
+    /// Update with new telemetry data. Returns the overlay state change.
     /// `current_lap_invalid`: from AC shared memory graphics (isValidLap field).
-    /// `speed_kmh`: current car speed (used to filter out pit stops / stationary cuts).
-    pub fn update(&mut self, current_lap_invalid: bool, speed_kmh: f32) -> OverlayChange {
+    /// `speed_kmh`: current car speed (used to filter out stationary cuts).
+    /// `is_in_pit`: true when car is in pit box/pit lane -- suppresses off-track blanking.
+    pub fn update(&mut self, current_lap_invalid: bool, speed_kmh: f32, is_in_pit: bool) -> OverlayChange {
         if !self.enabled {
             return OverlayChange::NoChange;
         }
 
-        // Detect transition from valid → invalid lap (off-track cut detected by AC)
-        // Only trigger if car is moving (>5 km/h) — ignore pit lane invalid flags
+        // Suppress off-track blanking during pit stops
+        if is_in_pit {
+            if self.overlay_active {
+                self.overlay_active = false;
+                self.raw_off_track = false;
+                self.prev_lap_invalid = current_lap_invalid;
+                tracing::info!(target: LOG_TARGET, "Off-track overlay HIDDEN (car entered pit)");
+                return OverlayChange::Hide;
+            }
+            self.prev_lap_invalid = current_lap_invalid;
+            return OverlayChange::NoChange;
+        }
+
+        // Detect transition from valid to invalid lap (off-track cut detected by AC)
+        // Only trigger if car is moving (>5 km/h)
         let off_track_signal = current_lap_invalid && !self.prev_lap_invalid && speed_kmh > 5.0;
         let on_track_signal = !current_lap_invalid && self.prev_lap_invalid;
 
@@ -127,24 +142,38 @@ mod tests {
     #[test]
     fn test_no_trigger_when_disabled() {
         let mut detector = OffTrackDetector::new(false);
-        assert_eq!(detector.update(true, 100.0), OverlayChange::NoChange);
+        assert_eq!(detector.update(true, 100.0, false), OverlayChange::NoChange);
     }
 
     #[test]
     fn test_no_trigger_at_low_speed() {
         let mut detector = OffTrackDetector::new(true);
-        // First call with valid lap, then invalid at low speed
-        detector.update(false, 3.0);
-        assert_eq!(detector.update(true, 3.0), OverlayChange::NoChange);
+        detector.update(false, 3.0, false);
+        assert_eq!(detector.update(true, 3.0, false), OverlayChange::NoChange);
     }
 
     #[test]
     fn test_debounce_prevents_immediate_trigger() {
         let mut detector = OffTrackDetector::new(true);
-        // Transition from valid to invalid
-        detector.update(false, 100.0);
-        let result = detector.update(true, 100.0);
-        // Should not trigger immediately (debounce not elapsed)
+        detector.update(false, 100.0, false);
+        let result = detector.update(true, 100.0, false);
         assert_eq!(result, OverlayChange::NoChange);
+    }
+
+    #[test]
+    fn test_no_trigger_in_pit() {
+        let mut detector = OffTrackDetector::new(true);
+        detector.update(false, 100.0, false);
+        assert_eq!(detector.update(true, 100.0, true), OverlayChange::NoChange);
+    }
+
+    #[test]
+    fn test_pit_hides_active_overlay() {
+        let mut detector = OffTrackDetector::new(true);
+        detector.update(false, 100.0, false);
+        detector.update(true, 100.0, false);
+        detector.overlay_active = true;
+        detector.raw_off_track = true;
+        assert_eq!(detector.update(true, 60.0, true), OverlayChange::Hide);
     }
 }

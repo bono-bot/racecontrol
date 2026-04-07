@@ -774,6 +774,7 @@ impl SimAdapter for LmuAdapter {
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::LeMansUltimate),
             normalized_car_position: None, // TODO: read from rF2 shared memory when available
+            is_in_pit: None,
         };
 
         Ok(Some(frame))

@@ -67,6 +67,7 @@ mod iracing_checks;
 mod steam_checks;
 mod launch_verifier;
 mod mdns_discovery;
+mod off_track_blanking;
 mod off_track_detector;
 mod udp_heartbeat;
 
@@ -1704,6 +1705,7 @@ async fn main() -> Result<()> {
     // ─── Bundle pre-loop state into AppState ────────────────────────────────
     let (guard_violation_tx, guard_violation_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(32);
     let guard_whitelist = std::sync::Arc::new(RwLock::new(fetched_whitelist));
+    let off_track_enabled = config.off_track_blanking_enabled;
     let mut state = AppState {
         pod_id,
         pod_info,
@@ -1757,6 +1759,8 @@ async fn main() -> Result<()> {
         // SEC-10: Mutex serializing LaunchGame and clean_state_reset.
         // Lives in AppState to survive WS reconnections (mutex state must persist across reconnects).
         game_launch_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
+        off_track_detector: off_track_detector::OffTrackDetector::new(off_track_enabled),
+        off_track_blanking: off_track_blanking::OffTrackBlanking::new(),
         // Phase 306: JWT fields — start with no JWT (first connect uses PSK bootstrap)
         current_jwt: None,
         jwt_expires_at: None,

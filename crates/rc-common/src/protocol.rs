@@ -1135,6 +1135,16 @@ pub enum DashboardEvent {
     /// AC server state changed (started, running, stopped, error)
     AcServerUpdate(AcServerInfo),
 
+    /// Phase 334: Race weekend session progression update
+    WeekendUpdate {
+        weekend_id: String,
+        phase: String,
+        track: String,
+        car_class: String,
+        connected_pods: usize,
+        total_pods: usize,
+    },
+
     /// AC preset loaded (response to LoadAcPreset command)
     AcPresetLoaded {
         preset_id: String,

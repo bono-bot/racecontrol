@@ -307,6 +307,9 @@ impl AssettoCorsaAdapter {
         let ac_status = Self::read_i32(handle, 16);
         if ac_status == 0 { return Ok(None); } // AC_OFF — nothing to report
 
+        let is_in_pit = Self::read_i32(handle, 28) != 0;
+        let is_in_pit_lane = Self::read_i32(handle, 32) != 0;
+
         let speed_kmh = Self::read_f32(handle, 312);
         let rpm = Self::read_i32(handle, 316) as u32;
         let raw_gear = Self::read_i32(handle, 320);
@@ -394,6 +397,7 @@ impl AssettoCorsaAdapter {
             } else {
                 None
             },
+            is_in_pit: Some(is_in_pit || is_in_pit_lane),
         }))
     }
 
@@ -596,6 +600,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         let last_sector_time = read_i32_buf(&graphics_buf, graphics::LAST_SECTOR_TIME);
         let is_valid = read_i32_buf(&graphics_buf, graphics::IS_VALID_LAP);
         let normalized_car_position = read_f32_buf(&graphics_buf, graphics::NORMALIZED_CAR_POSITION);
+        let is_in_pit_direct = read_i32_buf(&graphics_buf, graphics::IS_IN_PIT) != 0;
 
         // Track sector transitions to accumulate split times
         if current_sector != self.last_sector_index && last_sector_time > 0 {
@@ -683,6 +688,7 @@ impl SimAdapter for AssettoCorsaAdapter {
             } else {
                 None
             },
+            is_in_pit: Some(is_in_pit_direct),
         }))
     }
 

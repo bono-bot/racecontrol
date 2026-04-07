@@ -19,6 +19,8 @@ use crate::tier_engine;
 use crate::udp_heartbeat;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{AcStatus, AiDebugSuggestion, PodInfo, SimType};
+use crate::off_track_blanking::OffTrackBlanking;
+use crate::off_track_detector::OffTrackDetector;
 use crate::sims::SimAdapter;
 
 /// All long-lived agent state that survives WebSocket reconnections.
@@ -105,6 +107,8 @@ pub struct AppState {
     /// a second LaunchGame command can proceed. Prevents race: game launched while
     /// old processes are still being killed, leaving two game instances competing.
     pub(crate) game_launch_mutex: Arc<Mutex<()>>,
+    pub(crate) off_track_detector: OffTrackDetector,
+    pub(crate) off_track_blanking: OffTrackBlanking,
     /// Phase 306: JWT token received from server after PSK bootstrap.
     /// Used for subsequent WS reconnections. Cleared on 401 rejection.
     pub(crate) current_jwt: Option<String>,

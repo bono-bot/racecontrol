@@ -43,6 +43,7 @@ use crate::pod_reservation;
 use crate::reservation;
 use crate::scheduler;
 use crate::wallet;
+use crate::weekend;
 use crate::maintenance_store;
 use crate::state::{AppState, VenueConfigSnapshot};
 use crate::venue_shutdown;
@@ -171,6 +172,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/presets/{id}", get(preset_library::get_preset))
         // Phase 320 INV-03: Per-pod game inventory — public (kiosk fetches without JWT)
         .route("/fleet/pod-inventory/{pod_id}", get(pod_inventory_handler))
+        // Phase 335: Spectator circuit viewer — public (TV display, no auth)
+        .route("/spectator/tracks", get(spectator_list_tracks))
+        .route("/spectator/track/{track_id}", get(spectator_get_track))
+        .route("/spectator/positions", get(spectator_get_positions))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -439,6 +444,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/ac/session/update-config", post(ac_session_update_config))
         .route("/ac/content/tracks", get(list_ac_tracks))
         .route("/ac/content/cars", get(list_ac_cars))
+        // Phase 334: Race weekend session progression
+        .route("/games/weekend", post(create_weekend).get(list_active_weekends))
+        .route("/games/weekend/{id}/status", get(get_weekend_status))
+        .route("/games/weekend/{id}/stop", post(stop_weekend))
         // Auth (staff-facing)
         .route("/auth/assign", post(assign_customer))
         .route("/auth/cancel/{id}", post(cancel_assignment))
@@ -6449,6 +6458,58 @@ async fn ac_session_leaderboard(
             }))
         }
         Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+// ─── Phase 334: Race Weekend Session Progression ──────────────────────────
+
+/// POST /games/weekend — Create a multi-session weekend (practice + qualifying + race).
+async fn create_weekend(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<weekend::CreateWeekendRequest>,
+) -> Json<Value> {
+    match weekend::create_weekend(&state, body).await {
+        Ok(summary) => Json(json!({
+            "status": "ok",
+            "weekend_id": summary.weekend_id,
+            "ac_session_id": summary.ac_session_id,
+            "phase": summary.phase,
+            "track": summary.track,
+            "car_class": summary.car_class,
+            "pod_ids": summary.pod_ids,
+            "practice_minutes": summary.practice_minutes,
+            "quali_minutes": summary.quali_minutes,
+            "race_laps": summary.race_laps,
+        })),
+        Err(e) => Json(json!({ "error": e })),
+    }
+}
+
+/// GET /games/weekend — List all active (non-finished) weekends.
+async fn list_active_weekends(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let weekends = weekend::list_active_weekends(&state).await;
+    Json(json!({ "weekends": weekends }))
+}
+
+/// GET /games/weekend/{id}/status — Get status of a specific weekend.
+async fn get_weekend_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match weekend::get_weekend_status(&state, &id).await {
+        Some(status) => Json(json!({ "status": status })),
+        None => Json(json!({ "error": "Weekend not found" })),
+    }
+}
+
+/// POST /games/weekend/{id}/stop — Stop a weekend early.
+async fn stop_weekend(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    match weekend::stop_weekend(&state, &id).await {
+        Ok(()) => Json(json!({ "ok": true })),
+        Err(e) => Json(json!({ "error": e })),
     }
 }
 
@@ -19739,6 +19800,88 @@ async fn delete_kiosk_allowlist_entry(
             axum::http::StatusCode::INTERNAL_SERVER_ERROR
         }
     }
+}
+
+// ─── Phase 335: Spectator Circuit Viewer Endpoints ───────────────────────────
+
+/// GET /api/v1/spectator/tracks — list all available track outlines
+async fn spectator_list_tracks(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let outlines = state.track_outlines.list();
+    let summary: Vec<Value> = outlines
+        .iter()
+        .map(|o| {
+            json!({
+                "track_id": o.track_id,
+                "config": o.config,
+                "point_count": o.points.len(),
+                "original_point_count": o.original_point_count,
+            })
+        })
+        .collect();
+    Json(json!({ "tracks": summary, "count": summary.len() }))
+}
+
+/// GET /api/v1/spectator/track/{track_id} — get track outline (normalized points)
+async fn spectator_get_track(
+    State(state): State<Arc<AppState>>,
+    Path(track_id): Path<String>,
+    Query(params): Query<SpectatorTrackQuery>,
+) -> impl IntoResponse {
+    let config = params.config.as_deref().unwrap_or("");
+    match state.track_outlines.get(&track_id, config) {
+        Some(outline) => (StatusCode::OK, Json(json!(outline))),
+        None => (StatusCode::NOT_FOUND, Json(json!({
+            "error": "track_not_found",
+            "track_id": track_id,
+        }))),
+    }
+}
+
+#[derive(Deserialize)]
+struct SpectatorTrackQuery {
+    config: Option<String>,
+}
+
+/// GET /api/v1/spectator/positions — current car positions from live telemetry
+async fn spectator_get_positions(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Snapshot pods + telemetry from in-memory state
+    let pods = {
+        let guard = state.pods.read().await;
+        guard.clone()
+    };
+
+    let mut positions: Vec<Value> = Vec::new();
+
+    // Build positions from pods that have active games with telemetry
+    for (pod_id, pod) in &pods {
+        // Only include pods that are in a session
+        if pod.status != PodStatus::InSession {
+            continue;
+        }
+
+        // Look up latest telemetry from the dashboard broadcast state
+        // We'll collect what we can from pod info
+        let driver_name = pod.current_driver.clone().unwrap_or_default();
+
+        positions.push(json!({
+            "pod_id": pod_id,
+            "pod_number": pod.number,
+            "driver_name": driver_name,
+            "track": pod.current_game.as_ref().map(|g| format!("{:?}", g)).unwrap_or_default(),
+            "sim_type": format!("{:?}", pod.sim_type),
+            "status": format!("{:?}", pod.status),
+        }));
+    }
+
+    Json(json!({
+        "positions": positions,
+        "count": positions.len(),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    }))
 }
 
 #[cfg(test)]
