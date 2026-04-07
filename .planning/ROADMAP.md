@@ -875,6 +875,11 @@ Plans:
   3. Cash refund button shows max refundable amount and requires confirmation
   4. Credit adjustment button (admin adds/removes credits manually with reason)
   5. Dashboard accessible at `192.168.31.23:3201/billing/reports` AND `racingpoint.cloud:3201/billing/reports`
+**Plans:** 3 plans
+Plans:
+- [ ] 340-01-PLAN.md — Wallet API module + reports summary cards + currency_type badges
+- [ ] 340-02-PLAN.md — Cash refund button + credit adjustment button
+- [ ] 340-03-PLAN.md — Build and deploy to local + cloud
 
 ### Phase 341: POS + Kiosk Display
 **Goal**: All customer-facing displays show "credits", never "₹".
