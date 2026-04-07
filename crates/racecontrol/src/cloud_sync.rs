@@ -702,6 +702,9 @@ async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Result<(Value, b
             'driver_id', w.driver_id, 'balance_paise', w.balance_paise,
             'total_credited_paise', w.total_credited_paise,
             'total_debited_paise', w.total_debited_paise,
+            'rupee_deposited_paise', w.rupee_deposited_paise,
+            'rupee_refunded_paise', w.rupee_refunded_paise,
+            'bonus_credited_paise', w.bonus_credited_paise,
             'updated_at', w.updated_at,
             'phone', d.phone, 'email', d.email
         ) FROM wallets w JOIN drivers d ON d.id = w.driver_id
@@ -1445,6 +1448,18 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
         .get("total_debited_paise")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
+    let cloud_rupee_deposited = wallet
+        .get("rupee_deposited_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cloud_rupee_refunded = wallet
+        .get("rupee_refunded_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let cloud_bonus_credited = wallet
+        .get("bonus_credited_paise")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     let cloud_updated = wallet
         .get("updated_at")
         .and_then(|v| v.as_str())
@@ -1513,15 +1528,15 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
     };
 
     // Check if wallet exists locally for the resolved driver
-    let local = sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT balance_paise, total_credited_paise, total_debited_paise FROM wallets WHERE driver_id = ?",
+    let local = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT balance_paise, total_credited_paise, total_debited_paise, rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise FROM wallets WHERE driver_id = ?",
     )
     .bind(&local_driver_id)
     .fetch_optional(&state.db)
     .await?;
 
     match local {
-        Some((_local_bal, _local_credited, _local_debited)) => {
+        Some((_local_bal, _local_credited, _local_debited, _local_rupee_dep, _local_rupee_ref, _local_bonus_cr)) => {
             // Only overwrite if cloud's updated_at is newer than local.
             // This prevents stale cloud data from overwriting venue debits
             // that haven't been pushed yet.
@@ -1543,12 +1558,18 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
                         balance_paise = ?,
                         total_credited_paise = ?,
                         total_debited_paise = ?,
+                        rupee_deposited_paise = ?,
+                        rupee_refunded_paise = ?,
+                        bonus_credited_paise = ?,
                         updated_at = ?
                      WHERE driver_id = ?",
                 )
                 .bind(cloud_balance)
                 .bind(cloud_credited)
                 .bind(cloud_debited)
+                .bind(cloud_rupee_deposited)
+                .bind(cloud_rupee_refunded)
+                .bind(cloud_bonus_credited)
                 .bind(cloud_updated)
                 .bind(&local_driver_id)
                 .execute(&state.db)
@@ -1563,13 +1584,16 @@ async fn upsert_wallet(state: &Arc<AppState>, wallet: &Value) -> anyhow::Result<
         None => {
             // Wallet doesn't exist locally — create it for the resolved driver
             sqlx::query(
-                "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise, updated_at)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, total_credited_paise, total_debited_paise, rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&local_driver_id)
             .bind(cloud_balance)
             .bind(cloud_credited)
             .bind(cloud_debited)
+            .bind(cloud_rupee_deposited)
+            .bind(cloud_rupee_refunded)
+            .bind(cloud_bonus_credited)
             .bind(cloud_updated)
             .execute(&state.db)
             .await?;
