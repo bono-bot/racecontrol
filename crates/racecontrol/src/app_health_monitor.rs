@@ -68,6 +68,7 @@ const CRITICAL_PAGE_PROBES: &[(&str, &str, u16)] = &[
     ("kiosk", "http://192.168.31.23:3300/kiosk", 200),           // main lock screen
     ("kiosk", "http://192.168.31.23:3300/kiosk/staff", 200),     // staff login (was 307 before middleware fix ea0f6f82)
     ("kiosk", "http://192.168.31.23:3300/kiosk/spectator", 200), // spectator display
+    ("web", "http://192.168.31.23:3200/spectator/circuit", 200),  // Phase 335: spectator circuit viewer
     ("web", "http://192.168.31.23:3200/billing", 200),            // POS billing page
     ("admin", "http://192.168.31.23:3201/pods", 200),             // admin pod view
     // Cloud pages (MI Gap 3: cloud frontend page probes)
