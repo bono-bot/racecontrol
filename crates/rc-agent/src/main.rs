@@ -2127,6 +2127,10 @@ async fn main() -> Result<()> {
         let manifest = content_scanner::scan_ac_content();
         tracing::info!(target: LOG_TARGET, "Scanned AC content: {} cars, {} tracks", manifest.cars.len(), manifest.tracks.len());
         content_scanner::update_content_cache(&manifest);
+
+        // HARDENING: Enforce correct video.ini resolution at boot (not just at launch).
+        // Catches Content Manager / manual edits that corrupt resolution between launches.
+        ac_launcher::enforce_video_ini();
         let manifest_msg = AgentMessage::ContentManifest(manifest);
         if let Ok(json) = serde_json::to_string(&manifest_msg) {
             if ws_tx.send(Message::Text(json.into())).await.is_err() {

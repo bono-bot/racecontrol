@@ -330,6 +330,62 @@ fn bootstrap_ac_config() -> Result<()> {
     Ok(())
 }
 
+/// HARDENING: Enforce correct video.ini resolution at boot time (not just at launch).
+/// Called from main.rs after content scan. Ensures pods always have correct display settings
+/// even if Content Manager or manual edits corrupt video.ini between launches.
+pub fn enforce_video_ini() {
+    let cfg_dir = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg");
+    let video_path = cfg_dir.join("video.ini");
+
+    if !video_path.exists() {
+        // Will be created by bootstrap_ac_config() at launch time
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&video_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let needs_fix = !content.contains("WIDTH=7680") || !content.contains("HEIGHT=1440");
+    if !needs_fix {
+        tracing::debug!(target: LOG_TARGET, "video.ini resolution OK (7680x1440)");
+        return;
+    }
+
+    let mut patched = String::with_capacity(content.len());
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("WIDTH=") {
+            patched.push_str("WIDTH=7680\r\n");
+        } else if trimmed.starts_with("HEIGHT=") {
+            patched.push_str("HEIGHT=1440\r\n");
+        } else if trimmed.starts_with("FULLSCREEN=") {
+            patched.push_str("FULLSCREEN=1\r\n");
+        } else if trimmed.starts_with("REFRESH=") {
+            patched.push_str("REFRESH=179\r\n");
+        } else {
+            patched.push_str(line);
+            patched.push_str("\r\n");
+        }
+    }
+    if !patched.contains("MODE=TRIPLE") {
+        if patched.contains("[CAMERA]") {
+            patched = patched.replace("[CAMERA]\r\n", "[CAMERA]\r\nMODE=TRIPLE\r\n");
+        } else {
+            patched.push_str("\r\n[CAMERA]\r\nMODE=TRIPLE\r\n");
+        }
+    }
+    if let Err(e) = std::fs::write(&video_path, &patched) {
+        tracing::warn!(target: LOG_TARGET, "Failed to enforce video.ini: {}", e);
+    } else {
+        tracing::info!(target: LOG_TARGET, "BOOT: Enforced video.ini 7680x1440@179Hz triple-screen");
+    }
+}
+
 /// Validate that a content identifier (car, track, skin) is a safe directory name.
 /// MMA-R3-6: Strict ALLOWLIST — only ASCII alphanumeric, hyphen, underscore, dot allowed.
 /// Replaces denylist approach which missed INI metacharacters ([]=;#) and encoding bypasses.
@@ -378,6 +434,38 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     for ai_car in &params.ai_cars {
         validate_content_id(&ai_car.model, "ai_car.model")?;
         validate_content_id(&ai_car.skin, "ai_car.skin")?;
+    }
+
+    // HARDENING: Pre-launch content validation (VMS Connect pattern)
+    // Verify player car + track exist in content cache BEFORE writing race.ini.
+    // Catches missing content early instead of a 90-second AC loading timeout.
+    {
+        let cached_cars = crate::content_scanner::cached_car_ids();
+        let cached_tracks = crate::content_scanner::cached_track_ids();
+        if !cached_cars.is_empty() {
+            if !params.car.is_empty() && !cached_cars.iter().any(|c| c == &params.car) {
+                anyhow::bail!(
+                    "LAUNCH-GUARD: Car {:?} not in content cache ({} cars known). \
+                     Install the car or check spelling.",
+                    params.car, cached_cars.len()
+                );
+            }
+        } else {
+            tracing::warn!(target: LOG_TARGET, "Content cache empty — skipping car validation (first launch before scan?)");
+        }
+        if !cached_tracks.is_empty() {
+            if !params.track.is_empty() && !cached_tracks.iter().any(|t| t == &params.track) {
+                anyhow::bail!(
+                    "LAUNCH-GUARD: Track {:?} not in content cache ({} tracks known). \
+                     Install the track or check spelling.",
+                    params.track, cached_tracks.len()
+                );
+            }
+        }
+        tracing::info!(target: LOG_TARGET,
+            "Pre-launch validation OK: car={:?} track={:?} (cache: {} cars, {} tracks)",
+            params.car, params.track, cached_cars.len(), cached_tracks.len()
+        );
     }
 
     // Step 0: Ensure all config files exist (self-healing bootstrap)
@@ -661,6 +749,29 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "AC spawn PID={} ts={:?}", pid, std::time::SystemTime::now()) });
     tracing::info!(target: LOG_TARGET, "AC launch dispatched (pid={}) — event loop takes over from here", pid);
+
+    // HARDENING: Session 0 guard — verify acs.exe is running in the interactive session.
+    // SSH launches and schtasks as SYSTEM put AC in Session 0 (no GPU, DX11 fails silently).
+    // The agent itself runs in Session 1 (via RCWatchdog), so spawn should inherit Session 1.
+    // This check is a safety net: if AC somehow ends up in Session 0, log an error immediately.
+    if pid > 0 {
+        if let Ok(output) = spawn_safe("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/V", "/NH"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("Services") && !stdout.contains("Console") {
+                tracing::error!(target: LOG_TARGET,
+                    "LAUNCH-GUARD: acs.exe PID {} is in Session 0 (Services) — no GPU access! \
+                     AC will fail silently. This means the agent is running in Session 0 too. \
+                     Check RCWatchdog WTSQueryUserToken.",
+                    pid
+                );
+            } else if stdout.contains("Console") {
+                tracing::info!(target: LOG_TARGET, "Session guard OK: acs.exe PID {} in Console session", pid);
+            }
+        }
+    }
 
     // Post-launch verification: confirm race.ini was written (E2E found it missing)
     {
@@ -1383,6 +1494,27 @@ fn write_wind_section(ini: &mut String) {
 /// Used by write_race_ini() and by tests.
 fn build_race_ini_string(params: &AcLaunchParams) -> String {
     let ai_cars = effective_ai_cars(params);
+
+    // HARDENING: Double-check every AI car exists in content cache.
+    // Belt-and-suspenders: generate_trackday_ai() already filters, but explicit
+    // AI car lists from launch_args bypass that filter. A missing AI car causes
+    // AC to crash during loading with no useful error message.
+    let cached_cars = crate::content_scanner::cached_car_ids();
+    let ai_cars: Vec<AiCarSlot> = if cached_cars.is_empty() {
+        ai_cars // Cache not populated — trust the caller
+    } else {
+        ai_cars.into_iter().filter(|slot| {
+            let ok = cached_cars.iter().any(|c| c == &slot.model);
+            if !ok {
+                tracing::warn!(target: LOG_TARGET,
+                    "LAUNCH-GUARD: AI car {:?} not in content cache — removed from race.ini to prevent crash",
+                    slot.model
+                );
+            }
+            ok
+        }).collect()
+    };
+
     let mut ini = String::with_capacity(4096);
 
     write_assists_section(&mut ini, params);

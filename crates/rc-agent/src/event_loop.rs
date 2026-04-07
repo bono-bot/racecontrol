@@ -241,6 +241,47 @@ pub async fn run(
                     state.overlay.deactivate();
                     state.lock_screen.clear();
                 }
+                // HARDENING: Test launch sentinel — bypasses billing guard for E2E testing.
+                // Cmd: RCAGENT_TEST_LAUNCH:car:track via /exec endpoint.
+                if crate::remote_ops::TEST_LAUNCH_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    let car = crate::remote_ops::TEST_LAUNCH_CAR.lock().map(|c| c.clone()).unwrap_or_default();
+                    let track = crate::remote_ops::TEST_LAUNCH_TRACK.lock().map(|t| t.clone()).unwrap_or_default();
+                    tracing::info!(target: LOG_TARGET, "TEST LAUNCH sentinel: car={} track={}", car, track);
+                    // Construct test launch params with sensible defaults
+                    let test_json = format!(
+                        r#"{{"car":"{}","track":"{}","driver":"Test Driver","session_type":"practice","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+                        if car.is_empty() { "abarth500" } else { &car },
+                        if track.is_empty() { "spa" } else { &track },
+                    );
+                    let params: crate::ac_launcher::AcLaunchParams = match serde_json::from_str(&test_json) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!(target: LOG_TARGET, "TEST LAUNCH: bad params: {}", e);
+                            continue;
+                        }
+                    };
+                    match tokio::task::spawn_blocking(move || crate::ac_launcher::launch_ac(&params)).await {
+                        Ok(Ok(result)) => {
+                            tracing::info!(target: LOG_TARGET, "TEST LAUNCH OK: pid={}", result.pid);
+                            // Set game process for monitoring (event loop will track it)
+                            if result.pid > 0 {
+                                state.game_process = Some(crate::game_process::GameProcess {
+                                    sim_type: rc_common::types::SimType::AssettoCorsa,
+                                    state: rc_common::types::GameState::Launching,
+                                    child: None,
+                                    pid: Some(result.pid),
+                                    last_exit_code: None,
+                                });
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            tracing::error!(target: LOG_TARGET, "TEST LAUNCH FAILED: {}", e);
+                        }
+                        Err(e) => {
+                            tracing::error!(target: LOG_TARGET, "TEST LAUNCH spawn_blocking error: {}", e);
+                        }
+                    }
+                }
 
                 // RESIL-04: Detect wheelbase USB disconnect
                 let now_connected = state.detector.is_hid_connected();
@@ -471,6 +512,27 @@ pub async fn run(
                         tracing::error!(target: LOG_TARGET,
                             "AC game process died during launch (attempt {}, {}s elapsed) — cancelling",
                             attempt, elapsed.as_secs());
+
+                        // HARDENING: Read AC log tail for crash diagnosis.
+                        // AC doesn't always produce crash dumps — the log.txt last lines
+                        // often contain the real error (missing car, DX11 failure, etc).
+                        let ac_log_path = dirs_next::document_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+                            .join("Assetto Corsa").join("logs").join("log.txt");
+                        if let Ok(log_content) = std::fs::read_to_string(&ac_log_path) {
+                            let last_lines: Vec<&str> = log_content.lines().rev().take(10).collect();
+                            let tail: String = last_lines.into_iter().rev().collect::<Vec<_>>().join("\n");
+                            tracing::error!(target: LOG_TARGET,
+                                "AC log.txt last 10 lines (post-mortem):\n{}", tail);
+                            // Check for known fatal patterns
+                            if log_content.contains("[CSP SAYS] Can't launch") {
+                                tracing::error!(target: LOG_TARGET, "DIAGNOSIS: CSP blocked launch — missing car or track content");
+                            }
+                            if log_content.contains("Application load error") {
+                                tracing::error!(target: LOG_TARGET, "DIAGNOSIS: Steam DRM error — check steam_appid.txt");
+                            }
+                        }
+
                         state.game_process = None;
                         conn.launch_state = LaunchState::Idle;
                         conn.game_running_since = None;

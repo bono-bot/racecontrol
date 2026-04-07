@@ -119,6 +119,14 @@ pub static BLANK_SCREEN_REQUESTED: std::sync::atomic::AtomicBool = std::sync::at
 /// RCAGENT_CLEAR_SCREEN sentinel flag. Set by exec handler, consumed by event_loop.
 pub static CLEAR_SCREEN_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// HARDENING: Test launch sentinel — triggers AC launch without billing guard.
+/// Used for E2E testing when the server billing endpoint is unavailable.
+/// Cmd format: RCAGENT_TEST_LAUNCH:car:track (e.g. RCAGENT_TEST_LAUNCH:abarth500:spa)
+pub static TEST_LAUNCH_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Car and track for test launch, set atomically with the flag.
+pub static TEST_LAUNCH_CAR: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+pub static TEST_LAUNCH_TRACK: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
 /// Middleware that adds `Connection: close` to every response.
 /// Prevents keep-alive socket accumulation (CLOSE_WAIT flood) caused by
 /// racecontrol's fleet_health polling hitting :8090 repeatedly.
@@ -817,6 +825,22 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
             success: true,
             exit_code: Some(0),
             stdout: "clear_screen_requested".to_string(),
+            stderr: String::new(),
+        }));
+    }
+    // HARDENING: Test launch sentinel — RCAGENT_TEST_LAUNCH:car:track
+    if req.cmd.trim().starts_with("RCAGENT_TEST_LAUNCH") {
+        let parts: Vec<&str> = req.cmd.trim().splitn(3, ':').collect();
+        let car = parts.get(1).unwrap_or(&"abarth500").to_string();
+        let track = parts.get(2).unwrap_or(&"spa").to_string();
+        tracing::info!(target: LOG_TARGET, "RCAGENT_TEST_LAUNCH sentinel: car={} track={}", car, track);
+        if let Ok(mut c) = TEST_LAUNCH_CAR.lock() { *c = car.clone(); }
+        if let Ok(mut t) = TEST_LAUNCH_TRACK.lock() { *t = track.clone(); }
+        TEST_LAUNCH_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        return Ok(Json(ExecResponse {
+            success: true,
+            exit_code: Some(0),
+            stdout: format!("test_launch_requested: car={} track={}", car, track),
             stderr: String::new(),
         }));
     }
