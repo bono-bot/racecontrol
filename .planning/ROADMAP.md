@@ -820,7 +820,7 @@ Phase Dependency Graph:
 
 ### Phases
 
-- [ ] **Phase 337: DB Schema Migration** — WAL-01: Add rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise to wallets. Add currency_type to wallet_transactions. Backfill from existing txn_type.
+- [x] **Phase 337: DB Schema Migration** — WAL-01: Add rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise to wallets. Add currency_type to wallet_transactions. Backfill from existing txn_type. (completed 2026-04-07)
 - [ ] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits.
 - [ ] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk.
 - [ ] **Phase 340: Admin Dashboard** — WAL-04: Add credit management panel to billing/reports and billing/history. Show rupee deposits vs bonus credits. Cash refund button with max-refundable calculation. Deploy to BOTH local (.23:3201) and cloud.
@@ -836,9 +836,9 @@ Phase Dependency Graph:
   4. `balance_paise` unchanged — still the single spendable credits pool
   5. Migration is idempotent (ALTER TABLE IF NOT EXISTS pattern)
   6. Cloud DB also gets the migration on next sync
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
-- [ ] 337-01-PLAN.md — Add ALTER TABLE columns + backfill queries to migrate()
+- [x] 337-01-PLAN.md — Add ALTER TABLE columns + backfill queries to migrate()
 
 ### Phase 338: Wallet Core Logic
 **Goal**: Update wallet.rs so top-ups track rupee deposits, bonuses track bonus credits, and cash refunds are capped.
@@ -888,7 +888,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 337. DB Schema Migration | 0/1 | Planning Complete | — |
+| 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
 | 338. Wallet Core Logic | 0/TBD | Not Started | — |
 | 339. API Endpoints | 0/TBD | Not Started | — |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |

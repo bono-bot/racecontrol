@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 329-02-PLAN.md
-last_updated: "2026-04-07T09:05:00.911Z"
-last_activity: 2026-04-06
+status: verifying
+stopped_at: Completed 337-01-PLAN.md
+last_updated: "2026-04-07T13:41:04.018Z"
+last_activity: 2026-04-07
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md
 
 **Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
-**Current focus:** Phase 324 — True Mesh Intelligence (peer gossip + coordinated launch)
+**Current focus:** Phase 337 — db-schema-migration
 
 ## Current Position
 
-Phase: 324
-Plan: 02 complete, 03 next
-Status: executing
-Last activity: 2026-04-06
+Phase: 337 (db-schema-migration) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-04-07
 
 Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
 
@@ -65,6 +65,7 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 329]: Module named native_lock/ to coexist with lock_screen.rs (Plan 03 renames)
 - [Phase 329-02]: PIN dots rendered as GDI Ellipse circles for crisp rendering at 7680x1440
 - [Phase 329-02]: Timer color warnings: red at 60s, yellow at 300s, white otherwise
+- [Phase 337-db-schema-migration]: Idempotent ALTER TABLE with let _ = pattern for wallet rupee/credit columns; DEFAULT 'credit' makes existing rows valid without explicit backfill
 
 ### Blockers/Concerns
 
@@ -72,6 +73,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T09:04:53.555Z
-Stopped at: Completed 329-02-PLAN.md
+Last session: 2026-04-07T13:41:04.014Z
+Stopped at: Completed 337-01-PLAN.md
 Resume file: None

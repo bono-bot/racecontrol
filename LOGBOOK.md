@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-07 19:09 IST | James | 1dc0ec9b | feat(337-01): DB schema migration — wallet rupee/credit separation. 4 ALTER TABLE + 3 backfill UPDATEs in migrate(). Idempotent. cargo check + tests pass. |
 | 2026-04-07 19:30 IST | James | 3bf1dfcc | fix: cloud sync staff_members + billing_rates pull path missing. Staff pushed venue→cloud but never pulled cloud→venue. Same for billing_rates. Bidirectional sync now complete. |
 | 2026-04-07 19:00 IST | James | 2abbe0b7 | fix: move billing/rates, billing/report/daily, flags GET to staff routes. POS/kiosk returned 403 for staff tokens — admin-only gate blocked POS dashboard pages. POST/PUT/DELETE remain admin-gated. |
 | 2026-04-07 18:00 IST | James | 482d9275 | fix: POS 404 — WOW6432Node registry had :3300/billing (kiosk). Edge is 32-bit, reads WOW6432Node. Deleted entry. Added MI PosWrongUrl diagnostic: EnumWindows checks Edge title, tier1 auto-restarts with :3200/billing. |
