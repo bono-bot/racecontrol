@@ -536,13 +536,13 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        // VMS pattern: write steam_appid.txt = 480 (Spacewar) in AC directory.
-        // This makes acs.exe appear as the Spacewar app to Steam, preventing:
-        // - "Playing Assetto Corsa" status on Steam friends
-        // - Steam overlay activation during kiosk sessions
-        // Note: The real AC AppID is 244210. Using 480 was NOT the cause of the
-        // loading bug (that was missing AI car in race.ini — fixed in generate_trackday_ai).
-        if let Err(e) = std::fs::write(ac_dir.join("steam_appid.txt"), "480\n") {
+        // Restore AC's real steam_appid.txt (244210) before launch.
+        // VMS Connect uses 480 (Spacewar) because VMS is native C++ that doesn't go through
+        // Steam DRM. But acs.exe IS a Steam game — using 480 causes "Application load error"
+        // dialog because Steam can't validate the license for AppID 480.
+        // The original file ships with 244210 from the AC install.
+        // Confirmed via process of elimination: 480 = "Application load error", 244210 = works.
+        if let Err(e) = std::fs::write(ac_dir.join("steam_appid.txt"), "244210\n") {
             tracing::warn!(target: LOG_TARGET, "Failed to write steam_appid.txt: {} (non-fatal)", e);
         }
 
