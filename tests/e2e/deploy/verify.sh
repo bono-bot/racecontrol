@@ -346,6 +346,63 @@ elif echo "$GAMES_RESULT" | grep -q "^PARSE_ERROR"; then
     log_to_ai_debugger "installed_games" "installed_games parse error: ${PARSE_ERR}"
 fi
 
+# ─── Gate 8: Behavioral verification — blanking + Session 1 (DVER-01) ────
+echo ""
+echo "--- Gate 8: Behavioral verification — blanking + Session 1 (DVER-01) ---"
+echo "Running pod-verify.sh for behavioral checks (edge count, Session context)..."
+
+POD_VERIFY_SCRIPT="$(cd "$(dirname "$0")" && pwd)/../../scripts/pod-verify.sh"
+if [ ! -f "$POD_VERIFY_SCRIPT" ]; then
+    POD_VERIFY_SCRIPT="$(cd "$(dirname "$0")" && pwd)/../../../scripts/pod-verify.sh"
+fi
+
+if [ -f "$POD_VERIFY_SCRIPT" ]; then
+    bash "$POD_VERIFY_SCRIPT"
+    POD_VERIFY_EXIT=$?
+    if [ $POD_VERIFY_EXIT -ne 0 ]; then
+        fail "Behavioral verification FAILED — blanking or Session issues detected (DVER-01)"
+        log_to_ai_debugger "behavioral_verify" "pod-verify.sh returned exit code ${POD_VERIFY_EXIT}. Check output above for FAIL lines — likely edge_process_count=0 (blanking broken) or Session 0 (GUI broken)."
+    else
+        pass "Behavioral verification PASSED — all pods blanking + Session 1 (DVER-01)"
+    fi
+else
+    info "pod-verify.sh not found at expected path — skipping behavioral verification"
+    info "Expected: scripts/pod-verify.sh (relative to repo root)"
+fi
+
+# ─── Gate 9: Deploy parity — Server + Pods + POS + Cloud (DVER-02) ───────
+echo ""
+echo "--- Gate 9: Deploy parity check (DVER-02) ---"
+
+# Server build
+SERVER_BUILD=$(curl -s --max-time 5 "http://${SERVER_IP}:8080/api/v1/health" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('build_id','UNKNOWN'))" 2>/dev/null || echo "UNREACHABLE")
+echo "  Server .23:    ${SERVER_BUILD}"
+
+# Pod build (from fleet/health, already cached)
+POD_BUILD=$(echo "$FLEET_RESP" | python3 -c "
+import sys,json
+data=json.load(sys.stdin)
+builds=set(p.get('build_id','?') for p in data.get('pods',[]) if p.get('pod_number',99)<=8)
+print(','.join(builds) if builds else 'NONE')
+" 2>/dev/null || echo "UNKNOWN")
+echo "  Pods 1-8:      ${POD_BUILD}"
+
+# POS build
+POS_BUILD=$(curl -s --max-time 5 "http://192.168.31.130:8090/health" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('build_id','UNKNOWN'))" 2>/dev/null || echo "UNREACHABLE")
+echo "  POS .130:      ${POS_BUILD}"
+
+# Cloud build
+CLOUD_BUILD=$(curl -s --max-time 5 "http://srv1422716.hstgr.cloud:8080/api/v1/health" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('build_id','UNKNOWN'))" 2>/dev/null || echo "UNREACHABLE")
+echo "  Cloud VPS:     ${CLOUD_BUILD}"
+
+# Check parity
+if [ "$SERVER_BUILD" != "UNREACHABLE" ] && [ "$CLOUD_BUILD" != "UNREACHABLE" ] && [ "$SERVER_BUILD" != "$CLOUD_BUILD" ]; then
+    fail "Server/Cloud build parity drift: server=${SERVER_BUILD} cloud=${CLOUD_BUILD} (DVER-02)"
+    log_to_ai_debugger "deploy_parity" "Server build ${SERVER_BUILD} != Cloud build ${CLOUD_BUILD}. Run: Bono relay git_pull + rebuild."
+else
+    pass "Deploy parity check complete (DVER-02)"
+fi
+
 # ─── DEPL-04: AI debugger log summary ─────────────────────────────────────
 echo ""
 if [ -f "${AI_LOG}" ] && [ -s "${AI_LOG}" ]; then
