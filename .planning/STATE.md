@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 339-01-PLAN.md
-last_updated: "2026-04-07T15:25:48.773Z"
+status: verifying
+stopped_at: Completed 339-02-PLAN.md
+last_updated: "2026-04-07T15:36:59.818Z"
 last_activity: 2026-04-07
 progress:
   total_phases: 4
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md
 
 Phase: 339 (api-endpoints) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-04-07
 
 Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
@@ -73,6 +73,7 @@ rc-sentry today: 3,952 lines (7 files)
 - [Phase 339]: Serde renames keep Rust _paise fields stable; only JSON output renamed to credits terminology
 - [Phase 339]: transactions_count uses map_err+? for proper error propagation per CLAUDE.md no-unwrap rule
 - [Phase 339]: gateway_topup counted in total_rupee_deposits via starts_with(topup) OR exact match
+- [Phase 339]: Two-endpoint refund design: /refund for credits, /cash-refund for real money -- isolates MMA-203 security caps
 
 ### Blockers/Concerns
 
@@ -80,6 +81,6 @@ rc-sentry today: 3,952 lines (7 files)
 
 ## Session Continuity
 
-Last session: 2026-04-07T15:25:48.769Z
-Stopped at: Completed 339-01-PLAN.md
+Last session: 2026-04-07T15:36:59.814Z
+Stopped at: Completed 339-02-PLAN.md
 Resume file: None

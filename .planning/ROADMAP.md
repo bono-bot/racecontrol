@@ -822,7 +822,7 @@ Phase Dependency Graph:
 
 - [x] **Phase 337: DB Schema Migration** — WAL-01: Add rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise to wallets. Add currency_type to wallet_transactions. Backfill from existing txn_type. (completed 2026-04-07)
 - [x] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits. (completed 2026-04-07)
-- [ ] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk.
+- [x] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk. (completed 2026-04-07)
 - [ ] **Phase 340: Admin Dashboard** — WAL-04: Add credit management panel to billing/reports and billing/history. Show rupee deposits vs bonus credits. Cash refund button with max-refundable calculation. Deploy to BOTH local (.23:3201) and cloud.
 - [ ] **Phase 341: POS + Kiosk Display** — WAL-05: Fix ₹ symbol on drivers page → "credits". Verify POS billing page shows credits. Kiosk pricing shows credits (already correct). Ensure unified API contract.
 - [ ] **Phase 342: Cloud Sync + E2E Verify** — WAL-06: Update cloud_sync.rs push/pull for new columns. Update process_debit_intents. E2E test: topup → bonus → spend → verify balances → cash refund → verify max cap.
@@ -862,7 +862,7 @@ Plans:
   3. POST /wallet/{driver_id}/refund returns `{ type: "credit_refund", new_balance_credits, max_cash_refund }`; POST /wallet/{driver_id}/cash-refund returns `{ type: "cash_refund", amount, new_balance_credits, max_cash_refund_remaining }`
   4. GET /wallet/transactions includes `currency_type` per transaction
   5. Same response schema served on all ports (8080 API) — no per-frontend variants
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [x] 339-01-PLAN.md — WalletInfo serde renames + handler response field updates (topup, webhook, transactions)
 - [x] 339-02-PLAN.md — Cash refund endpoint + credit refund type differentiation
@@ -898,7 +898,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
 | 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
-| 339. API Endpoints | 1/2 | In Progress|  |
+| 339. API Endpoints | 2/2 | Complete   | 2026-04-07 |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |
 | 342. Cloud Sync + E2E | 0/TBD | Not Started | — |
