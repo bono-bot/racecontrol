@@ -427,19 +427,8 @@ async fn main() -> Result<()> {
         SetUnhandledExceptionFilter(Some(seh_crash_handler));
     }
 
-    // FIX (2026-04-07): Detach from the parent console to prevent CTRL_CLOSE_EVENT.
-    // When start-rcagent.bat spawns rc-agent.exe, they share a console. When the bat
-    // window is closed (or by any console close), Windows sends CTRL_CLOSE_EVENT which
-    // kills the process after 5 seconds regardless of the handler return value.
-    // FreeConsole() detaches us from the bat's console entirely — no console = no close event.
-    #[cfg(windows)]
-    unsafe {
-        unsafe extern "system" {
-            fn FreeConsole() -> i32;
-        }
-        FreeConsole();
-        tracing::debug!("Detached from parent console (CTRL_CLOSE protection)");
-    }
+    // NOTE: FreeConsole() is called LATER (after singleton check + tracing init)
+    // to avoid invalidating stderr before eprintln! is used in the singleton guard.
 
     // VMS PATTERN: SetConsoleCtrlHandler — detect external termination.
     // VMS Connect logs "PMTS: You've killed me:" when externally terminated.
@@ -796,6 +785,21 @@ async fn main() -> Result<()> {
         build_id = BUILD_ID,
     ).entered();
     tracing::info!(target: LOG_TARGET, "Structured logging initialized for {}", pod_id_str);
+
+    // FIX (2026-04-07): Detach from the parent console AFTER tracing init + singleton check.
+    // When start-rcagent.bat spawns rc-agent.exe, they share a console. When the bat
+    // window is closed (or any console close event), CTRL_CLOSE_EVENT kills the process
+    // after 5 seconds regardless of handler return value.
+    // FreeConsole() detaches entirely — no console = no CTRL_CLOSE_EVENT.
+    // Must be AFTER singleton check (uses eprintln) and tracing init (uses stdout).
+    #[cfg(windows)]
+    {
+        unsafe extern "system" {
+            fn FreeConsole() -> i32;
+        }
+        unsafe { FreeConsole(); }
+        tracing::info!(target: LOG_TARGET, "Detached from parent console (CTRL_CLOSE protection)");
+    }
 
     // Compute binary + bat SHA256 once at startup — before server start
     remote_ops::init_binary_sha256();

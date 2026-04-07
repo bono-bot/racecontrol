@@ -543,6 +543,9 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 use std::os::windows::process::CommandExt;
                 let mut kill1 = Command::new("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
                 let mut kill2 = Command::new("taskkill"); kill2.args(&["/F", "/IM", "AssettoCorsa.exe"]);
+                // Null stdio — FreeConsole() invalidates inherited handles (os error 6)
+                kill1.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+                kill2.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
                 #[cfg(windows)] { kill1.creation_flags(0x08000000); kill2.creation_flags(0x08000000); }
                 let _ = kill1.spawn().and_then(|mut c| c.wait());
                 let _ = kill2.spawn().and_then(|mut c| c.wait());
@@ -563,6 +566,11 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             // DO NOT use CREATE_NEW_PROCESS_GROUP alone — crashes immediately.
             let mut acs_cmd = Command::new(ac_dir.join("acs.exe"));
             acs_cmd.current_dir(&ac_dir);
+            // FreeConsole() at startup invalidates stdin/stdout/stderr handles.
+            // Without Null redirection, Command::spawn() fails with ERROR_INVALID_HANDLE (os error 6).
+            acs_cmd.stdin(std::process::Stdio::null());
+            acs_cmd.stdout(std::process::Stdio::null());
+            acs_cmd.stderr(std::process::Stdio::null());
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -575,6 +583,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             // MP mode: use bat for Content Manager URI handling
             let mut cmd = Command::new("cmd");
             cmd.args(&bat_args_ref).current_dir(r"C:\RacingPoint");
+            cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
