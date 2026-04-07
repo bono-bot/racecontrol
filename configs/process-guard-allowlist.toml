@@ -407,6 +407,11 @@ category = "peripheral"
 machines = ["all"]
 
 [[process_guard.allowed]]
+name = "rsservcmd.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
 name = "AmdPpkgSvc.exe"
 category = "peripheral"
 machines = ["all"]

@@ -52,6 +52,11 @@ category = "pod-app"
 machines = ["all"]
 
 [[process_guard.allowed]]
+name = "rsservcmd.exe"
+category = "gpu"
+machines = ["all"]
+
+[[process_guard.allowed]]
 name = "aoruslcdservice.exe"
 category = "pod-app"
 machines = ["all"]
