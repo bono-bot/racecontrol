@@ -432,11 +432,12 @@ touch crates/<crate>/build.rs
 8. **Service key auth** — Constant-time comparison for inter-service HTTP
 9. **Mesh gossip** — Pods learn from each other via aggregated error patterns
 10. **Cloud sync dual authority** — Venue authoritative on billing/laps, cloud on drivers/pricing
-11. **VMS zero-block launch** — `launch-ac.bat` is a transient subprocess (like VMS SimLauncher). rc-agent spawns it and returns in <1s. Event loop discovers game PID via `find_game_pid()`.
-12. **SetConsoleCtrlHandler** — Logs termination reason (Ctrl+C, Close, Logoff, Shutdown, taskkill) to `termination.log` and cleans sentinel files before dying
-13. **CSV lap fallback** — Laps saved to `laps-offline.csv` when WS disconnected. Never lose lap data.
-14. **AC plugin shared memory** — Custom `rcpmf_telemetry` buffer with 64-car array, leaderboard, camera control. Spin-wait protocol prevents reader/writer races. rc-agent reads this instead of `acpmf_*` directly.
-15. **asInvoker manifest** — External `.manifest` file prevents Windows from elevating rc-agent (anti-cheat compatibility, VMS pattern)
+11. **VMS zero-block launch** — SP: direct `acs.exe` spawn with `DETACHED_PROCESS` (no bat, no console). MP: `launch-ac.bat` for Content Manager URI. rc-agent returns in <1s. Event loop discovers game PID via `find_game_pid()`.
+12. **Console isolation** — `FreeConsole()` at startup detaches from `start-rcagent.bat`'s console. SP game launch uses `DETACHED_PROCESS`. Prevents CTRL_CLOSE_EVENT crash (P1 fix 2026-04-07). `SetConsoleCtrlHandler` logs termination reason to `termination.log` as safety net.
+13. **SHM snapshot reads** — AC shared memory reads use `IsBadReadPtr` + `copy_nonoverlapping` into local buffer before parsing. Eliminates TOCTOU race between `verify_shm_alive()` and pointer dereference.
+14. **CSV lap fallback** — Laps saved to `laps-offline.csv` when WS disconnected. Never lose lap data.
+15. **AC plugin shared memory** — Custom `rcpmf_telemetry` buffer with 64-car array, leaderboard, camera control. Spin-wait protocol prevents reader/writer races. rc-agent reads this instead of `acpmf_*` directly.
+16. **asInvoker manifest** — External `.manifest` file prevents Windows from elevating rc-agent (anti-cheat compatibility, VMS pattern)
 
 ---
 
@@ -816,7 +817,9 @@ The game launch follows the VMS zero-block pattern:
 
 1. **Server** receives launch request, validates, sends `LaunchGame(AcLaunchParams)` via WS to pod agent
 2. **rc-agent** receives command in `ws_handler.rs`, sets `GAME_LAUNCHING` sentinel (RAII guard, 5-min TTL)
-3. **ac_launcher.rs**: Kill existing AC processes -> Write `race.ini` -> Launch `acs.exe` (SP) or Content Manager via `acmanager://race/online` URI (MP) via `launch-ac.bat` subprocess
+3. **ac_launcher.rs**: Kill existing AC processes -> Write `race.ini` -> Launch `acs.exe`:
+   - **SP mode (v44+):** Direct `Command::new("acs.exe")` with `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`. No bat, no cmd.exe, no console inheritance. Prevents CTRL_CLOSE_EVENT crash (P1 fix `d616ee10`).
+   - **MP mode:** `launch-ac.bat` subprocess with `CREATE_NO_WINDOW` for Content Manager URI handling (`acmanager://race/online`)
 4. **Event loop** returns immediately (<1s). `LaunchState` transitions to `WaitingForLive`
 5. **game_check_interval** polls for game PID via `find_game_pid()`
 6. **launch_verifier.rs**: 4-stage verification: ProcessAlive -> SharedMemory -> OnTrack
