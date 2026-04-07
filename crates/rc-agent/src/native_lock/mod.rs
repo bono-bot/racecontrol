@@ -10,10 +10,13 @@
 //! - `painter.rs` — State-driven GDI paint dispatch (ScreenBlanked, StartupConnecting, etc.)
 
 pub mod font;
+pub mod keyboard;
 pub mod painter;
+pub mod qr;
 pub mod window;
 
 pub use font::LockGdiResources;
+pub use keyboard::PinInputState;
 
 use crate::lock_screen::LockScreenState;
 use std::sync::{Arc, Mutex};
