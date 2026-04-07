@@ -119,8 +119,9 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
+      const formatted = phone.startsWith("+") ? phone : `+91${phone}`;
       const res = await api.register({
-        name: name.trim(), dob,
+        name: name.trim(), phone: formatted, dob,
         nickname: nickname.trim() || undefined,
         email: email.trim() || undefined,
         waiver_consent: waiverConsent,
