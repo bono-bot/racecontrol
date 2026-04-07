@@ -3893,6 +3893,65 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── v45.0: Credits/Rupees wallet separation (Phase 337) ─────────────────
+    // Per D-01: Track total real-money deposits
+    let _ = sqlx::query("ALTER TABLE wallets ADD COLUMN rupee_deposited_paise INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
+    // Per D-02: Track total cash refunds given
+    let _ = sqlx::query("ALTER TABLE wallets ADD COLUMN rupee_refunded_paise INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
+    // Per D-03: Track total promotional credits issued
+    let _ = sqlx::query("ALTER TABLE wallets ADD COLUMN bonus_credited_paise INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
+    // Per D-05, D-06: Currency type for each transaction. Default 'credit' makes existing rows valid.
+    let _ = sqlx::query("ALTER TABLE wallet_transactions ADD COLUMN currency_type TEXT NOT NULL DEFAULT 'credit'")
+        .execute(pool)
+        .await;
+
+    // Per D-07: Backfill currency_type on existing transactions
+    // topup_cash, topup_card, topup_upi, topup_online → 'rupee'; all others already default to 'credit'
+    let _ = sqlx::query(
+        "UPDATE wallet_transactions SET currency_type = 'rupee'
+         WHERE txn_type IN ('topup_cash', 'topup_card', 'topup_upi', 'topup_online')
+         AND currency_type = 'credit'"
+    )
+        .execute(pool)
+        .await;
+
+    // Per D-08: Backfill rupee_deposited_paise from topup transaction sums
+    let _ = sqlx::query(
+        "UPDATE wallets SET rupee_deposited_paise = COALESCE((
+            SELECT SUM(amount_paise) FROM wallet_transactions
+            WHERE wallet_transactions.driver_id = wallets.driver_id
+            AND wallet_transactions.txn_type IN ('topup_cash', 'topup_card', 'topup_upi', 'topup_online')
+            AND wallet_transactions.amount_paise > 0
+        ), 0)
+        WHERE rupee_deposited_paise = 0"
+    )
+        .execute(pool)
+        .await;
+
+    // Per D-10: Backfill bonus_credited_paise from bonus/adjustment transaction sums
+    let _ = sqlx::query(
+        "UPDATE wallets SET bonus_credited_paise = COALESCE((
+            SELECT SUM(amount_paise) FROM wallet_transactions
+            WHERE wallet_transactions.driver_id = wallets.driver_id
+            AND wallet_transactions.txn_type IN ('bonus', 'adjustment')
+            AND wallet_transactions.amount_paise > 0
+        ), 0)
+        WHERE bonus_credited_paise = 0"
+    )
+        .execute(pool)
+        .await;
+
+    // Per D-09: rupee_refunded_paise stays 0 for all existing wallets (no cash refund feature existed)
+    // No backfill needed — DEFAULT 0 is correct.
+
+    tracing::info!("v45.0 wallet separation columns migrated and backfilled");
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
