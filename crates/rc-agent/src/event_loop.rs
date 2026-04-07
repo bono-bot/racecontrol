@@ -13,6 +13,7 @@ use crate::ffb_controller;
 use crate::game_process;
 use crate::kiosk;
 use crate::lock_screen::LockScreenEvent;
+use crate::off_track_detector::OverlayChange;
 use crate::udp_heartbeat;
 use crate::ws_handler::{HandleResult, WsTx};
 use rc_common::protocol::AgentMessage;
@@ -376,6 +377,17 @@ pub async fn run(
                         state.overlay.update_telemetry(&frame);
                         if frame.speed_kmh > conn.session_max_speed_kmh {
                             conn.session_max_speed_kmh = frame.speed_kmh;
+                        }
+
+                        // Phase 330: Off-track detection
+                        {
+                            let lap_invalid = frame.current_lap_invalid.unwrap_or(false);
+                            let in_pit = frame.is_in_pit.unwrap_or(false);
+                            match state.off_track_detector.update(lap_invalid, frame.speed_kmh, in_pit) {
+                                OverlayChange::Show => state.off_track_blanking.show(),
+                                OverlayChange::Hide => state.off_track_blanking.hide(),
+                                OverlayChange::NoChange => {}
+                            }
                         }
 
                         // BILL-01: Record customer input for inactivity detection.
@@ -842,6 +854,9 @@ pub async fn run(
                             state.last_ac_status = None;
                             state.ac_status_stable_since = None;
                             conn.launch_state = LaunchState::Idle;
+                            // Phase 330: Reset off-track detector and hide blanking on game exit
+                            state.off_track_detector.reset();
+                            state.off_track_blanking.hide();
                             // HARD-03: Reset shm defer state on game exit
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;

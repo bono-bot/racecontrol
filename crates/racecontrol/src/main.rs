@@ -755,6 +755,9 @@ async fn main() -> anyhow::Result<()> {
     // after server restart with fresh DB (BUG-01)
     seed_pods_on_startup(&state).await;
 
+    // Phase 335: Load pre-extracted track outlines for spectator circuit viewer
+    state.track_outlines.load_preextracted();
+
     // v22.0 Phase 177: Load feature flags into in-memory cache and initialize config_push_seq
     state.load_feature_flags().await;
 
@@ -1156,6 +1159,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws/agent", get(ws::agent_ws))
         .route("/ws/dashboard", get(ws::dashboard_ws))
         .route("/ws/ai", get(ws::ai_ws))
+        .route("/ws/spectator", get(ws::spectator_ws))
         // Registration page (standalone HTML for QR code walk-in flow)
         .route("/register", get(|| async {
             axum::response::Html(include_str!("../../../assets/register.html"))
@@ -1238,6 +1242,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Agent WS:     ws://{}/ws/agent", bind_addr);
     tracing::info!("Dashboard WS: ws://{}/ws/dashboard", bind_addr);
     tracing::info!("AI WS:        ws://{}/ws/ai", bind_addr);
+    tracing::info!("Spectator WS: ws://{}/ws/spectator", bind_addr);
 
     // mDNS service advertiser — lets pods discover this server without hardcoded IPs.
     // The _mdns_daemon variable keeps the daemon alive for the server's lifetime.
