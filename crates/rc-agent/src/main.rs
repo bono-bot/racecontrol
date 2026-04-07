@@ -763,7 +763,7 @@ async fn main() -> Result<()> {
     // Match module path (rc_agent::*), explicit target "rc-agent" (LOG_TARGET),
     // and all Meshed Intelligence module targets (diagnostic-engine, tier-engine, etc.)
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "rc_agent=info,rc-agent=info,diagnostic-engine=info,tier-engine=info,self-monitor=info,state=info,mesh-gossip=info,budget-tracker=info,knowledge-base=info,guard=info".into());
+        .unwrap_or_else(|_| "rc_agent=info,rc-agent=info,ac-launcher=info,ws=info,remote-ops=info,event-loop=info,diagnostic-engine=info,tier-engine=info,self-monitor=info,state=info,mesh-gossip=info,budget-tracker=info,knowledge-base=info,guard=info".into());
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

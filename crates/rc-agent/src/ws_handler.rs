@@ -688,6 +688,16 @@ pub async fn handle_ws_message(
                             child: None, pid: report_pid, last_exit_code: None,
                         });
                         let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = report_pid; });
+
+                        // LAUNCH-FIX-2: Hide native lock screen IMMEDIATELY when game process starts.
+                        // The native Win32 TOPMOST window blocks AC from acquiring exclusive fullscreen.
+                        // Previously (Edge era), the browser was a separate process that could coexist.
+                        // The native HWND_TOPMOST window must be hidden BEFORE AC tries to go fullscreen,
+                        // otherwise AC hangs at 41MB RAM with 0 CPU (DX11 init succeeds but rendering blocked).
+                        // The lock screen will be re-shown if the game exits (event_loop handles GameState::Exit).
+                        state.lock_screen.close_browser();
+                        tracing::info!(target: LOG_TARGET, "LAUNCH-FIX-2: Lock screen hidden — game process started (pid={:?})", report_pid);
+
                         let msg = AgentMessage::GameStateUpdate(info);
                         let json_str = serde_json::to_string(&msg)?;
                         let _ = ws_tx.send(Message::Text(json_str.into())).await;

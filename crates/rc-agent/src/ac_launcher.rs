@@ -540,7 +540,8 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         // This makes acs.exe appear as the Spacewar app to Steam, preventing:
         // - "Playing Assetto Corsa" status on Steam friends
         // - Steam overlay activation during kiosk sessions
-        // - Aggressive Steam DRM checks on launch
+        // Note: The real AC AppID is 244210. Using 480 was NOT the cause of the
+        // loading bug (that was missing AI car in race.ini — fixed in generate_trackday_ai).
         if let Err(e) = std::fs::write(ac_dir.join("steam_appid.txt"), "480\n") {
             tracing::warn!(target: LOG_TARGET, "Failed to write steam_appid.txt: {} (non-fatal)", e);
         }
@@ -958,17 +959,41 @@ const MAX_AI_SINGLE_PLAYER: usize = 19;
 const DEFAULT_TRACKDAY_AI_COUNT: usize = 12;
 
 /// Generate default Track Day AI with mixed car classes.
+/// Validates each car against installed content — skips cars that don't exist on this pod.
+/// CSP crashes if race.ini references a missing car (discovered 2026-04-07).
 fn generate_trackday_ai(count: usize, ai_level: u32) -> Vec<AiCarSlot> {
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
 
+    // Filter car pool against installed content
+    let ac_dir = find_ac_dir().unwrap_or_default();
+    let cars_dir = ac_dir.join("content").join("cars");
+    let mut available_cars: Vec<&str> = TRACKDAY_CAR_POOL
+        .iter()
+        .filter(|car| {
+            let exists = cars_dir.join(car).exists();
+            if !exists {
+                tracing::debug!(target: LOG_TARGET, "AI car pool: {} not installed, skipping", car);
+            }
+            exists
+        })
+        .copied()
+        .collect();
+
+    if available_cars.is_empty() {
+        tracing::warn!(target: LOG_TARGET, "No cars from trackday pool are installed — AI opponents disabled");
+        return Vec::new();
+    }
+
+    tracing::info!(target: LOG_TARGET, "AI car pool: {}/{} cars available on this pod",
+        available_cars.len(), TRACKDAY_CAR_POOL.len());
+
+    available_cars.shuffle(&mut rng);
     let names = pick_ai_names(count);
-    let mut cars: Vec<&str> = TRACKDAY_CAR_POOL.to_vec();
-    cars.shuffle(&mut rng);
 
     (0..count).map(|i| {
         AiCarSlot {
-            model: cars[i % cars.len()].to_string(),
+            model: available_cars[i % available_cars.len()].to_string(),
             skin: String::new(), // AC picks random installed skin
             driver_name: names[i].clone(),
             ai_level,
