@@ -123,13 +123,8 @@ fn attempt_start_steam() {
         return;
     }
 
-    let mut cmd = std::process::Command::new(steam_path);
+    let mut cmd = rc_common::spawn_safe::spawn_safe(steam_path.to_str().unwrap_or("steam.exe"));
     cmd.arg("-silent");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
 
     match cmd.spawn() {
         Ok(_) => tracing::info!(target: LOG_TARGET, "Steam start initiated with -silent flag"),

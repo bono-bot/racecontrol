@@ -149,16 +149,8 @@ while ($true) {
 }
 "#;
 
-        let mut cmd = std::process::Command::new("powershell");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        let child = cmd
+        let child = rc_common::spawn_safe::spawn_safe_capture("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
             .spawn();
 
         let mut child = match child {
@@ -235,7 +227,7 @@ pub fn spawn_tasklist_fallback() -> mpsc::Receiver<String> {
         loop {
             std::thread::sleep(Duration::from_secs(5));
 
-            let output = std::process::Command::new("tasklist")
+            let output = rc_common::spawn_safe::spawn_safe_capture("tasklist")
                 .args(["/FO", "CSV", "/NH"])
                 .output();
 

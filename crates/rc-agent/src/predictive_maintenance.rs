@@ -251,7 +251,7 @@ pub fn run_predictive_scan(state: &mut PredictiveState) -> Vec<PredictiveAlert> 
 /// PRED-03: Check GPU temperature via nvidia-smi.
 /// Returns alert if consistently above 80C.
 fn check_gpu_temp() -> Option<PredictiveAlert> {
-    let output = std::process::Command::new("nvidia-smi")
+    let output = rc_common::spawn_safe::spawn_safe_capture("nvidia-smi")
         .args(["--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"])
         .output()
         .ok()?;
@@ -723,7 +723,7 @@ fn collect_windows_errors() -> Vec<String> {
             return cached.1.clone();
         }
 
-        let output = std::process::Command::new("powershell")
+        let output = rc_common::spawn_safe::spawn_safe_capture("powershell")
             .args([
                 "-NoProfile", "-Command",
                 "Get-WinEvent -FilterHashtable @{LogName='System';Level=1,2;StartTime=(Get-Date).AddMinutes(-5)} -MaxEvents 5 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Message | ForEach-Object { $_.Substring(0, [Math]::Min($_.Length, 120)) }",
@@ -753,7 +753,7 @@ fn collect_usb_count() -> Option<u8> {
             return cached.1;
         }
 
-        let output = std::process::Command::new("powershell")
+        let output = rc_common::spawn_safe::spawn_safe_capture("powershell")
             .args([
                 "-NoProfile", "-Command",
                 "(Get-CimInstance Win32_USBControllerDevice -ErrorAction SilentlyContinue).Count",

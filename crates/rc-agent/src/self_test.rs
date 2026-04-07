@@ -171,7 +171,7 @@ pub fn probe_udp_port_from_netstat_output(port: u16, netstat_stdout: &str) -> Pr
 /// Probe 6–10: UDP telemetry port bound (AC=9996, F1=20777, Forza=5300, iRacing=6789, LMU=5555).
 async fn probe_udp_port(port: u16) -> ProbeResult {
     let result = spawn_blocking(move || {
-        std::process::Command::new("netstat")
+        rc_common::spawn_safe::spawn_safe_capture("netstat")
             .args(["-ano"])
             .output()
     })
@@ -285,7 +285,7 @@ async fn probe_ollama(ollama_url: &str) -> ProbeResult {
 /// Probe 13: CLOSE_WAIT socket count on :8090 (< 20 = pass).
 async fn probe_close_wait() -> ProbeResult {
     let result = spawn_blocking(|| {
-        std::process::Command::new("netstat")
+        rc_common::spawn_safe::spawn_safe_capture("netstat")
             .args(["-ano"])
             .output()
     })
@@ -328,7 +328,7 @@ async fn probe_close_wait() -> ProbeResult {
 /// Probe 14: Exactly one rc-agent.exe process running.
 async fn probe_single_instance() -> ProbeResult {
     let result = spawn_blocking(|| {
-        std::process::Command::new("tasklist")
+        rc_common::spawn_safe::spawn_safe_capture("tasklist")
             .args(["/FI", "IMAGENAME eq rc-agent.exe"])
             .output()
     })
@@ -510,7 +510,7 @@ async fn probe_session_id() -> ProbeResult {
 /// Probe: GPU temperature via nvidia-smi (< 90°C = pass).
 async fn probe_gpu_temp() -> ProbeResult {
     let result = spawn_blocking(|| {
-        std::process::Command::new("nvidia-smi")
+        rc_common::spawn_safe::spawn_safe_capture("nvidia-smi")
             .args(["--query-gpu=temperature.gpu", "--format=csv,noheader"])
             .output()
     })
@@ -548,7 +548,7 @@ async fn probe_gpu_temp() -> ProbeResult {
 /// Probe: Steam process running.
 async fn probe_steam() -> ProbeResult {
     let result = spawn_blocking(|| {
-        std::process::Command::new("tasklist")
+        rc_common::spawn_safe::spawn_safe_capture("tasklist")
             .args(["/FI", "IMAGENAME eq steam.exe"])
             .output()
     })

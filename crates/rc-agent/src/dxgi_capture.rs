@@ -196,7 +196,7 @@ pub fn encode_jpeg(frame: &CapturedFrame, quality: u8) -> Result<Vec<u8>, String
         tmp_jpg.to_string_lossy().replace('\\', "\\\\"),
     );
 
-    let output = std::process::Command::new("powershell")
+    let output = rc_common::spawn_safe::spawn_safe_capture("powershell")
         .args(["-NoProfile", "-Command", &ps])
         .output()
         .map_err(|e| format!("PowerShell JPEG encode failed: {}", e))?;

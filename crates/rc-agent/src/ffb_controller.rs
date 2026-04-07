@@ -1036,7 +1036,7 @@ pub fn restart_conspit_link_hardened(is_crash_recovery: bool) {
         backup_conspit_configs();
 
         // 3. Launch ConspitLink
-        match crate::ac_launcher::hidden_cmd("cmd")
+        match rc_common::spawn_safe::spawn_safe("cmd")
             .args(["/c", "start", "", conspit_path])
             .spawn()
         {

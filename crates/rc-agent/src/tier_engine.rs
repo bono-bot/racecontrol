@@ -2041,12 +2041,7 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                     if !conspit_running {
                         let conspit_path = std::path::Path::new(r"C:\ConspitLink\ConspitLink.exe");
                         if conspit_path.exists() {
-                            let mut cmd = std::process::Command::new(conspit_path);
-                            #[cfg(windows)]
-                            {
-                                use std::os::windows::process::CommandExt;
-                                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-                            }
+                            let mut cmd = rc_common::spawn_safe::spawn_safe(conspit_path.to_str().unwrap_or("ConspitLink.exe"));
                             match cmd.spawn() {
                                 Ok(_) => {
                                     tracing::info!(target: LOG_TARGET, "Tier 1: spawned ConspitLink.exe for pre-flight recovery");
@@ -2295,7 +2290,7 @@ fn tier1_ensure_ssh_key() -> Option<String> {
     if ensure_key_in_file(ADMIN_KEY_PATH, JAMES_PUBKEY) {
         // P1: Set strict ACLs — only SYSTEM and Administrators
         // MMA Round 2 fix (2/3): check icacls exit status
-        match std::process::Command::new("icacls")
+        match rc_common::spawn_safe::spawn_safe_capture("icacls")
             .args([ADMIN_KEY_PATH, "/inheritance:r", "/grant", "SYSTEM:F", "/grant", "Administrators:F"])
             .output()
         {
@@ -2315,7 +2310,7 @@ fn tier1_ensure_ssh_key() -> Option<String> {
     // Check + append to user path
     if ensure_key_in_file(&user_key_path, JAMES_PUBKEY) {
         // MMA Round 2 fix (Grok 4.1): also set ACLs on user key path
-        let _ = std::process::Command::new("icacls")
+        let _ = rc_common::spawn_safe::spawn_safe_capture("icacls")
             .args([&user_key_path, "/inheritance:r", "/grant", "SYSTEM:F", "/grant", "Administrators:F"])
             .output();
         tracing::info!(target: LOG_TARGET, path = %user_key_path, "Tier 1: deployed SSH key to user authorized_keys + ACLs set");
@@ -2435,7 +2430,7 @@ if ($edge) {
 } else { Write-Host "NO_EDGE" }
 "#;
 
-    match std::process::Command::new("powershell")
+    match rc_common::spawn_safe::spawn_safe_capture("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script])
         .output()
     {

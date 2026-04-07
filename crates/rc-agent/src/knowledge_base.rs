@@ -963,7 +963,7 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
 
 /// Capture the current node's environment fingerprint.
 pub fn fingerprint_env(build_id: &str) -> EnvironmentFingerprint {
-    let os_version = std::process::Command::new("cmd")
+    let os_version = rc_common::spawn_safe::spawn_safe_capture("cmd")
         .args(["/C", "ver"])
         .output()
         .ok()

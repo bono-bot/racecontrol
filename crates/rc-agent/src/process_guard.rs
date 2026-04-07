@@ -525,7 +525,7 @@ async fn kill_process_verified(pid: u32, expected_name: String, expected_start_t
     }
 
     let result = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("taskkill")
+        rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/F", "/PID", &pid.to_string()])
             .output()
     })
@@ -650,11 +650,8 @@ async fn audit_run_key(
 ) {
     let key_path_owned = key_path.to_string();
     let output = tokio::task::spawn_blocking(move || {
-        #[cfg(windows)]
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("reg")
+        rc_common::spawn_safe::spawn_safe_capture("reg")
             .args(["query", &key_path_owned])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
     }).await;
 
@@ -689,11 +686,8 @@ async fn audit_run_key(
             let key_path_del = key_path.to_string();
             let entry_clone = entry_name.clone();
             let del_result = tokio::task::spawn_blocking(move || {
-                #[cfg(windows)]
-                use std::os::windows::process::CommandExt;
-                std::process::Command::new("reg")
+                rc_common::spawn_safe::spawn_safe_capture("reg")
                     .args(["delete", &key_path_del, "/v", &entry_clone, "/f"])
-                    .creation_flags(0x08000000)
                     .output()
             }).await;
             if del_result.map(|r| r.map(|o| o.status.success()).unwrap_or(false)).unwrap_or(false) {
@@ -879,12 +873,9 @@ pub(crate) async fn run_port_audit(
 
     // Shell-out netstat in spawn_blocking to avoid blocking the async runtime
     let output = tokio::task::spawn_blocking(|| {
-        #[cfg(windows)]
-        use std::os::windows::process::CommandExt;
-        let mut cmd = std::process::Command::new("netstat");
+        let mut cmd = rc_common::spawn_safe::spawn_safe_capture("netstat");
         cmd.args(["-ano"]);
         #[cfg(windows)]
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.output()
     })
     .await;
@@ -922,12 +913,9 @@ pub(crate) async fn run_port_audit(
             } else {
                 // Fallback: direct taskkill when sysinfo can't find the PID
                 let kill_result = tokio::task::spawn_blocking(move || {
-                    #[cfg(windows)]
-                    use std::os::windows::process::CommandExt;
-                    let mut cmd = std::process::Command::new("taskkill");
+                    let mut cmd = rc_common::spawn_safe::spawn_safe("taskkill");
                     cmd.args(["/F", "/PID", &pid.to_string()]);
                     #[cfg(windows)]
-                    cmd.creation_flags(0x08000000);
                     cmd.output()
                 })
                 .await;
@@ -1034,12 +1022,9 @@ pub(crate) async fn run_schtasks_audit(
 
     // Shell-out schtasks in spawn_blocking
     let output = tokio::task::spawn_blocking(|| {
-        #[cfg(windows)]
-        use std::os::windows::process::CommandExt;
-        let mut cmd = std::process::Command::new("schtasks");
+        let mut cmd = rc_common::spawn_safe::spawn_safe_capture("schtasks");
         cmd.args(["/query", "/fo", "CSV", "/nh"]);
         #[cfg(windows)]
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.output()
     })
     .await;
@@ -1087,12 +1072,9 @@ pub(crate) async fn run_schtasks_audit(
             // Attempt to disable the task
             let path_clone = task_path.clone();
             let disable_result = tokio::task::spawn_blocking(move || {
-                #[cfg(windows)]
-                use std::os::windows::process::CommandExt;
-                let mut cmd = std::process::Command::new("schtasks");
+                let mut cmd = rc_common::spawn_safe::spawn_safe_capture("schtasks");
                 cmd.args(["/change", "/tn", &path_clone, "/disable"]);
                 #[cfg(windows)]
-                cmd.creation_flags(0x08000000);
                 cmd.output()
             })
             .await;

@@ -1048,8 +1048,7 @@ mod windows_impl {
     /// Replaces SetWindowsHookEx keyboard hook -- safe for anti-cheat.
     /// Returns Err with the first failure encountered.
     pub fn apply_gpo_lockdown() -> Result<(), String> {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
+
 
         let keys: &[(&str, &str, &str)] = &[
             // Block Win key (Start menu)
@@ -1059,9 +1058,8 @@ mod windows_impl {
         ];
 
         for (subkey, value_name, data) in keys {
-            let mut cmd = Command::new("reg");
+            let mut cmd = rc_common::spawn_safe::spawn_safe_capture("reg");
             cmd.args(["add", subkey, "/v", value_name, "/t", "REG_DWORD", "/d", data, "/f"]);
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
             match cmd.output() {
                 Ok(output) if output.status.success() => {
@@ -1085,8 +1083,7 @@ mod windows_impl {
 
     /// Remove GPO registry keys -- restores Win key and Task Manager access.
     pub fn remove_gpo_lockdown() {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
+
 
         let keys: &[(&str, &str)] = &[
             (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer", "NoWinKeys"),
@@ -1094,9 +1091,8 @@ mod windows_impl {
         ];
 
         for (subkey, value_name) in keys {
-            let mut cmd = Command::new("reg");
+            let mut cmd = rc_common::spawn_safe::spawn_safe_capture("reg");
             cmd.args(["delete", subkey, "/v", value_name, "/f"]);
-            cmd.creation_flags(0x08000000);
 
             match cmd.output() {
                 Ok(output) if output.status.success() => {

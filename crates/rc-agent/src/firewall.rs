@@ -4,13 +4,7 @@
 //! Uses delete-then-add for idempotency: deleting a non-existent rule exits 0 on Windows 11.
 //! Non-fatal: logs a warning and returns Failed if netsh lacks admin privileges.
 
-use std::process::Command;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use rc_common::spawn_safe::spawn_safe_capture;
 
 const LOG_TARGET: &str = "firewall";
 
@@ -123,10 +117,8 @@ fn build_delete_args(name: &str) -> Vec<String> {
 fn verify_rule_exists(name: &str) -> bool {
     let name_arg = format!("name={}", name);
     let args = vec!["advfirewall", "firewall", "show", "rule", name_arg.as_str()];
-    let mut cmd = Command::new("netsh");
+    let mut cmd = spawn_safe_capture("netsh");
     cmd.args(&args);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
     match cmd.output() {
         Ok(out) => {
             if out.status.success() {
@@ -145,10 +137,8 @@ fn verify_rule_exists(name: &str) -> bool {
 
 /// Execute a netsh command. Returns true if exit code is 0.
 fn run_netsh(args: &[&str]) -> bool {
-    let mut cmd = Command::new("netsh");
+    let mut cmd = spawn_safe_capture("netsh");
     cmd.args(args);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
     match cmd.output() {
         Ok(out) => {
             if !out.status.success() {

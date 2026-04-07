@@ -147,7 +147,7 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
     // ── Check 3 (MiMo SRE): Orphan acs.exe from previous session ──
     if let Some(pid) = find_acs_pid() {
         tracing::warn!(target: LOG_TARGET, "Orphan acs.exe found (PID {}) — killing", pid);
-        let _ = crate::ac_launcher::hidden_cmd("taskkill")
+        let _ = rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .output();
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -161,10 +161,10 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
     // ── Check 4 (MiMo SRE): Orphan Content Manager blocking launch ──
     if crate::ac_launcher::is_process_running("Content Manager.exe") {
         tracing::warn!(target: LOG_TARGET, "Orphan Content Manager found — killing");
-        let _ = crate::ac_launcher::hidden_cmd("taskkill")
+        let _ = rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/IM", "Content Manager.exe", "/F"])
             .output();
-        let _ = crate::ac_launcher::hidden_cmd("taskkill")
+        let _ = rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/IM", "acmanager.exe", "/F"])
             .output();
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -286,10 +286,10 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
     // ── Check 10 (R1 Reasoner): WerFault crash dialogs blocking ──
     if crate::ac_launcher::is_process_running("WerFault.exe") {
         tracing::warn!(target: LOG_TARGET, "WerFault.exe crash dialog found — killing");
-        let _ = crate::ac_launcher::hidden_cmd("taskkill")
+        let _ = rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/IM", "WerFault.exe", "/F"])
             .output();
-        let _ = crate::ac_launcher::hidden_cmd("taskkill")
+        let _ = rc_common::spawn_safe::spawn_safe("taskkill")
             .args(["/IM", "WerFaultSecure.exe", "/F"])
             .output();
         fixes.push("killed WerFault crash dialog".to_string());
@@ -298,7 +298,7 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
     // ── Check 11 (R1 Reasoner): Dialog processes from previous crash ──
     for proc in crate::ac_launcher::DIALOG_PROCESSES {
         if crate::ac_launcher::is_process_running(proc) {
-            let _ = crate::ac_launcher::hidden_cmd("taskkill")
+            let _ = rc_common::spawn_safe::spawn_safe("taskkill")
                 .args(["/IM", proc, "/F"])
                 .output();
             fixes.push(format!("killed dialog process: {}", proc));
@@ -312,13 +312,8 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
         let steam_path = Path::new(r"C:\Program Files (x86)\Steam\steam.exe");
         if steam_path.exists() {
             tracing::warn!(target: LOG_TARGET, "Steam not running — starting");
-            let mut cmd = std::process::Command::new(steam_path);
+            let mut cmd = rc_common::spawn_safe::spawn_safe(steam_path.to_str().unwrap_or("steam.exe"));
             cmd.arg("-silent");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
             if cmd.spawn().is_ok() {
                 fixes.push("started Steam (was not running)".to_string());
                 // Give Steam 5s to initialize
@@ -504,7 +499,7 @@ fn find_ac_dir() -> Option<std::path::PathBuf> {
 }
 
 fn find_acs_pid() -> Option<u32> {
-    let output = crate::ac_launcher::hidden_cmd("tasklist")
+    let output = rc_common::spawn_safe::spawn_safe_capture("tasklist")
         .args(["/FI", "IMAGENAME eq acs.exe", "/FO", "CSV", "/NH"])
         .output()
         .ok()?;

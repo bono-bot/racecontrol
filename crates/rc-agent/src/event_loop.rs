@@ -1996,10 +1996,10 @@ pub(crate) fn execute_ai_action(
         KillEdge => {
             #[cfg(not(test))]
             {
-                let _ = std::process::Command::new("taskkill")
+                let _ = rc_common::spawn_safe::spawn_safe("taskkill")
                     .args(["/IM", "msedge.exe", "/F"])
                     .output();
-                let _ = std::process::Command::new("taskkill")
+                let _ = rc_common::spawn_safe::spawn_safe("taskkill")
                     .args(["/IM", "msedgewebview2.exe", "/F"])
                     .output();
             }
@@ -2039,7 +2039,7 @@ pub(crate) fn execute_ai_action(
                     "assettocorsa2.exe",
                 ];
                 for exe in &game_exes {
-                    let _ = std::process::Command::new("taskkill")
+                    let _ = rc_common::spawn_safe::spawn_safe("taskkill")
                         .args(["/IM", exe, "/F"])
                         .output();
                 }
@@ -2049,7 +2049,7 @@ pub(crate) fn execute_ai_action(
         ClearTemp => {
             #[cfg(not(test))]
             {
-                let _ = std::process::Command::new("cmd")
+                let _ = rc_common::spawn_safe::spawn_safe("cmd")
                     .args(["/C", "del /Q /F /S %TEMP%\\* 2>nul"])
                     .output();
             }

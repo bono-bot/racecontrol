@@ -614,7 +614,7 @@ fn check_pos_network_health() -> Option<DiagnosticTrigger> {
 /// MMA consensus (4/4 models): RSSI < -70dBm or server latency > 500ms = transaction risk.
 fn check_pos_wifi_health() -> Option<DiagnosticTrigger> {
     // Parse WiFi signal from netsh (Windows-specific)
-    let output = match std::process::Command::new("netsh")
+    let output = match rc_common::spawn_safe::spawn_safe_capture("netsh")
         .args(["wlan", "show", "interfaces"])
         .output()
     {

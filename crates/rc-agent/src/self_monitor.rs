@@ -233,7 +233,7 @@ pub fn log_event(event: &str) {
 /// NOTE: Locale dependency — netstat output text ("CLOSE_WAIT") may differ on
 /// non-English Windows locales. Known limitation; acceptable for our English-locale pods.
 fn count_close_wait_on_8090() -> usize {
-    let Ok(out) = std::process::Command::new("netstat").args(["-ano"]).output() else {
+    let Ok(out) = rc_common::spawn_safe::spawn_safe_capture("netstat").args(["-ano"]).output() else {
         return 0;
     };
     String::from_utf8_lossy(&out.stdout)

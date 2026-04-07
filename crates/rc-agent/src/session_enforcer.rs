@@ -110,10 +110,8 @@ impl SessionEnforcer {
         );
         #[cfg(target_os = "windows")]
         {
-            use std::os::windows::process::CommandExt;
-            let status = std::process::Command::new("taskkill")
+            let status = rc_common::spawn_safe::spawn_safe("taskkill")
                 .args(["/F", "/PID", &pid.to_string()])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .status()
                 .map_err(|e| format!("taskkill spawn failed: {}", e))?;
             if !status.success() {

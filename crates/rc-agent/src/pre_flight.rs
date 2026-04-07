@@ -310,7 +310,7 @@ async fn check_orphan_game(billing_active: bool, has_game_process: bool, game_pi
                 }
 
                 // PID validated — safe to kill
-                std::process::Command::new("taskkill")
+                rc_common::spawn_safe::spawn_safe("taskkill")
                     .args(["/F", "/PID", &pid.to_string()])
                     .output()
             })
@@ -1208,7 +1208,7 @@ async fn fix_popup_windows() {
                 if POPUP_BLOCKLIST.iter().any(|&blocked| name == blocked) {
                     let pid = p.pid().as_u32();
                     tracing::info!(target: LOG_TARGET, "Killing popup process: {} (PID {})", name, pid);
-                    let _ = std::process::Command::new("taskkill")
+                    let _ = rc_common::spawn_safe::spawn_safe("taskkill")
                         .args(["/F", "/PID", &pid.to_string()])
                         .output();
                 }
@@ -1230,12 +1230,7 @@ async fn fix_conspit() -> bool {
         spawn_blocking(|| {
             use sysinfo::{ProcessesToUpdate, System};
 
-            let mut cmd = std::process::Command::new(r"C:\ConspitLink\ConspitLink.exe");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            }
+            let mut cmd = rc_common::spawn_safe::spawn_safe(r"C:\ConspitLink\ConspitLink.exe");
             // Attempt to spawn — ignore result (process may already be starting)
             let _ = cmd.spawn();
 

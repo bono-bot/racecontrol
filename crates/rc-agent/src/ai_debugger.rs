@@ -47,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio::sync::mpsc;
 
+use rc_common::spawn_safe::{spawn_safe, spawn_safe_capture};
 use rc_common::types::{AiDebugSuggestion, DrivingState, SimType};
 use crate::ffb_controller::FfbController;
 
@@ -463,7 +464,7 @@ impl PodErrorContext {
         }
 
         // 2. Windows Event Viewer — last 10 Application errors (condensed)
-        if let Ok(output) = hidden_cmd("powershell")
+        if let Ok(output) = spawn_safe_capture("powershell")
             .args([
                 "-NoProfile", "-Command",
                 "Get-WinEvent -FilterHashtable @{LogName='Application';Level=2} \
@@ -483,7 +484,7 @@ impl PodErrorContext {
         }
 
         // 3. CLOSE_WAIT count on :8090
-        if let Ok(output) = hidden_cmd("powershell")
+        if let Ok(output) = spawn_safe_capture("powershell")
             .args([
                 "-NoProfile", "-Command",
                 "(Get-NetTCPConnection -State CloseWait -ErrorAction SilentlyContinue | \
@@ -776,16 +777,6 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
     None
 }
 
-/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
-fn hidden_cmd(program: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    cmd
-}
 
 // ─── Phase 24 Wave 1: Fix Function Implementations ──────────────────────────
 
@@ -816,15 +807,15 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
     tracing::info!(target: LOG_TARGET, "fix_frozen_game: {}", ffb_detail);
 
     // Kill error dialogs before game kill — customer must not see crash dialogs
-    let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
-    let _ = hidden_cmd("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
 
     // Now kill the frozen game processes
     let game_exes = ["acs.exe", "AssettoCorsa.exe", "F1_25.exe", "iRacingSim64DX11.exe", "LMU.exe", "ForzaMotorsport.exe"];
     let mut killed = Vec::new();
     for exe in &game_exes {
         if PROTECTED_PROCESSES.iter().any(|p| p.eq_ignore_ascii_case(exe)) { continue; }
-        if let Ok(o) = hidden_cmd("taskkill").args(["/IM", exe, "/F"]).output() {
+        if let Ok(o) = spawn_safe("taskkill").args(["/IM", exe, "/F"]).output() {
             if o.status.success() { killed.push(*exe); }
         }
     }
@@ -844,11 +835,11 @@ pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult 
     tracing::warn!(target: LOG_TARGET, "fix_launch_timeout: killing Content Manager — 90s timeout");
 
     // Kill both possible Content Manager process names (varies by install method on pods)
-    let _ = hidden_cmd("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
-    let _ = hidden_cmd("taskkill").args(["/IM", "acmanager.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "acmanager.exe", "/F"]).output();
 
     // Also kill acs.exe in case it spawned but hung before reaching Live state
-    let _ = hidden_cmd("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
 
     tracing::info!(target: LOG_TARGET, "fix_launch_timeout: Content Manager and acs.exe killed");
     AutoFixResult {
@@ -886,7 +877,7 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 
     // Kill any CLOSE_WAIT state by resetting network stack for our ports
     // Safe: only affects orphaned connections, not active ones
-    let result = hidden_cmd("powershell")
+    let result = spawn_safe("powershell")
         .args([
             "-NoProfile", "-Command",
             "Get-NetTCPConnection -State CloseWait -ErrorAction SilentlyContinue | \
@@ -936,7 +927,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
         if PROTECTED_PROCESSES.iter().any(|p| p.eq_ignore_ascii_case(exe)) {
             continue;
         }
-        let output = hidden_cmd("taskkill")
+        let output = spawn_safe("taskkill")
             .args(["/IM", exe, "/F"])
             .output();
         if let Ok(o) = output {
@@ -963,7 +954,7 @@ fn fix_kill_stale_game() -> AutoFixResult {
 fn fix_clean_temp() -> AutoFixResult {
     tracing::info!(target: LOG_TARGET, "Cleaning temp files");
 
-    let result = hidden_cmd("powershell")
+    let result = spawn_safe("powershell")
         .args([
             "-NoProfile", "-Command",
             "Remove-Item -Path \"$env:TEMP\\*\" -Recurse -Force -ErrorAction SilentlyContinue; \
@@ -993,12 +984,12 @@ fn fix_clean_temp() -> AutoFixResult {
 fn fix_kill_error_dialogs() -> AutoFixResult {
     tracing::info!(target: LOG_TARGET, "Suppressing error dialogs before process kill");
 
-    let _ = hidden_cmd("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
-    let _ = hidden_cmd("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
     // msedge.exe crash reporter dialogs that appear when Edge itself crashes (not AC game crash)
     // Only kill if it's a crash reporter instance — process name is the same so we kill all msedge.
     // This is acceptable because Edge is relaunched by the kiosk overlay manager on next session.
-    let _ = hidden_cmd("taskkill").args(["/IM", "msedge.exe", "/F"]).output();
+    let _ = spawn_safe("taskkill").args(["/IM", "msedge.exe", "/F"]).output();
 
     AutoFixResult {
         fix_type: "kill_error_dialogs".to_string(),
@@ -1064,7 +1055,7 @@ fn fix_memory_pressure(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(not(test))]
     {
         // Enumerate high-memory non-protected processes, then trim their working set (non-destructive)
-        let output = hidden_cmd("powershell")
+        let output = spawn_safe("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
@@ -1086,7 +1077,7 @@ fn fix_memory_pressure(_snapshot: &PodStateSnapshot) -> AutoFixResult {
                     };
                 }
                 // Attempt to reduce working set via powershell (non-destructive)
-                let _ = hidden_cmd("powershell")
+                let _ = spawn_safe("powershell")
                     .args([
                         "-NoProfile",
                         "-Command",
@@ -1120,7 +1111,7 @@ fn fix_dll_repair(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(not(test))]
     {
         // Fire sfc /scannow in background — this takes minutes, don't block
-        match hidden_cmd("cmd")
+        match spawn_safe("cmd")
             .args(["/C", "start", "/MIN", "sfc", "/scannow"])
             .spawn()
         {
@@ -1151,12 +1142,12 @@ fn fix_steam_restart(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(not(test))]
     {
         // Kill Steam, wait briefly, then restart it
-        let kill = hidden_cmd("taskkill")
+        let kill = spawn_safe("taskkill")
             .args(["/IM", "steam.exe", "/F"])
             .output();
         let killed = matches!(kill, Ok(ref o) if o.status.success());
         std::thread::sleep(std::time::Duration::from_secs(2));
-        let restart = hidden_cmd("cmd")
+        let restart = spawn_safe("cmd")
             .args(["/C", "start", "", r"C:\Program Files (x86)\Steam\steam.exe"])
             .spawn();
         let restarted = restart.is_ok();
@@ -1180,7 +1171,7 @@ fn fix_performance_throttle(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(not(test))]
     {
         // Set High Performance power plan (standard Windows GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c)
-        let output = hidden_cmd("powercfg")
+        let output = spawn_safe("powercfg")
             .args(["/setactive", "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"])
             .output();
         match output {
@@ -1218,7 +1209,7 @@ fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(not(test))]
     {
         // Detect active Ethernet adapter name, disable then re-enable
-        let name_output = hidden_cmd("powershell")
+        let name_output = spawn_safe_capture("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
@@ -1237,12 +1228,12 @@ fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
             _ => "Ethernet".to_string(),
         };
         // Disable adapter
-        let _ = hidden_cmd("netsh")
+        let _ = spawn_safe("netsh")
             .args(["interface", "set", "interface", &adapter_name, "disable"])
             .output();
         std::thread::sleep(std::time::Duration::from_secs(1));
         // Re-enable adapter
-        let enable = hidden_cmd("netsh")
+        let enable = spawn_safe("netsh")
             .args(["interface", "set", "interface", &adapter_name, "enable"])
             .output();
         let success = matches!(enable, Ok(ref o) if o.status.success());
@@ -1279,10 +1270,10 @@ fn fix_browser_dead(_snapshot: &PodStateSnapshot) -> AutoFixResult {
             };
         }
         // Kill any stale msedge/webview2 first
-        let _ = hidden_cmd("taskkill")
+        let _ = spawn_safe("taskkill")
             .args(["/IM", "msedge.exe", "/F"])
             .output();
-        let _ = hidden_cmd("taskkill")
+        let _ = spawn_safe("taskkill")
             .args(["/IM", "msedgewebview2.exe", "/F"])
             .output();
         std::thread::sleep(std::time::Duration::from_secs(2));

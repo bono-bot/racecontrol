@@ -9,14 +9,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use rc_common::spawn_safe::spawn_safe_capture;
 
 const LOG_TARGET: &str = "startup-cleanup";
 
@@ -230,7 +225,7 @@ fn cleanup_installer_junk(exe_dir: &Path, r: &mut CleanupResult) {
 /// PowerShell sessions intact.
 fn cleanup_orphan_powershell(r: &mut CleanupResult) {
     // Use PowerShell to query and filter by command line
-    let mut cmd = Command::new("powershell");
+    let mut cmd = spawn_safe_capture("powershell");
     cmd.args([
         "-NoProfile",
         "-NonInteractive",
@@ -239,8 +234,6 @@ fn cleanup_orphan_powershell(r: &mut CleanupResult) {
         // Also kill those with no command line (orphaned detached shells from DETACHED_PROCESS)
         r#"Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'rc-agent|start-rcagent|RacingPoint' -or $_.CommandLine -eq '' -or $_.CommandLine -eq $null } | ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Output "killed:$($_.ProcessId)" } catch { Write-Output "skip:$($_.ProcessId)" } }"#,
     ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     match cmd.output() {
         Ok(output) => {
@@ -262,10 +255,8 @@ fn cleanup_bloatware_run_keys(r: &mut CleanupResult) {
     let run_key_path = r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
 
     // First, enumerate all values in the Run key
-    let mut cmd = Command::new("reg");
+    let mut cmd = spawn_safe_capture("reg");
     cmd.args(["query", run_key_path]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = match cmd.output() {
         Ok(o) => o,
@@ -295,10 +286,8 @@ fn cleanup_bloatware_run_keys(r: &mut CleanupResult) {
         }
 
         // Delete this Run key value
-        let mut del_cmd = Command::new("reg");
+        let mut del_cmd = spawn_safe_capture("reg");
         del_cmd.args(["delete", run_key_path, "/v", value_name, "/f"]);
-        #[cfg(windows)]
-        del_cmd.creation_flags(CREATE_NO_WINDOW);
 
         match del_cmd.output() {
             Ok(o) if o.status.success() => {

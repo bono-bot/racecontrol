@@ -6,12 +6,9 @@
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{bail, Result};
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use rc_common::spawn_safe::spawn_safe_capture;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -263,15 +260,13 @@ fn repair_start_script(script_path: &Path) -> Result<()> {
 
 /// Check if the HKLM Run key for RCAgent exists.
 fn registry_key_exists() -> bool {
-    let mut cmd = Command::new("reg");
+    let mut cmd = spawn_safe_capture("reg");
     cmd.args([
         "query",
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
         "/v",
         "RCAgent",
     ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     match cmd.output() {
         Ok(output) => output.status.success(),
@@ -284,7 +279,7 @@ fn repair_registry_key(exe_dir: &Path) -> Result<()> {
     let bat_path = exe_dir.join("start-rcagent.bat");
     let data = bat_path.to_string_lossy().to_string();
 
-    let mut cmd = Command::new("reg");
+    let mut cmd = spawn_safe_capture("reg");
     cmd.args([
         "add",
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
@@ -294,8 +289,6 @@ fn repair_registry_key(exe_dir: &Path) -> Result<()> {
         &data,
         "/f",
     ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = cmd.output().map_err(|e| {
         anyhow::anyhow!("Failed to spawn reg.exe: {}", e)
@@ -312,15 +305,13 @@ fn repair_registry_key(exe_dir: &Path) -> Result<()> {
 /// Check if C:\RacingPoint\ is in Windows Defender ExclusionPath.
 /// Returns false if PowerShell is unavailable or the check fails (non-fatal).
 fn defender_exclusion_exists() -> bool {
-    let mut cmd = Command::new("powershell");
+    let mut cmd = spawn_safe_capture("powershell");
     cmd.args([
         "-NoProfile",
         "-NonInteractive",
         "-Command",
         r#"(Get-MpPreference).ExclusionPath -contains 'C:\RacingPoint'"#,
     ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     match cmd.output() {
         Ok(output) => {
@@ -334,15 +325,13 @@ fn defender_exclusion_exists() -> bool {
 /// Add C:\RacingPoint\ to Windows Defender exclusion paths.
 /// Requires admin privileges (rc-agent runs as admin user on pod PCs).
 fn repair_defender_exclusion() -> Result<()> {
-    let mut cmd = Command::new("powershell");
+    let mut cmd = spawn_safe_capture("powershell");
     cmd.args([
         "-NoProfile",
         "-NonInteractive",
         "-Command",
         r#"Add-MpPreference -ExclusionPath 'C:\RacingPoint'"#,
     ]);
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = cmd.output().map_err(|e| anyhow::anyhow!("powershell failed: {}", e))?;
     if !output.status.success() {
