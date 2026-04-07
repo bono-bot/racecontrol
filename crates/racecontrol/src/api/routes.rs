@@ -8758,8 +8758,9 @@ async fn topup_wallet(
         if let Some((_amount, balance)) = existing {
             return Json(json!({
                 "status": "ok",
-                "new_balance_paise": balance,
-                "bonus_paise": 0,
+                "new_balance_credits": balance,
+                "bonus_credits_granted": 0,
+                "rupee_amount": req.amount_paise,
                 "idempotent_replay": true,
             }));
         }
@@ -8874,10 +8875,13 @@ async fn topup_wallet(
     .execute(&state.db)
     .await;
 
+    let max_cash_refund = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
     Json(json!({
         "status": "ok",
-        "new_balance_paise": new_balance,
-        "bonus_paise": bonus_paise,
+        "new_balance_credits": new_balance,
+        "bonus_credits_granted": bonus_paise,
+        "rupee_amount": req.amount_paise,
+        "max_cash_refund": max_cash_refund,
     }))
 }
 
@@ -8998,7 +9002,7 @@ async fn payment_gateway_webhook(
         return Json(json!({
             "ok": true,
             "duplicate": true,
-            "balance_after_paise": balance_after
+            "new_balance_credits": balance_after
         }));
     }
 
@@ -9058,7 +9062,7 @@ async fn payment_gateway_webhook(
 
     Json(json!({
         "ok": true,
-        "balance_after_paise": new_balance,
+        "new_balance_credits": new_balance,
         "txn_id": txn_id
     }))
 }
@@ -9153,10 +9157,11 @@ async fn all_wallet_transactions(
     let date = params.get("date").cloned().unwrap_or(today);
     let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(200i64);
 
-    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, String, Option<String>, Option<String>, Option<String>, String, String, Option<String>, String)>(
         "SELECT wt.id, wt.driver_id, wt.amount_paise, wt.balance_after_paise, wt.txn_type, \
          wt.reference_id, wt.notes, wt.staff_id, wt.created_at, \
-         COALESCE(d.name, 'Unknown') as driver_name, d.phone as driver_phone \
+         COALESCE(d.name, 'Unknown') as driver_name, d.phone as driver_phone, \
+         COALESCE(wt.currency_type, 'credit') as currency_type \
          FROM wallet_transactions wt \
          LEFT JOIN drivers d ON d.id = wt.driver_id \
          WHERE date(wt.created_at) = ? \
@@ -9170,6 +9175,9 @@ async fn all_wallet_transactions(
 
     let mut total_credits: i64 = 0;
     let mut total_debits: i64 = 0;
+    let mut total_rupee_deposits: i64 = 0;
+    let mut total_bonus_credits: i64 = 0;
+    let mut total_cash_refunds: i64 = 0;
 
     let txns: Vec<Value> = rows.iter().map(|r| {
         let is_credit = r.4.starts_with("topup") || r.4 == "bonus" || r.4.starts_with("refund");
@@ -9177,6 +9185,16 @@ async fn all_wallet_transactions(
             total_credits += r.2;
         } else {
             total_debits += r.2;
+        }
+        // D-22: Track rupee/bonus/cash-refund totals
+        if r.4.starts_with("topup") || r.4 == "gateway_topup" {
+            total_rupee_deposits += r.2;
+        }
+        if r.4 == "bonus" || r.4 == "adjustment" {
+            total_bonus_credits += r.2;
+        }
+        if r.4 == "refund_cash" {
+            total_cash_refunds += r.2;
         }
         json!({
             "id": r.0,
@@ -9190,6 +9208,7 @@ async fn all_wallet_transactions(
             "created_at": r.8,
             "driver_name": r.9,
             "driver_phone": r.10,
+            "currency_type": r.11,
         })
     }).collect();
 
@@ -9200,6 +9219,9 @@ async fn all_wallet_transactions(
             "total_debits_paise": total_debits,
             "net_paise": total_credits - total_debits,
             "count": txns.len(),
+            "total_rupee_deposits": total_rupee_deposits,
+            "total_bonus_credits": total_bonus_credits,
+            "total_cash_refunds": total_cash_refunds,
         }
     }))
 }
