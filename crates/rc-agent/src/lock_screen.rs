@@ -801,7 +801,7 @@ impl LockScreenManager {
 
         // Create a new native Win32 lock screen window
         let mut nw = crate::native_lock::NativeLockScreen::new();
-        nw.show(self.state.clone());
+        nw.show(self.state.clone(), self.event_tx.clone());
 
         // Brief pause to let the window thread create the HWND
         std::thread::sleep(std::time::Duration::from_millis(100));

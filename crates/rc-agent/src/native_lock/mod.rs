@@ -18,8 +18,9 @@ pub mod window;
 pub use font::LockGdiResources;
 pub use keyboard::PinInputState;
 
-use crate::lock_screen::LockScreenState;
+use crate::lock_screen::{LockScreenEvent, LockScreenState};
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 const LOG_TARGET: &str = "native-lock";
 
@@ -46,7 +47,10 @@ impl NativeLockScreen {
 
     /// Show the lock screen window. If no window exists, spawns the window thread.
     /// If a window already exists, triggers a repaint.
-    pub fn show(&mut self, state: Arc<Mutex<LockScreenState>>) {
+    ///
+    /// `event_tx` is used to dispatch LockScreenEvent::PinEntered when the user
+    /// enters a complete PIN via keyboard.
+    pub fn show(&mut self, state: Arc<Mutex<LockScreenState>>, event_tx: mpsc::Sender<LockScreenEvent>) {
         let hwnd_val = {
             let slot = self.hwnd.lock().unwrap_or_else(|e| e.into_inner());
             *slot
@@ -63,7 +67,7 @@ impl NativeLockScreen {
         let handle = std::thread::Builder::new()
             .name("lock-screen-window".to_string())
             .spawn(move || {
-                window::spawn_lock_window(state, hwnd_slot);
+                window::spawn_lock_window(state, hwnd_slot, event_tx);
             })
             .expect("failed to spawn lock screen window thread");
 

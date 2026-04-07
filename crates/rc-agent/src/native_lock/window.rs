@@ -6,10 +6,12 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::lock_screen::{get_virtual_screen_bounds, LockScreenState};
+use crate::lock_screen::{get_virtual_screen_bounds, LockScreenEvent, LockScreenState};
 use crate::native_lock::font::{self, LockGdiResources};
+use crate::native_lock::keyboard::PinInputState;
 use crate::native_lock::painter;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 const LOG_TARGET: &str = "lock-screen-window";
 
@@ -26,6 +28,12 @@ struct LockWindowState {
     res: LockGdiResources,
     screen_w: i32,
     screen_h: i32,
+    /// Channel for dispatching lock screen events (e.g., PinEntered).
+    event_tx: mpsc::Sender<LockScreenEvent>,
+    /// Current PIN input buffer for PinEntry state.
+    pin_input: PinInputState,
+    /// Previous state variant name, used to detect state transitions and reset pin_input.
+    prev_state_name: &'static str,
 }
 
 /// Entry point for the lock screen window thread.
@@ -37,7 +45,11 @@ struct LockWindowState {
 /// 4. Runs Win32 message loop until WM_QUIT
 /// 5. Cleans up fonts on exit
 #[cfg(windows)]
-pub fn spawn_lock_window(state: Arc<Mutex<LockScreenState>>, hwnd_slot: Arc<Mutex<Option<isize>>>) {
+pub fn spawn_lock_window(
+    state: Arc<Mutex<LockScreenState>>,
+    hwnd_slot: Arc<Mutex<Option<isize>>>,
+    event_tx: mpsc::Sender<LockScreenEvent>,
+) {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use winapi::shared::minwindef::*;
@@ -66,6 +78,9 @@ pub fn spawn_lock_window(state: Arc<Mutex<LockScreenState>>, hwnd_slot: Arc<Mute
             res,
             screen_w: vw,
             screen_h: vh,
+            event_tx,
+            pin_input: PinInputState::new(),
+            prev_state_name: "Hidden",
         })
     };
     let state_ptr = Box::into_raw(window_state);
@@ -159,6 +174,7 @@ pub fn spawn_lock_window(state: Arc<Mutex<LockScreenState>>, hwnd_slot: Arc<Mute
 pub fn spawn_lock_window(
     _state: Arc<Mutex<LockScreenState>>,
     _hwnd_slot: Arc<Mutex<Option<isize>>>,
+    _event_tx: mpsc::Sender<LockScreenEvent>,
 ) {
     tracing::warn!("Native lock screen not supported on non-Windows platforms");
 }
@@ -185,17 +201,104 @@ unsafe extern "system" fn lock_wnd_proc(
             }
 
             WM_TIMER => {
+                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut LockWindowState;
+                if !ws_ptr.is_null() {
+                    let ws = &mut *ws_ptr;
+
+                    // Detect state transitions: reset PIN buffer when entering PinEntry
+                    let current_state_name = {
+                        let state = ws.state.lock().unwrap_or_else(|e| e.into_inner());
+                        state_variant_name(&state)
+                    };
+                    if current_state_name != ws.prev_state_name {
+                        if current_state_name == "PinEntry" {
+                            ws.pin_input.clear();
+                        }
+                        ws.prev_state_name = current_state_name;
+                    }
+
+                    // Focus enforcement: reclaim focus when in PinEntry state
+                    {
+                        let state = ws.state.lock().unwrap_or_else(|e| e.into_inner());
+                        if matches!(*state, LockScreenState::PinEntry { .. }) {
+                            drop(state); // Release lock before Win32 call
+                            if GetForegroundWindow() != hwnd {
+                                SetForegroundWindow(hwnd);
+                            }
+                        }
+                    }
+                }
+
                 // 1-second repaint timer — triggers WM_PAINT
                 InvalidateRect(hwnd, std::ptr::null(), FALSE);
                 0
             }
 
-            WM_PAINT => {
-                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const LockWindowState;
+            WM_CHAR => {
+                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut LockWindowState;
                 if !ws_ptr.is_null() {
-                    let ws = &*ws_ptr;
+                    let ws = &mut *ws_ptr;
+                    let ch = char::from_u32(wparam as u32).unwrap_or('\0');
+
+                    // Only handle digit input when in PinEntry state
+                    let is_pin_entry = {
+                        let state = ws.state.lock().unwrap_or_else(|e| e.into_inner());
+                        matches!(*state, LockScreenState::PinEntry { .. })
+                    };
+
+                    if is_pin_entry && ch.is_ascii_digit() {
+                        if ws.pin_input.push_digit(ch) {
+                            // Auto-submit at 6 digits
+                            if ws.pin_input.is_full() {
+                                let pin = ws.pin_input.take();
+                                let _ = ws.event_tx.blocking_send(LockScreenEvent::PinEntered { pin });
+                            }
+                            InvalidateRect(hwnd, std::ptr::null(), FALSE);
+                        }
+                    }
+                }
+                0
+            }
+
+            WM_KEYDOWN => {
+                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut LockWindowState;
+                if !ws_ptr.is_null() {
+                    let ws = &mut *ws_ptr;
+                    let vk = wparam as i32;
+
+                    let is_pin_entry = {
+                        let state = ws.state.lock().unwrap_or_else(|e| e.into_inner());
+                        matches!(*state, LockScreenState::PinEntry { .. })
+                    };
+
+                    if is_pin_entry {
+                        // VK_BACK = 0x08
+                        if vk == 0x08 {
+                            if ws.pin_input.pop() {
+                                InvalidateRect(hwnd, std::ptr::null(), FALSE);
+                            }
+                        }
+                        // VK_RETURN = 0x0D
+                        else if vk == 0x0D {
+                            if ws.pin_input.is_complete() {
+                                let pin = ws.pin_input.take();
+                                let _ = ws.event_tx.blocking_send(LockScreenEvent::PinEntered { pin });
+                                InvalidateRect(hwnd, std::ptr::null(), FALSE);
+                            }
+                        }
+                    }
+                }
+                0
+            }
+
+            WM_PAINT => {
+                let ws_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut LockWindowState;
+                if !ws_ptr.is_null() {
+                    let ws = &mut *ws_ptr;
                     let state = ws.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    painter::paint_lock_screen(hwnd, &state, &ws.res, ws.screen_w, ws.screen_h);
+                    let pin_dots = ws.pin_input.display_dots();
+                    let pin_count = ws.pin_input.len();
+                    painter::paint_lock_screen(hwnd, &state, &ws.res, ws.screen_w, ws.screen_h, &pin_dots, pin_count);
                 }
                 0
             }
@@ -250,5 +353,20 @@ unsafe extern "system" fn lock_wnd_proc(
 
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+}
+
+/// Returns a static string identifying the LockScreenState variant.
+/// Used for detecting state transitions in the window thread.
+fn state_variant_name(state: &LockScreenState) -> &'static str {
+    match state {
+        LockScreenState::Hidden => "Hidden",
+        LockScreenState::PinEntry { .. } => "PinEntry",
+        LockScreenState::QrDisplay { .. } => "QrDisplay",
+        LockScreenState::ActiveSession { .. } => "ActiveSession",
+        LockScreenState::ScreenBlanked => "ScreenBlanked",
+        LockScreenState::Disconnected => "Disconnected",
+        LockScreenState::StartupConnecting => "StartupConnecting",
+        _ => "Other",
     }
 }
