@@ -17,7 +17,7 @@
 - ✅ **v41.0 Game Intelligence System** — Phases 315-320 (shipped 2026-04-03)
 - ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
-- [ ] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, 13 gaps from VMS analysis)
+- [x] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, shipped 2026-04-07)
 - [ ] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, financial model redesign)
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -836,6 +836,9 @@ Phase Dependency Graph:
   4. `balance_paise` unchanged — still the single spendable credits pool
   5. Migration is idempotent (ALTER TABLE IF NOT EXISTS pattern)
   6. Cloud DB also gets the migration on next sync
+**Plans:** 1 plan
+Plans:
+- [ ] 337-01-PLAN.md — Add ALTER TABLE columns + backfill queries to migrate()
 
 ### Phase 338: Wallet Core Logic
 **Goal**: Update wallet.rs so top-ups track rupee deposits, bonuses track bonus credits, and cash refunds are capped.
@@ -885,7 +888,7 @@ Phase Dependency Graph:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 337. DB Schema Migration | 0/TBD | Not Started | — |
+| 337. DB Schema Migration | 0/1 | Planning Complete | — |
 | 338. Wallet Core Logic | 0/TBD | Not Started | — |
 | 339. API Endpoints | 0/TBD | Not Started | — |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
