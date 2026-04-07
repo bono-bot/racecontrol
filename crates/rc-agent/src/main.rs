@@ -30,6 +30,7 @@ mod knowledge_base;
 mod model_eval_store;
 mod kiosk;
 mod lock_screen;
+mod native_lock;
 mod cognitive_gate;
 mod diagnosis_planner;
 mod mesh_gossip;
@@ -618,7 +619,7 @@ async fn main() -> Result<()> {
                 "{{\"hostname\":\"{}\",\"reason\":\"not_in_allowlist\",\"timestamp\":\"{}\"}}",
                 hostname, chrono::Local::now().format("%Y-%m-%dT%H:%M:%S")
             );
-            let _ = std::process::Command::new("curl.exe")
+            let _ = rc_common::spawn_safe::spawn_safe("curl.exe")
                 .args(["-sf", "--max-time", "3", "-X", "POST",
                        "http://192.168.31.23:8080/api/v1/fleet/blocked-start",
                        "-H", "Content-Type: application/json",

@@ -3,20 +3,9 @@ use std::process::{Child, Command};
 
 pub use rc_common::config_schema::GameExeConfig;
 use rc_common::types::{GameState, SimType};
+use rc_common::spawn_safe::{spawn_safe, spawn_safe_capture};
 
 const LOG_TARGET: &str = "game-process";
-
-/// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
-/// Used for background utilities (taskkill, cmd wrappers). NOT for game exe launches.
-fn hidden_cmd(program: &str) -> Command {
-    let mut cmd = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    cmd
-}
 
 /// Directory where the PID file is persisted.
 /// Windows: C:\RacingPoint\  Linux: /tmp/racecontrol/
@@ -305,7 +294,7 @@ impl GameProcess {
                 let url = format!("steam://rungameid/{}", app_id);
                 #[cfg(target_os = "windows")]
                 {
-                    hidden_cmd("cmd")
+                    spawn_safe("cmd")
                         .args(["/C", "start", "", &url])
                         .spawn()?;
                 }
@@ -412,7 +401,7 @@ impl GameProcess {
         tracing::info!(target: LOG_TARGET, "Launching via URL scheme: {}", url);
         #[cfg(target_os = "windows")]
         {
-            hidden_cmd("cmd")
+            spawn_safe("cmd")
                 .args(["/C", "start", "", url])
                 .spawn()?;
         }
@@ -493,7 +482,7 @@ fn is_process_alive(pid: u32) -> bool {
 /// LAUNCH-FIX-2: Check taskkill exit code + post-kill verification + /T for process tree
 #[cfg(target_os = "windows")]
 fn kill_process(pid: u32) -> anyhow::Result<()> {
-    let output = hidden_cmd("taskkill")
+    let output = spawn_safe_capture("taskkill")
         .args(["/PID", &pid.to_string(), "/F", "/T"])
         .output()?;
 

@@ -4,6 +4,7 @@
 //! Edge in kiosk mode to display PIN entry or QR code screens.
 
 use std::sync::atomic::AtomicBool;
+use rc_common::spawn_safe::{spawn_safe, spawn_safe_capture};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -12,18 +13,6 @@ const LOG_TARGET: &str = "lock-screen";
 
 /// Create a Command with CREATE_NO_WINDOW on Windows (prevents console flash).
 /// Used for background utilities (taskkill, reg, powershell). NOT for browser launches.
-fn hidden_cmd(program: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    // FreeConsole() at startup invalidates inherited stdio handles.
-    // Without Null redirection, spawn/output fails with ERROR_INVALID_HANDLE (os error 6).
-    cmd.stdin(std::process::Stdio::null());
-    cmd
-}
 
 /// Query the virtual screen bounds (covers all monitors).
 /// Returns (x, y, width, height) of the full virtual desktop.
@@ -31,7 +20,7 @@ fn hidden_cmd(program: &str) -> std::process::Command {
 /// On multi-monitor / surround setups this covers the entire span
 /// (e.g. triple 2560x1440 → (0, 0, 7680, 1440)).
 #[cfg(windows)]
-fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
+pub(crate) fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
     // SM_XVIRTUALSCREEN=76, SM_YVIRTUALSCREEN=77, SM_CXVIRTUALSCREEN=78, SM_CYVIRTUALSCREEN=79
     unsafe extern "system" {
         fn GetSystemMetrics(nIndex: i32) -> i32;
@@ -63,7 +52,7 @@ fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
 }
 
 #[cfg(not(windows))]
-fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
+pub(crate) fn get_virtual_screen_bounds() -> (i32, i32, i32, i32) {
     (0, 0, 1920, 1080)
 }
 
@@ -1064,7 +1053,7 @@ impl LockScreenManager {
         // This prevents the stacking bug where repeated show_blank_screen() calls
         // spawn new Edge windows without fully cleaning up the old ones.
         for exe in &["msedge.exe", "msedgewebview2.exe"] {
-            match hidden_cmd("taskkill")
+            match spawn_safe("taskkill")
                 .args(["/F", "/IM", exe])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -1140,7 +1129,7 @@ impl LockScreenManager {
             // NOTE: tasklist /FI "IMAGENAME eq msedge.exe" returns empty/error on pods
             // (Windows filter syntax issue in some configurations). Use unfiltered
             // tasklist /NH and count lines containing "msedge.exe" instead.
-            match hidden_cmd("tasklist")
+            match spawn_safe_capture("tasklist")
                 .args(["/NH"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
@@ -1176,7 +1165,7 @@ impl LockScreenManager {
 fn suppress_notifications(suppress: bool) {
     if suppress {
         // Enable Focus Assist (priority only) via registry — suppresses all toast notifications
-        let _ = hidden_cmd("reg")
+        let _ = spawn_safe("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
@@ -1187,7 +1176,7 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Disable balloon notifications
-        let _ = hidden_cmd("reg")
+        let _ = spawn_safe("reg")
             .args([
                 "add",
                 r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
@@ -1198,14 +1187,14 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Kill any active notification toasts / action center
-        let _ = hidden_cmd("powershell")
+        let _ = spawn_safe("powershell")
             .args(["-NoProfile", "-Command",
                 "Get-Process -Name 'ShellExperienceHost' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"])
             .output();
         tracing::info!(target: LOG_TARGET, "Notifications suppressed for blanking screen");
     } else {
         // Re-enable toast notifications
-        let _ = hidden_cmd("reg")
+        let _ = spawn_safe("reg")
             .args([
                 "add",
                 r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
@@ -1216,7 +1205,7 @@ fn suppress_notifications(suppress: bool) {
             ])
             .output();
         // Re-enable notification center
-        let _ = hidden_cmd("reg")
+        let _ = spawn_safe("reg")
             .args([
                 "delete",
                 r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
@@ -1246,7 +1235,7 @@ pub fn enforce_kiosk_foreground() {
                 Write-Output "Kiosk foreground: $($_.ProcessName) (PID $($_.Id))"
             }
     "#;
-    let _ = hidden_cmd("powershell")
+    let _ = spawn_safe("powershell")
         .args(["-NoProfile", "-Command", ps_script])
         .output();
 }
