@@ -349,6 +349,15 @@ pub struct PodFleetStatus {
     /// Total WS reconnect count since last server restart.
     #[serde(default)]
     pub ws_reconnect_count: u32,
+    /// Whether freedom mode is active on this pod (lock screen dismissed, no restrictions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freedom_mode: Option<bool>,
+    /// Whether the pod screen is blanked (black screen between sessions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_blanked: Option<bool>,
+    /// Current game state: "idle", "loading", "running", "error", etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_state: Option<String>,
 }
 
 /// Called from the WS StartupReport handler.
@@ -1169,6 +1178,9 @@ pub async fn fleet_health_handler(
                     windows_session_id: None,
                     ws_reconnects_5m: 0,
                     ws_reconnect_count: 0,
+                    freedom_mode: None,
+                    screen_blanked: None,
+                    game_state: None,
                 });
             }
             Some(info) => {
@@ -1263,6 +1275,9 @@ pub async fn fleet_health_handler(
                     windows_session_id,
                     ws_reconnects_5m,
                     ws_reconnect_count,
+                    freedom_mode: info.freedom_mode,
+                    screen_blanked: info.screen_blanked,
+                    game_state: info.game_state.as_ref().map(|g| format!("{:?}", g).to_lowercase()),
                 });
             }
         }
