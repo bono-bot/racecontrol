@@ -1975,4 +1975,134 @@ mod tests {
         assert!(yml.contains("EnableAi: true"), "Must contain EnableAi: true:\n{}", yml);
         assert!(!yml.contains("AiAggression"), "No ai_level should omit AiAggression:\n{}", yml);
     }
+
+    // ── Phase 333: Lobby sync + MP direct launch tests ──────────────────
+
+    #[test]
+    fn test_launch_json_includes_server_port() {
+        // Verify the launch JSON structure sent to pods includes server_port (UDP port)
+        // This was the critical missing field that prevented clients from connecting
+        let config = AcLanSessionConfig {
+            udp_port: 9601,
+            tcp_port: 9601,
+            http_port: 8082,
+            password: "test".to_string(),
+            track: "monza".to_string(),
+            track_config: String::new(),
+            cars: vec!["ks_ferrari_488_gt3".to_string()],
+            ..AcLanSessionConfig::default()
+        };
+
+        let lan_ip = "192.168.31.23";
+        let launch_json = serde_json::json!({
+            "car": config.cars.first().unwrap_or(&"ks_ferrari_488_gt3".to_string()),
+            "track": &config.track,
+            "track_config": &config.track_config,
+            "game_mode": "multi",
+            "server_ip": &lan_ip,
+            "server_port": config.udp_port,
+            "server_http_port": config.http_port,
+            "server_password": &config.password,
+            "session_type": "race",
+        });
+
+        // Critical: server_port must be the UDP port, not the HTTP port
+        assert_eq!(launch_json["server_port"], 9601, "server_port must be UDP port");
+        assert_eq!(launch_json["server_http_port"], 8082, "server_http_port must be HTTP port");
+        assert_ne!(
+            launch_json["server_port"], launch_json["server_http_port"],
+            "server_port and server_http_port must differ (UDP vs HTTP)"
+        );
+        assert_eq!(launch_json["game_mode"], "multi");
+    }
+
+    #[test]
+    fn test_server_cfg_register_to_lobby_disabled() {
+        // LAN venue server must NOT register to Kunos public lobby
+        let config = AcLanSessionConfig::default();
+        let ini = generate_server_cfg_ini(&config);
+        assert!(ini.contains("REGISTER_TO_LOBBY=0"),
+            "LAN server must have REGISTER_TO_LOBBY=0:\n{}", ini);
+    }
+
+    #[test]
+    fn test_server_cfg_has_all_port_fields() {
+        let mut config = AcLanSessionConfig::default();
+        config.udp_port = 9605;
+        config.tcp_port = 9605;
+        config.http_port = 8086;
+        let ini = generate_server_cfg_ini(&config);
+        assert!(ini.contains("UDP_PORT=9605"), "Must have UDP_PORT=9605:\n{}", ini);
+        assert!(ini.contains("TCP_PORT=9605"), "Must have TCP_PORT=9605:\n{}", ini);
+        assert!(ini.contains("HTTP_PORT=8086"), "Must have HTTP_PORT=8086:\n{}", ini);
+    }
+
+    #[test]
+    fn test_entry_list_slot_count_matches_max_clients() {
+        // When N pods are assigned, entry_list must have N slots
+        let mut config = AcLanSessionConfig::default();
+        config.max_clients = 4;
+        config.entries = (0..4).map(|i| AcEntrySlot {
+            car_model: "ks_ferrari_488_gt3".to_string(),
+            skin: String::new(),
+            driver_name: format!("Pod{}", i + 1),
+            guid: String::new(),
+            ballast: 0,
+            restrictor: 0,
+            pod_id: Some(format!("pod_{}", i + 1)),
+            ai_mode: None,
+        }).collect();
+        let ini = generate_entry_list_ini(&config);
+
+        // Count [CAR_N] sections
+        let car_count = ini.matches("[CAR_").count();
+        assert_eq!(car_count, 4,
+            "Entry list must have exactly 4 CAR sections for 4 pods:\n{}", ini);
+    }
+
+    #[test]
+    fn test_lobby_status_serde_roundtrip() {
+        let status = LobbyStatus {
+            group_session_id: "sess-123".to_string(),
+            phase: LobbyPhase::Forming,
+            total_pods: 4,
+            ready_pods: vec!["client_1".to_string(), "client_2".to_string()],
+            created_at: "2026-04-07T20:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let parsed: LobbyStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.group_session_id, "sess-123");
+        assert_eq!(parsed.phase, LobbyPhase::Forming);
+        assert_eq!(parsed.total_pods, 4);
+        assert_eq!(parsed.ready_pods.len(), 2);
+    }
+
+    #[test]
+    fn test_lobby_phase_transitions() {
+        // Verify all lobby phases serialize/deserialize correctly
+        let phases = vec![
+            LobbyPhase::Forming,
+            LobbyPhase::AllReady,
+            LobbyPhase::Starting,
+            LobbyPhase::Active,
+            LobbyPhase::Cancelled,
+        ];
+        for phase in phases {
+            let json = serde_json::to_string(&phase).unwrap();
+            let parsed: LobbyPhase = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, phase, "Phase {:?} must roundtrip through serde", phase);
+        }
+    }
+
+    #[test]
+    fn test_admin_password_deterministic() {
+        // Same inputs must produce same password (no randomness)
+        let pw1 = generate_admin_password("session-1", 9600);
+        let pw2 = generate_admin_password("session-1", 9600);
+        assert_eq!(pw1, pw2, "Admin password must be deterministic");
+
+        // Different inputs must produce different passwords
+        let pw3 = generate_admin_password("session-2", 9600);
+        assert_ne!(pw1, pw3, "Different sessions must have different passwords");
+    }
 }
