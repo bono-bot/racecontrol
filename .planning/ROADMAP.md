@@ -888,6 +888,9 @@ Plans:
   2. POS billing page (`192.168.31.130:3200/billing`) shows credits
   3. Kiosk pricing shows credits (verify already correct)
   4. PWA wallet shows credits (verify already correct)
+**Plans:** 1 plan
+Plans:
+- [ ] 341-01-PLAN.md — Fix drivers page rupee to credits + verify POS/kiosk/PWA displays
 
 ### Phase 342: Cloud Sync + E2E Verify
 **Goal**: Cloud sync pushes/pulls new wallet columns. Full E2E test of the financial flow.
