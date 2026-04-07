@@ -4201,6 +4201,42 @@ pub async fn migrate_pii_encryption(db: &SqlitePool, cipher: &FieldCipher) -> Re
     }
 
     tracing::info!("PII migration complete: {migrated}/{total} rows encrypted");
+
+    // Phase 2: Backfill phone_hash for records that have phone_enc but lost phone_hash.
+    // This happens when phone was cleared (phone=NULL) before phone_hash was set,
+    // leaving orphaned records that send_otp can't find by hash.
+    let orphans: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, phone_enc FROM drivers \
+         WHERE (phone_hash IS NULL OR phone_hash = '') \
+           AND phone_enc IS NOT NULL AND phone_enc != ''"
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| format!("Failed to query orphaned phone_enc rows: {e}"))?;
+
+    if !orphans.is_empty() {
+        let orphan_count = orphans.len();
+        let mut backfilled = 0usize;
+        for (id, phone_enc) in &orphans {
+            match cipher.decrypt_field(phone_enc) {
+                Ok(plaintext_phone) => {
+                    let phone_hash = cipher.hash_phone(&plaintext_phone);
+                    sqlx::query("UPDATE drivers SET phone_hash = ? WHERE id = ?")
+                        .bind(&phone_hash)
+                        .bind(id)
+                        .execute(db)
+                        .await
+                        .map_err(|e| format!("Failed to backfill phone_hash for {id}: {e}"))?;
+                    backfilled += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("PII migration: cannot decrypt phone_enc for driver {id}: {e}");
+                }
+            }
+        }
+        tracing::info!("PII migration phase 2: backfilled phone_hash for {backfilled}/{orphan_count} orphaned records");
+    }
+
     Ok(())
 }
 

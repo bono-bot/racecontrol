@@ -2178,24 +2178,33 @@ async fn list_drivers(
             return Json(json!({ "error": "Search query too short or invalid" }));
         }
         let q = format!("%{}%", sanitized);
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>)>(
+        // If search looks like a phone number (all digits, 10+ chars), also match by phone_hash
+        let is_phone_query = sanitized.chars().all(|c| c.is_ascii_digit()) && sanitized.len() >= 10;
+        let phone_hash = if is_phone_query {
+            Some(state.field_cipher.hash_phone(&sanitized))
+        } else {
+            None
+        };
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>, Option<String>)>(
             "SELECT d.id, d.name, d.email, d.phone, d.total_laps, d.total_time_ms, d.customer_id,
                     COALESCE(d.waiver_signed, 0), COALESCE(d.has_used_trial, 0), d.created_at, d.linked_to,
-                    w.balance_paise
+                    w.balance_paise, d.phone_enc
              FROM drivers d LEFT JOIN wallets w ON w.driver_id = d.id
              WHERE d.name LIKE ?1 COLLATE NOCASE OR d.phone LIKE ?2 OR d.customer_id LIKE ?3
+                   OR d.phone_hash = ?4
              ORDER BY d.name LIMIT 50",
         )
         .bind(&q)
         .bind(&q)
         .bind(&q)
+        .bind(&phone_hash)
         .fetch_all(&state.db)
         .await
     } else {
-        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>)>(
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, Option<String>, bool, bool, Option<String>, Option<String>, Option<i64>, Option<String>)>(
             "SELECT d.id, d.name, d.email, d.phone, d.total_laps, d.total_time_ms, d.customer_id,
                     COALESCE(d.waiver_signed, 0), COALESCE(d.has_used_trial, 0), d.created_at, d.linked_to,
-                    w.balance_paise
+                    w.balance_paise, d.phone_enc
              FROM drivers d LEFT JOIN wallets w ON w.driver_id = d.id
              ORDER BY d.created_at DESC",
         )
@@ -2219,9 +2228,13 @@ async fn list_drivers(
     match rows {
         Ok(drivers) => {
             let list: Vec<Value> = drivers.iter().map(|d| {
+                // Decrypt phone from phone_enc if plaintext phone is NULL (post-encryption migration)
+                let raw_phone: Option<String> = d.3.clone().or_else(|| {
+                    d.12.as_deref().and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+                });
                 // SEC-09: mask PII for cashier role
                 let email = d.2.as_deref().map(|e| if mask { mask_email(e) } else { e.to_string() });
-                let phone = d.3.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
+                let phone = raw_phone.as_deref().map(|p| if mask { mask_phone(p) } else { p.to_string() });
                 json!({
                     "id": d.0, "name": d.1, "email": email, "phone": phone,
                     "total_laps": d.4, "total_time_ms": d.5, "customer_id": d.6,
@@ -6949,8 +6962,8 @@ async fn customer_profile(
         Err(e) => return Json(json!({ "error": e })),
     };
 
-    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool, Option<String>, Option<String>, bool)>(
-        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0), customer_id, nickname, COALESCE(show_nickname_on_leaderboard, 0) FROM drivers WHERE id = ?",
+    let driver = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, i64, i64, bool, Option<String>, Option<String>, bool, bool, Option<String>)>(
+        "SELECT id, name, email, phone, total_laps, total_time_ms, COALESCE(has_used_trial, 0), customer_id, nickname, COALESCE(show_nickname_on_leaderboard, 0), COALESCE(registration_completed, 0), phone_enc FROM drivers WHERE id = ?",
     )
     .bind(&driver_id)
     .fetch_optional(&state.db)
@@ -6960,6 +6973,10 @@ async fn customer_profile(
         Ok(Some(d)) => {
             let wallet_balance = wallet::get_balance(&state, &d.0).await.unwrap_or(0);
             let active_reservation = pod_reservation::get_active_reservation_for_driver(&state, &d.0).await;
+            // Decrypt phone from phone_enc if plaintext phone is NULL
+            let phone: Option<String> = d.3.clone().or_else(|| {
+                d.11.as_deref().and_then(|enc| state.field_cipher.decrypt_field(enc).ok())
+            });
 
             Json(json!({
                 "driver": {
@@ -6969,12 +6986,13 @@ async fn customer_profile(
                     "nickname": d.8,
                     "show_nickname_on_leaderboard": d.9,
                     "email": d.2,
-                    "phone": d.3,
+                    "phone": phone,
                     "total_laps": d.4,
                     "total_time_ms": d.5,
                     "has_used_trial": d.6,
                     "wallet_balance_paise": wallet_balance,
                     "active_reservation": active_reservation,
+                    "registration_completed": d.10,
                 }
             }))
         }
@@ -7662,15 +7680,42 @@ async fn customer_register(
 
     let nickname = req.nickname.as_ref().map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
 
-    // Update driver record
+    // Encrypt phone if provided (don't store plaintext)
+    let (phone_hash, phone_enc): (Option<String>, Option<String>) = match &req.phone {
+        Some(p) if !p.is_empty() => {
+            let hash = state.field_cipher.hash_phone(p);
+            match state.field_cipher.encrypt_field(p) {
+                Ok(enc) => (Some(hash), Some(enc)),
+                Err(e) => return Json(json!({ "error": format!("Encryption error: {}", e) })),
+            }
+        }
+        _ => (None, None),
+    };
+
+    // Encrypt guardian phone if provided
+    let (gp_hash, gp_enc): (Option<String>, Option<String>) = match &req.guardian_phone {
+        Some(gp) if !gp.is_empty() => {
+            let h = state.field_cipher.hash_phone(gp);
+            match state.field_cipher.encrypt_field(gp) {
+                Ok(e) => (Some(h), Some(e)),
+                Err(_) => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
+
+    // Update driver record — store encrypted phone, not plaintext
     let result = sqlx::query(
         "UPDATE drivers SET
             name = ?, nickname = ?, email = ?, dob = ?,
-            phone = ?,
+            phone_hash = COALESCE(?, phone_hash),
+            phone_enc = COALESCE(?, phone_enc),
             waiver_signed = 1, waiver_signed_at = datetime('now'),
             waiver_version = 'v1.0',
             signature_data = ?,
-            guardian_name = ?, guardian_phone = ?,
+            guardian_name = ?,
+            guardian_phone_hash = COALESCE(?, guardian_phone_hash),
+            guardian_phone_enc = COALESCE(?, guardian_phone_enc),
             registration_completed = 1,
             updated_at = datetime('now')
          WHERE id = ?",
@@ -7679,10 +7724,12 @@ async fn customer_register(
     .bind(&nickname)
     .bind(&req.email)
     .bind(&req.dob)
-    .bind(&req.phone)
+    .bind(&phone_hash)
+    .bind(&phone_enc)
     .bind(&req.signature_data)
     .bind(&req.guardian_name)
-    .bind(&req.guardian_phone)
+    .bind(&gp_hash)
+    .bind(&gp_enc)
     .bind(&driver_id)
     .execute(&state.db)
     .await;

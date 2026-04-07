@@ -16,11 +16,23 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [isMinor, setIsMinor] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
+      return;
     }
+    // Check if already registered — redirect to dashboard if so
+    api.profile().then((res) => {
+      if (res.driver?.registration_completed) {
+        router.replace("/dashboard");
+      } else {
+        setChecking(false);
+      }
+    }).catch(() => {
+      setChecking(false);
+    });
   }, [router]);
 
   // Check if minor based on DOB
@@ -86,6 +98,14 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <p className="text-rp-grey text-sm">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6 py-12">

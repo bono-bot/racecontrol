@@ -189,6 +189,7 @@ export interface DriverProfile {
   has_used_trial: boolean;
   wallet_balance_paise: number;
   active_reservation: PodReservation | null;
+  registration_completed: boolean;
 }
 
 export interface WalletInfo {
