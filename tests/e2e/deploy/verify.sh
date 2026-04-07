@@ -346,6 +346,55 @@ elif echo "$GAMES_RESULT" | grep -q "^PARSE_ERROR"; then
     log_to_ai_debugger "installed_games" "installed_games parse error: ${PARSE_ERR}"
 fi
 
+# ─── Gate 7b: bat_sha256 parity across fleet (DEPL-03) ──────────────────
+echo ""
+echo "--- Gate 7b: bat_sha256 parity across fleet (DEPL-03) ---"
+
+# Compute canonical bat hash from repo
+REPO_BAT="$(cd "$(dirname "$0")" && cd ../../.. && pwd)/scripts/deploy/start-rcagent.bat"
+if [ -f "$REPO_BAT" ]; then
+    CANONICAL_BAT_SHA=$(sha256sum "$REPO_BAT" 2>/dev/null | cut -d' ' -f1)
+    echo "  Canonical bat hash: ${CANONICAL_BAT_SHA:0:16}..."
+
+    BAT_RESULT=$(echo "$FLEET_RESP" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    pods = data.get('pods', [])
+    canonical = '${CANONICAL_BAT_SHA}'
+    stale = []
+    ok = []
+    for p in pods:
+        num = p.get('pod_number', 0)
+        if num > 8: continue  # skip POS
+        bat = p.get('bat_sha256', 'unknown')
+        if bat == canonical:
+            ok.append(f'pod_{num}')
+        else:
+            stale.append(f'pod_{num}={bat[:8]}')
+    if stale:
+        print('STALE=' + ','.join(stale))
+    else:
+        print('ALL_MATCH=' + str(len(ok)))
+except Exception as e:
+    print('PARSE_ERROR=' + str(e))
+" 2>/dev/null || echo "PARSE_ERROR=python3 failed")
+
+    if echo "$BAT_RESULT" | grep -q "^ALL_MATCH="; then
+        MATCH_COUNT=$(echo "$BAT_RESULT" | cut -d= -f2-)
+        pass "All ${MATCH_COUNT} pods have canonical bat_sha256 (DEPL-03)"
+    elif echo "$BAT_RESULT" | grep -q "^STALE="; then
+        STALE_PODS=$(echo "$BAT_RESULT" | cut -d= -f2-)
+        fail "bat_sha256 mismatch — stale bat on: ${STALE_PODS} (DEPL-03)"
+        log_to_ai_debugger "bat_parity" "Pods with stale start-rcagent.bat: ${STALE_PODS}. SCP canonical bat from repo scripts/deploy/start-rcagent.bat to each affected pod."
+        info "Stale pods: ${STALE_PODS}"
+    else
+        info "Could not check bat parity: ${BAT_RESULT}"
+    fi
+else
+    info "Canonical bat not found at ${REPO_BAT} — skipping bat parity check"
+fi
+
 # ─── Gate 8: Behavioral verification — blanking + Session 1 (DVER-01) ────
 echo ""
 echo "--- Gate 8: Behavioral verification — blanking + Session 1 (DVER-01) ---"

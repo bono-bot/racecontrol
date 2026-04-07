@@ -43,3 +43,13 @@ hex = "0.4"
 
 # rc-common
 rc-common = { path = "crates/rc-common" }
+
+# Disable incremental compilation for release builds.
+# Root cause: Cargo's incremental cache doesn't invalidate when build.rs
+# changes rustc-env values (GIT_HASH). The build script reruns and outputs
+# the new hash, but Cargo skips recompilation because no SOURCE files changed.
+# This caused deployed binaries to report stale build_id despite new commits.
+# Full cargo clean (49GB) was the only workaround. This one-line fix eliminates
+# the entire class of bugs. Dev builds still use incremental for speed.
+[profile.release]
+incremental = false

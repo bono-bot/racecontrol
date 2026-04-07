@@ -14,7 +14,7 @@ for /f "delims=" %%F in ('dir /B /O-D racecontrol-????????*.exe 2^>nul') do (
 if not defined STAGED goto :startrc
 del /Q racecontrol-prev.exe 1>nul 2>nul
 if exist racecontrol.exe ren racecontrol.exe racecontrol-prev.exe 1>nul 2>nul
-timeout /t 1 /nobreak 1>nul
+ping -n 2 127.0.0.1 >nul
 if exist racecontrol.exe del /Q racecontrol.exe 1>nul 2>nul
 ren "%STAGED%" racecontrol.exe 1>nul
 :startrc
