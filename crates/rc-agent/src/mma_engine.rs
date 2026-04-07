@@ -1819,13 +1819,29 @@ fn run_deterministic_checks(
                 }
             }
             IssueDomain::Frontend => {
-                // Verify Edge is actually running (blanking screen behavioral check)
-                let edge_count = sys.processes().values()
-                    .filter(|p| p.name().to_string_lossy().eq_ignore_ascii_case("msedge.exe"))
-                    .count();
-                if edge_count == 0 {
+                // Verify native lock screen window exists (blanking screen behavioral check).
+                // Phase 329: replaced Edge process count check with Win32 FindWindowW for
+                // the native lock screen class "RacingPointLockScreen".
+                let native_lock_alive = {
+                    #[cfg(windows)]
+                    {
+                        use std::ptr;
+                        fn wide(s: &str) -> Vec<u16> {
+                            use std::os::windows::ffi::OsStrExt;
+                            std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+                        }
+                        let class = wide("RacingPointLockScreen");
+                        let hwnd = unsafe {
+                            winapi::um::winuser::FindWindowW(class.as_ptr(), ptr::null())
+                        };
+                        !hwnd.is_null()
+                    }
+                    #[cfg(not(windows))]
+                    { false }
+                };
+                if !native_lock_alive {
                     concerns.push(
-                        "H3: msedge.exe not running — blanking screen not displaying".to_string()
+                        "H3: native lock screen window not found — blanking screen not displaying".to_string()
                     );
                     all_passed = false;
                 }
