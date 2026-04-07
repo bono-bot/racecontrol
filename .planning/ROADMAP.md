@@ -898,7 +898,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 337. DB Schema Migration | 1/1 | Complete   | 2026-04-07 |
 | 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
-| 339. API Endpoints | 2/2 | Complete   | 2026-04-07 |
+| 339. API Endpoints | 2/2 | Complete    | 2026-04-07 |
 | 340. Admin Dashboard | 0/TBD | Not Started | — |
 | 341. POS + Kiosk Display | 0/TBD | Not Started | — |
 | 342. Cloud Sync + E2E | 0/TBD | Not Started | — |
