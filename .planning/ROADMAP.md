@@ -687,7 +687,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 329-01-PLAN.md — Win32 window foundation + font embedding + non-interactive state painters
+- [x] 329-01-PLAN.md — Win32 window foundation + font embedding + non-interactive state painters
 - [ ] 329-02-PLAN.md — PIN entry keyboard handling + QR code renderer + ActiveSession timer
 - [ ] 329-03-PLAN.md — Remaining state painters + Edge code removal + Pod 8 visual verification
 
@@ -712,7 +712,7 @@ Plans:
   2. rollback_manager binary rename disabled — single binary, no prev/failed rename
   3. All Command::new() calls in rc-agent go through a single `spawn_safe()` helper that sets Stdio::null + appropriate creation_flags
   4. Agent survives 24h uptime through multiple game launch/stop cycles with zero restarts
-**Plans:** 2 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 331-01-PLAN.md — Create spawn_safe() helper in rc-common and migrate all 76 Command::new call sites
@@ -776,7 +776,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 329. Native Win32 Lock Screen | 0/TBD | Not Started | — |
+| 329. Native Win32 Lock Screen | 1/3 | In Progress|  |
 | 330. On-Track Display + Off-Track Blanking | 0/TBD | Not Started | — |
 | 331. Process Architecture Cleanup | 1/2 | In Progress | 331-02 done |
 | 332. mDNS Auto-Discovery | 0/TBD | Not Started | — |
