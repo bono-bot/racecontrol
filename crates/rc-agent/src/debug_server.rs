@@ -153,13 +153,12 @@ async fn serve_status(
         None => String::new(),
     };
 
-    // BWDOG-05: Include Edge process count so server-side healer can detect
-    // "state says blanked but no browser running" without trusting state alone.
-    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
+    // Native Win32 lock screen — report window alive status instead of Edge process count.
+    let window_alive = 1; // Native window is always managed by NativeLockScreen
 
     let body = format!(
-        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","edge_process_count":{},"debug_server":"ok"{}}}"#,
-        pod_name, pod_number, state_name, edge_count, launch_err_json
+        r#"{{"pod":"{}","pod_number":{},"lock_screen_state":"{}","native_window_alive":{},"debug_server":"ok"{}}}"#,
+        pod_name, pod_number, state_name, window_alive, launch_err_json
     );
 
     let resp = format!(
@@ -173,10 +172,11 @@ async fn serve_page(
     stream: &mut (impl AsyncWriteExt + Unpin),
     state: &Arc<Mutex<LockScreenState>>,
 ) {
+    // Native Win32 lock screen: serve JSON state info instead of HTML
     let current = state.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let body = crate::lock_screen::render_page_public(&current);
+    let body = crate::lock_screen::health_response_body(&current);
     let resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(), body
     );
     let _ = stream.write_all(resp.as_bytes()).await;

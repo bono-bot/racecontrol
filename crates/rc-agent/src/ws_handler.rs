@@ -1269,10 +1269,9 @@ pub async fn handle_ws_message(
                     tracing::info!(target: LOG_TARGET, "Freedom mode DISABLED via remote settings");
                 }
             }
-            if let Some(url) = settings.get("lock_screen_wallpaper_url") {
-                let url_opt = if url.is_empty() { None } else { Some(url.clone()) };
-                state.lock_screen.set_wallpaper_url(url_opt);
-                tracing::info!(target: LOG_TARGET, "Lock screen wallpaper URL updated");
+            // wallpaper_url no longer needed — native Win32 lock screen uses GDI painting
+            if settings.contains_key("lock_screen_wallpaper_url") {
+                tracing::debug!(target: LOG_TARGET, "lock_screen_wallpaper_url ignored — native Win32 lock screen");
             }
         }
 

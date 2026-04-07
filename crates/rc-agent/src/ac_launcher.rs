@@ -11,8 +11,6 @@ use std::fmt::Write as FmtWrite;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::lock_screen;
-
 
 /// Dialog/system processes that must be killed between sessions to ensure a clean kiosk state.
 /// Includes crash reporters, settings windows, and system dialogs that can appear after a game crash.
@@ -2063,9 +2061,8 @@ pub fn enforce_safe_state(skip_conspit_restart: bool) {
         ensure_conspit_link_running();
     }
 
-    // 4. Minimize background windows + bring lock screen to foreground
+    // 4. Minimize background windows (native lock screen handles its own foreground via WM_TIMER)
     minimize_background_windows();
-    lock_screen::enforce_kiosk_foreground();
 
     tracing::info!(target: LOG_TARGET, "Safe state enforced — pod ready for next customer");
 }

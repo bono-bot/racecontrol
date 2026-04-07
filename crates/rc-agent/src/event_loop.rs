@@ -1404,7 +1404,7 @@ pub async fn run(
                 if state.kiosk_enabled && !state.kiosk.is_freedom_mode() {
                     tokio::task::spawn_blocking(|| {
                         ac_launcher::minimize_background_windows();
-                        crate::lock_screen::enforce_kiosk_foreground();
+                        // Native lock screen handles its own foreground via WM_TIMER in window.rs
                         ac_launcher::ensure_conspit_link_running();
                         // DIAG-TASKBAR: Periodically enforce taskbar hidden state.
                         // ShowWindow(SW_HIDE) is lost when explorer.exe restarts.
@@ -1451,16 +1451,13 @@ pub async fn run(
             }
 
             _ = conn.browser_watchdog_interval.tick() => {
-                // BWDOG-05: Lightweight browser liveness check (30s interval).
-                // Does NOT kill+relaunch (that caused 30s flicker loops — Phase 139).
-                // Only relaunches when browser is expected but zero msedge.exe running.
-                // Catches: Edge crash, Edge not installed at boot, fresh install needing
-                // reboot, spawn() succeeding but process exiting immediately.
+                // BWDOG-05: Native window liveness check (30s interval).
+                // Relaunches the native Win32 lock screen window when it is expected
+                // but not alive (window thread crashed, HWND destroyed, etc.).
                 if state.lock_screen.is_browser_expected() {
-                    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
-                    if edge_count == 0 && !state.lock_screen.is_browser_alive() {
+                    if !state.lock_screen.is_browser_alive() {
                         tracing::warn!(target: LOG_TARGET,
-                            "BWDOG-05: Browser expected but 0 msedge.exe running — relaunching");
+                            "BWDOG-05: Native window expected but not alive — relaunching");
                         state.lock_screen.launch_browser();
                     }
                 }

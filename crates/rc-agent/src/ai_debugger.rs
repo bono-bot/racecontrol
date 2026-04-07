@@ -1249,39 +1249,23 @@ fn fix_network_adapter_reset(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     }
 }
 
-// Pattern 15 (DISP-04): Browser dead — lock screen expects browser but Edge not running
+// Pattern 15 (DISP-04): Lock screen window dead — native window expected but not alive
 fn fix_browser_dead(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(test)]
     {
         return AutoFixResult {
-            fix_type: "browser_relaunch".to_string(),
-            detail: "Relaunched Edge lock screen browser (DISP-04)".to_string(),
+            fix_type: "window_relaunch".to_string(),
+            detail: "Native lock screen window relaunch requested (DISP-04)".to_string(),
             success: true,
         };
     }
     #[cfg(not(test))]
     {
-        let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
-        if edge_count > 0 {
-            return AutoFixResult {
-                fix_type: "browser_relaunch".to_string(),
-                detail: format!("Edge already running ({} processes) — no action", edge_count),
-                success: true,
-            };
-        }
-        // Kill any stale msedge/webview2 first
-        let _ = spawn_safe("taskkill")
-            .args(["/IM", "msedge.exe", "/F"])
-            .output();
-        let _ = spawn_safe("taskkill")
-            .args(["/IM", "msedgewebview2.exe", "/F"])
-            .output();
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        // The actual browser relaunch happens via the BWDOG-05 watchdog on next 30s tick.
-        // We just clear the stale state here so the watchdog sees 0 Edge and relaunches.
+        // The native window watchdog in event_loop.rs will detect the dead window
+        // and call show_native_window() on next tick. No Edge processes to clean up.
         AutoFixResult {
-            fix_type: "browser_relaunch".to_string(),
-            detail: "Cleared stale Edge processes — BWDOG-05 will relaunch on next tick".to_string(),
+            fix_type: "window_relaunch".to_string(),
+            detail: "Native window watchdog will relaunch on next tick".to_string(),
             success: true,
         }
     }

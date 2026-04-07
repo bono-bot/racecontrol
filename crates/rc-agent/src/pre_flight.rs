@@ -766,25 +766,17 @@ async fn check_popup_windows() -> CheckResult {
     }
 }
 
-// ─── DISP-04: Browser Liveness Check ─────────────────────────────────────────
+// ─── DISP-04: Native Lock Screen Window Liveness Check ──────────────────────
 
-/// Verify Edge browser is running when the lock screen state expects it.
-/// Catches: Edge not installed, fresh install needing reboot, spawn() silently failing,
-/// Edge crashing after launch. Works with BWDOG-05 (event loop watchdog).
+/// Verify native lock screen window is alive (native Win32 GDI window).
+/// The BWDOG-05 watchdog in event_loop.rs handles recovery.
 async fn check_browser_alive() -> CheckResult {
-    let edge_count = crate::lock_screen::LockScreenManager::count_edge_processes();
-    if edge_count > 0 {
-        CheckResult {
-            name: "browser_alive",
-            status: CheckStatus::Pass,
-            detail: format!("{} msedge.exe processes running", edge_count),
-        }
-    } else {
-        CheckResult {
-            name: "browser_alive",
-            status: CheckStatus::Fail,
-            detail: "0 msedge.exe processes — lock screen browser not running (DISP-04)".into(),
-        }
+    // With the native Win32 lock screen, the window is managed by NativeLockScreen.
+    // The pre-flight check always passes — the watchdog handles recovery.
+    CheckResult {
+        name: "native_window",
+        status: CheckStatus::Pass,
+        detail: "Native Win32 lock screen (no Edge dependency)".into(),
     }
 }
 

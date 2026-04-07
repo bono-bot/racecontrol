@@ -119,10 +119,73 @@ pub unsafe fn paint_lock_screen(
             );
         }
 
-        // All other states: branded placeholder (Plan 03+ add real paint functions)
-        _ => {
+        LockScreenState::Hidden => {
+            // Window should be SW_HIDE, but paint black as safety
+            FillRect(mem_dc, &full_rect, res.brush_black);
+        }
+
+        LockScreenState::SessionSummary {
+            driver_name,
+            total_laps,
+            best_lap_ms,
+            driving_seconds,
+            top_speed_kmh,
+            race_position,
+        } => {
             FillRect(mem_dc, &full_rect, res.brush_asphalt);
-            paint_branding(mem_dc, res, screen_w, screen_h);
+            paint_session_summary(
+                mem_dc, res, screen_w, screen_h,
+                driver_name, *total_laps, *best_lap_ms, *driving_seconds,
+                *top_speed_kmh, *race_position,
+            );
+        }
+
+        LockScreenState::BetweenSessions {
+            driver_name,
+            total_laps,
+            best_lap_ms,
+            driving_seconds,
+            wallet_balance_paise,
+            current_split_number,
+            total_splits,
+        } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_between_sessions(
+                mem_dc, res, screen_w, screen_h,
+                driver_name, *total_laps, *best_lap_ms, *driving_seconds,
+                *wallet_balance_paise, *current_split_number, *total_splits,
+            );
+        }
+
+        LockScreenState::LaunchSplash {
+            driver_name,
+            message,
+        } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_launch_splash(mem_dc, res, screen_w, screen_h, driver_name, message);
+        }
+
+        LockScreenState::AwaitingAssistance {
+            driver_name,
+            message,
+        } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_awaiting_assistance(mem_dc, res, screen_w, screen_h, driver_name, message);
+        }
+
+        LockScreenState::ConfigError { .. } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_config_error(mem_dc, res, screen_w, screen_h);
+        }
+
+        LockScreenState::Lockdown { message } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_lockdown(mem_dc, res, screen_w, screen_h, message);
+        }
+
+        LockScreenState::MaintenanceRequired { failures } => {
+            FillRect(mem_dc, &full_rect, res.brush_asphalt);
+            paint_maintenance_required(mem_dc, res, screen_w, screen_h, failures);
         }
     }
 
@@ -353,6 +416,402 @@ unsafe fn paint_active_session(
 
     // "Session in progress" footer
     draw_centered_text(hdc, "Session in progress", res.font_small, col_grey, bar_y + 30, w);
+}
+
+// ---- Session Summary Painter ----
+
+/// Format a lap time in milliseconds as M:SS.mmm or "N/A".
+fn format_lap_time(ms: Option<u32>) -> String {
+    match ms {
+        Some(ms) => {
+            let mins = ms / 60000;
+            let secs = (ms % 60000) / 1000;
+            let millis = ms % 1000;
+            format!("{}:{:02}.{:03}", mins, secs, millis)
+        }
+        None => "N/A".to_string(),
+    }
+}
+
+/// Render the session summary screen: branding, stats card with laps/time/speed/position.
+#[cfg(windows)]
+unsafe fn paint_session_summary(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    driver_name: &str,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+    top_speed_kmh: Option<f32>,
+    race_position: Option<u32>,
+) {
+    use winapi::shared::windef::RECT;
+    use winapi::um::winuser::FillRect;
+
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+
+    // Title
+    let title_y = h / 2 - 280;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Session Complete" heading
+    draw_centered_text(hdc, "Session Complete", res.font_heading, col_white, title_y + 70, w);
+
+    // Card background
+    let card_w = 900.min(w - 100);
+    let card_h = 360;
+    let card_x = (w - card_w) / 2;
+    let card_y = h / 2 - 140;
+    let card_rect = RECT {
+        left: card_x,
+        top: card_y,
+        right: card_x + card_w,
+        bottom: card_y + card_h,
+    };
+    FillRect(hdc, &card_rect, res.brush_card);
+
+    // Driver name inside card
+    let name_text = format!("Great drive, {}!", driver_name);
+    draw_centered_text(hdc, &name_text, res.font_heading, col_white, card_y + 30, w);
+
+    // Stats grid: 2 columns, 3 rows
+    let col1_x = card_x + card_w / 4;
+    let col2_x = card_x + 3 * card_w / 4;
+    let row_start = card_y + 100;
+    let row_gap = 80;
+
+    // Row 1: Total Laps | Best Lap
+    draw_centered_text(hdc, &total_laps.to_string(), res.font_heading, col_white, row_start, col1_x * 2);
+    draw_centered_text(hdc, "Total Laps", res.font_small, col_grey, row_start + 40, col1_x * 2);
+
+    let best_lap = format_lap_time(best_lap_ms);
+    // For col2: draw at offset so it centers around col2_x
+    draw_stat_at(hdc, res, &best_lap, "Best Lap", col_white, col_grey, col2_x, row_start, w);
+
+    // Row 2: Drive Time | Top Speed
+    let mins = driving_seconds / 60;
+    let secs = driving_seconds % 60;
+    let time_text = format!("{}m {:02}s", mins, secs);
+    draw_stat_at(hdc, res, &time_text, "Drive Time", col_white, col_grey, col1_x, row_start + row_gap, w);
+
+    let speed_text = match top_speed_kmh {
+        Some(spd) if spd > 0.0 => format!("{:.0} km/h", spd),
+        _ => "N/A".to_string(),
+    };
+    draw_stat_at(hdc, res, &speed_text, "Top Speed", col_white, col_grey, col2_x, row_start + row_gap, w);
+
+    // Row 3: Position (left col only)
+    let pos_text = match race_position {
+        Some(pos) => format!("P{}", pos),
+        None => "N/A".to_string(),
+    };
+    draw_stat_at(hdc, res, &pos_text, "Position", col_white, col_grey, col1_x, row_start + row_gap * 2, w);
+}
+
+// ---- Between Sessions Painter ----
+
+/// Render the between-sessions screen: stats, wallet balance, split progress.
+#[cfg(windows)]
+unsafe fn paint_between_sessions(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    driver_name: &str,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+    wallet_balance_paise: i64,
+    split_num: u32,
+    total_splits: u32,
+) {
+    use winapi::shared::windef::RECT;
+    use winapi::um::winuser::FillRect;
+
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+
+    // Title
+    let title_y = h / 2 - 280;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Ready for Next Race" heading
+    draw_centered_text(hdc, "Ready for Next Race", res.font_heading, col_white, title_y + 70, w);
+
+    // Driver name
+    let name_text = format!("Great driving, {}!", driver_name);
+    draw_centered_text(hdc, &name_text, res.font_body, col_grey, title_y + 120, w);
+
+    // Card for stats
+    let card_w = 800.min(w - 100);
+    let card_h = 280;
+    let card_x = (w - card_w) / 2;
+    let card_y = h / 2 - 80;
+    let card_rect = RECT {
+        left: card_x,
+        top: card_y,
+        right: card_x + card_w,
+        bottom: card_y + card_h,
+    };
+    FillRect(hdc, &card_rect, res.brush_card);
+
+    // Stats row: Laps | Best Lap | Drive Time
+    let col_count = 3;
+    let col_spacing = card_w / col_count;
+    let stats_y = card_y + 30;
+
+    draw_stat_at(hdc, res, &total_laps.to_string(), "Laps", col_white, col_grey,
+        card_x + col_spacing / 2, stats_y, w);
+
+    let best_lap = format_lap_time(best_lap_ms);
+    draw_stat_at(hdc, res, &best_lap, "Best Lap", col_white, col_grey,
+        card_x + col_spacing + col_spacing / 2, stats_y, w);
+
+    let mins = driving_seconds / 60;
+    let secs = driving_seconds % 60;
+    let time_text = format!("{}m {:02}s", mins, secs);
+    draw_stat_at(hdc, res, &time_text, "Drive Time", col_white, col_grey,
+        card_x + 2 * col_spacing + col_spacing / 2, stats_y, w);
+
+    // Wallet balance
+    let rupees = wallet_balance_paise / 100;
+    let paise = (wallet_balance_paise % 100).unsigned_abs();
+    let balance_text = format!("Balance: Rs. {}.{:02}", rupees, paise);
+    draw_centered_text(hdc, &balance_text, res.font_body, col_white, card_y + 160, w);
+
+    // Split progress
+    let split_text = format!("Race {} of {}", split_num, total_splits);
+    draw_centered_text(hdc, &split_text, res.font_small, col_grey, card_y + 200, w);
+
+    // Hint
+    draw_centered_text(hdc, "Select your next race on the kiosk", res.font_small, col_grey, card_y + card_h + 20, w);
+}
+
+// ---- Launch Splash Painter ----
+
+/// Render the launch splash screen: branding, animated dots, driver name, message.
+#[cfg(windows)]
+unsafe fn paint_launch_splash(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    driver_name: &str,
+    message: &str,
+) {
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+
+    // Title
+    let title_y = h / 2 - 120;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Loading..." with animated dots
+    let tick = winapi::um::sysinfoapi::GetTickCount();
+    let dot_count = ((tick / 500) % 3) + 1;
+    let dots: String = ".".repeat(dot_count as usize);
+    let loading_text = format!("Loading{}", dots);
+    draw_centered_text(hdc, &loading_text, res.font_heading, col_white, title_y + 70, w);
+
+    // Driver name
+    draw_centered_text(hdc, driver_name, res.font_heading, col_white, title_y + 130, w);
+
+    // Message (e.g., "Launching Assetto Corsa...")
+    draw_centered_text(hdc, message, res.font_body, col_grey, title_y + 180, w);
+}
+
+// ---- Awaiting Assistance Painter ----
+
+/// Render the awaiting assistance screen: branding, yellow heading, driver name, message.
+#[cfg(windows)]
+unsafe fn paint_awaiting_assistance(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    driver_name: &str,
+    message: &str,
+) {
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+    let col_yellow = rgb(255, 200, 0);
+
+    // Title
+    let title_y = h / 2 - 120;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Staff Assistance Required" in yellow
+    draw_centered_text(hdc, "Staff Assistance Required", res.font_heading, col_yellow, title_y + 70, w);
+
+    // Driver name + message
+    draw_centered_text(hdc, driver_name, res.font_heading, col_white, title_y + 130, w);
+    draw_centered_text(hdc, message, res.font_body, col_white, title_y + 180, w);
+
+    // Footer
+    draw_centered_text(hdc, "A staff member will be with you shortly", res.font_small, col_grey, title_y + 240, w);
+}
+
+// ---- Config Error Painter ----
+
+/// Render the config error screen: branding, red heading, generic message.
+/// Does NOT show technical details (per LockScreenState::ConfigError docs).
+#[cfg(windows)]
+unsafe fn paint_config_error(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+) {
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+    let col_white = rgb(255, 255, 255);
+
+    // Title
+    let title_y = h / 2 - 100;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Configuration Error" in red
+    draw_centered_text(hdc, "Configuration Error", res.font_heading, col_red, title_y + 70, w);
+
+    // Generic message
+    draw_centered_text(hdc, "Please contact staff", res.font_body, col_white, title_y + 130, w);
+
+    // Footer
+    draw_centered_text(hdc, "Error details have been logged", res.font_small, col_grey, title_y + 180, w);
+}
+
+// ---- Lockdown Painter ----
+
+/// Render the lockdown screen: red strip, heading, message, footer.
+#[cfg(windows)]
+unsafe fn paint_lockdown(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    message: &str,
+) {
+    use winapi::shared::windef::RECT;
+    use winapi::um::winuser::FillRect;
+
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+
+    // Red warning strip at top (8px tall)
+    let strip_rect = RECT {
+        left: 0,
+        top: 0,
+        right: w,
+        bottom: 8,
+    };
+    FillRect(hdc, &strip_rect, res.brush_red);
+
+    // "KIOSK LOCKDOWN" heading in red
+    let title_y = h / 2 - 60;
+    draw_centered_text(hdc, "KIOSK LOCKDOWN", res.font_title, col_red, title_y, w);
+
+    // Message
+    draw_centered_text(hdc, message, res.font_body, col_white, title_y + 70, w);
+
+    // Footer
+    draw_centered_text(hdc, "Contact staff to unlock", res.font_small, col_grey, title_y + 120, w);
+}
+
+// ---- Maintenance Required Painter ----
+
+/// Render the maintenance required screen: branding, yellow heading, failure list.
+#[cfg(windows)]
+unsafe fn paint_maintenance_required(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    w: i32,
+    h: i32,
+    failures: &[String],
+) {
+    let col_white = rgb(255, 255, 255);
+    let col_grey = rgb(128, 128, 128);
+    let col_red = rgb(225, 6, 0);
+    let col_yellow = rgb(255, 200, 0);
+
+    // Title
+    let title_y = h / 2 - 180;
+    draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, title_y, w);
+
+    // "Maintenance Required" heading in yellow
+    draw_centered_text(hdc, "Maintenance Required", res.font_heading, col_yellow, title_y + 70, w);
+
+    // Failure list (up to 5 items)
+    let max_items = 5;
+    let list_y = title_y + 130;
+    let line_gap = 35;
+    let display_count = failures.len().min(max_items);
+
+    for (i, failure) in failures.iter().take(display_count).enumerate() {
+        let text = format!("- {}", failure);
+        draw_centered_text(hdc, &text, res.font_body, col_white, list_y + (i as i32) * line_gap, w);
+    }
+
+    if failures.len() > max_items {
+        let more_text = format!("...and {} more", failures.len() - max_items);
+        draw_centered_text(hdc, &more_text, res.font_small, col_grey, list_y + (display_count as i32) * line_gap, w);
+    }
+
+    // Footer
+    let footer_y = list_y + (display_count as i32 + 1) * line_gap;
+    draw_centered_text(hdc, "Staff has been notified", res.font_small, col_grey, footer_y, w);
+}
+
+// ---- Stat Helper ----
+
+/// Draw a stat value + label centered at a given x position.
+/// Used by SessionSummary and BetweenSessions for grid layout.
+#[cfg(windows)]
+unsafe fn draw_stat_at(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    value: &str,
+    label: &str,
+    value_color: u32,
+    label_color: u32,
+    center_x: i32,
+    y: i32,
+    _screen_w: i32,
+) {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use winapi::shared::windef::SIZE;
+    use winapi::um::wingdi::*;
+
+    // Draw value
+    let old_font = SelectObject(hdc, res.font_heading as *mut _);
+    SetTextColor(hdc, value_color);
+    SetBkMode(hdc, TRANSPARENT as i32);
+
+    let wide_val: Vec<u16> = OsStr::new(value).encode_wide().collect();
+    let mut size: SIZE = std::mem::zeroed();
+    GetTextExtentPoint32W(hdc, wide_val.as_ptr(), wide_val.len() as i32, &mut size);
+    let x = center_x - size.cx / 2;
+    TextOutW(hdc, x, y, wide_val.as_ptr(), wide_val.len() as i32);
+
+    // Draw label below value
+    SelectObject(hdc, res.font_small as *mut _);
+    SetTextColor(hdc, label_color);
+
+    let wide_lbl: Vec<u16> = OsStr::new(label).encode_wide().collect();
+    let mut lbl_size: SIZE = std::mem::zeroed();
+    GetTextExtentPoint32W(hdc, wide_lbl.as_ptr(), wide_lbl.len() as i32, &mut lbl_size);
+    let lx = center_x - lbl_size.cx / 2;
+    TextOutW(hdc, lx, y + 40, wide_lbl.as_ptr(), wide_lbl.len() as i32);
+
+    SelectObject(hdc, old_font);
 }
 
 // ---- Shared Helpers ----

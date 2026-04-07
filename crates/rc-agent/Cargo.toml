@@ -77,7 +77,7 @@ walkdir = { version = "2", optional = true }
 
 # Windows process management
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi"] }
+winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi", "sysinfoapi"] }
 
 # DXGI Desktop Duplication API for D3D fullscreen game screenshots
 windows = { version = "0.58", features = [
