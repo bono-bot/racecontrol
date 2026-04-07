@@ -912,6 +912,6 @@ Plans:
 | 339. API Endpoints | 2/2 | Complete    | 2026-04-07 |
 | 340. Admin Dashboard | 3/3 | Complete    | 2026-04-07 |
 | 341. POS + Kiosk Display | 0/TBD | Complete    | 2026-04-07 |
-| 342. Cloud Sync + E2E | 1/1 | Complete   | 2026-04-07 |
+| 342. Cloud Sync + E2E | 1/1 | Complete    | 2026-04-07 |
 
 *Created: 2026-04-07 — business rules confirmed with Uday. See memory: project_credits_rupees_separation.md*
