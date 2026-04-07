@@ -824,8 +824,8 @@ Phase Dependency Graph:
 - [x] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits. (completed 2026-04-07)
 - [x] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk. (completed 2026-04-07)
 - [x] **Phase 340: Admin Dashboard** — WAL-04: Add credit management panel to billing/reports and billing/history. Show rupee deposits vs bonus credits. Cash refund button with max-refundable calculation. Deploy to BOTH local (.23:3201) and cloud. (completed 2026-04-07)
-- [ ] **Phase 341: POS + Kiosk Display** — WAL-05: Fix ₹ symbol on drivers page → "credits". Verify POS billing page shows credits. Kiosk pricing shows credits (already correct). Ensure unified API contract.
-- [ ] **Phase 342: Cloud Sync + E2E Verify** — WAL-06: Update cloud_sync.rs push/pull for new columns. Update process_debit_intents. E2E test: topup → bonus → spend → verify balances → cash refund → verify max cap.
+- [x] **Phase 341: POS + Kiosk Display** — WAL-05: Fix ₹ symbol on drivers page → "credits". Verify POS billing page shows credits. Kiosk pricing shows credits (already correct). Ensure unified API contract. (completed 2026-04-07)
+- [x] **Phase 342: Cloud Sync + E2E Verify** — WAL-06: Update cloud_sync.rs push/pull for new columns. Update process_debit_intents. E2E test: topup → bonus → spend → verify balances → cash refund → verify max cap. (completed 2026-04-07)
 
 ### Phase 337: DB Schema Migration
 **Goal**: Add wallet tracking columns for rupee/credit separation without breaking existing functionality.
@@ -888,7 +888,7 @@ Plans:
   2. POS billing page (`192.168.31.130:3200/billing`) shows credits
   3. Kiosk pricing shows credits (verify already correct)
   4. PWA wallet shows credits (verify already correct)
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 341-01-PLAN.md — Fix drivers page rupee to credits + verify POS/kiosk/PWA displays
 
@@ -908,7 +908,7 @@ Plans:
 | 338. Wallet Core Logic | 2/2 | Complete   | 2026-04-07 |
 | 339. API Endpoints | 2/2 | Complete    | 2026-04-07 |
 | 340. Admin Dashboard | 3/3 | Complete    | 2026-04-07 |
-| 341. POS + Kiosk Display | 0/TBD | Not Started | — |
+| 341. POS + Kiosk Display | 0/TBD | Complete    | 2026-04-07 |
 | 342. Cloud Sync + E2E | 0/TBD | Not Started | — |
 
 *Created: 2026-04-07 — business rules confirmed with Uday. See memory: project_credits_rupees_separation.md*
