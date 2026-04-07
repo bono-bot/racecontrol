@@ -293,7 +293,7 @@ pub struct LockScreenManager {
     event_tx: mpsc::Sender<LockScreenEvent>,
     port: u16,
     #[cfg(windows)]
-    browser_process: Option<std::process::Child>,
+    native_window: Option<crate::native_lock::NativeLockScreen>,
     /// Optional wallpaper URL for lock screen background (BRAND-02).
     /// When set, renders as CSS background-image on all states except ScreenBlanked.
     wallpaper_url: Arc<Mutex<Option<String>>>,
@@ -316,7 +316,7 @@ impl LockScreenManager {
             event_tx,
             port: 18923,
             #[cfg(windows)]
-            browser_process: None,
+            native_window: None,
             wallpaper_url: Arc::new(Mutex::new(None)),
             countdown_warning: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
@@ -700,17 +700,17 @@ impl LockScreenManager {
             tracing::info!(target: LOG_TARGET, "safe mode active — Focus Assist registry write deferred");
         }
         self.launch_browser();
-        // Gate state change on browser actually launching — prevents
-        // "state=blanked but no browser" when Edge fails to launch.
-        let browser_alive = self.browser_process.as_mut()
-            .map(|c| matches!(c.try_wait(), Ok(None)))
+        // Gate state change on native window actually being alive — prevents
+        // "state=blanked but no window" when window creation fails.
+        let window_alive = self.native_window.as_ref()
+            .map(|nw| nw.is_alive())
             .unwrap_or(false);
-        if browser_alive || self.browser_disabled {
+        if window_alive || self.browser_disabled {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::ScreenBlanked;
         } else {
             tracing::error!(target: LOG_TARGET,
-                "show_blank_screen: browser failed to launch — state NOT set to ScreenBlanked");
+                "show_blank_screen: native window failed to launch — state NOT set to ScreenBlanked");
         }
     }
 
@@ -719,17 +719,17 @@ impl LockScreenManager {
     /// Technical details should be logged separately via tracing::error!.
     pub fn show_config_error(&mut self, _message: &str) {
         self.launch_browser();
-        let browser_alive = self.browser_process.as_mut()
-            .map(|c| matches!(c.try_wait(), Ok(None)))
+        let window_alive = self.native_window.as_ref()
+            .map(|nw| nw.is_alive())
             .unwrap_or(false);
-        if browser_alive || self.browser_disabled {
+        if window_alive || self.browser_disabled {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::ConfigError {
                 message: "Configuration Error - contact staff".to_string(),
             };
         } else {
             tracing::error!(target: LOG_TARGET,
-                "show_config_error: browser failed to launch — state NOT set to ConfigError");
+                "show_config_error: native window failed to launch — state NOT set to ConfigError");
         }
     }
 
@@ -784,223 +784,40 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn launch_browser(&mut self) {
-        // Never launch Edge during tests — prevents browser opening on dev machines
+        // Never launch native window during tests — prevents window creation on dev machines
         #[cfg(test)]
         { return; }
 
-        // POS-01: auxiliary devices never launch the lock screen browser
+        // POS-01: auxiliary devices never launch the lock screen
         if self.browser_disabled {
             return;
         }
-        // Only skip relaunch if OUR tracked browser child is still alive.
-        // This avoids flicker during rapid state transitions (e.g., PIN → ActiveSession)
-        // where the same Edge window just needs to refresh from the HTTP server.
-        //
-        // Previously this also checked `count_edge_processes() > 0`, but that
-        // caused a critical bug: after close_browser() kills all Edge, Windows
-        // "Startup Boost" respawns background msedge.exe processes within seconds.
-        // On the next show_blank_screen() call, launch_browser() would see those
-        // background processes and skip launching — leaving the screen un-blanked
-        // with no browser window (the "once unblanked, won't blank again" bug).
-        let our_browser_alive = self.browser_process.as_mut()
-            .map(|c| matches!(c.try_wait(), Ok(None)))
-            .unwrap_or(false);
 
-        if our_browser_alive {
-            tracing::debug!(target: LOG_TARGET, "launch_browser: Our browser child still alive — skipping kill+relaunch");
+        // If native window is already alive, just request a repaint
+        if self.native_window.as_ref().map_or(false, |nw| nw.is_alive()) {
+            self.native_window.as_ref().unwrap().request_repaint();
             return;
         }
 
-        self.close_browser();
-        let url = format!("http://127.0.0.1:{}", self.port);
-        // Try common Edge install paths, then fall back to PATH lookup
-        let edge_paths = [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            "msedge.exe",
-        ];
+        // Create a new native Win32 lock screen window
+        let mut nw = crate::native_lock::NativeLockScreen::new();
+        nw.show(self.state.clone());
 
-        // MMA 5-model consensus + Gemini adversarial review (2026-03-31):
-        // Use dedicated Edge profile under %LOCALAPPDATA% to prevent --app window
-        // session restore. Default profile's SNSS files persist --app windows across
-        // restarts even with --inprivate and --disable-session-crashed-bubble.
-        // %LOCALAPPDATA% avoids C:\ProgramData ACL issues for non-admin pod users.
-        let edge_profile_dir = std::env::var("LOCALAPPDATA")
-            .map(|la| format!(r"{}\RacingPoint\EdgeProfile", la))
-            .unwrap_or_else(|_| r"C:\Users\User\AppData\Local\RacingPoint\EdgeProfile".to_string());
-        clean_edge_session_data(&edge_profile_dir);
-        let user_data_dir_arg = format!("--user-data-dir={}", edge_profile_dir);
+        // Brief pause to let the window thread create the HWND
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // Query virtual screen bounds to cover multi-monitor / surround setups
-        // (e.g. triple 2560x1440 = 7680x1440 virtual desktop)
-        let (vx, vy, vw, vh) = get_virtual_screen_bounds();
-        let window_pos = format!("--window-position={},{}", vx, vy);
-        let window_size = format!("--window-size={},{}", vw, vh);
-        // Always force window sizing — Edge --kiosk doesn't reliably go fullscreen
-        // when relaunched by the browser watchdog (no user session event to trigger it).
-        // MoveWindow after 3s ensures coverage on both single and multi-monitor setups.
-        let use_window_sizing = true;
-
-        // --app mode + SetWindowPos(HWND_TOPMOST) to span all monitors.
-        // --kiosk fullscreens to primary monitor only (single-monitor).
-        // --app creates chromeless window. F11 doesn't work in --app, but
-        // SetWindowPos with HWND_TOPMOST forces spanning and stays on top.
-        // enforce_kiosk_foreground uses SW_SHOW (not SW_MAXIMIZE) to avoid undoing this.
-        let app_url = format!("--app={}", url);
-        for edge_path in &edge_paths {
-            let mut args: Vec<&str> = vec![
-                &app_url,
-                &user_data_dir_arg,
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-notifications",
-                "--disable-popup-blocking",
-                "--disable-infobars",
-                "--disable-session-crashed-bubble",
-                "--disable-component-update",
-                "--autoplay-policy=no-user-gesture-required",
-                "--suppress-message-center-popups",
-                "--disable-extensions",
-                "--disable-dev-tools",
-                "--disable-dev-tools-extension",
-                "--disable-translate",
-                "--disable-features=FileSystemAPI,msEdgeSidebarV2,msEdgeCopilot,msEdgeJSONViewer,msEdgeShoppingUI,msEdgeTravelAssistant,msEdgeEnableRecommendationsOnFirstRun,msEdgeShowRecommendationsOnFirstRun,msUndersideButton,msEdgeMathHelper,msEdgeDropFeature,EdgeCollectionsEnabled,msEdgeDiscoverSidebarFeature,msEdgeFeedbackSupport,msEdgeMiniMenu,msEdgeReadAloud,msEdgeSplit",
-                "--disable-file-system",
-                "--inprivate",
-                "--disable-pinch",
-                "--disable-print-preview",
-                "--no-experiments",
-                "--disable-background-networking",
-                "--block-new-web-contents",
-            ];
-            if use_window_sizing {
-                args.push(&window_pos);
-                args.push(&window_size);
-            }
-            match std::process::Command::new(edge_path)
-                .args(&args)
-                // FreeConsole() at startup invalidates inherited stdio handles.
-                // Without Null redirection, spawn() fails with ERROR_INVALID_HANDLE (os error 6).
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-            {
-                Ok(child) => {
-                    let child_pid = child.id();
-                    self.browser_process = Some(child);
-                    tracing::info!(
-                        target: LOG_TARGET,
-                        "Lock screen browser launched at {} using {} pid={} (virtual screen: {}x{} at {},{})",
-                        url, edge_path, child_pid, vw, vh, vx, vy
-                    );
-                    // --app mode + SetWindowPos(HWND_TOPMOST) to span all monitors.
-                    // F11 doesn't work in --app mode. Instead, we use SetWindowPos
-                    // with HWND_TOPMOST to force the window to cover all monitors.
-                    // Retry loop handles race with ConspitLink and other windows.
-                    {
-                        // Offset Y by -32px to push --app title bar off-screen.
-                        // Increase height by +32px so content still covers the full screen.
-                        let (fx, fy, fw, fh) = (vx, vy - 32, vw, vh + 32);
-                        std::thread::spawn(move || {
-                            // Wait for Edge to create its window
-                            std::thread::sleep(std::time::Duration::from_secs(5));
-
-                            unsafe extern "system" {
-                                fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
-                                fn SetForegroundWindow(hwnd: isize) -> i32;
-                                fn EnumWindows(callback: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize) -> i32;
-                                fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
-                                fn GetClassNameA(hwnd: isize, buf: *mut u8, max: i32) -> i32;
-                                fn IsWindowVisible(hwnd: isize) -> i32;
-                                fn GetWindowRect(hwnd: isize, rect: *mut [i32; 4]) -> i32;
-                                fn SetWindowPos(hwnd: isize, insert_after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
-                            }
-
-                            // HWND_TOPMOST = -1, SWP_SHOWWINDOW = 0x0040
-                            const HWND_TOPMOST: isize = -1;
-                            const SWP_SHOWWINDOW: u32 = 0x0040;
-
-                            #[repr(C)]
-                            struct EnumCtx {
-                                target_pid: u32,
-                                found_hwnd: isize,
-                            }
-
-                            unsafe extern "system" fn enum_cb(hwnd: isize, lparam: isize) -> i32 {
-                                let ctx = unsafe { &mut *(lparam as *mut EnumCtx) };
-                                let mut pid: u32 = 0;
-                                unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
-                                if pid == ctx.target_pid && unsafe { IsWindowVisible(hwnd) } != 0 {
-                                    let mut class_buf = [0u8; 64];
-                                    let len = unsafe { GetClassNameA(hwnd, class_buf.as_mut_ptr(), 64) };
-                                    if len > 0 {
-                                        let class = unsafe { std::str::from_utf8_unchecked(&class_buf[..len as usize]) };
-                                        if class == "Chrome_WidgetWin_1" {
-                                            ctx.found_hwnd = hwnd;
-                                            return 0;
-                                        }
-                                    }
-                                }
-                                1
-                            }
-
-                            let mut ctx = EnumCtx { target_pid: child_pid, found_hwnd: 0 };
-                            unsafe {
-                                EnumWindows(enum_cb, &mut ctx as *mut EnumCtx as isize);
-                            }
-
-                            let hwnd = ctx.found_hwnd;
-                            if hwnd == 0 {
-                                tracing::warn!(target: LOG_TARGET, "Edge window not found for pid {} — SetWindowPos skipped", child_pid);
-                                return;
-                            }
-
-                            // Retry loop: SetWindowPos(HWND_TOPMOST) to force spanning.
-                            // Up to 3 attempts — Edge may reset its window after launch.
-                            for attempt in 1..=3 {
-                                // SW_RESTORE first to exit any maximized/minimized state
-                                unsafe { ShowWindow(hwnd, 9); } // SW_RESTORE
-                                std::thread::sleep(std::time::Duration::from_millis(300));
-
-                                // SetWindowPos: HWND_TOPMOST + position/size + show
-                                let ok = unsafe {
-                                    SetWindowPos(hwnd, HWND_TOPMOST, fx, fy, fw, fh, SWP_SHOWWINDOW)
-                                };
-                                unsafe { SetForegroundWindow(hwnd); }
-
-                                // Check if Edge is now spanning the full virtual screen
-                                std::thread::sleep(std::time::Duration::from_millis(500));
-                                let mut rect = [0i32; 4]; // left, top, right, bottom
-                                unsafe { GetWindowRect(hwnd, &mut rect); }
-                                let w = rect[2] - rect[0];
-                                let h = rect[3] - rect[1];
-                                tracing::info!(target: LOG_TARGET,
-                                    "SetWindowPos attempt {}/3: ok={}, rect=({},{},{},{}) size={}x{} target={}x{}",
-                                    attempt, ok, rect[0], rect[1], rect[2], rect[3], w, h, fw, fh);
-
-                                // If Edge covers >=90% of the virtual screen, done
-                                if w >= (fw * 9 / 10) && h >= (fh * 9 / 10) {
-                                    tracing::info!(target: LOG_TARGET,
-                                        "SetWindowPos confirmed on attempt {} ({}x{} covers {}x{})",
-                                        attempt, w, h, fw, fh);
-                                    break;
-                                }
-
-                                std::thread::sleep(std::time::Duration::from_secs(2));
-                            }
-                        });
-                    }
-                    return;
-                }
-                Err(e) => {
-                    tracing::warn!(target: LOG_TARGET, "Failed to launch Edge from {}: {}", edge_path, e);
-                }
-            }
-        }
-        tracing::error!(target: LOG_TARGET, "Could not launch Edge from any known path");
+        let alive = nw.is_alive();
+        tracing::info!(
+            target: LOG_TARGET,
+            "Native lock screen launched (alive={})",
+            alive
+        );
+        self.native_window = Some(nw);
     }
 
+    // Legacy Edge launch code removed — replaced by native Win32 window above.
+    // The old launch_browser spawned msedge.exe with --app mode + SetWindowPos.
+    // The new implementation creates a WS_POPUP | WS_EX_TOPMOST window directly.
     #[cfg(not(windows))]
     pub fn launch_browser(&mut self) {
         self.close_browser();
@@ -1027,48 +844,11 @@ impl LockScreenManager {
 
     #[cfg(windows)]
     pub fn close_browser(&mut self) {
-        // Never kill Edge during tests — prevents closing dev machine browser
-        #[cfg(test)]
-        {
-            self.browser_process = None;
-            return;
+        // Hide the native lock screen window (keeps it alive for fast re-show)
+        if let Some(ref nw) = self.native_window {
+            nw.hide();
+            tracing::info!(target: LOG_TARGET, "Native lock screen hidden");
         }
-
-        if let Some(ref mut child) = self.browser_process {
-            let _ = child.kill();
-            let _ = child.wait();
-            tracing::info!(target: LOG_TARGET, "Lock screen browser closed (child handle)");
-        }
-        self.browser_process = None;
-
-        // BWDOG-04: Skip taskkill during protected game sessions (anti-cheat safe mode).
-        // The child handle kill above always runs (it only kills our own process).
-        if self.safe_mode_active.load(std::sync::atomic::Ordering::Relaxed) {
-            tracing::info!(target: LOG_TARGET, "Safe mode active — skipping taskkill for Edge/WebView2 processes");
-            return;
-        }
-
-        // Kill ALL Edge and Edge WebView2 processes aggressively via taskkill.
-        // On gaming pods, there should be no user Edge sessions — only our kiosk windows.
-        // This prevents the stacking bug where repeated show_blank_screen() calls
-        // spawn new Edge windows without fully cleaning up the old ones.
-        for exe in &["msedge.exe", "msedgewebview2.exe"] {
-            match spawn_safe("taskkill")
-                .args(["/F", "/IM", exe])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(status) => {
-                    if status.success() {
-                        tracing::info!(target: LOG_TARGET, "Killed all {} processes", exe);
-                    }
-                }
-                Err(e) => tracing::warn!(target: LOG_TARGET, "Failed to run taskkill for {}: {}", exe, e),
-            }
-        }
-        // Brief pause to let processes fully exit and release ports
-        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     #[cfg(not(windows))]
@@ -1077,29 +857,11 @@ impl LockScreenManager {
         let _ = std::process::Command::new("pkill").args(["-f", &format!("127.0.0.1:{}", self.port)]).spawn();
     }
 
-    /// Check if the browser process we spawned is still running.
-    /// Returns false if no browser was spawned or if the child process has exited.
+    /// Check if the native lock screen window is still alive.
+    /// Returns false if no window was created or if the window has been destroyed.
     #[cfg(windows)]
     pub fn is_browser_alive(&mut self) -> bool {
-        match self.browser_process.as_mut() {
-            Some(child) => {
-                // try_wait: Ok(Some(_)) = exited, Ok(None) = still running, Err = unknown
-                match child.try_wait() {
-                    Ok(Some(_status)) => {
-                        // Process has exited — clear the handle
-                        tracing::warn!(target: LOG_TARGET, "Browser process has exited (watchdog detected)");
-                        self.browser_process = None;
-                        false
-                    }
-                    Ok(None) => true, // still running
-                    Err(e) => {
-                        tracing::warn!(target: LOG_TARGET, "Failed to check browser process status: {}", e);
-                        false
-                    }
-                }
-            }
-            None => false,
-        }
+        self.native_window.as_ref().map_or(false, |nw| nw.is_alive())
     }
 
     #[cfg(not(windows))]
@@ -2132,7 +1894,7 @@ mod tests {
 
         // Create manager on that port and confirm it returns quickly
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port, #[cfg(windows)] native_window: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         manager.wait_for_self_ready().await;
@@ -2144,7 +1906,7 @@ mod tests {
     async fn wait_for_self_ready_timeout() {
         // Do NOT bind port 18922 — let it fail
         let (tx, _rx) = tokio::sync::mpsc::channel(16);
-        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] browser_process: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
+        let mut manager = LockScreenManager { state: std::sync::Arc::new(std::sync::Mutex::new(LockScreenState::Hidden)), event_tx: tx, port: 18922, #[cfg(windows)] native_window: None, wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)), safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), browser_disabled: false, countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)) };
 
         let start = std::time::Instant::now();
         // Should return (not panic) within ~6 seconds
@@ -2177,7 +1939,7 @@ mod tests {
             event_tx: tx,
             port: 18923,
             #[cfg(windows)]
-            browser_process: None,
+            native_window: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
@@ -2500,7 +2262,7 @@ mod tests {
             event_tx: tx,
             port: 18924,
             #[cfg(windows)]
-            browser_process: None,
+            native_window: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
@@ -2524,7 +2286,7 @@ mod tests {
             event_tx: tx,
             port: 18923,
             #[cfg(windows)]
-            browser_process: None,
+            native_window: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             browser_disabled: false,
@@ -2542,13 +2304,13 @@ mod tests {
             event_tx: tx,
             port: 18923,
             #[cfg(windows)]
-            browser_process: None,
+            native_window: None,
             wallpaper_url: std::sync::Arc::new(std::sync::Mutex::new(None)),
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
-        // Should not panic — with no browser_process and no real Edge running, this is a no-op
+        // Should not panic — with no native_window and no real window, this is a no-op
         manager.close_browser();
     }
 
