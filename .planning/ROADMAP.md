@@ -18,6 +18,7 @@
 - ✅ **v43.0 Self-Audit & Visual Regression System** — Phases 325-328 (shipped 2026-04-06)
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
 - [ ] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, 13 gaps from VMS analysis)
+- [ ] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, financial model redesign)
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
@@ -786,3 +787,109 @@ Plans:
 | 336. Deploy Verification & E2E | 0/TBD | Not Started | — |
 
 *Created: 2026-04-07 — from VMS gap analysis (13 items, systematic customer-journey elimination)*
+
+---
+
+## v45.0 Credits/Rupees Wallet Separation
+
+**Goal:** Separate wallet tracking into rupee deposits (real money, for balance sheet) and credits (what customers see and spend). Bonuses are promotional credits. Cash refunds only refund deposited rupees, never bonus credits. Unified API contract consumed by admin portal, POS, and kiosk.
+
+**Business Rules (confirmed 2026-04-07):**
+1. Customer deposits rupees → converted to credits 1:1
+2. Bonus/promotion credits added on top (not real money)
+3. Customer only sees and spends **credits**
+4. Session charges, cafe, merchandise — all in credits
+5. Game reset → credits refunded automatically
+6. Cash refund (rupees back) → **admin-only**, max = deposited rupees - spent - already refunded. Bonus forfeit.
+
+**Depends on:** None (can run in parallel with v44.0)
+
+```
+Phase Dependency Graph:
+
+  337 (DB Schema)
+    ↓
+  338 (Wallet Rust + Accounting)
+    ↓
+  339 (API Endpoints)
+    ↓
+  340 (Admin Dashboard — local + cloud)  ←  341 (POS + Kiosk display)
+    ↓
+  342 (Cloud Sync + Deploy + E2E Verify)
+```
+
+### Phases
+
+- [ ] **Phase 337: DB Schema Migration** — WAL-01: Add rupee_deposited_paise, rupee_refunded_paise, bonus_credited_paise to wallets. Add currency_type to wallet_transactions. Backfill from existing txn_type.
+- [ ] **Phase 338: Wallet Core Logic** — WAL-02: Update credit/debit in wallet.rs. Bonus credits go to bonus_credited_paise. Top-ups go to rupee_deposited_paise. Debit burns from single balance_paise pool. Cash refund capped at net rupee deposits.
+- [ ] **Phase 339: API Endpoints** — WAL-03: Update GET /wallet, POST /topup, POST /refund responses. New fields: balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund. Same contract for admin/POS/kiosk.
+- [ ] **Phase 340: Admin Dashboard** — WAL-04: Add credit management panel to billing/reports and billing/history. Show rupee deposits vs bonus credits. Cash refund button with max-refundable calculation. Deploy to BOTH local (.23:3201) and cloud.
+- [ ] **Phase 341: POS + Kiosk Display** — WAL-05: Fix ₹ symbol on drivers page → "credits". Verify POS billing page shows credits. Kiosk pricing shows credits (already correct). Ensure unified API contract.
+- [ ] **Phase 342: Cloud Sync + E2E Verify** — WAL-06: Update cloud_sync.rs push/pull for new columns. Update process_debit_intents. E2E test: topup → bonus → spend → verify balances → cash refund → verify max cap.
+
+### Phase 337: DB Schema Migration
+**Goal**: Add wallet tracking columns for rupee/credit separation without breaking existing functionality.
+**Success Criteria:**
+  1. `wallets` table has `rupee_deposited_paise`, `rupee_refunded_paise`, `bonus_credited_paise` columns
+  2. `wallet_transactions` table has `currency_type` column ('rupee' or 'credit')
+  3. Existing transactions backfilled: topup_* = 'rupee', bonus/adjustment = 'credit'
+  4. `balance_paise` unchanged — still the single spendable credits pool
+  5. Migration is idempotent (ALTER TABLE IF NOT EXISTS pattern)
+  6. Cloud DB also gets the migration on next sync
+
+### Phase 338: Wallet Core Logic
+**Goal**: Update wallet.rs so top-ups track rupee deposits, bonuses track bonus credits, and cash refunds are capped.
+**Success Criteria:**
+  1. `credit_in_tx` increments `rupee_deposited_paise` for topup_* txn_types
+  2. `credit_in_tx` increments `bonus_credited_paise` for bonus/adjustment txn_types
+  3. Cash refund (`refund_wallet`) capped at `rupee_deposited_paise - rupee_refunded_paise - total_debited_paise` (floor 0)
+  4. Cash refund increments `rupee_refunded_paise`
+  5. Credit refund (game reset) only touches `balance_paise` — no rupee tracking
+  6. Accounting journal: cash refund → Dr. acc_wallet Cr. acc_cash/bank; credit refund → Dr. acc_wallet Cr. acc_refunds
+
+### Phase 339: API Endpoints
+**Goal**: Unified wallet API response consumed by admin, POS, and kiosk.
+**Success Criteria:**
+  1. GET /wallet/{driver_id} returns: `{ balance_credits, rupee_deposited, rupee_refunded, bonus_credited, max_cash_refund, total_spent, transactions_count }`
+  2. POST /wallet/{driver_id}/topup response includes: `{ new_balance_credits, bonus_credits_granted, rupee_amount }`
+  3. POST /wallet/{driver_id}/refund differentiates: `{ type: "credit_refund" | "cash_refund", amount, max_allowed }`
+  4. GET /wallet/transactions includes `currency_type` per transaction
+  5. Same response schema served on all ports (8080 API) — no per-frontend variants
+
+### Phase 340: Admin Dashboard
+**Goal**: Add credit/rupee management UI to admin portal, deployed locally AND on cloud.
+**Success Criteria:**
+  1. `/billing/reports` page shows: total rupee deposits, total bonus credits issued, total credits spent, total cash refunds
+  2. `/billing/history` page shows per-transaction `currency_type` badge (rupee/credit)
+  3. Cash refund button shows max refundable amount and requires confirmation
+  4. Credit adjustment button (admin adds/removes credits manually with reason)
+  5. Dashboard accessible at `192.168.31.23:3201/billing/reports` AND `racingpoint.cloud:3201/billing/reports`
+
+### Phase 341: POS + Kiosk Display
+**Goal**: All customer-facing displays show "credits", never "₹".
+**Success Criteria:**
+  1. `web/src/app/drivers/page.tsx` shows "credits" not "₹"
+  2. POS billing page (`192.168.31.130:3200/billing`) shows credits
+  3. Kiosk pricing shows credits (verify already correct)
+  4. PWA wallet shows credits (verify already correct)
+
+### Phase 342: Cloud Sync + E2E Verify
+**Goal**: Cloud sync pushes/pulls new wallet columns. Full E2E test of the financial flow.
+**Success Criteria:**
+  1. `cloud_sync.rs` push includes `rupee_deposited_paise`, `rupee_refunded_paise`, `bonus_credited_paise`
+  2. `cloud_sync.rs` upsert_wallet handles new columns
+  3. `process_debit_intents` works with new schema (still debits from `balance_paise`)
+  4. E2E test: topup ₹1000 → verify 1000 credits + bonus → spend 200 → verify balance → request cash refund → verify max = ₹800 (not ₹800 + bonus)
+
+### Progress Table (v45.0)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 337. DB Schema Migration | 0/TBD | Not Started | — |
+| 338. Wallet Core Logic | 0/TBD | Not Started | — |
+| 339. API Endpoints | 0/TBD | Not Started | — |
+| 340. Admin Dashboard | 0/TBD | Not Started | — |
+| 341. POS + Kiosk Display | 0/TBD | Not Started | — |
+| 342. Cloud Sync + E2E | 0/TBD | Not Started | — |
+
+*Created: 2026-04-07 — business rules confirmed with Uday. See memory: project_credits_rupees_separation.md*
