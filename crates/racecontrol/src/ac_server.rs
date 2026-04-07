@@ -634,6 +634,19 @@ pub async fn start_ac_server(
         .execute(&state.db)
         .await;
 
+    // v44.0 Phase 333: Spawn lobby sync monitor to track pod connections via acServer HTTP API.
+    // The monitor polls /INFO every 3s, updates connected_pods, broadcasts LobbyUpdate events,
+    // and transitions to Active when all pods connect (or after 120s timeout).
+    {
+        let lobby_state = state.clone();
+        let lobby_session_id = session_id.clone();
+        let lobby_http_port = config.http_port;
+        let lobby_pod_count = pod_ids.len();
+        tokio::spawn(async move {
+            monitor_lobby_sync(lobby_state, lobby_session_id, lobby_http_port, lobby_pod_count).await;
+        });
+    }
+
     tracing::info!("AC LAN session started: {} (join: {})", session_id, join_url);
     Ok(session_id)
 }
@@ -898,6 +911,200 @@ pub async fn retry_pod_join(
     }
 
     Ok(())
+}
+
+// ─── Lobby Sync Monitor (v44.0 Phase 333) ──────────────────────────────────
+
+/// Poll the acServer HTTP API to track connected clients and update lobby status.
+/// Runs as a background tokio task spawned after `start_ac_server()`.
+///
+/// Behavior:
+/// - Polls `GET http://127.0.0.1:{http_port}/INFO` every 3 seconds
+/// - Tracks connected client count from the `clients` field in the JSON response
+/// - Updates `connected_pods` on the AcServerInstance
+/// - Broadcasts `DashboardEvent::LobbyUpdate` with current lobby phase
+/// - When all expected pods connect (or 120s timeout), transitions to Active phase
+/// - If acServer HTTP is unreachable, keeps retrying (server may be starting)
+pub async fn monitor_lobby_sync(
+    state: Arc<AppState>,
+    session_id: String,
+    http_port: u16,
+    expected_pod_count: usize,
+) {
+    use std::time::{Duration, Instant};
+
+    let timeout = Duration::from_secs(120);
+    let poll_interval = Duration::from_secs(3);
+    let start = Instant::now();
+    let mut last_client_count: i64 = -1;
+
+    tracing::info!(
+        session_id = %session_id,
+        http_port = http_port,
+        expected_pods = expected_pod_count,
+        "Lobby sync monitor started — polling acServer HTTP API"
+    );
+
+    // Broadcast initial Forming status
+    let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+        group_session_id: session_id.clone(),
+        phase: LobbyPhase::Forming,
+        total_pods: expected_pod_count as u32,
+        ready_pods: vec![],
+        created_at: chrono::Utc::now().to_rfc3339(),
+    }));
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+
+    loop {
+        // Check if session was stopped externally
+        {
+            let instances = state.ac_server.instances.read().await;
+            match instances.get(&session_id) {
+                Some(inst) if matches!(inst.status, AcServerStatus::Stopped | AcServerStatus::Error) => {
+                    tracing::info!(session_id = %session_id, "Lobby monitor: session stopped/error, exiting");
+                    let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+                        group_session_id: session_id.clone(),
+                        phase: LobbyPhase::Cancelled,
+                        total_pods: expected_pod_count as u32,
+                        ready_pods: vec![],
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                    }));
+                    return;
+                }
+                None => {
+                    tracing::info!(session_id = %session_id, "Lobby monitor: session removed, exiting");
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Check timeout — proceed with whatever pods are connected
+        if start.elapsed() > timeout {
+            tracing::warn!(
+                session_id = %session_id,
+                expected = expected_pod_count,
+                "Lobby sync timeout (120s) — proceeding with available pods"
+            );
+            let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+                group_session_id: session_id.clone(),
+                phase: LobbyPhase::Active,
+                total_pods: expected_pod_count as u32,
+                ready_pods: vec![],
+                created_at: chrono::Utc::now().to_rfc3339(),
+            }));
+            return;
+        }
+
+        // Poll acServer HTTP API for connected client count
+        let url = format!("http://127.0.0.1:{}/INFO", http_port);
+        match client.get(&url).send().await {
+            Ok(resp) => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(info) => {
+                        let clients = info.get("clients")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
+
+                        if clients as i64 != last_client_count {
+                            tracing::info!(
+                                session_id = %session_id,
+                                connected = clients,
+                                expected = expected_pod_count,
+                                elapsed_secs = start.elapsed().as_secs(),
+                                "Lobby sync: client count changed"
+                            );
+                            last_client_count = clients as i64;
+                        }
+
+                        // Update connected_pods on the instance
+                        {
+                            let mut instances = state.ac_server.instances.write().await;
+                            if let Some(inst) = instances.get_mut(&session_id) {
+                                inst.connected_pods = (0..clients)
+                                    .map(|i| format!("client_{}", i + 1))
+                                    .collect();
+                            }
+                        }
+
+                        // All pods connected — transition to Active
+                        if clients >= expected_pod_count {
+                            tracing::info!(
+                                session_id = %session_id,
+                                connected = clients,
+                                expected = expected_pod_count,
+                                elapsed_secs = start.elapsed().as_secs(),
+                                "Lobby sync: all pods connected — race is ready"
+                            );
+
+                            let ready_pods: Vec<String> = (0..clients)
+                                .map(|i| format!("client_{}", i + 1))
+                                .collect();
+
+                            let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+                                group_session_id: session_id.clone(),
+                                phase: LobbyPhase::AllReady,
+                                total_pods: expected_pod_count as u32,
+                                ready_pods: ready_pods.clone(),
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            }));
+
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+
+                            let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+                                group_session_id: session_id.clone(),
+                                phase: LobbyPhase::Active,
+                                total_pods: expected_pod_count as u32,
+                                ready_pods,
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            }));
+
+                            // Broadcast server update with connected pods
+                            let server_info = {
+                                let instances = state.ac_server.instances.read().await;
+                                instances.get(&session_id).map(|i| i.to_info())
+                            };
+                            if let Some(info) = server_info {
+                                let _ = state.dashboard_tx.send(DashboardEvent::AcServerUpdate(info));
+                            }
+
+                            return;
+                        }
+
+                        // Still forming — broadcast current count
+                        let _ = state.dashboard_tx.send(DashboardEvent::LobbyUpdate(LobbyStatus {
+                            group_session_id: session_id.clone(),
+                            phase: LobbyPhase::Forming,
+                            total_pods: expected_pod_count as u32,
+                            ready_pods: (0..clients).map(|i| format!("client_{}", i + 1)).collect(),
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            session_id = %session_id,
+                            error = %e,
+                            "Lobby sync: failed to parse /INFO response (server may be starting)"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    session_id = %session_id,
+                    error = %e,
+                    elapsed_secs = start.elapsed().as_secs(),
+                    "Lobby sync: acServer HTTP not reachable yet (retrying)"
+                );
+            }
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
 }
 
 /// GROUP-02: Monitor a continuous-mode AC server. When the process exits (race complete),
