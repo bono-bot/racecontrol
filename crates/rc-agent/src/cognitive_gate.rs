@@ -472,6 +472,8 @@ fn trigger_to_problem(trigger: &DiagnosticTrigger) -> String {
             format!("POS WiFi degraded: RSSI {}dBm, latency {}ms", rssi_dbm, latency_ms),
         DiagnosticTrigger::PosKioskEscaped { foreground_process } =>
             format!("POS kiosk escaped: foreground = {}", foreground_process),
+        DiagnosticTrigger::PosWrongUrl { actual_title, expected_title } =>
+            format!("POS billing: wrong page loaded ('{}', expected '{}')", actual_title, expected_title),
         DiagnosticTrigger::TaskbarVisible => "Taskbar visible when it should be hidden".into(),
         DiagnosticTrigger::GameMidSessionCrash { exit_code, session_duration_secs } =>
             format!("Game crashed mid-session (exit {:?}, {}s into session)", exit_code, session_duration_secs),
@@ -603,6 +605,11 @@ fn trigger_to_hypotheses(trigger: &DiagnosticTrigger) -> Vec<(String, String)> {
             ("System dialog appeared (UAC, update, error)".into(), "Check Event Viewer for system dialog events".into()),
             ("User intentionally escaped kiosk mode".into(), "Check if keyboard shortcuts were used (Alt+Tab, Win key)".into()),
         ],
+        DiagnosticTrigger::PosWrongUrl { .. } => vec![
+            ("Edge session restore loaded old kiosk URL".into(), "Clear Edge user data and restart with correct URL".into()),
+            ("Watchdog or schtask launched Edge with wrong URL".into(), "Check all HKLM Run, schtasks, and watchdog scripts for URL".into()),
+            ("Manual navigation away from billing page".into(), "Restart Edge with --kiosk billing URL to reset".into()),
+        ],
         _ => vec![
             ("Configuration drift from expected state".into(), "Compare current config against known-good".into()),
             ("External environmental factor".into(), "Check for recent Windows updates, driver changes, or power events".into()),
@@ -617,7 +624,8 @@ fn trigger_to_domain(trigger: &DiagnosticTrigger) -> &'static str {
         | DiagnosticTrigger::DisplayMismatch { .. }
         | DiagnosticTrigger::TaskbarVisible
         | DiagnosticTrigger::SentinelUnexpected { .. }
-        | DiagnosticTrigger::PosKioskEscaped { .. } => "windows_os",
+        | DiagnosticTrigger::PosKioskEscaped { .. }
+        | DiagnosticTrigger::PosWrongUrl { .. } => "windows_os",
 
         DiagnosticTrigger::GameLaunchFail
         | DiagnosticTrigger::GameLaunchTimeout { .. }

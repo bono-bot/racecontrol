@@ -55,6 +55,10 @@ pub enum DiagnosticTrigger {
     /// POS: Edge kiosk escaped -- non-kiosk window in foreground (security + ops risk)
     /// MMA consensus (4/4): foreground != msedge.exe for > 10s
     PosKioskEscaped { foreground_process: String },
+    /// POS: Edge browser showing wrong URL (e.g. kiosk app instead of billing dashboard).
+    /// Detected by checking Edge window title -- wrong title means wrong page loaded.
+    /// Tier 1 auto-fix: kill Edge and restart with the correct billing URL.
+    PosWrongUrl { actual_title: String, expected_title: String },
 
     // --- UI State Triggers (DIAG-01n: taskbar enforcement) ---
     /// Taskbar was found visible when it should be hidden (kiosk mode active).

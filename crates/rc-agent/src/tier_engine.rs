@@ -456,7 +456,8 @@ async fn check_trigger_resolved(
 
         DiagnosticTrigger::PosBillingApiError { .. }
         | DiagnosticTrigger::PosWifiDegraded { .. }
-        | DiagnosticTrigger::PosKioskEscaped { .. } => {
+        | DiagnosticTrigger::PosKioskEscaped { .. }
+        | DiagnosticTrigger::PosWrongUrl { .. } => {
             // These require external state checks — return true as best-effort
             true
         }
@@ -1215,6 +1216,7 @@ fn make_dedup_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
             format!("PosKioskEscaped_{}", foreground_process)
         }
+        DiagnosticTrigger::PosWrongUrl { .. } => "PosWrongUrl".to_string(),
         DiagnosticTrigger::TaskbarVisible => "TaskbarVisible".to_string(),
         // MMA-First Protocol triggers (v31.0)
         DiagnosticTrigger::GameMidSessionCrash { exit_code, .. } => {
@@ -2214,6 +2216,22 @@ fn tier1_deterministic_sync(trigger: &DiagnosticTrigger, billing_active: bool) -
                 actions_taken.push(format!("POS: minimized '{}', restored Edge kiosk to foreground", foreground_process));
             } else {
                 tracing::warn!(target: LOG_TARGET, "POS: kiosk restore failed — escalating to staff");
+            }
+        }
+        // POS wrong URL: Edge is showing kiosk app instead of billing dashboard.
+        // AUTO-FIX: kill Edge and restart with the correct billing URL.
+        DiagnosticTrigger::PosWrongUrl { actual_title, .. } => {
+            tracing::warn!(target: LOG_TARGET, actual = %actual_title,
+                "POS billing: Edge showing wrong page ('{}') — auto-fix: restarting Edge with billing URL",
+                actual_title
+            );
+            if tier1_restart_edge_kiosk() {
+                actions_taken.push(format!(
+                    "POS: Edge was on wrong page ('{}'), restarted with billing URL :3200/billing",
+                    actual_title
+                ));
+            } else {
+                tracing::warn!(target: LOG_TARGET, "POS: Edge restart for wrong URL failed — escalating");
             }
         }
         // MMA-First Protocol triggers — no deterministic fix, escalate to MMA

@@ -946,6 +946,7 @@ pub fn normalize_problem_key(trigger: &DiagnosticTrigger) -> String {
         DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
             format!("pos_kiosk_escaped:{}", sanitize_kb_key_component(foreground_process))
         }
+        DiagnosticTrigger::PosWrongUrl { .. } => "pos_wrong_url".to_string(),
         DiagnosticTrigger::TaskbarVisible => "taskbar_visible".to_string(),
         // MMA-First Protocol triggers (v31.0)
         DiagnosticTrigger::GameMidSessionCrash { .. } => "game_mid_session_crash".to_string(),

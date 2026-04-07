@@ -187,6 +187,10 @@ pub fn spawn(
                 if let Some(trigger) = check_pos_kiosk_escape() {
                     events.push(make_event(trigger, &pod_state));
                 }
+                // POS URL check: is Edge showing the billing dashboard, not the kiosk app?
+                if let Some(trigger) = check_pos_billing_url() {
+                    events.push(make_event(trigger, &pod_state));
+                }
             }
 
             // Sentinel file check (DIAG-01: sentinel_unexpected)
@@ -665,6 +669,112 @@ fn check_pos_wifi_health() -> Option<DiagnosticTrigger> {
 /// POS check: Kiosk escape detection — is a non-Edge window in foreground?
 /// MMA consensus (4/4 models): foreground != msedge.exe for > 10s = security risk.
 /// Uses Windows GetForegroundWindow + GetWindowThreadProcessId API.
+/// POS check: Is Edge showing the correct billing dashboard?
+/// Checks Edge window title — the web dashboard has title containing "RaceControl",
+/// while the kiosk app has title "RacingPoint Kiosk". If Edge is on the wrong page,
+/// the billing UI is inaccessible and staff see 404 errors.
+/// Uses Windows EnumWindows + GetWindowText to find the Edge window title.
+fn check_pos_billing_url() -> Option<DiagnosticTrigger> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        // Collect all top-level window titles that belong to msedge.exe
+        let mut edge_titles: Vec<String> = Vec::new();
+
+        unsafe {
+            // Callback collects window titles from Edge processes
+            unsafe extern "system" fn enum_callback(
+                hwnd: winapi::shared::windef::HWND,
+                lparam: winapi::shared::minwindef::LPARAM,
+            ) -> winapi::shared::minwindef::BOOL {
+                use winapi::um::winuser::{GetWindowTextW, GetWindowTextLengthW, IsWindowVisible, GetWindowThreadProcessId};
+
+                if unsafe { IsWindowVisible(hwnd) } == 0 {
+                    return 1; // skip invisible
+                }
+
+                let title_len = unsafe { GetWindowTextLengthW(hwnd) };
+                if title_len == 0 {
+                    return 1; // skip no-title
+                }
+
+                // Get PID for this window
+                let mut pid: u32 = 0;
+                unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+
+                // Check if this PID is an Edge process
+                let mut sys = sysinfo::System::new();
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]), false);
+                let is_edge = sys
+                    .process(sysinfo::Pid::from_u32(pid))
+                    .map(|p| {
+                        let name = p.name().to_string_lossy().to_lowercase();
+                        name.contains("msedge") && !name.contains("webview")
+                    })
+                    .unwrap_or(false);
+
+                if !is_edge {
+                    return 1;
+                }
+
+                // Get the window title
+                let mut buf = vec![0u16; (title_len + 1) as usize];
+                let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+                if len > 0 {
+                    let title = OsString::from_wide(&buf[..len as usize])
+                        .to_string_lossy()
+                        .to_string();
+                    let titles = unsafe { &mut *(lparam as *mut Vec<String>) };
+                    titles.push(title);
+                }
+                1 // continue enumeration
+            }
+
+            winapi::um::winuser::EnumWindows(
+                Some(enum_callback),
+                &mut edge_titles as *mut Vec<String> as winapi::shared::minwindef::LPARAM,
+            );
+        }
+
+        if edge_titles.is_empty() {
+            return None; // No Edge windows — handled by check_pos_kiosk_health
+        }
+
+        // The billing dashboard title contains "RaceControl"
+        // The kiosk app title contains "RacingPoint Kiosk"
+        let has_correct_page = edge_titles.iter().any(|t| t.contains("RaceControl"));
+
+        if has_correct_page {
+            None // Correct page loaded
+        } else {
+            let actual = edge_titles.first().cloned().unwrap_or_default();
+            // Strip Edge suffix for cleaner logging
+            let actual_clean = actual
+                .split(" - [InPrivate]")
+                .next()
+                .unwrap_or(&actual)
+                .trim()
+                .to_string();
+            tracing::warn!(target: LOG_TARGET,
+                actual_title = %actual_clean,
+                "POS billing: Edge is showing wrong page — expected RaceControl dashboard, got '{}'",
+                actual_clean
+            );
+            Some(DiagnosticTrigger::PosWrongUrl {
+                actual_title: actual_clean,
+                expected_title: "RaceControl".to_string(),
+            })
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 fn check_pos_kiosk_escape() -> Option<DiagnosticTrigger> {
     #[cfg(target_os = "windows")]
     {

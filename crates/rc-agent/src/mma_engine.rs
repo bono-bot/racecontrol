@@ -216,6 +216,7 @@ pub fn classify_domain(trigger: &DiagnosticTrigger) -> IssueDomain {
         | DiagnosticTrigger::PosKioskDown { .. }
         | DiagnosticTrigger::PosWifiDegraded { .. }
         | DiagnosticTrigger::PosKioskEscaped { .. }
+        | DiagnosticTrigger::PosWrongUrl { .. }
         | DiagnosticTrigger::Periodic => IssueDomain::RustBackend,
 
         // Phase 318 (LAUNCH-01): launch timeout is a game/Rust backend concern
