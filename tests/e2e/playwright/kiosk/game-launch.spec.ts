@@ -26,13 +26,14 @@ test.afterEach(async ({ page }, testInfo) => {
 
 // ---- Helper: enter wizard via staff login + pod card ----
 async function enterWizard(page: import('@playwright/test').Page) {
-  await page.goto('/kiosk/staff', { waitUntil: 'networkidle' });
+  await page.goto('/kiosk/staff', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(3000); // Wait for React hydration
 
   // Staff login flow: Tap to Sign In → PIN keypad → pod grid
   const signInBtn = page.getByText('Tap to Sign In');
-  if (await signInBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+  if (await signInBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
     await signInBtn.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1000);
     for (const digit of ['0', '0', '0', '9']) {
       await page.locator(`button:has-text("${digit}")`).first().click();
       await page.waitForTimeout(150);
@@ -60,23 +61,20 @@ async function enterWizard(page: import('@playwright/test').Page) {
 
 // ---- Helper: skip register_driver step by searching for test driver ----
 async function skipDriverStep(page: import('@playwright/test').Page) {
-  const driverSearch = page.locator('input[placeholder*="Name or phone"]');
-  if (await driverSearch.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await driverSearch.fill('E');
-    await page.waitForTimeout(1000);
-    const driverResult = page.locator('[data-testid^="driver-result-"]').first();
-    if (await driverResult.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await driverResult.click();
+  const driverSearch = page.locator('input[placeholder="Name or phone..."]');
+  if (await driverSearch.isVisible({ timeout: 8000 }).catch(() => false)) {
+    await driverSearch.click();
+    await page.waitForTimeout(3000); // wait for driver list API
+    await page.keyboard.type('E2E', { delay: 100 });
+    await page.waitForTimeout(2000);
+
+    const driverBtn = page.locator('button').filter({ hasText: /E2E|Driver/ }).first();
+    if (await driverBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await driverBtn.click();
+      await page.waitForTimeout(1000);
     } else {
-      await driverSearch.clear();
-      await page.waitForTimeout(500);
-      if (await driverResult.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await driverResult.click();
-      } else {
-        test.skip(true, 'No drivers found in search');
-      }
+      test.skip(true, 'No drivers found in search');
     }
-    await page.waitForTimeout(1000);
   }
 }
 
@@ -119,11 +117,8 @@ test('game launch: AC wizard reaches driving settings', async ({ page }) => {
   await skipDriverStep(page);
 
   // select plan
-  // Wait for select_plan step
-  await Promise.race([
-    page.locator('[data-testid="step-select-plan"]').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-    page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-  ]);
+  // Wait for select_plan step (text-based — deployed build may not have data-testid)
+  await page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
   await page.locator('[data-testid^="pricing-tier-"], [data-testid^="tier-option-"]').first().click();
 
   // select game — Assetto Corsa
@@ -165,11 +160,8 @@ test('game launch: all tier buttons are clickable', async ({ page }) => {
   await enterWizard(page);
   await skipDriverStep(page);
 
-  // Wait for select_plan step
-  await Promise.race([
-    page.locator('[data-testid="step-select-plan"]').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-    page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-  ]);
+  // Wait for select_plan step (text-based — deployed build may not have data-testid)
+  await page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
   const tierBtns = page.locator('[data-testid^="pricing-tier-"], [data-testid^="tier-option-"]');
   const count = await tierBtns.count();
 
@@ -186,11 +178,8 @@ test('game launch: all game buttons are clickable', async ({ page }) => {
   await skipDriverStep(page);
 
   // Select first tier to advance
-  // Wait for select_plan step
-  await Promise.race([
-    page.locator('[data-testid="step-select-plan"]').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-    page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {}),
-  ]);
+  // Wait for select_plan step (text-based — deployed build may not have data-testid)
+  await page.getByText('Select Plan').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
   await page.locator('[data-testid^="pricing-tier-"], [data-testid^="tier-option-"]').first().click();
   await page.locator('[data-testid="step-select-game"]').waitFor({ state: 'visible', timeout: 10000 });
 

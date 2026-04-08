@@ -128,8 +128,7 @@ export async function setupApiMocks(page: Page): Promise<void> {
       if (path === '/kiosk/settings') return route.fulfill({ json: { settings: { venue_name: 'Racing Point', tagline: 'Test Venue' } } });
       if (path === '/fleet/health') return route.fulfill({ json: { pods: [], timestamp: new Date().toISOString() } });
       if (path === '/billing/active') return route.fulfill({ json: { sessions: [] } });
-      if (path === '/drivers' || path.startsWith('/drivers')) return route.fulfill({ json: { drivers: [{ id: 'drv-1', name: 'Vishal Chavan', phone: '9999999999', waiver_signed: true }] } });
-      if (path.startsWith('/wallet/')) return route.fulfill({ json: { wallet: { balance_paise: 500000, total_credited_paise: 500000 } } });
+      // /drivers and /wallet pass through to real API for accurate search results
     }
 
     if (method === 'POST') {
@@ -137,7 +136,8 @@ export async function setupApiMocks(page: Page): Promise<void> {
       if (path === '/customer/verify-otp') return route.fulfill({ json: { token: 'test-token', driver_id: 'drv-1', driver_name: 'Test Racer' } });
       if (path === '/customer/book') return route.fulfill({ json: { pin: 'ABC123', pod_number: 8, allocated_seconds: 1800 } });
       if (path === '/kiosk/redeem-pin') return route.fulfill({ json: MOCK_REDEEM_PIN_SUCCESS });
-      if (path === '/staff/validate-pin') return route.fulfill({ json: { status: 'ok', staff_id: 'staff-1', staff_name: 'Test Staff', token: 'staff-token' } });
+      // Staff PIN validation passes through to real API for valid JWT
+      // if (path === '/staff/validate-pin') — passthrough
       if (path === '/auth/kiosk/validate-pin') return route.fulfill({ json: { status: 'ok', pod_number: 8, driver_name: 'Test Racer', allocated_seconds: 1800 } });
       if (path === '/games/launch') return route.fulfill({ json: { ok: true } });
       if (path === '/billing/start') return route.fulfill({ json: { ok: true, billing_session_id: 'bill-1' } });
