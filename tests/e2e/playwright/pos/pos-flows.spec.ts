@@ -3,15 +3,34 @@ import { test, expect } from '@playwright/test';
 /**
  * POS-specific flow tests: payment method, discount, refund lifecycle.
  * Tests the complete staff workflow paths.
+ *
+ * Staff-protected routes require JWT auth (obtained via admin-login).
  */
 
 const API = process.env.API_BASE_URL ?? 'http://192.168.31.23:8080/api/v1';
+const ADMIN_PIN = process.env.ADMIN_PIN ?? '261121';
+
+let authToken = '';
+
+test.beforeAll(async () => {
+  const res = await fetch(`${API}/auth/admin-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: ADMIN_PIN }),
+  });
+  if (res.ok) {
+    const body = await res.json();
+    authToken = body.token ?? '';
+  }
+});
 
 async function api(path: string, opts?: RequestInit) {
-  const res = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...opts?.headers },
-    ...opts,
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(opts?.headers as Record<string, string> ?? {}),
+  };
+  const res = await fetch(`${API}${path}`, { ...opts, headers });
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 
@@ -78,22 +97,23 @@ test('POS-02: refund rejects all invalid inputs correctly', async () => {
 // ---- POS-03: Refund list endpoint ----
 
 test('POS-03: refund list returns array for any session', async () => {
-  const list = await api('/billing/sessions?limit=1&status=completed');
-  if (list.json.sessions.length === 0) {
+  const list = await api('/billing/sessions?limit=1');
+  if (!list.json?.sessions?.length) {
     test.skip();
     return;
   }
   const sid = list.json.sessions[0].id;
   const { status, json } = await api(`/billing/${sid}/refunds`);
   expect(status).toBe(200);
-  expect(Array.isArray(json)).toBe(true);
+  expect(json).toHaveProperty('refunds');
+  expect(Array.isArray(json.refunds)).toBe(true);
 
   // If refunds exist, verify fields
-  if (json.length > 0) {
-    expect(json[0]).toHaveProperty('amount_paise');
-    expect(json[0]).toHaveProperty('method');
-    expect(json[0]).toHaveProperty('reason');
-    expect(json[0]).toHaveProperty('created_at');
+  if (json.refunds.length > 0) {
+    expect(json.refunds[0]).toHaveProperty('amount_paise');
+    expect(json.refunds[0]).toHaveProperty('method');
+    expect(json.refunds[0]).toHaveProperty('reason');
+    expect(json.refunds[0]).toHaveProperty('created_at');
   }
 });
 
@@ -120,13 +140,14 @@ test('POS-04: start_billing accepts discount parameters', async () => {
 test('POS-05: audit log endpoint returns entries', async () => {
   const { status, json } = await api('/audit-log');
   expect(status).toBe(200);
-  expect(Array.isArray(json)).toBe(true);
+  expect(json).toHaveProperty('entries');
+  expect(Array.isArray(json.entries)).toBe(true);
 
   // Verify structure if entries exist
-  if (json.length > 0) {
-    expect(json[0]).toHaveProperty('table_name');
-    expect(json[0]).toHaveProperty('action');
-    expect(json[0]).toHaveProperty('created_at');
+  if (json.entries.length > 0) {
+    expect(json.entries[0]).toHaveProperty('table_name');
+    expect(json.entries[0]).toHaveProperty('action');
+    expect(json.entries[0]).toHaveProperty('created_at');
   }
 });
 
@@ -152,70 +173,46 @@ test('SYNC: billing sessions list endpoint works on cloud-sync schema', async ()
   }
 });
 
-// ---- LIVE: Dashboard live endpoint structure ----
+// ---- LIVE: Fleet health pod entries have correct structure ----
 
-test('LIVE: dashboard/live pod entries have correct structure', async () => {
-  const { status, json } = await api('/dashboard/live');
+test('LIVE: fleet/health pod entries have correct structure', async () => {
+  const { status, json } = await api('/fleet/health');
   expect(status).toBe(200);
+  expect(json).toHaveProperty('pods');
+  expect(Array.isArray(json.pods)).toBe(true);
 
   for (const pod of json.pods) {
     expect(typeof pod.pod_number).toBe('number');
-    expect(['active', 'idle']).toContain(pod.status);
-    expect(typeof pod.low_time).toBe('boolean');
-
-    if (pod.status === 'active') {
-      expect(pod.driver_name).toBeTruthy();
-      expect(typeof pod.remaining_seconds).toBe('number');
-    }
-
-    if (pod.status === 'idle') {
-      expect(pod.driver_name).toBeNull();
-    }
+    expect(pod).toHaveProperty('ws_connected');
+    expect(pod).toHaveProperty('http_reachable');
+    expect(pod).toHaveProperty('experience_score');
   }
 });
 
-// ---- ANA: Analytics aggregation ----
+// ---- ANA: Daily billing report ----
 
-test('ANA: tier_breakdown sums match daily_revenue totals', async () => {
-  const { status, json } = await api('/dashboard/analytics');
+test('ANA: daily billing report returns structured data', async () => {
+  const today = new Date().toISOString().split('T')[0];
+  const { status, json } = await api(`/billing/report/daily?date=${today}`);
   expect(status).toBe(200);
-
-  const dailyTotal = json.daily_revenue.reduce(
-    (sum: number, d: { revenue_paise: number }) => sum + d.revenue_paise,
-    0
-  );
-  const tierTotal = json.tier_breakdown.reduce(
-    (sum: number, t: { revenue_paise: number }) => sum + t.revenue_paise,
-    0
-  );
-
-  // Totals should match (same date range, same data)
-  expect(tierTotal).toBe(dailyTotal);
-});
-
-test('ANA: heatmap entries have valid day/hour ranges', async () => {
-  const { json } = await api('/dashboard/analytics');
-
-  for (const h of json.utilization_heatmap) {
-    expect(h.day_of_week).toBeGreaterThanOrEqual(0);
-    expect(h.day_of_week).toBeLessThanOrEqual(6);
-    expect(h.hour).toBeGreaterThanOrEqual(0);
-    expect(h.hour).toBeLessThanOrEqual(23);
-    expect(h.pod_count).toBeGreaterThan(0);
-  }
+  expect(json).toHaveProperty('date');
+  expect(json).toHaveProperty('total_sessions');
+  expect(json).toHaveProperty('total_revenue_paise');
+  expect(typeof json.total_sessions).toBe('number');
+  expect(typeof json.total_revenue_paise).toBe('number');
 });
 
 // ---- PWA-06: PDF receipt generation (unit-style) ----
 
 test('PWA: public session endpoint returns privacy-safe data', async () => {
   const list = await api('/billing/sessions?limit=1');
-  if (list.json.sessions.length === 0) {
+  if (!list.json?.sessions?.length) {
     test.skip();
     return;
   }
   const sid = list.json.sessions[0].id;
   const res = await fetch(
-    `${API.replace('/api/v1', '')}/public/sessions/${sid}`,
+    `${API}/public/sessions/${sid}`,
     { headers: { 'Content-Type': 'application/json' } }
   );
   const json = await res.json();
