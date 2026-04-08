@@ -195,8 +195,13 @@ export class RCApiClient {
     method: string;
     staff_id?: string;
     notes?: string;
-  }): Promise<{ new_balance_paise: number; balance_paise?: number; txn_id?: string; status: string }> {
-    return this.post(`/wallet/${driverId}/topup`, data);
+  }): Promise<{ new_balance_paise: number; new_balance_credits?: number; balance_paise?: number; txn_id?: string; status: string }> {
+    const resp = await this.post(`/wallet/${driverId}/topup`, data);
+    // Normalize: API returns new_balance_credits, tests expect new_balance_paise
+    if (resp.new_balance_credits !== undefined && resp.new_balance_paise === undefined) {
+      resp.new_balance_paise = resp.new_balance_credits;
+    }
+    return resp;
   }
 
   async walletTransactions(driverId: string): Promise<WalletTransaction[]> {

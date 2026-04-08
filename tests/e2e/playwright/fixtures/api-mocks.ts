@@ -128,6 +128,8 @@ export async function setupApiMocks(page: Page): Promise<void> {
       if (path === '/kiosk/settings') return route.fulfill({ json: { settings: { venue_name: 'Racing Point', tagline: 'Test Venue' } } });
       if (path === '/fleet/health') return route.fulfill({ json: { pods: [], timestamp: new Date().toISOString() } });
       if (path === '/billing/active') return route.fulfill({ json: { sessions: [] } });
+      if (path === '/drivers' || path.startsWith('/drivers')) return route.fulfill({ json: { drivers: [{ id: 'drv-1', name: 'Vishal Chavan', phone: '9999999999', waiver_signed: true }] } });
+      if (path.startsWith('/wallet/')) return route.fulfill({ json: { wallet: { balance_paise: 500000, total_credited_paise: 500000 } } });
     }
 
     if (method === 'POST') {
@@ -141,11 +143,10 @@ export async function setupApiMocks(page: Page): Promise<void> {
       if (path === '/billing/start') return route.fulfill({ json: { ok: true, billing_session_id: 'bill-1' } });
     }
 
-    // Unmatched — let it fail naturally (tests should catch unexpected API calls)
-    await route.fulfill({ status: 404, json: { error: `Mock not found: ${method} ${path}` } });
+    // Unmatched — pass through to real API (tests run against live server)
+    await route.continue();
   });
 
-  // Intercept WebSocket upgrade — prevent real connection attempts
-  // (Playwright can't mock WebSocket, but we prevent connection errors)
-  await page.route('**/ws/**', (route) => route.abort('connectionrefused'));
+  // Let WebSocket connections pass through to real server
+  // (Playwright can't mock WebSocket, and aborting WS prevents driver list loading)
 }

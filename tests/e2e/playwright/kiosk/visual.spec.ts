@@ -7,11 +7,12 @@ import { test, expect } from '../fixtures/cleanup';
 //
 // Update baselines: npx playwright test --project=kiosk --update-snapshots
 
+// Routes must use /kiosk/ prefix — see smoke.spec.ts comment for why.
 const VISUAL_ROUTES = [
   { path: '/', name: 'customer-landing' },
-  { path: '/staff', name: 'staff-login' },
-  { path: '/fleet', name: 'fleet-health' },
-  { path: '/spectator', name: 'spectator-view' },
+  { path: '/kiosk/staff', name: 'staff-login' },
+  { path: '/kiosk/fleet', name: 'fleet-health' },
+  { path: '/kiosk/spectator', name: 'spectator-view' },
 ];
 
 for (const route of VISUAL_ROUTES) {

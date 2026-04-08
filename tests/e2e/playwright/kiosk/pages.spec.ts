@@ -24,16 +24,18 @@ test.afterEach(async ({ page }, testInfo) => {
 
 // ---- Kiosk: Every page loads without errors ----
 
+// Routes must use /kiosk/ prefix — see smoke.spec.ts comment for why.
+// /book route removed (never existed) — replaced with actual routes.
 const KIOSK_ROUTES = [
   { path: '/', name: 'customer landing' },
-  { path: '/book', name: 'booking page' },
-  { path: '/staff', name: 'staff login' },
-  { path: '/settings', name: 'settings' },
-  { path: '/spectator', name: 'spectator view' },
-  { path: '/debug', name: 'debug panel' },
-  { path: '/control', name: 'control panel' },
-  { path: '/fleet', name: 'fleet overview' },
-  { path: '/pod/8', name: 'pod 8 kiosk view' },
+  { path: '/kiosk/register', name: 'registration page' },
+  { path: '/kiosk/staff', name: 'staff login' },
+  { path: '/kiosk/blanking', name: 'blanking page' },
+  { path: '/kiosk/spectator', name: 'spectator view' },
+  { path: '/kiosk/debug', name: 'debug panel' },
+  { path: '/kiosk/control', name: 'control panel' },
+  { path: '/kiosk/fleet', name: 'fleet overview' },
+  { path: '/kiosk/pod/8', name: 'pod 8 kiosk view' },
 ];
 
 for (const route of KIOSK_ROUTES) {

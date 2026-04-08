@@ -51,7 +51,9 @@ const POS_ROUTES = [
 
 for (const route of POS_ROUTES) {
   test(`POS smoke: ${route.name} (${route.path}) loads`, async ({ page }) => {
-    const response = await page.goto(route.path, { waitUntil: 'networkidle' });
+    // Camera pages have persistent RTSP/WebSocket streams that prevent networkidle
+    const waitStrategy = route.path.startsWith('/cameras') ? 'domcontentloaded' as const : 'networkidle' as const;
+    const response = await page.goto(route.path, { waitUntil: waitStrategy });
     expect(response?.status()).toBeLessThan(500);
 
     const body = await page.textContent('body') ?? '';

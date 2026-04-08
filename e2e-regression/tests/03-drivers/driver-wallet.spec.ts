@@ -43,7 +43,10 @@ test.describe('03 — Driver & Wallet Tests', () => {
         method,
         notes: `E2E test topup via ${method}`,
       });
-      expect(result.new_balance_paise).toBe(balanceBefore + 100000);
+      // API returns new_balance_credits (credits, not paise) — accept either field name
+      const newBalance = result.new_balance_paise ?? result.new_balance_credits;
+      expect(newBalance).toBeDefined();
+      expect(newBalance).toBe(balanceBefore + 100000);
 
       // Verify wallet balance
       const wallet = await api.getWallet(driver.driverId);

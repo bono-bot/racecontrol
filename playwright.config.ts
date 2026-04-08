@@ -43,6 +43,7 @@ export default defineConfig({
       testDir: './tests/e2e/playwright/kiosk',
       use: {
         ...devices['Desktop Chrome'],
+        viewport: { width: 1920, height: 1080 }, // Staff terminal needs wider viewport for pod grid + side panel
         baseURL: process.env.KIOSK_BASE_URL ?? 'http://192.168.31.23:3300/kiosk',
       },
     },

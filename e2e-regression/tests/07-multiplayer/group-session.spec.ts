@@ -11,10 +11,19 @@ import { createTestDriver, ensureWalletBalance } from '../../fixtures/test-drive
 import { capturePodScreenshot } from '../../fixtures/pod-screen-capture';
 
 const api = new RCApiClient();
+let pricingTierId: string;
 
 test.describe('07 — Multiplayer Tests', () => {
   test.beforeAll(async () => {
     await api.login(STAFF_PIN);
+    // Fetch a valid pricing tier ID (required by /kiosk/book-multiplayer)
+    try {
+      const tiers = await api.listPricingTiers();
+      const tier30 = tiers.find((t: any) => t.duration_minutes === 30 && !t.is_trial);
+      pricingTierId = tier30?.id || tiers[0]?.id || '';
+    } catch {
+      pricingTierId = '';
+    }
   });
 
   test('2-pod group session', async ({ page }) => {
@@ -37,6 +46,7 @@ test.describe('07 — Multiplayer Tests', () => {
       const result = await api.bookMultiplayer({
         host_driver_id: host.driverId,
         friend_ids: [friend.driverId],
+        pricing_tier_id: pricingTierId,
         sim_type: 'assetto_corsa',
         track: 'monza',
         car: 'ks_ferrari_sf15t',
@@ -72,6 +82,7 @@ test.describe('07 — Multiplayer Tests', () => {
       const result = await api.bookMultiplayer({
         host_driver_id: host.driverId,
         friend_ids: [f1.driverId, f2.driverId],
+        pricing_tier_id: pricingTierId,
         sim_type: 'assetto_corsa',
         track: 'spa',
       });
@@ -101,6 +112,7 @@ test.describe('07 — Multiplayer Tests', () => {
       const result = await api.bookMultiplayer({
         host_driver_id: host.driverId,
         friend_ids: [friend.driverId],
+        pricing_tier_id: pricingTierId,
         sim_type: 'assetto_corsa',
         track: 'monza',
       });
