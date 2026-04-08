@@ -465,6 +465,7 @@ export class RCApiClient {
     friend_ids: string[];
     experience_id?: string;
     pricing_tier_id?: string;
+    pod_count?: number;
     sim_type?: string;
     track?: string;
     car?: string;

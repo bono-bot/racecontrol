@@ -1,0 +1,54 @@
+# Anti-cheat and game process allowlist additions
+# Added 2026-04-09 — preventive for when process guard switches to kill_and_report
+#
+# These MUST be in the process_guard.allowed section of racecontrol.toml
+# Format: [[process_guard.allowed]]  name = "process.exe"
+
+# ── Anti-Cheat Services ──────────────────────────────────────────────
+# EasyAntiCheat (iRacing, Le Mans Ultimate)
+# name = "easyanticheat.exe"
+# name = "easyanticheat_eos.exe"
+# name = "easyanticheatlauncher.exe"
+# name = "eac_launcher.exe"
+
+# EA Javelin / EA Anti-Cheat (F1 25)
+# name = "eaanticheat.gameservicelauncher.exe"
+# name = "eadesktop.exe"
+# name = "eabackgroundservice.exe"
+# name = "ealink.exe"
+
+# ── Game Executables ─────────────────────────────────────────────────
+# Assetto Corsa
+# name = "acs.exe"                   (already handled by existing rules)
+
+# Assetto Corsa EVO
+# name = "assettocorsaevo.exe"
+
+# Assetto Corsa Rally
+# name = "acr.exe"
+
+# F1 25
+# name = "f1_25.exe"
+
+# iRacing
+# name = "iracingsim64dx11.exe"
+# name = "iracingservice64.exe"      (already in list)
+# name = "iracingupdater.exe"
+
+# Le Mans Ultimate
+# name = "le mans ultimate.exe"
+# name = "start_protected_game.exe"  (EAC launcher wrapper)
+
+# Forza Horizon 5
+# name = "forzahorizon5.exe"
+
+# NASCAR 25
+# name = "nascar25_steam.exe"
+
+# ── Steam Services ───────────────────────────────────────────────────
+# name = "steam.exe"
+# name = "steamservice.exe"
+# name = "steamwebhelper.exe"
+# name = "steamerrorreporter.exe"
+# name = "gameoverlayui.exe"
+# name = "steamoverlay.exe"

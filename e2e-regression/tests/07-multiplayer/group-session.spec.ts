@@ -47,6 +47,7 @@ test.describe('07 — Multiplayer Tests', () => {
         host_driver_id: host.driverId,
         friend_ids: [friend.driverId],
         pricing_tier_id: pricingTierId,
+        pod_count: 2,
         sim_type: 'assetto_corsa',
         track: 'monza',
         car: 'ks_ferrari_sf15t',
@@ -83,6 +84,7 @@ test.describe('07 — Multiplayer Tests', () => {
         host_driver_id: host.driverId,
         friend_ids: [f1.driverId, f2.driverId],
         pricing_tier_id: pricingTierId,
+        pod_count: 3,
         sim_type: 'assetto_corsa',
         track: 'spa',
       });
@@ -113,6 +115,7 @@ test.describe('07 — Multiplayer Tests', () => {
         host_driver_id: host.driverId,
         friend_ids: [friend.driverId],
         pricing_tier_id: pricingTierId,
+        pod_count: 2,
         sim_type: 'assetto_corsa',
         track: 'monza',
       });
