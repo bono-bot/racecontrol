@@ -1218,3 +1218,91 @@ Every fix must survive redeploy. Source code (git) = permanent. Manual server ed
 Reported at session end: `Claims: N | Corrections: N | FCR: N% | G9s: N`
 
 Target: 0 corrections per session. Every correction triggers a G9 (root cause + structural fix).
+
+## 22. Deploy Manifest Protocol (DMP)
+
+_Added 2026-04-08. Root cause: v44.0 deploy shipped binaries but missed 10 infrastructure/config/frontend gaps. "Code complete" was confused with "deployed."_
+
+### 22.1 Why DMP Exists
+
+Every GSD phase produces code changes. But code is only ONE deployment layer. A complete deploy may also require: frontend rebuilds, config file updates, DB migrations, firewall rules, data file generation, bat file syncs, and cloud parity. Without a checklist mapping code to ALL deployment actions, gaps accumulate silently.
+
+**The rule: No phase ships without a completed Deploy Manifest.**
+
+### 22.2 Deploy Manifest Checklist
+
+Every PLAN.md MUST include this section in its frontmatter. The planner fills it during planning. The executor checks it off during execution. The verifier confirms it during verification.
+
+```yaml
+deploy:
+  rust_binary: [rc-agent, racecontrol, rc-sentry, none]
+  frontend_rebuild: [kiosk, web, admin, none]
+  config_change:
+    file: racecontrol.toml | rc-agent.toml
+    section: "[section_name]"
+    fields: ["field1", "field2"]
+  db_migration:
+    type: new_table | alter_column | new_index | none
+    detail: "table_name.column_name"
+  infrastructure:
+    firewall: "port_range protocol"
+    scheduled_task: "task_name"
+    service: "service_name"
+    install: "software_name"
+  data_files:
+    script: "scripts/generate-xxx.sh"
+    output: "data/xxx.json"
+  bat_file: [start-rcagent.bat, start-racecontrol.bat, none]
+  cloud_parity: [binary, frontend, config, none]
+  targets: [server, pods, pos, cloud, james]
+```
+
+### 22.3 Auto-Detection Rules
+
+The `deploy-audit.sh` script scans the git diff and derives required deployment actions:
+
+| Files Changed | Deploy Action Required |
+|--------------|----------------------|
+| `crates/rc-agent/src/**` | Pod binary rebuild + deploy to 8 pods + POS |
+| `crates/racecontrol/src/**` | Server binary rebuild + deploy to server .23 + cloud |
+| `crates/rc-sentry/src/**` | rc-sentry binary rebuild + deploy to all pods |
+| `kiosk/**` | Kiosk rebuild on server .23:3300 + cloud |
+| `web/**` | Web rebuild on server .23:3200 + cloud |
+| `apps/admin/**` or `racingpoint-admin/**` | Admin rebuild on server .23:3201 + cloud |
+| `packages/shared-types/**` | ALL frontends that import it must rebuild |
+| `scripts/deploy/*.bat` | Bat file sync to all pods |
+| Any `CREATE TABLE` / `ALTER TABLE` in `.rs` | DB migration verification |
+| Any new TOML config field referenced in code | Config file update on target |
+
+### 22.4 Enforcement Points
+
+1. **GSD Planner**: Auto-generates `deploy:` section in PLAN.md frontmatter based on `files_modified` list
+2. **GSD Executor**: After code commit, runs `deploy-audit.sh` to verify all deploy actions are addressed
+3. **GSD Verifier**: Confirms deployed state matches manifest (build_id, frontend BUILD_ID, config present)
+4. **Standing Rule**: Phase cannot be marked complete until deploy manifest is fully checked off
+
+### 22.5 Cloud Parity Rule
+
+Every local deploy MUST also deploy to cloud (Bono VPS). This applies to:
+- Rust binaries (racecontrol)
+- All 3 frontend apps (kiosk, web, admin)
+- Config changes (racecontrol.toml)
+- DB migrations (cloud DB must match)
+
+An incomplete deploy = NOT deployed. The deploy-audit.sh script checks cloud parity.
+
+### 22.6 Lessons Learned (v44.0 Incident)
+
+10 gaps found during v44.0 deploy audit (2026-04-08):
+1. Server MAINTENANCE_MODE stale 2 days — watchdog blocked
+2. acServer.exe not installed — MP completely broken
+3. No `[ac_server]` config — lobby sync non-functional
+4. Animated blanking page built but pods not configured to display it
+5. Web app not rebuilt with spectator circuit viewer
+6. Cloud frontends not verified
+7. v45.0 deferred phases not confirmed in running builds
+8. Track outline data files not generated
+9. Weekend session DB tables missing
+10. mDNS firewall rules not verified
+
+All 10 gaps were "code complete" but not "deploy complete." DMP prevents this class of failure.
