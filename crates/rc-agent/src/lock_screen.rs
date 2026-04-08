@@ -185,6 +185,13 @@ pub struct LockScreenManager {
     /// BILL-02: Current countdown warning state. Served via /countdown-warning endpoint.
     /// None = no warning displayed. The HTTP server reads this on each request.
     pub(crate) countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
+    /// DMP-04: Optional URL for animated blanking screen (e.g. http://192.168.31.23:3300/kiosk/blanking).
+    /// When set, show_blank_screen() launches Edge fullscreen to this URL INSTEAD of the native black window.
+    /// The native window is still used as a fallback if Edge fails to launch.
+    blanking_url: Option<String>,
+    /// PID of the Edge process showing the blanking page (if any).
+    #[cfg(windows)]
+    blanking_edge_pid: Option<u32>,
 }
 
 impl LockScreenManager {
@@ -198,6 +205,9 @@ impl LockScreenManager {
             countdown_warning: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
             browser_disabled: false,
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         }
     }
 
@@ -214,6 +224,16 @@ impl LockScreenManager {
     /// Call once after AppState is constructed (main.rs, before the reconnect loop).
     pub fn wire_safe_mode(&mut self, flag: Arc<AtomicBool>) {
         self.safe_mode_active = flag;
+    }
+
+    /// DMP-04: Set the animated blanking screen URL.
+    /// When set, show_blank_screen() launches Edge to this URL instead of native black window.
+    /// Typically: http://192.168.31.23:3300/kiosk/blanking
+    pub fn set_blanking_url(&mut self, url: Option<String>) {
+        if let Some(ref u) = url {
+            tracing::info!(target: LOG_TARGET, "Blanking URL set: {} — Edge will be used for blanking", u);
+        }
+        self.blanking_url = url;
     }
 
     /// BILL-02: Show a persistent countdown warning overlay on the customer's screen.
@@ -537,6 +557,9 @@ impl LockScreenManager {
 
     /// Show a blank (black) screen — used between sessions when screen blanking is enabled.
     /// State is set to ScreenBlanked only AFTER the native window is confirmed alive.
+    ///
+    /// DMP-04: If blanking_url is set, launches Edge fullscreen to the animated blanking page
+    /// (e.g. /kiosk/blanking) INSTEAD of the native black window. Falls back to native on failure.
     pub fn show_blank_screen(&mut self) {
         #[cfg(windows)]
         // ─── SAFE-06: skip Focus Assist registry write during safe mode ───
@@ -545,6 +568,51 @@ impl LockScreenManager {
         } else {
             tracing::info!(target: LOG_TARGET, "safe mode active — Focus Assist registry write deferred");
         }
+
+        // DMP-04: Try Edge-based animated blanking first (if URL configured)
+        #[cfg(windows)]
+        if let Some(ref url) = self.blanking_url {
+            // Kill any existing blanking Edge process
+            if let Some(pid) = self.blanking_edge_pid.take() {
+                let _ = spawn_safe("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+            }
+
+            let edge_x64 = r"C:\Program Files\Microsoft\Edge\Application\msedge.exe";
+            let edge_x86 = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe";
+            let edge_path = if std::path::Path::new(edge_x64).exists() { edge_x64 } else { edge_x86 };
+
+            let result = std::process::Command::new(edge_path)
+                .args([
+                    "--kiosk", url,
+                    "--edge-kiosk-type=fullscreen",
+                    "--no-first-run",
+                    "--disable-session-crashed-bubble",
+                    "--disable-features=msEdgeSidebarV2",
+                    "--user-data-dir=C:\\RacingPoint\\edge-blanking-profile",
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+
+            match result {
+                Ok(child) => {
+                    let pid = child.id();
+                    self.blanking_edge_pid = Some(pid);
+                    tracing::info!(target: LOG_TARGET, pid, url, "DMP-04: Edge blanking launched — animated blanking screen active");
+                    // Hide native window if it was showing (Edge takes over display)
+                    self.hide_native_window();
+                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                    *state = LockScreenState::ScreenBlanked;
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(target: LOG_TARGET, error = %e, "DMP-04: Edge blanking failed — falling back to native window");
+                    // Fall through to native window
+                }
+            }
+        }
+
         self.show_native_window();
         // Gate state change on native window actually being alive — prevents
         // "state=blanked but no window" when window creation fails.
@@ -626,6 +694,12 @@ impl LockScreenManager {
             *state = LockScreenState::Hidden;
         }
         self.hide_native_window();
+        // DMP-04: Kill Edge blanking process if it was launched
+        #[cfg(windows)]
+        if let Some(pid) = self.blanking_edge_pid.take() {
+            tracing::info!(target: LOG_TARGET, pid, "DMP-04: Killing Edge blanking process");
+            let _ = spawn_safe("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+        }
         #[cfg(windows)]
         suppress_notifications(false);
     }
@@ -1034,6 +1108,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
 
         let start = std::time::Instant::now();
@@ -1054,6 +1131,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
 
         let start = std::time::Instant::now();
@@ -1074,6 +1154,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle");
     }
@@ -1143,6 +1226,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle");
     }
@@ -1183,6 +1269,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
         // Should not panic — no native_window, this is a no-op
         manager.close_browser();
@@ -1200,6 +1289,9 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            blanking_url: None,
+            #[cfg(windows)]
+            blanking_edge_pid: None,
         };
         manager.close_browser();
     }

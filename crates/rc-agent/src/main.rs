@@ -1059,6 +1059,9 @@ async fn main() -> Result<()> {
     if !config.lock_screen.enabled {
         lock_screen.set_browser_disabled(true);
     }
+    // DMP-04: Wire animated blanking URL from config.
+    // When set, show_blank_screen() launches Edge fullscreen to this URL.
+    lock_screen.set_blanking_url(config.lock_screen.blanking_url.clone());
     // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
     let lock_screen_rx = lock_screen.start_server_checked();
 
