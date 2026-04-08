@@ -3,6 +3,18 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-09 02:00 IST | James | 6b80f88b | docs: LOGBOOK catch-up for 11 commits (2026-04-08/09 test+deploy session). |
+| 2026-04-09 01:45 IST | James | 5548da64 | feat: game launch diagnostics — post-launch verification + sim telemetry on all 5 sims. |
+| 2026-04-09 01:30 IST | James | 2aa3688c | rename: AC Rally from "EA SPORTS WRC" to "Assetto Corsa Rally" (Kunos, Steam 3917090). |
+| 2026-04-09 00:15 IST | James | 35584167 | chore: ACE/WRC mock note. |
+| 2026-04-09 00:10 IST | James | 7b572e40 | feat(agent): Steam game diagnostic — warns about installed-but-unconfigured games at startup. |
+| 2026-04-09 00:05 IST | James | 693214bb | fix: anti-cheat allowlist (22 entries) + multiplayer pod_count test fix. |
+| 2026-04-08 23:50 IST | James | 0102c091 | fix(deploy): pod TOMLs — 5 missing games added (ACE/ACR/LMU/FH5). All 8 pods restarted. |
+| 2026-04-08 23:30 IST | James | b87522b2 | fix(tests): AC Evo/Rally mock data corrected. |
+| 2026-04-08 23:15 IST | James | d4359d2e | feat(tests): admin 18 smoke tests + game-launch 4 text-based tests. |
+| 2026-04-08 23:00 IST | James | 3d602eaf | chore: visual baselines after kiosk rebuild. |
+| 2026-04-08 22:45 IST | James | a7b2731d | fix(tests): wizard text-based selectors + hydration wait. |
+| 2026-04-08 22:30 IST | James | d78be281 | fix(tests): Layer 2 Playwright — basePath, stale routes, camera timeouts, wallet field. 13 files fixed. |
 | 2026-04-07 20:02 IST | James | 3e3779eb | feat(338-02): cash_refund + get_max_cash_refund in wallet.rs — TOCTOU-safe cap check inside tx, D-07 signature (no refund_method), Dr. wallet Cr. cash journal via post_cash_refund. |
 | 2026-04-07 20:02 IST | James | 307ee0d8 | feat(338-02): post_cash_refund in accounting.rs — reverse of post_topup, Dr. acc_wallet Cr. acc_cash/acc_bank per D-12. |
 | 2026-04-07 19:41 IST | James | fc229481 | docs(338-01): complete wallet-core-logic plan 01 — WalletInfo/WalletTransaction structs + all wallet functions updated with rupee_deposited_paise, bonus_credited_paise, currency_type tracking. 832 tests pass. |
