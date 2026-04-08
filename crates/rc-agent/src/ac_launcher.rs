@@ -462,9 +462,29 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 );
             }
         }
+        // Validate AI car models if specified — missing AI cars cause AC to crash or
+        // silently drop opponents (customer gets fewer AI than requested with no error).
+        let ai_cars = effective_ai_cars(params);
+        if !cached_cars.is_empty() && !ai_cars.is_empty() {
+            let mut missing_ai = Vec::new();
+            for ai in &ai_cars {
+                if !ai.model.is_empty() && !cached_cars.iter().any(|c| c == &ai.model) {
+                    missing_ai.push(ai.model.clone());
+                }
+            }
+            if !missing_ai.is_empty() {
+                // Don't abort — just warn and remove missing cars. Better to launch
+                // with fewer AI than to fail the entire launch.
+                tracing::warn!(target: LOG_TARGET,
+                    "LAUNCH-GUARD: {} AI car(s) not in content cache: {:?} — will be dropped from race.ini",
+                    missing_ai.len(), missing_ai
+                );
+            }
+        }
+
         tracing::info!(target: LOG_TARGET,
-            "Pre-launch validation OK: car={:?} track={:?} (cache: {} cars, {} tracks)",
-            params.car, params.track, cached_cars.len(), cached_tracks.len()
+            "Pre-launch validation OK: car={:?} track={:?} ai_cars={} (cache: {} cars, {} tracks)",
+            params.car, params.track, ai_cars.len(), cached_cars.len(), cached_tracks.len()
         );
     }
 
@@ -653,14 +673,8 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
         let use_direct_launch = true;
         if use_direct_launch {
             tracing::info!(target: LOG_TARGET, "Direct launch: spawning acs.exe (console isolation, mode={})", if is_mp { "MP" } else { "SP" });
-            // Kill any existing AC processes first
-            {
-                let mut kill1 = spawn_safe("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
-                let mut kill2 = spawn_safe("taskkill"); kill2.args(&["/F", "/IM", "AssettoCorsa.exe"]);
-                let _ = kill1.spawn().and_then(|mut c| c.wait());
-                let _ = kill2.spawn().and_then(|mut c| c.wait());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            // AC already killed in Step 1 (wait_for_acs_exit confirmed exit).
+            // No duplicate kill or sleep needed here.
         }
         // Restore AC's real steam_appid.txt (244210) before launch.
         // VMS Connect uses 480 (Spacewar) because VMS is native C++ that doesn't go through
@@ -725,10 +739,8 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
                 // We just need to confirm the bat spawned. The event loop's
                 // WaitingForLive polls shared memory to detect when AC is alive.
                 //
-                // One quick PID check after a brief pause — if AC is already up
-                // (bat is fast), return it. If not, return 0 and let the event
-                // loop discover it. This makes launch_ac() near-instant.
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                // VMS Zero-Block: return immediately. Event loop's WaitingForLive
+                // polls for the PID via process scan every 2s. No sleep needed.
                 find_acs_pid().unwrap_or(0)
             }
             Err(e) => {
@@ -1557,8 +1569,30 @@ fn write_race_ini(params: &AcLaunchParams) -> Result<()> {
     // AC + CSP on Windows requires CRLF line endings. writeln! produces LF only.
     // LF-only causes CSP to corrupt field values (garbled Unicode track names → crash).
     let crlf_content = content.replace('\n', "\r\n");
-    std::fs::write(&race_ini_path, crlf_content.as_bytes())?;
-    tracing::info!(target: LOG_TARGET, "Wrote race.ini ({} bytes, CRLF) to {}", crlf_content.len(), race_ini_path.display());
+
+    // Atomic write: write to .tmp then rename. If AC reads mid-write, it gets
+    // either the old complete file or the new complete file — never a partial.
+    let tmp_path = race_ini_path.with_extension("ini.tmp");
+    std::fs::write(&tmp_path, crlf_content.as_bytes())?;
+    std::fs::rename(&tmp_path, &race_ini_path)?;
+
+    // Readback verification: confirm critical fields survived the write.
+    // Catches filesystem corruption, antivirus quarantine, and write failures
+    // that return Ok but don't persist (network drives, encrypted volumes).
+    let readback = std::fs::read_to_string(&race_ini_path)?;
+    if !readback.contains("[RACE]") || !readback.contains("[CAR_0]") {
+        anyhow::bail!(
+            "race.ini readback FAILED: file exists ({} bytes) but missing critical sections. \
+             Possible filesystem corruption or antivirus quarantine.",
+            readback.len()
+        );
+    }
+    // Verify DAMAGE=0 survived (safety-critical — must never be non-zero)
+    if !readback.contains("DAMAGE=0") {
+        anyhow::bail!("race.ini readback FAILED: DAMAGE=0 not found — refusing to launch with damage enabled");
+    }
+
+    tracing::info!(target: LOG_TARGET, "Wrote race.ini ({} bytes, CRLF, verified) to {}", crlf_content.len(), race_ini_path.display());
     Ok(())
 }
 

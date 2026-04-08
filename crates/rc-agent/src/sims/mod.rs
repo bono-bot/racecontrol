@@ -7,6 +7,32 @@ pub mod lmu;
 use anyhow::Result;
 use rc_common::types::{AcStatus, SimType, TelemetryFrame, SessionInfo, LapData};
 
+/// Session configuration read back from the running sim.
+/// Used by launch_verifier Stage 5 to compare against what the kiosk requested.
+#[derive(Debug, Clone, Default)]
+pub struct SessionConfig {
+    /// Number of cars in session (including player). None if not readable.
+    pub num_cars: Option<u32>,
+    /// Session type string (e.g. "practice", "race", "hotlap"). None if not readable.
+    pub session_type: Option<String>,
+    /// Track configuration/layout variant (e.g. "gp", "drift"). None if not readable.
+    pub track_config: Option<String>,
+    /// Car model identifier. None if not readable.
+    pub car_model: Option<String>,
+    /// Track name. None if not readable.
+    pub track_name: Option<String>,
+    /// AI difficulty level (0-100 for AC). None if not readable.
+    pub ai_level: Option<u32>,
+}
+
+/// A single field mismatch between expected and actual session config.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigMismatch {
+    pub field: &'static str,
+    pub expected: String,
+    pub actual: String,
+}
+
 /// Trait that all sim adapters must implement
 pub trait SimAdapter: Send + Sync {
     /// The sim type this adapter handles
@@ -44,6 +70,11 @@ pub trait SimAdapter: Send + Sync {
     /// Returns Some(true) when iRacing's IsOnTrack variable is set.
     /// Default: None (not applicable for other sims).
     fn read_is_on_track(&self) -> Option<bool> { None }
+
+    /// Read the current session configuration from the running sim.
+    /// Used by launch_verifier Stage 5 to compare against requested config.
+    /// Returns None if the sim doesn't support config readback.
+    fn read_session_config(&self) -> Option<SessionConfig> { None }
 }
 
 #[cfg(test)]

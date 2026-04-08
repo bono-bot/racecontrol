@@ -818,6 +818,39 @@ impl SimAdapter for LmuAdapter {
     fn read_is_on_track(&self) -> Option<bool> {
         self.read_is_on_track_from_shm()
     }
+
+    #[cfg(windows)]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        if !self.connected {
+            return None;
+        }
+        let scoring_shm = self.scoring_shm.as_ref()?;
+        let ptr = scoring_shm.ptr;
+
+        // Read mNumVehicles from scoring info
+        let num_vehicles = Self::read_num_vehicles(ptr);
+
+        let session_type = match self.current_session_type {
+            SessionType::Practice => "practice",
+            SessionType::Qualifying => "qualify",
+            SessionType::Race => "race",
+            SessionType::Hotlap => "hotlap",
+        };
+
+        Some(super::SessionConfig {
+            num_cars: if num_vehicles > 0 { Some(num_vehicles as u32) } else { None },
+            session_type: Some(session_type.to_string()),
+            track_config: None,
+            car_model: if self.current_car.is_empty() { None } else { Some(self.current_car.clone()) },
+            track_name: if self.current_track.is_empty() { None } else { Some(self.current_track.clone()) },
+            ai_level: None,
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        None
+    }
 }
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────

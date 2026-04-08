@@ -506,6 +506,47 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             None
         }
     }
+
+    #[cfg(windows)]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        if !self.connected {
+            return None;
+        }
+        let static_handle = self.static_handle.as_ref()?;
+
+        // numCars from static shared memory at offset 64 (same as AC1)
+        let num_cars = Self::read_i32(static_handle, 64);
+        let car_model = Self::read_wchar_string(static_handle, statics::CAR_MODEL, 33);
+        let track_name = Self::read_wchar_string(static_handle, statics::TRACK, 33);
+
+        // Session type from graphics shared memory offset 8 (same as AC1)
+        let session_type = self.graphics_handle.as_ref().map(|gh| {
+            let raw = Self::read_i32(gh, 8);
+            match raw {
+                0 => "practice",
+                1 => "qualify",
+                2 => "race",
+                3 => "hotlap",
+                4 => "time_attack",
+                5 => "drift",
+                _ => "unknown",
+            }.to_string()
+        });
+
+        Some(super::SessionConfig {
+            num_cars: if num_cars > 0 { Some(num_cars as u32) } else { None },
+            session_type,
+            track_config: None,
+            car_model: if car_model.is_empty() { None } else { Some(car_model) },
+            track_name: if track_name.is_empty() { None } else { Some(track_name) },
+            ai_level: None,
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        None
+    }
 }
 
 // ─── AC EVO Unreal Engine config adapter (GAME-04) ───────────────────────────

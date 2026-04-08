@@ -633,6 +633,20 @@ pub enum AgentMessage {
         group_session_id: String,
     },
 
+    // ─── Launch Config Verification (Layer 3) ─────────────────────────────────
+
+    /// Pod reports a mismatch between requested game config and actual running config.
+    /// Stage 5 of launch_verifier reads session config from shared memory after OnTrack
+    /// and compares against the kiosk's launch request. Each mismatch entry has field name,
+    /// expected value (from kiosk), and actual value (from sim shared memory).
+    ConfigMismatchDetected {
+        pod_id: String,
+        sim_type: SimType,
+        /// List of (field_name, expected, actual) mismatches
+        mismatches: Vec<(String, String, String)>,
+        timestamp: String,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -1347,6 +1361,18 @@ pub enum DashboardEvent {
         timestamp: String,
         /// Updated list of active sentinels on this pod after this change
         active_sentinels: Vec<String>,
+    },
+
+    // ─── Launch Config Verification (Layer 3) ───────────────────────────────
+
+    /// Post-launch config mismatch detected on a pod.
+    /// Staff sees which settings didn't match the kiosk request.
+    ConfigMismatch {
+        pod_id: String,
+        sim_type: String,
+        /// List of "field: expected 'X', got 'Y'" strings
+        details: Vec<String>,
+        timestamp: String,
     },
 
     // ─── Multiplayer Lobby (VMS-inspired Feature 2) ────────────────────────

@@ -55,6 +55,9 @@ pub struct F125Adapter {
     sector2_ms: Option<u32>,
     current_lap_invalid: bool,
 
+    // From Packet 4 (Participants) — total active cars including AI
+    num_active_cars: u8,
+
     // From Packet 7 (CarStatus)
     ers_deploy_mode: u8,
     ers_store_energy: f32,
@@ -114,6 +117,7 @@ impl F125Adapter {
             sector1_ms: None,
             sector2_ms: None,
             current_lap_invalid: false,
+            num_active_cars: 0,
             ers_deploy_mode: 0,
             ers_store_energy: 0.0,
             drs_allowed: false,
@@ -408,6 +412,9 @@ impl F125Adapter {
             return;
         }
 
+        // Byte 0: numActiveCars — total cars in session (player + AI)
+        self.num_active_cars = data[0];
+
         // Each participant entry is after the numActiveCars byte
         let entry_offset = 1 + idx * PARTICIPANT_SIZE;
         if data.len() < entry_offset + PARTICIPANT_SIZE {
@@ -584,6 +591,40 @@ impl SimAdapter for F125Adapter {
         self.socket = None;
         self.connected = false;
         tracing::info!(target: LOG_TARGET, "F1 25 UDP socket closed (port 20777) — game exit cleanup");
+    }
+
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        if !self.connected {
+            return None;
+        }
+
+        // session_type from Packet 1 (byte 6)
+        let session_type = match self.session_type {
+            0 => "unknown",
+            1 => "practice_1",
+            2 => "practice_2",
+            3 => "practice_3",
+            4 => "short_practice",
+            5 => "qualifying_1",
+            6 => "qualifying_2",
+            7 => "qualifying_3",
+            8 => "short_qualifying",
+            9 => "one_shot_qualifying",
+            10 => "race",
+            11 => "race_2",
+            12 => "race_3",
+            13 => "time_trial",
+            _ => "unknown",
+        };
+
+        Some(super::SessionConfig {
+            num_cars: if self.num_active_cars > 0 { Some(self.num_active_cars as u32) } else { None },
+            session_type: Some(session_type.to_string()),
+            track_config: None, // F1 tracks don't have layout variants
+            car_model: None,    // F1 doesn't expose car model names via UDP
+            track_name: if self.track_name.is_empty() { None } else { Some(self.track_name.clone()) },
+            ai_level: None,     // F1 AI difficulty not exposed via UDP telemetry
+        })
     }
 }
 

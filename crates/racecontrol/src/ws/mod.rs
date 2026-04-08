@@ -2216,6 +2216,49 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             });
                         }
 
+                        AgentMessage::ConfigMismatchDetected { pod_id, sim_type, mismatches, timestamp } => {
+                            // Layer 3: Log config mismatch and alert staff
+                            let mismatch_details: Vec<String> = mismatches.iter()
+                                .map(|(field, expected, actual)| {
+                                    format!("{}: expected '{}', got '{}'", field, expected, actual)
+                                })
+                                .collect();
+                            let detail_str = mismatch_details.join("; ");
+                            tracing::warn!(
+                                "CONFIG MISMATCH on Pod {} ({:?}): {} [{}]",
+                                pod_id, sim_type, detail_str, timestamp
+                            );
+
+                            // Persist to event archive
+                            event_archive::append_event(
+                                &state.db,
+                                "game.config_mismatch",
+                                "agent",
+                                Some(&pod_id),
+                                serde_json::json!({
+                                    "sim_type": format!("{:?}", sim_type),
+                                    "mismatches": mismatches,
+                                    "timestamp": timestamp,
+                                }),
+                                &state.config.venue.venue_id,
+                            );
+
+                            // WhatsApp alert to staff — config mismatch means customer got wrong game settings
+                            let alert_msg = format!(
+                                "\u{26a0}\u{fe0f} CONFIG MISMATCH — Pod {}\nSim: {:?}\n{}\nTimestamp: {}\n\nCustomer may have wrong game settings. Check kiosk wizard → race.ini pipeline.",
+                                pod_id, sim_type, detail_str, timestamp
+                            );
+                            crate::whatsapp_alerter::send_whatsapp(&state.config, &alert_msg).await;
+
+                            // Broadcast to admin dashboard
+                            let _ = state.dashboard_tx.send(DashboardEvent::ConfigMismatch {
+                                pod_id: pod_id.clone(),
+                                sim_type: format!("{:?}", sim_type),
+                                details: mismatch_details,
+                                timestamp: timestamp.clone(),
+                            });
+                        }
+
                         _ => { /* catch-all for future protocol additions */ }
                     }
                 }

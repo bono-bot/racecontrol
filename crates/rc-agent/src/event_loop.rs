@@ -147,6 +147,8 @@ pub(crate) struct ConnectionState {
     /// Phase 318 (LAUNCH-05): UUID v4 generated when LaunchGame is received.
     /// Used to correlate LaunchTimeline spans with this specific launch attempt.
     pub(crate) current_launch_id: Option<String>,
+    /// Layer 3: Config verification completed for current session (reset on game exit).
+    pub(crate) config_verified: bool,
 }
 
 impl ConnectionState {
@@ -199,6 +201,7 @@ impl ConnectionState {
             prev_wheelbase_connected: true, // Intentional default: assume connected at start to avoid false disconnect on first heartbeat
             launch_start: None,
             current_launch_id: None,
+            config_verified: false,
         }
     }
 }
@@ -428,6 +431,155 @@ pub async fn run(
                     }
                 }
 
+                // ─── Layer 3: Post-launch config verification (Stage 5) ─────────
+                // Once the game is Live and adapter is reading telemetry, verify
+                // that the actual session config matches what the kiosk requested.
+                // Runs exactly once per game launch (config_verified flag).
+                if matches!(conn.launch_state, LaunchState::Live)
+                    && !conn.config_verified
+                    && state.adapter.is_some()
+                {
+                    conn.config_verified = true; // Prevent re-triggering
+                    if let Some(ref adapter) = state.adapter {
+                        let session_config = adapter.read_session_config();
+                        if let Some(ref config) = session_config {
+                            // Build expected config from stored launch_args.
+                            // AcLaunchParams is the only launch params struct — for non-AC sims,
+                            // the JSON may not parse. That's OK: we skip verification for those.
+                            let expected = conn.last_launch_args_stored.as_ref().and_then(|args_json| {
+                                serde_json::from_str::<crate::ac_launcher::AcLaunchParams>(args_json).ok()
+                            });
+                            if let Some(ref params) = expected {
+                                let mut mismatches = Vec::new();
+
+                                // --- num_cars: ai_count + 1 (player) vs actual ---
+                                if let Some(ai_count) = params.ai_count {
+                                    let expected_total = ai_count + 1;
+                                    if let Some(actual_cars) = config.num_cars {
+                                        if expected_total != actual_cars {
+                                            mismatches.push((
+                                                "num_cars".to_string(),
+                                                expected_total.to_string(),
+                                                actual_cars.to_string(),
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                // --- session_type: normalize kiosk names to AC SHM names ---
+                                // Kiosk sends: "practice", "race", "hotlap", "trackday", "weekend"
+                                // AC SHM returns: "practice", "qualify", "race", "hotlap", "time_attack", "drift"
+                                // "trackday" maps to "practice" in AC (it's a solo practice with traffic)
+                                // "weekend"/"race_weekend" has multiple sub-sessions — skip comparison
+                                if !params.session_type.is_empty() {
+                                    let normalized = match params.session_type.as_str() {
+                                        "trackday" => Some("practice"),
+                                        "practice" => Some("practice"),
+                                        "race" => Some("race"),
+                                        "hotlap" => Some("hotlap"),
+                                        "drift" => Some("drift"),
+                                        "weekend" | "race_weekend" => None, // multi-session, skip
+                                        other => Some(other), // pass through unknown values
+                                    };
+                                    if let Some(expected_session) = normalized {
+                                        if let Some(ref actual_session) = config.session_type {
+                                            if expected_session != actual_session {
+                                                mismatches.push((
+                                                    "session_type".to_string(),
+                                                    expected_session.to_string(),
+                                                    actual_session.clone(),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // --- car_model: folder name vs SHM name (case-insensitive contains) ---
+                                // Kiosk sends folder name: "ferrari_sf90", "abarth500"
+                                // SHM may return: "Ferrari SF90 Stradale", "Abarth 500"
+                                // Use: actual.to_lowercase().contains(expected.to_lowercase())
+                                // OR expected contains actual (handles both directions)
+                                if !params.car.is_empty() {
+                                    if let Some(ref actual_car) = config.car_model {
+                                        let exp_lower = params.car.to_lowercase().replace('_', "");
+                                        let act_lower = actual_car.to_lowercase().replace(' ', "").replace('_', "");
+                                        // Both stripped of separators — "ferrari_sf90" → "ferrarisf90"
+                                        // "Ferrari SF90 Stradale" → "ferrarisf90stradale"
+                                        // Check if either contains the other
+                                        if !act_lower.contains(&exp_lower) && !exp_lower.contains(&act_lower) {
+                                            mismatches.push((
+                                                "car_model".to_string(),
+                                                params.car.clone(),
+                                                actual_car.clone(),
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                // --- track_name: same fuzzy matching as car_model ---
+                                // Kiosk: "spa", "monza". SHM: "Spa-Francorchamps", "Monza"
+                                if !params.track.is_empty() {
+                                    if let Some(ref actual_track) = config.track_name {
+                                        let exp_lower = params.track.to_lowercase().replace('_', "");
+                                        let act_lower = actual_track.to_lowercase().replace('-', "").replace(' ', "").replace('_', "");
+                                        if !act_lower.contains(&exp_lower) && !exp_lower.contains(&act_lower) {
+                                            mismatches.push((
+                                                "track_name".to_string(),
+                                                params.track.clone(),
+                                                actual_track.clone(),
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                // --- track_config: exact match (both use same format) ---
+                                if !params.track_config.is_empty() {
+                                    if let Some(ref actual_cfg) = config.track_config {
+                                        if params.track_config != *actual_cfg {
+                                            mismatches.push((
+                                                "track_config".to_string(),
+                                                params.track_config.clone(),
+                                                actual_cfg.clone(),
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                if mismatches.is_empty() {
+                                    tracing::info!(
+                                        target: LOG_TARGET,
+                                        "Layer 3 ConfigVerified: session config matches launch request"
+                                    );
+                                } else {
+                                    for (field, exp, act) in &mismatches {
+                                        tracing::warn!(
+                                            target: LOG_TARGET,
+                                            "Layer 3 CONFIG MISMATCH: {} — expected '{}', got '{}'",
+                                            field, exp, act
+                                        );
+                                    }
+                                    let sim_type = conn.current_sim_type.unwrap_or(rc_common::types::SimType::AssettoCorsa);
+                                    let msg = AgentMessage::ConfigMismatchDetected {
+                                        pod_id: state.pod_id.clone(),
+                                        sim_type,
+                                        mismatches,
+                                        timestamp: chrono::Utc::now().to_rfc3339(),
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        let _ = ws_tx.send(Message::Text(json.into())).await;
+                                    }
+                                }
+                            } else {
+                                // Launch args didn't parse as AcLaunchParams — non-AC sim or malformed JSON
+                                tracing::debug!(
+                                    target: LOG_TARGET,
+                                    "Layer 3: Skipping config verification — launch_args not parseable as AcLaunchParams"
+                                );
+                            }
+                        }
+                    }
+                }
+
                 if state.game_process.is_some() {
                     if let Some(ref mut adapter2) = state.adapter {
                         if let Some(current_status) = adapter2.read_ac_status() {
@@ -548,6 +700,7 @@ pub async fn run(
 
                         state.game_process = None;
                         conn.launch_state = LaunchState::Idle;
+                        conn.config_verified = false;
                         conn.game_running_since = None;
                         conn.shm_defer_logged = false;
                         let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
@@ -592,6 +745,7 @@ pub async fn run(
                             }
                             state.game_process = None;
                             conn.launch_state = LaunchState::Idle;
+                            conn.config_verified = false;
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
                             let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
@@ -854,6 +1008,7 @@ pub async fn run(
                             state.last_ac_status = None;
                             state.ac_status_stable_since = None;
                             conn.launch_state = LaunchState::Idle;
+                            conn.config_verified = false;
                             // Phase 330: Reset off-track detector and hide blanking on game exit
                             state.off_track_detector.reset();
                             state.off_track_blanking.hide();
@@ -1053,6 +1208,7 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Idle;
+                                        conn.config_verified = false;
                                     }
                                 }
                             }
@@ -1129,6 +1285,7 @@ pub async fn run(
                         conn.session_enforcer = None;
                         game_process::clear_persisted_pid();
                         conn.launch_state = LaunchState::Idle;
+                        conn.config_verified = false;
                         conn.game_running_since = None;
                         conn.shm_defer_logged = false;
                         let _ = state.failure_monitor_tx.send_modify(|s| {
@@ -1243,6 +1400,7 @@ pub async fn run(
                             conn.session_enforcer = None;
                             game_process::clear_persisted_pid();
                             conn.launch_state = LaunchState::Idle;
+                            conn.config_verified = false;
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
                             let _ = state.failure_monitor_tx.send_modify(|s| {
@@ -1920,6 +2078,7 @@ pub async fn run(
                             state.last_ac_status = None;
                             state.ac_status_stable_since = None;
                             conn.launch_state = LaunchState::Idle;
+                            conn.config_verified = false;
                             conn.crash_recovery = CrashRecoveryState::Idle;
                         }
                     }

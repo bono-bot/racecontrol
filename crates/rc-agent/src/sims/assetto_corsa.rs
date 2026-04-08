@@ -174,6 +174,43 @@ impl AssettoCorsaAdapter {
         }
     }
 
+    /// Ephemeral read of a single i32 from acpmf_static shared memory.
+    /// Opens the mapping, reads the value, and immediately closes the handle.
+    /// Used by read_session_config() when the RC plugin is active (we don't hold
+    /// persistent acpmf_* handles to avoid CSP/anti-cheat detection).
+    #[cfg(windows)]
+    fn ephemeral_read_static_i32(offset: usize) -> Option<i32> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        let name: Vec<u16> = OsStr::new("Local\\acpmf_static")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            let handle = winapi::um::memoryapi::OpenFileMappingW(
+                winapi::um::memoryapi::FILE_MAP_READ,
+                0,
+                name.as_ptr(),
+            );
+            if handle.is_null() {
+                return None;
+            }
+            let ptr = winapi::um::memoryapi::MapViewOfFile(
+                handle,
+                winapi::um::memoryapi::FILE_MAP_READ,
+                0, 0, 0,
+            );
+            if ptr.is_null() {
+                winapi::um::handleapi::CloseHandle(handle);
+                return None;
+            }
+            let value = std::ptr::read_unaligned((ptr as *const u8).add(offset) as *const i32);
+            winapi::um::memoryapi::UnmapViewOfFile(ptr);
+            winapi::um::handleapi::CloseHandle(handle);
+            Some(value)
+        }
+    }
+
     /// Verify AC shared memory is still alive by probing OpenFileMappingW.
     /// When acs.exe exits, its shared memory objects are destroyed. Reading from
     /// our existing mapping after that causes an access violation (segfault) that
@@ -808,6 +845,78 @@ impl SimAdapter for AssettoCorsaAdapter {
 
     #[cfg(not(windows))]
     fn read_assist_state(&self) -> Option<(u8, u8, bool)> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        // RC Plugin path: read session_type (offset 20), track_config (offset 168)
+        if self.using_rc_plugin {
+            let handle = self.rc_plugin_handle.as_ref()?;
+            let session_type_raw = Self::read_i32(handle, 20);
+            let track_config = Self::read_wchar_string(handle, 168, 33);
+            let car_model = Self::read_wchar_string(handle, 36, 33);
+            let track_name = Self::read_wchar_string(handle, 102, 33);
+
+            let session_type = match session_type_raw {
+                0 => "practice",
+                1 => "qualify",
+                2 => "race",
+                3 => "hotlap",
+                4 => "time_attack",
+                5 => "drift",
+                _ => "unknown",
+            };
+
+            // numCars is in acpmf_static (not in plugin SHM). We do an ephemeral open+read+close
+            // to avoid holding a persistent handle (which could trigger CSP/anti-cheat).
+            // This runs once per game launch during config verification, not per-frame.
+            let num_cars = Self::ephemeral_read_static_i32(64);
+
+            return Some(super::SessionConfig {
+                num_cars: num_cars.filter(|&n| n > 0).map(|n| n as u32),
+                session_type: Some(session_type.to_string()),
+                track_config: if track_config.is_empty() { None } else { Some(track_config) },
+                car_model: if car_model.is_empty() { None } else { Some(car_model) },
+                track_name: if track_name.is_empty() { None } else { Some(track_name) },
+                ai_level: None, // Not available from shared memory
+            });
+        }
+
+        // Direct AC shared memory path
+        if !self.verify_shm_alive() { return None; }
+        let static_handle = self.static_handle.as_ref()?;
+        let graphics_handle = self.graphics_handle.as_ref()?;
+
+        // numCars from static shared memory at offset 64
+        let num_cars = Self::read_i32(static_handle, 64); // statics layout: offset 64 = numCars(i32)
+        let car_model = Self::read_wchar_string(static_handle, statics::CAR_MODEL, 33);
+        let track_name = Self::read_wchar_string(static_handle, statics::TRACK, 33);
+
+        // session type from graphics shared memory offset 8
+        let session_raw = Self::read_i32(graphics_handle, 8);
+        let session_type = match session_raw {
+            0 => "practice",
+            1 => "qualify",
+            2 => "race",
+            3 => "hotlap",
+            4 => "time_attack",
+            5 => "drift",
+            _ => "unknown",
+        };
+
+        Some(super::SessionConfig {
+            num_cars: if num_cars > 0 { Some(num_cars as u32) } else { None },
+            session_type: Some(session_type.to_string()),
+            track_config: None, // track_config only available via RC plugin
+            car_model: if car_model.is_empty() { None } else { Some(car_model) },
+            track_name: if track_name.is_empty() { None } else { Some(track_name) },
+            ai_level: None,
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
         None
     }
 }

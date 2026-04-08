@@ -33,6 +33,8 @@ pub struct IracingAdapter {
     current_track: String,
     current_car: String,
     current_session_type: SessionType,
+    /// Number of drivers in session (from YAML DriverInfo.NumDrivers)
+    num_drivers: Option<u32>,
     first_read: bool,
 }
 
@@ -378,6 +380,7 @@ impl IracingAdapter {
             current_track: String::new(),
             current_car: String::new(),
             current_session_type: SessionType::Practice,
+            num_drivers: None,
             first_read: true,
         }
     }
@@ -415,13 +418,18 @@ impl IracingAdapter {
         if let Some(session_type_str) = extract_yaml_value(&yaml, "SessionType") {
             self.current_session_type = parse_session_type(&session_type_str);
         }
+        // NumDrivers is under DriverInfo: section — extract_yaml_value finds the first match
+        if let Some(num_str) = extract_yaml_value(&yaml, "NumDrivers") {
+            self.num_drivers = num_str.parse::<u32>().ok();
+        }
 
         tracing::info!(
             target: LOG_TARGET,
-            "iRacing session info: track={}, car={}, session_type={:?}",
+            "iRacing session info: track={}, car={}, session_type={:?}, num_drivers={:?}",
             self.current_track,
             self.current_car,
-            self.current_session_type
+            self.current_session_type,
+            self.num_drivers
         );
     }
 
@@ -795,6 +803,26 @@ impl SimAdapter for IracingAdapter {
     /// reachable through a trait object.
     fn read_is_on_track(&self) -> Option<bool> {
         self.read_is_on_track_from_shm()
+    }
+
+    fn read_session_config(&self) -> Option<super::SessionConfig> {
+        if !self.connected {
+            return None;
+        }
+        let session_type = match self.current_session_type {
+            SessionType::Practice => "practice",
+            SessionType::Qualifying => "qualify",
+            SessionType::Race => "race",
+            SessionType::Hotlap => "hotlap",
+        };
+        Some(super::SessionConfig {
+            num_cars: self.num_drivers, // From YAML DriverInfo.NumDrivers
+            session_type: Some(session_type.to_string()),
+            track_config: None,
+            car_model: if self.current_car.is_empty() { None } else { Some(self.current_car.clone()) },
+            track_name: if self.current_track.is_empty() { None } else { Some(self.current_track.clone()) },
+            ai_level: None,
+        })
     }
 }
 
