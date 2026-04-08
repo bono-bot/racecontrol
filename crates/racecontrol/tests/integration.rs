@@ -760,6 +760,50 @@ async fn seed_test_pod(pool: &SqlitePool, pod_id: &str, number: u32) {
     .unwrap();
 }
 
+/// Seed an active billing timer into AppState's in-memory active_timers.
+/// persist_lap checks active_timers (not DB) to resolve billing_session_id,
+/// so tests that call persist_lap must populate this.
+async fn seed_billing_timer(
+    state: &Arc<racecontrol_crate::state::AppState>,
+    session_id: &str,
+    driver_id: &str,
+    pod_id: &str,
+) {
+    use racecontrol_crate::billing::{BillingTimer, PauseReason};
+    let timer = BillingTimer {
+        session_id: session_id.to_string(),
+        driver_id: driver_id.to_string(),
+        driver_name: format!("Test Driver {}", driver_id),
+        pod_id: pod_id.to_string(),
+        pricing_tier_name: "30 Minutes".to_string(),
+        allocated_seconds: 1800,
+        driving_seconds: 0,
+        status: BillingSessionStatus::Active,
+        driving_state: DrivingState::Active,
+        started_at: None,
+        warning_5min_sent: false,
+        warning_1min_sent: false,
+        offline_since: None,
+        split_count: 1,
+        split_duration_minutes: None,
+        current_split_number: 1,
+        pause_count: 0,
+        total_paused_seconds: 0,
+        last_paused_at: None,
+        max_pause_duration_secs: 600,
+        elapsed_seconds: 0,
+        pause_seconds: 0,
+        max_session_seconds: 1800,
+        sim_type: None,
+        recovery_pause_seconds: 0,
+        pause_reason: PauseReason::None,
+        nonce: String::new(),
+        ..Default::default()
+    };
+    let mut timers = state.billing.active_timers.write().await;
+    timers.insert(pod_id.to_string(), timer);
+}
+
 // =============================================================================
 // Task 1: Test infrastructure verification
 // =============================================================================
@@ -1596,7 +1640,7 @@ async fn test_lap_suspect_sector_sum() {
 
     // Seed driver and pod
     seed_test_driver(&pool, "sus-drv-1").await;
-    seed_test_pod(&pool, "sus-pod-1", 1).await;
+    seed_test_pod(&pool, "pod_1", 1).await;
 
     // Create a session for the lap to reference
     sqlx::query(
@@ -1610,14 +1654,15 @@ async fn test_lap_suspect_sector_sum() {
     // Seed an active billing session so persist_lap doesn't skip
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('sus-bs-1', 'sus-drv-1', 'sus-pod-1', 'tier_30min', 1800, 'active')"
+         VALUES ('sus-bs-1', 'sus-drv-1', 'pod_1', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "sus-bs-1", "sus-drv-1", "pod_1").await;
 
     let lap = rc_common::types::LapData {
         id: "sus-lap-1".to_string(),
         session_id: "sus-sess-1".to_string(),
         driver_id: "sus-drv-1".to_string(),
-        pod_id: "sus-pod-1".to_string(),
+        pod_id: "pod_1".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -1647,7 +1692,7 @@ async fn test_lap_suspect_sanity() {
     let pool = create_test_db().await;
 
     seed_test_driver(&pool, "sus-drv-2").await;
-    seed_test_pod(&pool, "sus-pod-2", 2).await;
+    seed_test_pod(&pool, "pod_2", 2).await;
 
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-2', 'hotlap', 'assetto_corsa', 'spa')"
@@ -1657,14 +1702,15 @@ async fn test_lap_suspect_sanity() {
 
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('sus-bs-2', 'sus-drv-2', 'sus-pod-2', 'tier_30min', 1800, 'active')"
+         VALUES ('sus-bs-2', 'sus-drv-2', 'pod_2', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "sus-bs-2", "sus-drv-2", "pod_2").await;
 
     let lap = rc_common::types::LapData {
         id: "sus-lap-2".to_string(),
         session_id: "sus-sess-2".to_string(),
         driver_id: "sus-drv-2".to_string(),
-        pod_id: "sus-pod-2".to_string(),
+        pod_id: "pod_2".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -1693,7 +1739,7 @@ async fn test_lap_not_suspect_valid() {
     let pool = create_test_db().await;
 
     seed_test_driver(&pool, "sus-drv-3").await;
-    seed_test_pod(&pool, "sus-pod-3", 3).await;
+    seed_test_pod(&pool, "pod_3", 3).await;
 
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-3', 'hotlap', 'assetto_corsa', 'spa')"
@@ -1703,14 +1749,15 @@ async fn test_lap_not_suspect_valid() {
 
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('sus-bs-3', 'sus-drv-3', 'sus-pod-3', 'tier_30min', 1800, 'active')"
+         VALUES ('sus-bs-3', 'sus-drv-3', 'pod_3', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "sus-bs-3", "sus-drv-3", "pod_3").await;
 
     let lap = rc_common::types::LapData {
         id: "sus-lap-3".to_string(),
         session_id: "sus-sess-3".to_string(),
         driver_id: "sus-drv-3".to_string(),
-        pod_id: "sus-pod-3".to_string(),
+        pod_id: "pod_3".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -1739,7 +1786,7 @@ async fn test_lap_not_suspect_no_sectors() {
     let pool = create_test_db().await;
 
     seed_test_driver(&pool, "sus-drv-4").await;
-    seed_test_pod(&pool, "sus-pod-4", 4).await;
+    seed_test_pod(&pool, "pod_4", 4).await;
 
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-4', 'hotlap', 'assetto_corsa', 'spa')"
@@ -1749,14 +1796,15 @@ async fn test_lap_not_suspect_no_sectors() {
 
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('sus-bs-4', 'sus-drv-4', 'sus-pod-4', 'tier_30min', 1800, 'active')"
+         VALUES ('sus-bs-4', 'sus-drv-4', 'pod_4', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "sus-bs-4", "sus-drv-4", "pod_4").await;
 
     let lap = rc_common::types::LapData {
         id: "sus-lap-4".to_string(),
         session_id: "sus-sess-4".to_string(),
         driver_id: "sus-drv-4".to_string(),
-        pod_id: "sus-pod-4".to_string(),
+        pod_id: "pod_4".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -1785,7 +1833,7 @@ async fn test_lap_suspect_zero_sectors_ignored() {
     let pool = create_test_db().await;
 
     seed_test_driver(&pool, "sus-drv-5").await;
-    seed_test_pod(&pool, "sus-pod-5", 5).await;
+    seed_test_pod(&pool, "pod_5", 5).await;
 
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('sus-sess-5', 'hotlap', 'assetto_corsa', 'spa')"
@@ -1795,14 +1843,15 @@ async fn test_lap_suspect_zero_sectors_ignored() {
 
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('sus-bs-5', 'sus-drv-5', 'sus-pod-5', 'tier_30min', 1800, 'active')"
+         VALUES ('sus-bs-5', 'sus-drv-5', 'pod_5', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "sus-bs-5", "sus-drv-5", "pod_5").await;
 
     let lap = rc_common::types::LapData {
         id: "sus-lap-5".to_string(),
         session_id: "sus-sess-5".to_string(),
         driver_id: "sus-drv-5".to_string(),
-        pod_id: "sus-pod-5".to_string(),
+        pod_id: "pod_5".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -2104,7 +2153,7 @@ async fn test_notification_data_before_upsert() {
     ).execute(&pool).await.unwrap();
 
     // Seed pod and sessions
-    seed_test_pod(&pool, "ntf-pod-1", 1).await;
+    seed_test_pod(&pool, "pod_1", 1).await;
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-1', 'hotlap', 'assetto_corsa', 'monza')"
     ).execute(&pool).await.unwrap();
@@ -2114,15 +2163,16 @@ async fn test_notification_data_before_upsert() {
     // Billing session for driver A
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('ntf-bs-1', 'ntf-drv-a', 'ntf-pod-1', 'tier_30min', 1800, 'active')"
+         VALUES ('ntf-bs-1', 'ntf-drv-a', 'pod_1', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "ntf-bs-1", "ntf-drv-a", "pod_1").await;
 
     // Driver A sets the initial record: 90000ms on monza/ks_ferrari_sf15t
     let lap_a = rc_common::types::LapData {
         id: "ntf-lap-a".to_string(),
         session_id: "ntf-sess-1".to_string(),
         driver_id: "ntf-drv-a".to_string(),
-        pod_id: "ntf-pod-1".to_string(),
+        pod_id: "pod_1".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "monza".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -2158,15 +2208,16 @@ async fn test_notification_data_before_upsert() {
         .execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('ntf-bs-2', 'ntf-drv-b', 'ntf-pod-1', 'tier_30min', 1800, 'active')"
+         VALUES ('ntf-bs-2', 'ntf-drv-b', 'pod_1', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "ntf-bs-2", "ntf-drv-b", "pod_1").await;
 
     // Driver B breaks the record: 85000ms
     let lap_b = rc_common::types::LapData {
         id: "ntf-lap-b".to_string(),
         session_id: "ntf-sess-1".to_string(),
         driver_id: "ntf-drv-b".to_string(),
-        pod_id: "ntf-pod-1".to_string(),
+        pod_id: "pod_1".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "monza".to_string(),
         car: "ks_ferrari_sf15t".to_string(),
@@ -2211,7 +2262,7 @@ async fn test_notification_skip_no_email() {
         "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-d', 100000)"
     ).execute(&pool).await.unwrap();
 
-    seed_test_pod(&pool, "ntf-pod-2", 2).await;
+    seed_test_pod(&pool, "pod_2", 2).await;
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-2', 'hotlap', 'assetto_corsa', 'spa')"
     ).execute(&pool).await.unwrap();
@@ -2221,15 +2272,16 @@ async fn test_notification_skip_no_email() {
     // Billing for driver C
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('ntf-bs-3', 'ntf-drv-c', 'ntf-pod-2', 'tier_30min', 1800, 'active')"
+         VALUES ('ntf-bs-3', 'ntf-drv-c', 'pod_2', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "ntf-bs-3", "ntf-drv-c", "pod_2").await;
 
     // Driver C sets record
     let lap_c = rc_common::types::LapData {
         id: "ntf-lap-c".to_string(),
         session_id: "ntf-sess-2".to_string(),
         driver_id: "ntf-drv-c".to_string(),
-        pod_id: "ntf-pod-2".to_string(),
+        pod_id: "pod_2".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_bmw_m3_e30".to_string(),
@@ -2255,15 +2307,16 @@ async fn test_notification_skip_no_email() {
         .execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('ntf-bs-4', 'ntf-drv-d', 'ntf-pod-2', 'tier_30min', 1800, 'active')"
+         VALUES ('ntf-bs-4', 'ntf-drv-d', 'pod_2', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "ntf-bs-4", "ntf-drv-d", "pod_2").await;
 
     // Driver D breaks the record — should NOT crash despite no email on previous holder
     let lap_d = rc_common::types::LapData {
         id: "ntf-lap-d".to_string(),
         session_id: "ntf-sess-2".to_string(),
         driver_id: "ntf-drv-d".to_string(),
-        pod_id: "ntf-pod-2".to_string(),
+        pod_id: "pod_2".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "spa".to_string(),
         car: "ks_bmw_m3_e30".to_string(),
@@ -2299,7 +2352,7 @@ async fn test_notification_first_record_no_notify() {
         "INSERT INTO wallets (driver_id, balance_paise) VALUES ('ntf-drv-e', 100000)"
     ).execute(&pool).await.unwrap();
 
-    seed_test_pod(&pool, "ntf-pod-3", 3).await;
+    seed_test_pod(&pool, "pod_3", 3).await;
     sqlx::query(
         "INSERT INTO sessions (id, type, sim_type, track) VALUES ('ntf-sess-3', 'hotlap', 'assetto_corsa', 'nurburgring')"
     ).execute(&pool).await.unwrap();
@@ -2308,8 +2361,9 @@ async fn test_notification_first_record_no_notify() {
 
     sqlx::query(
         "INSERT INTO billing_sessions (id, driver_id, pod_id, pricing_tier_id, allocated_seconds, status)
-         VALUES ('ntf-bs-5', 'ntf-drv-e', 'ntf-pod-3', 'tier_30min', 1800, 'active')"
+         VALUES ('ntf-bs-5', 'ntf-drv-e', 'pod_3', 'tier_30min', 1800, 'active')"
     ).execute(&pool).await.unwrap();
+    seed_billing_timer(&state, "ntf-bs-5", "ntf-drv-e", "pod_3").await;
 
     // No prior record exists — get_previous_record_holder should return None
     let prev = racecontrol_crate::lap_tracker::get_previous_record_holder(&state.db, "nurburgring", "ks_porsche_911_gt3_r", "assettocorsa").await;
@@ -2320,7 +2374,7 @@ async fn test_notification_first_record_no_notify() {
         id: "ntf-lap-e".to_string(),
         session_id: "ntf-sess-3".to_string(),
         driver_id: "ntf-drv-e".to_string(),
-        pod_id: "ntf-pod-3".to_string(),
+        pod_id: "pod_3".to_string(),
         sim_type: rc_common::types::SimType::AssettoCorsa,
         track: "nurburgring".to_string(),
         car: "ks_porsche_911_gt3_r".to_string(),
@@ -4015,10 +4069,11 @@ async fn test_dispute_approve_sets_approved_status() {
     .await
     .unwrap();
 
-    // Approve dispute: compute refund (half time used = half refund)
-    // Session: allocated=1800s, driving=900s, debit=70000p => refund = 35000p
+    // Approve dispute: compute refund using best_rate_for_minutes
+    // Session: allocated=1800s, driving=900s (15 min), debit=70000p
+    // 15 min × ₹25/min = 37500p actual cost, refund = 70000 - 37500 = 32500p
     let refund_amount = racecontrol_crate::billing::compute_refund(1800, 900, 70000);
-    assert_eq!(refund_amount, 35000, "BILL-08: compute_refund returns correct amount");
+    assert_eq!(refund_amount, 32500, "BILL-08: compute_refund returns correct amount");
 
     sqlx::query(
         "UPDATE dispute_requests SET status='approved', resolved_at=datetime('now'),
@@ -4040,7 +4095,7 @@ async fn test_dispute_approve_sets_approved_status() {
     .unwrap();
 
     assert_eq!(status, "approved", "BILL-08: Approved dispute status must be 'approved'");
-    assert_eq!(refund, Some(35000), "BILL-08: Refund amount must be stored on approval");
+    assert_eq!(refund, Some(32500), "BILL-08: Refund amount must be stored on approval");
 }
 
 /// BILL-08: Denying a dispute updates status to 'denied' and records resolution reason.

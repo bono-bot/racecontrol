@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3300 -H 0.0.0.0 --webpack",
     "prebuild": "bash ../scripts/validate-frontend-env.sh",
-    "build": "next build && mkdir -p .next/standalone/.next && cp -r .next/static .next/standalone/.next/static && if [ -d public ]; then cp -r public .next/standalone/public; fi && ls .next/standalone/.next/static/chunks/*.js >/dev/null 2>&1 && echo 'postbuild: static assets verified in standalone' || { echo 'ERROR: postbuild failed — static assets missing from standalone'; exit 1; }",
+    "build": "next build && node ../scripts/postbuild-standalone.js",
     "start": "next start -p 3300",
     "lint": "next lint",
     "test": "vitest run",
