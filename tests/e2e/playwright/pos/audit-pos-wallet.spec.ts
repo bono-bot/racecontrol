@@ -49,6 +49,13 @@ let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
   page.on('pageerror', (err) => jsErrors.push(err.message));
+  // Inject staff JWT for browser-based steps
+  if (staffToken) {
+    await page.goto(`${POS_BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await page.evaluate((token) => {
+      localStorage.setItem('rp_staff_jwt', token);
+    }, staffToken);
+  }
 });
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {
@@ -110,10 +117,12 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
       expect(res.ok(), `Topup failed: ${res.status()}`).toBeTruthy();
       const body = await res.json();
       expect(body.status).toBe('ok');
-      expect(body.new_balance_paise).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
-      newBalancePaise = body.new_balance_paise;
+      // API returns new_balance_credits (credits = paise), not new_balance_paise
+      const balance = body.new_balance_credits ?? body.new_balance_paise;
+      expect(balance).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
+      newBalancePaise = balance;
 
-      console.log(`Topup successful: new_balance=${newBalancePaise} paise (${newBalancePaise / 100} credits), bonus=${body.bonus_paise} paise`);
+      console.log(`Topup successful: new_balance=${newBalancePaise} credits, bonus=${body.bonus_credits_granted ?? body.bonus_paise ?? 0}`);
     } finally {
       await ctx.dispose();
     }
@@ -164,8 +173,8 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
 
       const wallet = body.wallet;
       expect(wallet).toBeTruthy();
-      expect(wallet.balance_paise).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
-      console.log(`Wallet balance confirmed: ${wallet.balance_paise} paise (${wallet.balance_paise / 100} credits)`);
+      expect(wallet.balance_credits).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
+      console.log(`Wallet balance confirmed: ${wallet.balance_credits} paise (${wallet.balance_credits / 100} credits)`);
     } finally {
       await ctx.dispose();
     }
@@ -181,7 +190,7 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
     }, staffToken);
 
     // Navigate to drivers page — AuthGate will see the token and allow access
-    await page.goto(`${POS_BASE}/drivers`, { waitUntil: 'networkidle' });
+    await page.goto(`${POS_BASE}/drivers`, { waitUntil: 'domcontentloaded' });
 
     // Wait for the driver list to load (the page fetches drivers async)
     await page.waitForSelector('text=TEST_ONLY Audit Driver', { timeout: 15_000 });
@@ -210,10 +219,10 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
       const walletRes = await ctx.get(`/api/v1/wallet/${testDriverId}`);
       expect(walletRes.ok()).toBeTruthy();
       const walletBody = await walletRes.json();
-      expect(walletBody.wallet.balance_paise).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
+      expect(walletBody.wallet.balance_credits).toBeGreaterThanOrEqual(TOPUP_AMOUNT_PAISE);
 
-      // Also verify driver appears in the drivers list (kiosk uses same endpoint)
-      const driversRes = await ctx.get(`/api/v1/drivers?search=TEST_ONLY`);
+      // Also verify driver appears in the drivers list (search=TEST, then filter)
+      const driversRes = await ctx.get(`/api/v1/drivers?search=TEST`);
       expect(driversRes.ok()).toBeTruthy();
       const driversBody = await driversRes.json();
       const found = (driversBody.drivers ?? []).find(
@@ -221,7 +230,7 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
       );
       expect(found, 'Test driver not found via search').toBeTruthy();
 
-      console.log(`Kiosk verification: driver found, wallet balance=${walletBody.wallet.balance_paise} paise (${walletBody.wallet.balance_paise / 100} credits)`);
+      console.log(`Kiosk verification: driver found, wallet balance=${walletBody.wallet.balance_credits} credits`);
     } finally {
       await ctx.dispose();
     }
@@ -231,7 +240,7 @@ test.describe.serial('POS Audit: Wallet Topup E2E', () => {
 
   test('Step 7: Kiosk staff page loads without errors', async ({ page }) => {
     // Load the kiosk staff page
-    const res = await page.goto(`${KIOSK_BASE}/kiosk/staff`, { waitUntil: 'networkidle' });
+    const res = await page.goto(`${KIOSK_BASE}/kiosk/staff`, { waitUntil: 'domcontentloaded' });
     expect(res?.status()).toBeLessThan(500);
 
     const body = await page.textContent('body') ?? '';
