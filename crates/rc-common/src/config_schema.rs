@@ -207,19 +207,11 @@ impl Default for KioskConfig {
 pub struct LockScreenConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// DMP-04: URL for animated blanking screen page (e.g. "http://192.168.31.23:3300/kiosk/blanking").
-    /// When set, Edge kiosk mode is used for blanking instead of the native Win32 black window.
-    /// Leave unset (None) to use the native window (default, more reliable but no animation).
-    #[serde(default)]
-    pub blanking_url: Option<String>,
 }
 
 impl Default for LockScreenConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            blanking_url: None,
-        }
+        Self { enabled: true }
     }
 }
 

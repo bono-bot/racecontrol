@@ -1,0 +1,47 @@
+[pod]
+number = 5
+name = "Pod 5"
+sim = "assetto_corsa"
+sim_ip = "127.0.0.1"
+sim_port = 9996
+node_type = "pod"
+
+[core]
+url = "ws://192.168.31.23:8080/ws/agent"
+mdns_enabled = true
+
+[wheelbase]
+vid = 4617
+pid = 65456
+
+[telemetry_ports]
+ac = 9996
+f1 = 20777
+iracing = 6789
+forza = 5300
+lemu = 5555
+
+[games.assetto_corsa]
+exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\assettocorsa\\acs.exe"
+steam_app_id = 244210
+use_steam = true
+
+[games.f1_25]
+exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\F1 25\\F1_25.exe"
+steam_app_id = 3059520
+use_steam = true
+
+[games.iracing]
+exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\iRacing\\iRacingSim64DX11.exe"
+steam_app_id = 266410
+use_steam = true
+
+[ai_debugger]
+enabled = true
+ollama_url = "http://192.168.31.27:11434"
+ollama_model = "qwen2.5:3b"
+openrouter_api_key = "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"
+openrouter_model = "openrouter/auto"
+
+[lock_screen]
+blanking_url = "http://192.168.31.23:3300/kiosk/blanking"
