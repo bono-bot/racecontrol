@@ -218,8 +218,11 @@ pub fn spawn(state: Arc<AppState>) {
     }
 
     tokio::spawn(async move {
-        // Wait 5s on startup before first sync
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // RESIL-08: Wait 15s on startup before first sync (was 5s).
+        // Staggered to avoid overlap with billing tick (1s interval) and
+        // fleet health probe (15s interval). At peak load, cloud sync's
+        // DB reads were contending with billing writes on the WAL lock.
+        tokio::time::sleep(Duration::from_secs(15)).await;
 
         // Use 2s tick when relay is configured, otherwise use the fallback interval.
         // When relay is unavailable, we rate-limit HTTP fallback to run only every
@@ -290,35 +293,70 @@ pub fn spawn(state: Arc<AppState>) {
                     // Relay mode: push deltas via localhost relay
                     // Skip if in backoff period from previous failures
                     if Instant::now() < push_backoff_until {
-                        continue;
-                    }
-                    match push_via_relay(&state).await {
-                        Ok(()) => {
-                            if push_fail_count > 0 {
-                                tracing::info!(
-                                    "Cloud sync relay push recovered after {} failures",
-                                    push_fail_count
-                                );
+                        // Still do HTTP pull even during push backoff
+                    } else {
+                        match push_via_relay(&state).await {
+                            Ok(()) => {
+                                if push_fail_count > 0 {
+                                    tracing::info!(
+                                        "Cloud sync relay push recovered after {} failures",
+                                        push_fail_count
+                                    );
+                                }
+                                push_fail_count = 0;
                             }
-                            push_fail_count = 0;
-                        }
-                        Err(e) => {
-                            push_fail_count += 1;
-                            let backoff_secs = (PUSH_BACKOFF_BASE_SECS
-                                * 2u64.saturating_pow(push_fail_count.saturating_sub(1)))
-                            .min(PUSH_BACKOFF_CAP_SECS);
-                            push_backoff_until =
-                                Instant::now() + Duration::from_secs(backoff_secs);
+                            Err(e) => {
+                                push_fail_count += 1;
+                                let backoff_secs = (PUSH_BACKOFF_BASE_SECS
+                                    * 2u64.saturating_pow(push_fail_count.saturating_sub(1)))
+                                .min(PUSH_BACKOFF_CAP_SECS);
+                                push_backoff_until =
+                                    Instant::now() + Duration::from_secs(backoff_secs);
 
-                            // Log every failure, but WARN after first, ERROR only on first
-                            if push_fail_count == 1 {
-                                tracing::error!("Cloud sync relay push failed: {}", e);
-                            } else {
-                                tracing::warn!(
-                                    "Cloud sync relay push failed (#{}, backoff {}s): {}",
-                                    push_fail_count, backoff_secs, e
-                                );
+                                // Log every failure, but WARN after first, ERROR only on first
+                                if push_fail_count == 1 {
+                                    tracing::error!("Cloud sync relay push failed: {}", e);
+                                } else {
+                                    tracing::warn!(
+                                        "Cloud sync relay push failed (#{}, backoff {}s): {}",
+                                        push_fail_count, backoff_secs, e
+                                    );
+                                }
                             }
+                        }
+                    }
+
+                    // SYNC-FIX: Also pull from cloud via HTTP at the fallback interval.
+                    // Relay mode was push-only — cloud-created drivers/data never reached venue.
+                    // Pull uses sync_once_http which does GET /sync/changes (bidirectional).
+                    if last_http_fallback.elapsed() >= Duration::from_secs(fallback_interval_secs) {
+                        if let Some(open_until) = http_open_until {
+                            if Instant::now() < open_until {
+                                // Circuit breaker open — skip pull
+                            } else {
+                                http_open_until = None;
+                            }
+                        }
+                        if http_open_until.is_none() {
+                            match sync_once_http(&state, &api_url).await {
+                                Ok(()) => {
+                                    if http_fail_count > 0 {
+                                        tracing::info!("Cloud sync HTTP pull recovered after {} failures", http_fail_count);
+                                    }
+                                    http_fail_count = 0;
+                                }
+                                Err(e) => {
+                                    http_fail_count += 1;
+                                    if http_fail_count >= HTTP_CB_THRESHOLD {
+                                        tracing::warn!("Cloud sync HTTP circuit breaker OPEN for {}s", HTTP_CB_OPEN_SECS);
+                                        http_open_until = Some(Instant::now() + Duration::from_secs(HTTP_CB_OPEN_SECS));
+                                        http_fail_count = 0;
+                                    } else {
+                                        tracing::warn!("Cloud sync HTTP pull failed (#{}/{}): {}", http_fail_count, HTTP_CB_THRESHOLD, e);
+                                    }
+                                }
+                            }
+                            last_http_fallback = Instant::now();
                         }
                     }
                 } else {
@@ -930,7 +968,7 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
             ("since", last_synced.as_str()),
             ("tables", SYNC_TABLES),
         ])
-        .timeout(Duration::from_secs(15));
+        .timeout(Duration::from_secs(45));
 
     // Send terminal secret for authentication
     if let Some(secret) = &state.config.cloud.terminal_secret {

@@ -212,7 +212,7 @@ export default function FleetPage() {
               className={`bg-[var(--color-rp-card)] rounded-lg p-3 border-l-4 ${statusBorder(ws, http, maintenance)} ${offline && !maintenance ? "opacity-50" : ""}`}
             >
               <div className="flex items-baseline justify-between mb-0.5">
-                <span className="text-sm font-bold text-white">Pod {pod.pod_number}</span>
+                <span className="text-sm font-bold text-white">{pod.node_type === 'pos' ? (pod.name || 'POS') : `Pod ${pod.pod_number}`}</span>
                 <span className="text-xs text-gray-400">{pod.version ? `v${pod.version}` : "v--"}</span>
               </div>
 
@@ -298,7 +298,7 @@ export default function FleetPage() {
         return (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setSelectedMaintenancePod(null)}>
             <div className="bg-[#222222] rounded-lg p-6 max-w-sm w-full mx-4 border border-[#333333]" onClick={e => e.stopPropagation()}>
-              <h2 className="text-lg font-bold text-white mb-2">Pod {pod.pod_number} — Maintenance</h2>
+              <h2 className="text-lg font-bold text-white mb-2">{pod.node_type === 'pos' ? (pod.name || 'POS') : `Pod ${pod.pod_number}`} — Maintenance</h2>
 
               {!pinVerified ? (
                 <div>

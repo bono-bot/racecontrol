@@ -655,6 +655,9 @@ pub struct BillingManager {
     /// outer lock is only held briefly (to get/insert the inner Arc), and the inner
     /// tokio::Mutex is held across async work without blocking other pods.
     pub billing_start_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// CONC-01: Per-driver lock to prevent same driver from starting sessions on multiple pods.
+    /// Same pattern as billing_start_locks but keyed on driver_id.
+    pub driver_billing_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl BillingManager {
@@ -665,6 +668,7 @@ impl BillingManager {
             multiplayer_waiting: RwLock::new(HashMap::new()),
             rate_tiers: RwLock::new(default_billing_rate_tiers()),
             billing_start_locks: std::sync::Mutex::new(HashMap::new()),
+            driver_billing_locks: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -674,6 +678,15 @@ impl BillingManager {
     pub fn get_billing_start_lock(&self, pod_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.billing_start_locks.lock().unwrap_or_else(|e| e.into_inner());
         locks.entry(pod_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    }
+
+    /// CONC-01: Get or create a per-driver lock for serializing billing starts.
+    /// Prevents the same driver from starting sessions on 2 pods simultaneously.
+    pub fn get_driver_billing_lock(&self, driver_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.driver_billing_locks.lock().unwrap_or_else(|e| e.into_inner());
+        locks.entry(driver_id.to_string())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .clone()
     }

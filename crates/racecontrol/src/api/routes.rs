@@ -3467,6 +3467,20 @@ async fn start_billing(
         return Json(json!({ "error": "pod_id, driver_id, and pricing_tier_id are required" }));
     }
 
+    // CONC-01: Acquire per-driver lock FIRST — prevents same driver from racing
+    // billing starts on different pods. Must be acquired before per-pod lock to
+    // maintain consistent lock ordering (driver → pod).
+    let driver_lock_arc = state.billing.get_driver_billing_lock(driver_id);
+    let _driver_lock = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        driver_lock_arc.lock(),
+    ).await {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Json(json!({ "error": format!("Billing request timed out for driver — another operation is in progress") }));
+        }
+    };
+
     // BATOM-01: Acquire per-pod lock to serialize concurrent start_billing calls.
     // This eliminates the TOCTOU window between pre-validation and waiting_for_game write.
     // Different pods are not blocked — only same-pod concurrent requests are serialized.
@@ -3558,6 +3572,21 @@ async fn start_billing(
     // LEGAL-03: Waiver gate — billing blocked if waiver not signed
     if !waiver_signed {
         return Json(json!({ "error": "Waiver signing required before billing. Please complete registration." }));
+    }
+
+    // CONC-01: Per-driver concurrency guard — prevent same driver from having
+    // simultaneous billing sessions on different pods.
+    // Found by Layer 1 concurrent stress test: race condition allowed double-booking.
+    let existing_driver_session = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, pod_id FROM billing_sessions WHERE driver_id = ? AND status IN ('active', 'waiting_for_game')",
+    )
+    .bind(driver_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    if let Some((_existing_id, existing_pod)) = existing_driver_session {
+        return Json(json!({ "error": format!("Driver already has an active session on {}", existing_pod) }));
     }
 
     // LEGAL-04/05: Minor protection — check age from DOB

@@ -264,7 +264,7 @@ function DiagnosisDashboard({
                       HEALTH_COLORS[pod.health] || "bg-zinc-600"
                     }`}
                   />
-                  <p className="text-xs font-medium">P{pod.pod_number}</p>
+                  <p className="text-xs font-medium">{pod.node_type === 'pos' ? 'POS' : `P${pod.pod_number}`}</p>
                 </button>
               ))}
           </div>
@@ -273,7 +273,7 @@ function DiagnosisDashboard({
           {selectedPodId && podEvents.length > 0 && (
             <div className="space-y-1">
               <h3 className="text-xs font-semibold text-zinc-400">
-                Pod {pods.find((p) => p.pod_id === selectedPodId)?.pod_number}{" "}
+                {(() => { const p = pods.find((p) => p.pod_id === selectedPodId); return p?.node_type === 'pos' ? (p.name || 'POS') : `Pod ${p?.pod_number}`; })()}{" "}
                 — Diagnostic Events
               </h3>
               {podEvents.slice(0, 10).map((evt, i) => (

@@ -42,7 +42,8 @@ function formatTime(isoStr: string): string {
   }
 }
 
-function getPodLabel(podNumber: number, podId: string): string {
+function getPodLabel(podNumber: number, podId: string, nodeType?: string, name?: string): string {
+  if (nodeType === 'pos') return name || 'POS';
   if (podNumber > 0) return `Pod ${podNumber}`;
   const last = podId.replace("pod_", "");
   return `Pod ${last}`;
@@ -382,10 +383,7 @@ export default function DebugPage() {
               Live Activity
               {selectedPodId && (
                 <span className="text-white ml-2 normal-case">
-                  — {getPodLabel(
-                    podHealth.find((p) => p.pod_id === selectedPodId)?.pod_number || 0,
-                    selectedPodId
-                  )}
+                  — {(() => { const p = podHealth.find((p) => p.pod_id === selectedPodId); return getPodLabel(p?.pod_number || 0, selectedPodId, p?.node_type, p?.name); })()}
                 </span>
               )}
             </h2>
@@ -441,7 +439,7 @@ export default function DebugPage() {
                           onClick={() => setSelectedPodId(entry.pod_id)}
                           className="text-xs text-zinc-400 hover:text-white w-12 flex-shrink-0 pt-0.5 text-left"
                         >
-                          Pod {entry.pod_number}
+                          {podHealth.find(p => p.pod_id === entry.pod_id)?.node_type === 'pos' ? 'POS' : `Pod ${entry.pod_number}`}
                         </button>
                       )}
 
@@ -591,7 +589,7 @@ export default function DebugPage() {
                       <option value="">All Pods</option>
                       {podHealth.map((p) => (
                         <option key={p.pod_id} value={p.pod_id}>
-                          Pod {p.pod_number}
+                          {p.node_type === 'pos' ? (p.name || 'POS') : `Pod ${p.pod_number}`}
                         </option>
                       ))}
                     </select>

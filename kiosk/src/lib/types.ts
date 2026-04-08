@@ -422,6 +422,8 @@ export type DebugHealthColor = "green" | "yellow" | "orange" | "red" | "grey";
 export interface PodHealth {
   pod_id: string;
   pod_number: number;
+  name?: string;
+  node_type?: string;
   seconds_since_heartbeat: number;
   health: DebugHealthColor;
   status: string;

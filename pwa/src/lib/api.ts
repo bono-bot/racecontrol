@@ -1268,6 +1268,8 @@ export const publicApi = {
 export interface PodHealth {
   pod_id: string;
   pod_number: number;
+  name?: string;
+  node_type?: string;
   seconds_since_heartbeat: number;
   health: string;
   status: string;
