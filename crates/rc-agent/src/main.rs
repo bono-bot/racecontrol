@@ -1059,6 +1059,8 @@ async fn main() -> Result<()> {
     if !config.lock_screen.enabled {
         lock_screen.set_browser_disabled(true);
     }
+    // Set blanking URL for Edge kiosk mode (animated blanking page instead of native black window)
+    lock_screen.set_blanking_url(config.lock_screen.blanking_url.clone());
     // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
     let lock_screen_rx = lock_screen.start_server_checked();
 

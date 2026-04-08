@@ -207,11 +207,19 @@ impl Default for KioskConfig {
 pub struct LockScreenConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// URL to display in Edge kiosk mode instead of native black window.
+    /// When set, `show_blank_screen()` launches Edge fullscreen to this URL.
+    /// Fallback: native Win32 black window if Edge launch fails.
+    #[serde(default)]
+    pub blanking_url: Option<String>,
 }
 
 impl Default for LockScreenConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            blanking_url: None,
+        }
     }
 }
 
