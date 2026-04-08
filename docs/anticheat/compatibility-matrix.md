@@ -110,10 +110,10 @@ telemetry_type = "shm"
 shm_safe = false                # Feature-flagged off until v1.0
 safe_mode_required = true
 
-[games.ea_wrc]
-anti_cheat = "eaac"
+[games.assetto_corsa_rally]
+anti_cheat = "none"
 telemetry_type = "udp"
-safe_mode_required = true
+safe_mode_required = false
 
 [games.assetto_corsa]
 anti_cheat = "none"
