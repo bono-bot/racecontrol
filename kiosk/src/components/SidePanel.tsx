@@ -27,24 +27,24 @@ export function SidePanel({ isOpen, title, subtitle, onClose, children }: SidePa
 
   return (
     <div
-      className={`flex flex-col border-l border-rp-border bg-rp-card transition-all duration-300 overflow-hidden ${
+      className={`flex flex-col border-l border-[#2A2A2A] bg-[#0A0A0A] transition-all duration-200 ease-in-out overflow-hidden ${
         isOpen ? "w-[60%] min-w-[480px] opacity-100" : "w-0 min-w-0 opacity-0"
       }`}
     >
       {isOpen && (
         <>
           {/* Panel Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-rp-border shrink-0">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-[#2A2A2A] shrink-0">
             <div>
-              <h2 className="text-sm font-semibold text-white">{title}</h2>
-              {subtitle && <p className="text-xs text-rp-grey">{subtitle}</p>}
+              <h2 className="text-xs font-semibold text-white uppercase tracking-[0.15em] font-sans">{title}</h2>
+              {subtitle && <p className="text-[10px] text-zinc-600 mt-0.5">{subtitle}</p>}
             </div>
             <button
               onClick={onClose}
-              className="text-rp-grey hover:text-white transition-colors p-1"
+              className="text-zinc-600 hover:text-white transition-colors duration-200 p-1.5 rounded hover:bg-[#1E1E1E] cursor-pointer"
               aria-label="Close panel"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
