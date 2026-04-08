@@ -79,6 +79,103 @@ fn is_steam_app_installed(app_id: u32) -> bool {
     std::path::Path::new(&manifest).exists()
 }
 
+/// Known Steam games and their SimType mapping.
+/// Used by warn_unconfigured_steam_games to detect installed-but-not-configured games.
+const KNOWN_STEAM_GAMES: &[(u32, SimType, &str)] = &[
+    (244210,  SimType::AssettoCorsa,      "Assetto Corsa"),
+    (3058630, SimType::AssettoCorsaEvo,    "Assetto Corsa EVO"),
+    (3917090, SimType::AssettoCorsaRally,  "Assetto Corsa Rally"),
+    (3059520, SimType::F125,              "F1 25"),
+    (266410,  SimType::IRacing,           "iRacing"),
+    (2399420, SimType::LeMansUltimate,    "Le Mans Ultimate"),
+    (1551360, SimType::ForzaHorizon5,     "Forza Horizon 5"),
+];
+
+/// Scan Steam library for installed games and warn about any that are installed
+/// but NOT configured in the TOML [games.*] sections.
+/// This is a diagnostic-only function — it does NOT auto-configure games.
+pub(crate) fn warn_unconfigured_steam_games(games: &GamesConfig) {
+    let steam_dir = r"C:\Program Files (x86)\Steam\steamapps";
+    let steam_path = std::path::Path::new(steam_dir);
+
+    if !steam_path.exists() {
+        return; // No Steam installation — skip silently
+    }
+
+    // Build set of configured Steam App IDs
+    let configured_app_ids: std::collections::HashSet<u32> = [
+        games.assetto_corsa.steam_app_id,
+        games.assetto_corsa_evo.steam_app_id,
+        games.assetto_corsa_rally.steam_app_id,
+        games.f1_25.steam_app_id,
+        games.iracing.steam_app_id,
+        games.le_mans_ultimate.steam_app_id,
+        games.forza.steam_app_id,
+        games.forza_horizon_5.steam_app_id,
+    ]
+    .iter()
+    .filter_map(|id| *id)
+    .collect();
+
+    let mut unconfigured = Vec::new();
+
+    for &(app_id, sim_type, name) in KNOWN_STEAM_GAMES {
+        if configured_app_ids.contains(&app_id) {
+            continue; // Already configured
+        }
+
+        // Check if installed on disk
+        let manifest = format!("{}\\appmanifest_{}.acf", steam_dir, app_id);
+        if std::path::Path::new(&manifest).exists() {
+            unconfigured.push((app_id, sim_type, name));
+        }
+    }
+
+    if !unconfigured.is_empty() {
+        tracing::warn!(
+            target: LOG_TARGET,
+            "GAME-DIAG: {} Steam game(s) installed but NOT configured in rc-agent.toml:",
+            unconfigured.len()
+        );
+        for (app_id, sim_type, name) in &unconfigured {
+            tracing::warn!(
+                target: LOG_TARGET,
+                "  → {} ({:?}) Steam AppID {} — add [games.{:?}] section to TOML",
+                name, sim_type, app_id, sim_type
+            );
+        }
+        tracing::warn!(
+            target: LOG_TARGET,
+            "  Fix: Add the [games.*] sections with steam_app_id and use_steam=true. \
+             See deploy/configs/rc-agent-pod*.toml for examples."
+        );
+    }
+
+    // Also scan for ANY unknown appmanifest files (games we don't know about)
+    if let Ok(entries) = std::fs::read_dir(steam_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            let fname_str = fname.to_string_lossy();
+            if fname_str.starts_with("appmanifest_") && fname_str.ends_with(".acf") {
+                if let Some(id_str) = fname_str.strip_prefix("appmanifest_").and_then(|s| s.strip_suffix(".acf")) {
+                    if let Ok(app_id) = id_str.parse::<u32>() {
+                        // Skip Steamworks Common Redistributables (228980) and known games
+                        let is_known = KNOWN_STEAM_GAMES.iter().any(|(id, _, _)| *id == app_id)
+                            || app_id == 228980;
+                        if !is_known && !configured_app_ids.contains(&app_id) {
+                            tracing::info!(
+                                target: LOG_TARGET,
+                                "GAME-DIAG: Unknown Steam app {} installed (not in known game registry)",
+                                app_id
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Validate agent configuration. Returns Err with all issues found (not fail-fast).
 ///
 /// Rules:

@@ -83,7 +83,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, Connector};
 
 use app_state::AppState;
 use feature_flags::FeatureFlags;
-use config::{load_config, detect_installed_games, NodeType};
+use config::{load_config, detect_installed_games, warn_unconfigured_steam_games, NodeType};
 use driving_detector::{
     DetectorConfig, DetectorSignal, DrivingDetector,
     is_input_active, is_steering_moving, parse_openffboard_report,
@@ -868,6 +868,8 @@ async fn main() -> Result<()> {
     } else {
         let games = detect_installed_games(&config.games);
         tracing::info!(target: LOG_TARGET, "Installed games: {:?}", games);
+        // Diagnostic: warn about Steam games installed but not in TOML
+        warn_unconfigured_steam_games(&config.games);
         games
     };
 
