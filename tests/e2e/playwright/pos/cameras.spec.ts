@@ -25,7 +25,7 @@ test.afterEach(async ({ page }, testInfo) => {
 // ---- Camera dashboard ----
 
 test('cameras: live page loads with camera grid', async ({ page }) => {
-  await page.goto('/cameras', { waitUntil: 'networkidle' });
+  await page.goto('/cameras', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);
@@ -36,7 +36,7 @@ test('cameras: live page loads with camera grid', async ({ page }) => {
 });
 
 test('cameras: fullscreen toggle exists on camera tiles', async ({ page }) => {
-  await page.goto('/cameras', { waitUntil: 'networkidle' });
+  await page.goto('/cameras', { waitUntil: 'domcontentloaded' });
 
   // Look for fullscreen buttons or expand icons
   const fsBtn = page.locator('button[aria-label*="fullscreen" i], [data-testid*="fullscreen"], [title*="fullscreen" i]');
@@ -48,7 +48,7 @@ test('cameras: fullscreen toggle exists on camera tiles', async ({ page }) => {
 });
 
 test('cameras: playback page loads', async ({ page }) => {
-  await page.goto('/cameras/playback', { waitUntil: 'networkidle' });
+  await page.goto('/cameras/playback', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);

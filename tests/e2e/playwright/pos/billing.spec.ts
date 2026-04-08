@@ -1,10 +1,33 @@
 import { test, expect } from '@playwright/test';
 
-// ---- JS error capture ----
+const API = process.env.API_BASE_URL ?? 'http://192.168.31.23:8080/api/v1';
+const STAFF_PIN = process.env.STAFF_PIN ?? '0009';
+
+let staffToken = '';
+
+test.beforeAll(async () => {
+  const res = await fetch(`${API}/staff/validate-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: STAFF_PIN }),
+  });
+  if (res.ok) {
+    const body = await res.json();
+    staffToken = body.token ?? '';
+  }
+});
+
+// ---- JS error capture + auth injection ----
 let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
   page.on('pageerror', (err) => jsErrors.push(err.message));
+  if (staffToken) {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate((token) => {
+      localStorage.setItem('rp_staff_jwt', token);
+    }, staffToken);
+  }
 });
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {
@@ -24,21 +47,20 @@ test.afterEach(async ({ page }, testInfo) => {
 
 // ---- Billing page interactions ----
 
-test('billing: active sessions page loads and shows table or empty state', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+test('billing: active sessions page loads and shows pod grid', async ({ page }) => {
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
-  // Should show either a table with sessions or an empty state
-  const table = page.locator('table, [role="table"]');
-  const emptyState = page.getByText(/no active|no sessions|empty/i);
+  // Should show billing heading
+  const heading = page.getByRole('heading', { name: /billing/i });
+  await expect(heading).toBeVisible({ timeout: 5000 });
 
-  const hasTable = await table.isVisible({ timeout: 5000 }).catch(() => false);
-  const hasEmpty = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
-
-  expect(hasTable || hasEmpty).toBe(true);
+  // Should show active count badge
+  const activeCount = page.getByText(/\d+\s*active/i);
+  await expect(activeCount).toBeVisible({ timeout: 5000 });
 });
 
 test('billing: history page loads with date filter', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);
@@ -51,7 +73,7 @@ test('billing: history page loads with date filter', async ({ page }) => {
 });
 
 test('billing: pricing page shows rate tiers', async ({ page }) => {
-  await page.goto('/billing/pricing', { waitUntil: 'networkidle' });
+  await page.goto('/billing/pricing', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);

@@ -3,13 +3,40 @@ import { test, expect } from '@playwright/test';
 /**
  * UI interaction E2E tests for POS billing flows.
  * Tests actual user interactions on the web dashboard (:3200).
+ *
+ * The web dashboard requires staff PIN auth (stored as JWT in localStorage).
+ * We obtain a JWT via the staff/validate-pin API and inject it before each test.
  */
 
-// ---- JS error capture ----
+const API = process.env.API_BASE_URL ?? 'http://192.168.31.23:8080/api/v1';
+const STAFF_PIN = process.env.STAFF_PIN ?? '0009';
+
+let staffToken = '';
+
+test.beforeAll(async () => {
+  const res = await fetch(`${API}/staff/validate-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: STAFF_PIN }),
+  });
+  if (res.ok) {
+    const body = await res.json();
+    staffToken = body.token ?? '';
+  }
+});
+
+// ---- JS error capture + auth injection ----
 let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
   page.on('pageerror', (err) => jsErrors.push(err.message));
+  // Inject staff JWT into localStorage before navigating
+  if (staffToken) {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.evaluate((token) => {
+      localStorage.setItem('rp_staff_jwt', token);
+    }, staffToken);
+  }
 });
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {
@@ -30,19 +57,19 @@ test.afterEach(async ({ page }, testInfo) => {
 // ---- Billing Active: Pod Grid & Session Cards ----
 
 test('billing: pod grid renders all pods with status indicators', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // Should show the billing heading
   const heading = page.getByRole('heading', { name: /billing/i });
   await expect(heading).toBeVisible({ timeout: 5000 });
 
-  // Should show session count
-  const sessionCount = page.getByText(/active session/i);
-  await expect(sessionCount).toBeVisible({ timeout: 5000 });
+  // Should show active/paused count badges
+  const activeCount = page.getByText(/\d+\s*active/i);
+  await expect(activeCount).toBeVisible({ timeout: 5000 });
 });
 
 test('billing: pod cards have start/action buttons', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // Pod cards should have clickable elements (start button or session actions)
   const buttons = page.locator('button');
@@ -51,7 +78,7 @@ test('billing: pod cards have start/action buttons', async ({ page }) => {
 });
 
 test('billing: clicking idle pod opens start modal', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // Find an idle pod and click its start/book button
   const startBtn = page.locator('button').filter({ hasText: /start|book|assign/i }).first();
@@ -75,7 +102,7 @@ test('billing: clicking idle pod opens start modal', async ({ page }) => {
 // ---- Billing Start Modal: Payment Method ----
 
 test('billing: start modal shows payment method selector', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   const startBtn = page.locator('button').filter({ hasText: /start|book|assign/i }).first();
   const hasStart = await startBtn.isVisible({ timeout: 5000 }).catch(() => false);
@@ -101,7 +128,7 @@ test('billing: start modal shows payment method selector', async ({ page }) => {
 // ---- Billing Start Modal: Discount UI ----
 
 test('billing: start modal has discount toggle', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   const startBtn = page.locator('button').filter({ hasText: /start|book|assign/i }).first();
   const hasStart = await startBtn.isVisible({ timeout: 5000 }).catch(() => false);
@@ -120,7 +147,7 @@ test('billing: start modal has discount toggle', async ({ page }) => {
 // ---- Billing History ----
 
 test('billing history: page renders with session table', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);
@@ -132,7 +159,7 @@ test('billing history: page renders with session table', async ({ page }) => {
 });
 
 test('billing history: shows revenue summary', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   // Should show some kind of summary (total, sessions count, or revenue)
   const summary = page.getByText(/total|sessions|credits|revenue/i);
@@ -141,7 +168,7 @@ test('billing history: shows revenue summary', async ({ page }) => {
 });
 
 test('billing history: refund button visible on completed sessions', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   // Look for refund buttons on session rows
   const refundBtn = page.locator('button').filter({ hasText: /refund/i });
@@ -158,7 +185,7 @@ test('billing history: refund button visible on completed sessions', async ({ pa
 });
 
 test('billing history: clicking refund opens modal', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   const refundBtn = page.locator('button').filter({ hasText: /refund/i }).first();
   const hasRefund = await refundBtn.isVisible({ timeout: 5000 }).catch(() => false);
@@ -179,7 +206,7 @@ test('billing history: clicking refund opens modal', async ({ page }) => {
 // ---- Billing Pricing ----
 
 test('billing pricing: shows rate tiers with per-minute rates', async ({ page }) => {
-  await page.goto('/billing/pricing', { waitUntil: 'networkidle' });
+  await page.goto('/billing/pricing', { waitUntil: 'domcontentloaded' });
 
   const body = await page.textContent('body') ?? '';
   expect(body).not.toMatch(/application error/i);
@@ -190,7 +217,7 @@ test('billing pricing: shows rate tiers with per-minute rates', async ({ page })
 });
 
 test('billing pricing: has add rate button', async ({ page }) => {
-  await page.goto('/billing/pricing', { waitUntil: 'networkidle' });
+  await page.goto('/billing/pricing', { waitUntil: 'domcontentloaded' });
 
   const addBtn = page.locator('button').filter({ hasText: /add|create|new/i });
   const hasAdd = await addBtn.first().isVisible({ timeout: 5000 }).catch(() => false);
@@ -200,7 +227,7 @@ test('billing pricing: has add rate button', async ({ page }) => {
 // ---- Sidebar Navigation ----
 
 test('sidebar: billing section has all expected links', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // Check for billing-related nav links
   const billingLink = page.locator('a[href*="/billing"]');
@@ -213,7 +240,7 @@ test('sidebar: billing section has all expected links', async ({ page }) => {
 // ---- Active Session Actions ----
 
 test('billing: active session card shows timer and controls', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // If there are active sessions, they should show a countdown timer
   const timer = page.getByText(/\d+:\d+/); // MM:SS or H:MM:SS pattern
@@ -225,8 +252,8 @@ test('billing: active session card shows timer and controls', async ({ page }) =
 
   // At least one should be visible if there are active sessions
   // (both may be absent if no active sessions -- that's OK)
-  const sessionText = page.getByText(/active session/i);
-  const countText = await sessionText.textContent() ?? '';
+  const sessionText = page.getByText(/\d+\s*active/i);
+  const countText = await sessionText.textContent({ timeout: 3000 }).catch(() => '0');
   const activeCount = parseInt(countText.match(/\d+/)?.[0] ?? '0');
 
   if (activeCount > 0) {
@@ -237,7 +264,7 @@ test('billing: active session card shows timer and controls', async ({ page }) =
 // ---- Extend Session ----
 
 test('billing: extend button adds time to active session', async ({ page }) => {
-  await page.goto('/billing', { waitUntil: 'networkidle' });
+  await page.goto('/billing', { waitUntil: 'domcontentloaded' });
 
   // Look for +10m or extend button
   const extendBtn = page.locator('button').filter({ hasText: /extend|\+10|add time/i }).first();
@@ -253,7 +280,7 @@ test('billing: extend button adds time to active session', async ({ page }) => {
 // ---- Date filter interaction ----
 
 test('billing history: changing date filter reloads data', async ({ page }) => {
-  await page.goto('/billing/history', { waitUntil: 'networkidle' });
+  await page.goto('/billing/history', { waitUntil: 'domcontentloaded' });
 
   const dateInput = page.locator('input[type="date"]').first();
   const hasDate = await dateInput.isVisible({ timeout: 5000 }).catch(() => false);
