@@ -9,8 +9,12 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
     }
 
     let url = format!("sqlite:{}?mode=rwc", db_path);
+    // RESIL-02: Pool sized for concurrent readers (dashboard, fleet health, leaderboard,
+    // cloud sync) alongside the single SQLite writer. 10 connections = headroom for 8 pods'
+    // dashboard queries + admin + POS without pool exhaustion. Writes are still serialized
+    // by SQLite's single-writer — more connections help reads, not writes.
     let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(10)
         .max_lifetime(std::time::Duration::from_secs(300))
         .connect(&url)
         .await?;

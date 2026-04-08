@@ -1092,9 +1092,26 @@ async fn detect_fleet_anomalies(
 ///
 /// Pods that have never sent a WS message still appear with
 /// ws_connected=false, http_reachable=false, and all optional fields null.
+/// RESIL-07: Fleet health response cache — avoids repeated DB queries + 4 lock reads.
+/// Dashboard polls every 5s; cache ensures only 1 actual computation per 5s window.
+static FLEET_HEALTH_CACHE: std::sync::LazyLock<tokio::sync::RwLock<(Option<Value>, std::time::Instant)>> =
+    std::sync::LazyLock::new(|| tokio::sync::RwLock::new((None, std::time::Instant::now())));
+
+const FLEET_HEALTH_CACHE_TTL_SECS: u64 = 5;
+
 pub async fn fleet_health_handler(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
+    // RESIL-07: Return cached response if fresh (< 5s old)
+    {
+        let cache = FLEET_HEALTH_CACHE.read().await;
+        if let (Some(ref cached), ts) = *cache {
+            if ts.elapsed().as_secs() < FLEET_HEALTH_CACHE_TTL_SECS {
+                return Json(cached.clone());
+            }
+        }
+    }
+
     // Bug #9: Acquire and release each lock sequentially to avoid holding 4 read locks.
     let pods_snapshot = { state.pods.read().await.clone() };
     let senders_snapshot: HashMap<String, bool> = {
@@ -1328,7 +1345,7 @@ pub async fn fleet_health_handler(
         "healthy": ws_connects < 10,
     });
 
-    Json(json!({
+    let response = json!({
         "pods": result,
         "services": services,
         "displays": display_status,
@@ -1336,7 +1353,15 @@ pub async fn fleet_health_handler(
         "dashboard_ws_churn": churn_json,
         "venue_open": crate::venue_state::venue_is_open(),
         "timestamp": Utc::now().to_rfc3339(),
-    }))
+    });
+
+    // RESIL-07: Cache the response for 5s
+    {
+        let mut cache = FLEET_HEALTH_CACHE.write().await;
+        *cache = (Some(response.clone()), std::time::Instant::now());
+    }
+
+    Json(response)
 }
 
 // ── Phase 105 (v11.2): Sentry crash report endpoint ──────────────────────────

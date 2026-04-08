@@ -3,7 +3,11 @@ use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::key_extractor::PeerIpKeyExtractor;
 use tower_governor::GovernorLayer;
 
-/// Rate limit layer for auth endpoints: 5 requests per 60 seconds per IP.
+/// Rate limit layer for auth endpoints: 20 requests burst per IP, replenish 1/3s.
+///
+/// RESIL-03: Burst increased from 5 to 20 for venue LAN — at peak load, 8 pods + kiosk
+/// can submit 9+ concurrent PIN validations. Previous burst=5 rejected 4/9 registrations
+/// on shared LAN IP (NAT). Replenish rate increased from 12s to 3s per token.
 ///
 /// Applied to: /auth/admin-login, /customer/login, /customer/verify-otp,
 ///             /auth/validate-pin, /auth/kiosk/validate-pin
@@ -12,8 +16,8 @@ use tower_governor::GovernorLayer;
 /// Requires `into_make_service_with_connect_info::<SocketAddr>()` on the server.
 pub fn auth_rate_limit_layer() -> GovernorLayer<PeerIpKeyExtractor, governor::middleware::NoOpMiddleware<governor::clock::QuantaInstant>, axum::body::Body> {
     let config = GovernorConfigBuilder::default()
-        .per_second(12) // Replenish 1 token every 12 seconds
-        .burst_size(5) // Max burst: 5 requests
+        .per_second(3) // Replenish 1 token every 3 seconds (~20/min)
+        .burst_size(20) // Max burst: 20 requests (handles 8 pods + kiosk + staff simultaneously)
         .finish()
         .expect("GovernorConfig builder: burst_size and period are non-zero");
 
@@ -39,11 +43,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limit_first_five_requests_succeed() {
+    async fn rate_limit_first_twenty_requests_succeed() {
         let app = test_router();
         let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
 
-        for i in 0..5 {
+        for i in 0..20 {
             let req = axum::http::Request::builder()
                 .uri("/rate-limited")
                 .extension(ConnectInfo(addr))
@@ -61,12 +65,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rate_limit_sixth_rapid_request_returns_429() {
+    async fn rate_limit_21st_rapid_request_returns_429() {
         let app = test_router();
         let addr: SocketAddr = "127.0.0.1:12346".parse().unwrap();
 
-        // Exhaust the 5-request burst
-        for _ in 0..5 {
+        // Exhaust the 20-request burst
+        for _ in 0..20 {
             let req = axum::http::Request::builder()
                 .uri("/rate-limited")
                 .extension(ConnectInfo(addr))
@@ -75,7 +79,7 @@ mod tests {
             let _: axum::http::Response<_> = app.clone().oneshot(req).await.unwrap();
         }
 
-        // 6th request should be rate limited
+        // 21st request should be rate limited
         let req = axum::http::Request::builder()
             .uri("/rate-limited")
             .extension(ConnectInfo(addr))
@@ -85,7 +89,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             axum::http::StatusCode::TOO_MANY_REQUESTS,
-            "6th rapid request should return 429"
+            "21st rapid request should return 429"
         );
     }
 
@@ -96,7 +100,7 @@ mod tests {
         let addr2: SocketAddr = "10.0.0.2:2222".parse().unwrap();
 
         // Exhaust IP1's burst
-        for _ in 0..5 {
+        for _ in 0..20 {
             let req = axum::http::Request::builder()
                 .uri("/rate-limited")
                 .extension(ConnectInfo(addr1))

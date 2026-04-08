@@ -42,8 +42,10 @@ pub async fn init_telemetry_db(db_path: &str) -> anyhow::Result<SqlitePool> {
     }
 
     let url = format!("sqlite:{}?mode=rwc", db_path);
+    // RESIL-02: Pool sized for 8 pods × 10Hz writes + dashboard telemetry reads.
+    // Previous pool=3 caused insert stalls when dashboard queried playback data.
     let pool = SqlitePoolOptions::new()
-        .max_connections(3)
+        .max_connections(8)
         .max_lifetime(std::time::Duration::from_secs(300))
         .connect(&url)
         .await?;

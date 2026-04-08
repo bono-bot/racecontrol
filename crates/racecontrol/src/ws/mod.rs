@@ -2436,7 +2436,15 @@ async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         let event = match event {
             Ok(e) => e,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                tracing::debug!("Dashboard WS broadcast lagged by {n} messages — skipping");
+                // RESIL-05: Escalate lagged consumers from debug to warn.
+                // At >500 messages lag (~5 seconds at 100 msg/sec), disconnect to prevent cascade.
+                // Threshold must be high enough to survive brief WiFi hiccups (1-2s = 100-200 msgs)
+                // without triggering reconnect storms, but low enough to drop truly dead clients.
+                if n > 500 {
+                    tracing::warn!("Dashboard WS broadcast lagged by {n} messages — disconnecting slow consumer");
+                    break;
+                }
+                tracing::warn!("Dashboard WS broadcast lagged by {n} messages — catching up");
                 continue;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

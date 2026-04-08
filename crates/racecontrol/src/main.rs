@@ -1040,6 +1040,37 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // RESIL-09: Spawn HashMap eviction task (60 second interval)
+    // Evicts stale entries from pending_ws_execs, pending_command_acks, and
+    // chain_failure_tracker that accumulate from crashed pods or timed-out operations.
+    let evict_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            // Evict closed oneshot senders from pending_ws_execs
+            {
+                let mut execs = evict_state.pending_ws_execs.write().await;
+                let before = execs.len();
+                execs.retain(|_, sender| !sender.is_closed());
+                let evicted = before - execs.len();
+                if evicted > 0 {
+                    tracing::debug!("RESIL-09: evicted {} stale pending_ws_execs entries", evicted);
+                }
+            }
+            // Evict closed oneshot senders from pending_command_acks
+            {
+                let mut acks = evict_state.pending_command_acks.write().await;
+                let before = acks.len();
+                acks.retain(|_, sender| !sender.is_closed());
+                let evicted = before - acks.len();
+                if evicted > 0 {
+                    tracing::debug!("RESIL-09: evicted {} stale pending_command_acks entries", evicted);
+                }
+            }
+        }
+    });
+
     // Spawn camera control tick loop (2 second interval)
     let cam_state = state.clone();
     tokio::spawn(async move {

@@ -72,6 +72,10 @@ pub struct GameManager {
     pub active_games: RwLock<HashMap<String, GameTracker>>,
     /// CLOSED-LOOP: Result of the last launch verification (used by API response).
     pub last_launch_verified: std::sync::atomic::AtomicBool,
+    /// RESIL-06: Concurrency gate — max 4 simultaneous game launches.
+    /// Prevents port starvation (16 ports / 4 = 4 ports per launch for retry headroom)
+    /// and reduces server load during peak launch storms (8 pods all launching at once).
+    pub launch_semaphore: tokio::sync::Semaphore,
 }
 
 /// Result of a game launch with closed-loop verification.
@@ -87,6 +91,7 @@ impl GameManager {
         Self {
             active_games: RwLock::new(HashMap::new()),
             last_launch_verified: std::sync::atomic::AtomicBool::new(false),
+            launch_semaphore: tokio::sync::Semaphore::new(4),
         }
     }
 }
@@ -255,6 +260,22 @@ async fn launch_game(
     sim_type: SimType,
     launch_args: Option<String>,
 ) -> Result<(), String> {
+    // RESIL-06: Acquire launch semaphore (max 4 concurrent launches) with 30s timeout.
+    // Prevents port starvation when 8 pods launch simultaneously.
+    // Timeout prevents deadlock if a launch hangs (pod offline mid-launch, WS never returns).
+    // Without timeout: 4 hung launches = no more launches possible, entire venue blocked.
+    let _permit = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        state.game_launcher.launch_semaphore.acquire(),
+    ).await {
+        Ok(Ok(permit)) => permit,
+        Ok(Err(_)) => return Err("Launch semaphore closed".to_string()),
+        Err(_) => {
+            tracing::warn!("RESIL-06: Launch semaphore timeout (30s) for pod {} — 4 other launches in progress", pod_id);
+            return Err("Server busy — too many concurrent game launches. Please wait 30 seconds.".to_string());
+        }
+    };
+
     // Normalize pod_id to canonical form (pod_N) at function entry
     let pod_id_owned = normalize_pod_id(pod_id).map_err(|e| format!("Invalid pod ID: {}", e))?;
     let pod_id = pod_id_owned.as_str();
