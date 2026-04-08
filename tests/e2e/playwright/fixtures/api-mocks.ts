@@ -26,8 +26,8 @@ const MOCK_PODS = [
 
 const MOCK_GAMES_CATALOG = [
   { id: "assetto_corsa", name: "Assetto Corsa", abbr: "AC", installed_pod_count: 8 },
-  { id: "assetto_corsa_evo", name: "Assetto Corsa Evo", abbr: "ACE", installed_pod_count: 0 },
-  { id: "assetto_corsa_rally", name: "Assetto Corsa Rally", abbr: "ACR", installed_pod_count: 0 },
+  { id: "assetto_corsa_evo", name: "Assetto Corsa Evo", abbr: "ACE", installed_pod_count: 8 },
+  { id: "assetto_corsa_rally", name: "EA SPORTS WRC", abbr: "WRC", installed_pod_count: 8 },
   { id: "iracing", name: "iRacing", abbr: "iR", installed_pod_count: 6 },
   { id: "le_mans_ultimate", name: "Le Mans Ultimate", abbr: "LMU", installed_pod_count: 4 },
   { id: "f1_25", name: "F1 25", abbr: "F1", installed_pod_count: 8 },
