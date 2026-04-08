@@ -47,5 +47,13 @@ export default defineConfig({
         baseURL: process.env.KIOSK_BASE_URL ?? 'http://192.168.31.23:3300/kiosk',
       },
     },
+    {
+      name: 'admin',
+      testDir: './tests/e2e/playwright/admin',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.ADMIN_BASE_URL ?? 'http://192.168.31.23:3201',
+      },
+    },
   ],
 });
