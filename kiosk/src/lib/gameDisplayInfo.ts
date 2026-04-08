@@ -12,42 +12,42 @@ export interface GameDisplayEntry {
 export const GAME_DISPLAY: Record<string, GameDisplayEntry> = {
   assetto_corsa: {
     name: "Assetto Corsa",
-    logo: "/game-logos/assetto-corsa.png",
+    logo: "/game-logos/assetto-corsa.svg",
     abbr: "AC",
   },
   assetto_corsa_evo: {
     name: "AC EVO",
-    logo: "/game-logos/assetto-corsa-evo.png",
+    logo: "/game-logos/assetto-corsa-evo.svg",
     abbr: "ACE",
   },
   ea_wrc: {
     name: "EA SPORTS WRC",
-    logo: "/game-logos/ea-wrc.png",
+    logo: "/game-logos/ea-wrc.svg",
     abbr: "WRC",
   },
   iracing: {
     name: "iRacing",
-    logo: "/game-logos/iracing.png",
+    logo: "/game-logos/iracing.svg",
     abbr: "iR",
   },
   f1_25: {
     name: "F1 25",
-    logo: "/game-logos/f1-25.png",
+    logo: "/game-logos/f1-25.svg",
     abbr: "F1",
   },
   le_mans_ultimate: {
     name: "Le Mans Ultimate",
-    logo: "/game-logos/le-mans-ultimate.png",
+    logo: "/game-logos/le-mans-ultimate.svg",
     abbr: "LMU",
   },
   forza: {
     name: "Forza Motorsport",
-    logo: "/game-logos/forza.png",
+    logo: "/game-logos/forza.svg",
     abbr: "FM",
   },
   forza_horizon_5: {
     name: "Forza Horizon 5",
-    logo: "/game-logos/forza-horizon-5.png",
+    logo: "/game-logos/forza-horizon-5.svg",
     abbr: "FH5",
   },
 };
@@ -63,7 +63,7 @@ export function mergeApiCatalog(
       // New game from API that isn't in fallback — add it dynamically
       merged[game.id] = {
         name: game.name,
-        logo: `/game-logos/${game.id.replace(/_/g, "-")}.png`,
+        logo: `/game-logos/${game.id.replace(/_/g, "-")}.svg`,
         abbr: game.abbr,
       };
     } else {

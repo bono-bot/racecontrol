@@ -1,7 +1,33 @@
 @import "tailwindcss";
-@import "../../../packages/shared-tokens/tokens.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
+/* Racing Point Design Tokens (inlined from packages/shared-tokens/tokens.css) */
+:root {
+  --rp-red:       #E10600;
+  --rp-red-hover: #FF1A1A;
+  --rp-black:     #1A1A1A;
+  --rp-grey:      #5A5A5A;
+  --rp-surface:   #2A2A2A;
+  --rp-card:      #222222;
+  --rp-border:    #333333;
+  --rp-green:     #16a34a;
+  --rp-yellow:    #ca8a04;
+  --rp-purple:    #a855f7;
+}
+
+@theme inline {
+  --color-rp-red:       var(--rp-red);
+  --color-rp-red-hover: var(--rp-red-hover);
+  --color-rp-black:     var(--rp-black);
+  --color-rp-grey:      var(--rp-grey);
+  --color-rp-surface:   var(--rp-surface);
+  --color-rp-card:      var(--rp-card);
+  --color-rp-border:    var(--rp-border);
+  --color-rp-green:     var(--rp-green);
+  --color-rp-yellow:    var(--rp-yellow);
+  --color-rp-purple:    var(--rp-purple);
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -74,18 +100,54 @@ body {
 
 /* Racing red glow for active pods */
 @keyframes red-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(225, 6, 0, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(225, 6, 0, 0.6); }
+  0%, 100% { box-shadow: 0 0 8px rgba(225, 6, 0, 0.3), inset 0 0 0 1px rgba(225, 6, 0, 0.15); }
+  50% { box-shadow: 0 0 24px rgba(225, 6, 0, 0.5), inset 0 0 0 1px rgba(225, 6, 0, 0.3); }
 }
 
 .glow-active {
-  animation: red-glow 3s ease-in-out infinite;
+  animation: red-glow 2.5s ease-in-out infinite;
+}
+
+/* Green available pulse */
+@keyframes green-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.2), inset 0 0 0 1px rgba(34, 197, 94, 0.1); }
+  50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.35), inset 0 0 0 1px rgba(34, 197, 94, 0.2); }
+}
+
+.glow-available {
+  animation: green-pulse 3s ease-in-out infinite;
+}
+
+/* Breathing text for READY state */
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Speed gauge sweep */
+@keyframes gauge-sweep {
+  from { stroke-dashoffset: var(--gauge-circumference); }
+  to { stroke-dashoffset: var(--gauge-offset); }
 }
 
 /* Toast slide-up animation */
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Lap ticker scroll */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-scroll {
+  animation: ticker-scroll 30s linear infinite;
 }
 
 /* Racing Point brand -- dark-first (no light mode) */

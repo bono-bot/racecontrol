@@ -1,7 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
 import { useState, useEffect, useMemo } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { GAME_DISPLAY } from "@/lib/gameDisplayInfo";
@@ -33,6 +33,105 @@ function formatTrackName(track: string): string {
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+// ─── RPM Arc Gauge ──────────────────────────────────────────────────────
+function RpmGauge({ rpm, maxRpm, gear, speed }: { rpm: number; maxRpm: number; gear: number; speed: number }) {
+  const size = 170;
+  const cx = size / 2;
+  const cy = size / 2 + 6;
+  const r = 68;
+  const startAngle = -225;
+  const endAngle = 45;
+  const totalAngle = endAngle - startAngle;
+
+  const pct = Math.min(maxRpm > 0 ? rpm / maxRpm : 0, 1);
+  const activeAngle = pct * totalAngle;
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const arcStart = startAngle;
+  const arcEnd = startAngle + activeAngle;
+
+  const x1 = cx + r * Math.cos(toRad(arcStart));
+  const y1 = cy + r * Math.sin(toRad(arcStart));
+  const x2 = cx + r * Math.cos(toRad(arcEnd));
+  const y2 = cy + r * Math.sin(toRad(arcEnd));
+
+  const bgX2 = cx + r * Math.cos(toRad(endAngle));
+  const bgY2 = cy + r * Math.sin(toRad(endAngle));
+
+  const largeArc = activeAngle > 180 ? 1 : 0;
+  const bgLargeArc = totalAngle > 180 ? 1 : 0;
+
+  const rpmColor = pct > 0.9 ? "#E10600" : pct > 0.7 ? "#F59E0B" : "#22C55E";
+  const gearLabel = gear === -1 ? "R" : gear === 0 ? "N" : String(gear);
+  const rpmDisplay = Math.round(rpm).toLocaleString();
+
+  return (
+    <svg width={size} height={size - 16} viewBox={`0 0 ${size} ${size - 16}`}>
+      <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${bgLargeArc} 1 ${bgX2} ${bgY2}`}
+        fill="none" stroke="#2A2A2A" strokeWidth={8} strokeLinecap="round" />
+      {pct > 0.01 && (
+        <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`}
+          fill="none" stroke={rpmColor} strokeWidth={8} strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 8px ${rpmColor}90)` }} />
+      )}
+      <text x={cx} y={cy - 12} textAnchor="middle" dominantBaseline="central"
+        className="font-display" fill="white" fontSize="42" fontWeight="bold">{gearLabel}</text>
+      <text x={cx} y={cy + 20} textAnchor="middle" dominantBaseline="central"
+        className="font-mono" fill="white" fontSize="20" fontWeight="700">{Math.round(speed)}</text>
+      <text x={cx} y={cy + 35} textAnchor="middle" dominantBaseline="central"
+        className="font-mono" fill="#555" fontSize="9">km/h</text>
+      <text x={cx} y={cy + 52} textAnchor="middle" dominantBaseline="central"
+        className="font-mono" fill={rpmColor} fontSize="10" fontWeight="600">{rpmDisplay} RPM</text>
+    </svg>
+  );
+}
+
+// ─── Lap History ────────────────────────────────────────────────────────
+function LapHistory({ laps, bestLapMs }: { laps: Lap[]; bestLapMs: number }) {
+  const recent = laps
+    .filter((l) => l.lap_time_ms > 0)
+    .slice(0, 4);
+
+  if (recent.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-0.5 max-h-[60px] overflow-hidden">
+      {recent.map((lap, i) => {
+        const isBest = lap.valid && lap.lap_time_ms === bestLapMs;
+        return (
+          <div key={lap.id || i} className="flex items-center justify-between text-xs font-mono">
+            <span className="text-[#555] w-6">L{recent.length - i}</span>
+            <span className={
+              !lap.valid
+                ? "text-red-500/70 line-through"
+                : isBest
+                  ? "text-purple-400 font-semibold"
+                  : "text-emerald-400"
+            }>
+              {formatLapTime(lap.lap_time_ms)}
+            </span>
+            {!lap.valid && <span className="text-red-500/50 text-[9px] ml-1">INV</span>}
+            {isBest && <span className="text-purple-400 text-[9px] ml-1">PB</span>}
+            {lap.valid && !isBest && <span className="text-transparent text-[9px] ml-1">--</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Game color map for badge dots
+const GAME_COLORS: Record<string, string> = {
+  assetto_corsa: "#E10600",
+  assetto_corsa_evo: "#FF3300",
+  f1_25: "#E10600",
+  iracing: "#0056B3",
+  le_mans_ultimate: "#003366",
+  forza: "#107C10",
+  forza_horizon_5: "#E9A200",
+  ea_wrc: "#0066CC",
+};
 
 // ─── Customer Landing Page ───────────────────────────────────────────────
 
@@ -332,97 +431,58 @@ function ActivePodCard({
 }) {
   const remaining = billing.remaining_seconds ?? 0;
   const speed = telemetry?.speed_kmh ?? 0;
+  const rpm = telemetry?.rpm ?? 0;
+  const maxRpm = 9000; // AC default; real max_rpm not in TelemetryFrame yet
+  const gear = telemetry?.gear ?? 0;
   const lapCount = telemetry?.lap_number ?? 0;
   const simType = gameInfo?.sim_type || "";
+  const track = telemetry?.track || "";
+  const car = telemetry?.car || "";
 
-  // Game logo from gameDisplayInfo
   const gameEntry = simType ? GAME_DISPLAY[simType] : undefined;
-  const logoSrc = gameEntry?.logo;
+  const gameColor = GAME_COLORS[simType] || "#666";
 
-  // Best/last lap
   const validLaps = podLaps.filter((l) => l.valid && l.lap_time_ms > 0);
-  const bestLap =
-    validLaps.length > 0
-      ? Math.min(...validLaps.map((l) => l.lap_time_ms))
-      : 0;
-  const lastLap =
-    validLaps.length > 0 ? validLaps[0]?.lap_time_ms ?? 0 : 0;
+  const bestLap = validLaps.length > 0 ? Math.min(...validLaps.map((l) => l.lap_time_ms)) : 0;
 
   const timerCritical = remaining < 300;
 
   return (
     <div className="rounded-lg bg-[#141414] border-l-[3px] border-l-rp-red border border-[#2A2A2A] flex flex-col overflow-hidden motion-safe:glow-active">
-      {/* Top bar: Pod number + Game logo */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#2A2A2A]">
-        <div className="flex items-center gap-2">
-          <span className="text-xl font-bold text-white font-display leading-none">
-            {padPod(pod.number)}
-          </span>
-          <span className="text-sm text-[#888] truncate max-w-[120px]">
-            {billing.driver_name}
-          </span>
+      {/* Header */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-[#2A2A2A]">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-sm font-bold text-rp-red font-display tracking-wider">POD {padPod(pod.number)}</span>
+          {gameEntry && (
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1E1E1E] border border-[#333]">
+              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: gameColor }} />
+              <span className="text-[11px] text-[#aaa] font-semibold tracking-wide">{gameEntry.abbr}</span>
+            </span>
+          )}
         </div>
-        {logoSrc && (
-          <Image
-            src={logoSrc}
-            alt={gameEntry?.name || simType}
-            width={32}
-            height={32}
-            className="opacity-80"
-          />
+        <p className="text-base font-semibold text-white truncate leading-tight">{billing.driver_name}</p>
+        {(car || track) && (
+          <p className="text-[10px] text-[#555] font-mono truncate mt-0.5">
+            {car && formatTrackName(car)}{car && track ? "  ·  " : ""}{track && formatTrackName(track)}
+          </p>
         )}
       </div>
 
-      {/* Telemetry content */}
-      <div className="flex-1 flex flex-col justify-between px-3 py-2">
-        {/* Speed - hero metric */}
-        <div className="flex items-baseline gap-1">
-          <span className="text-4xl font-bold text-white font-display leading-none tabular-nums">
-            {Math.round(speed)}
-          </span>
-          <span className="text-xs text-[#666] font-mono">km/h</span>
-        </div>
-
-        {/* Lap + Timer row */}
-        <div className="flex items-center justify-between mt-1">
-          <span className="text-sm text-[#888] font-mono">
-            LAP {lapCount}
-          </span>
-          <span
-            className={`text-sm font-mono tabular-nums font-semibold ${
-              timerCritical
-                ? "text-rp-red motion-safe:animate-pulse"
-                : "text-[#888]"
-            }`}
-          >
+      {/* Telemetry: gauge centered + data below */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-1">
+          <span className={`text-base font-mono tabular-nums font-bold ${timerCritical ? "text-rp-red motion-safe:animate-pulse" : "text-white"}`}>
             {formatTimer(remaining)}
           </span>
+          <span className="text-sm font-mono text-[#888]">LAP {lapCount}</span>
         </div>
 
-        {/* Lap times */}
-        <div className="flex items-center justify-between mt-1 gap-2">
-          <div className="flex flex-col">
-            <span
-              className="text-[#666] uppercase tracking-wider font-mono"
-              style={{ fontSize: "0.55rem" }}
-            >
-              Best
-            </span>
-            <span className="text-sm font-semibold text-purple-400 font-mono tabular-nums">
-              {formatLapTime(bestLap)}
-            </span>
-          </div>
-          <div className="flex flex-col items-end">
-            <span
-              className="text-[#666] uppercase tracking-wider font-mono"
-              style={{ fontSize: "0.55rem" }}
-            >
-              Last
-            </span>
-            <span className="text-sm font-semibold text-emerald-400 font-mono tabular-nums">
-              {formatLapTime(lastLap)}
-            </span>
-          </div>
+        <div className="flex-1 flex items-center justify-center -mt-1 -mb-2">
+          <RpmGauge rpm={rpm} maxRpm={maxRpm} gear={gear} speed={speed} />
+        </div>
+
+        <div className="px-3 pb-2">
+          <LapHistory laps={podLaps} bestLapMs={bestLap} />
         </div>
       </div>
     </div>
