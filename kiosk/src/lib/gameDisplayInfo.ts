@@ -20,10 +20,10 @@ export const GAME_DISPLAY: Record<string, GameDisplayEntry> = {
     logo: "/game-logos/assetto-corsa-evo.svg",
     abbr: "ACE",
   },
-  ea_wrc: {
-    name: "EA SPORTS WRC",
-    logo: "/game-logos/ea-wrc.svg",
-    abbr: "WRC",
+  assetto_corsa_rally: {
+    name: "Assetto Corsa Rally",
+    logo: "/game-logos/assetto-corsa-rally.svg",
+    abbr: "ACR",
   },
   iracing: {
     name: "iRacing",

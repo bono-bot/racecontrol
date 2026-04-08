@@ -35,7 +35,7 @@ const GAME_STYLES: Record<string, { icon: string; color: string; bg: string; bor
 const FALLBACK_GAMES: GameEntry[] = [
   { id: "assetto_corsa",       name: "Assetto Corsa",     ...GAME_STYLES.assetto_corsa },
   { id: "assetto_corsa_evo",   name: "AC EVO",            ...GAME_STYLES.assetto_corsa_evo },
-  { id: "assetto_corsa_rally", name: "EA WRC",            ...GAME_STYLES.assetto_corsa_rally },
+  { id: "assetto_corsa_rally", name: "AC Rally",           ...GAME_STYLES.assetto_corsa_rally },
   { id: "iracing",             name: "iRacing",           ...GAME_STYLES.iracing },
   { id: "f1_25",               name: "F1 25",             ...GAME_STYLES.f1_25 },
   { id: "le_mans_ultimate",    name: "Le Mans Ultimate",  ...GAME_STYLES.le_mans_ultimate },

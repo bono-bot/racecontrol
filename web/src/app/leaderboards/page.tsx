@@ -52,7 +52,7 @@ function formatLapTime(ms: number): string {
 const SIM_TYPES = [
   { value: "assetto_corsa", label: "Assetto Corsa" },
   { value: "assetto_corsa_evo", label: "AC EVO" },
-  { value: "assetto_corsa_rally", label: "EA WRC" },
+  { value: "assetto_corsa_rally", label: "AC Rally" },
   { value: "iracing", label: "iRacing" },
   { value: "f1_25", label: "F1 25" },
   { value: "le_mans_ultimate", label: "Le Mans Ultimate" },

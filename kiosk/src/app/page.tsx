@@ -130,7 +130,7 @@ const GAME_COLORS: Record<string, string> = {
   le_mans_ultimate: "#003366",
   forza: "#107C10",
   forza_horizon_5: "#E9A200",
-  ea_wrc: "#0066CC",
+  assetto_corsa_rally: "#0066CC",
 };
 
 // ─── Customer Landing Page ───────────────────────────────────────────────

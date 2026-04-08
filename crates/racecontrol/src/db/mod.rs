@@ -932,8 +932,8 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT OR IGNORE INTO kiosk_experiences (id, name, game, track, car, car_class, duration_minutes, start_type, sort_order)
          VALUES
-            ('exp_rally_classic_30', 'Rally — Classic Cars', 'ea_wrc', 'default', 'default', 'A', 30, 'default', 20),
-            ('exp_rally_modern_30', 'Rally — Modern WRC', 'ea_wrc', 'default', 'default', 'A', 30, 'default', 21),
+            ('exp_rally_classic_30', 'Rally — Classic Cars', 'assetto_corsa_rally', 'default', 'default', 'A', 30, 'default', 20),
+            ('exp_rally_modern_30', 'Rally — Modern Rally', 'assetto_corsa_rally', 'default', 'default', 'A', 30, 'default', 21),
             ('exp_evo_hotlap_30', 'AC EVO Hot Lap', 'assetto_corsa_evo', 'default', 'default', 'A', 30, 'default', 30),
             ('exp_evo_hotlap_60', 'AC EVO Hot Lap (Long)', 'assetto_corsa_evo', 'default', 'default', 'A', 60, 'default', 31),
             ('exp_fh5_freeroam_30', 'Forza Horizon 5', 'forza_horizon_5', 'mexico', 'default', 'A', 30, 'default', 40),
@@ -969,12 +969,12 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         "UPDATE kiosk_experiences SET car = 'ks_lamborghini_aventador_sv', name = 'Spa Hot Lap — Supercar' WHERE id = 'exp_spa_road_30'"
     ).execute(pool).await?;
 
-    // Fix rally game ID: assetto_corsa_rally → ea_wrc (they are different games)
+    // Fix rally game ID: ea_wrc → assetto_corsa_rally (renamed to Assetto Corsa Rally)
     sqlx::query(
-        "UPDATE kiosk_experiences SET game = 'ea_wrc', name = 'Rally — Classic Cars' WHERE id = 'exp_rally_classic_30'"
+        "UPDATE kiosk_experiences SET game = 'assetto_corsa_rally', name = 'Rally — Classic Cars' WHERE id = 'exp_rally_classic_30'"
     ).execute(pool).await?;
     sqlx::query(
-        "UPDATE kiosk_experiences SET game = 'ea_wrc', name = 'Rally — Modern WRC' WHERE id = 'exp_rally_modern_30'"
+        "UPDATE kiosk_experiences SET game = 'assetto_corsa_rally', name = 'Rally — Modern Rally' WHERE id = 'exp_rally_modern_30'"
     ).execute(pool).await?;
 
     // Fix trial car: F1 car too harsh for beginners → use a GT road car

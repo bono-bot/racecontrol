@@ -16,7 +16,6 @@ const SIM_TYPE_LABELS: Record<string, string> = {
   f1_25: "F1 25",
   forza: "Forza",
   forza_horizon_5: "Forza H5",
-  ea_wrc: "EA WRC",
 };
 
 const SIM_TYPE_OPTIONS = [

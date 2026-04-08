@@ -31,7 +31,7 @@ export const GAMES = [
   { id: 'le_mans_ultimate', name: 'Le Mans Ultimate', udpPort: 5555 },
   { id: 'forza', name: 'Forza Motorsport', udpPort: 5300 },
   { id: 'forza_horizon_5', name: 'Forza Horizon 5', udpPort: 5300 },
-  { id: 'assetto_corsa_rally', name: 'EA SPORTS WRC', udpPort: 9996 },
+  { id: 'assetto_corsa_rally', name: 'Assetto Corsa Rally', udpPort: 9996 },
 ] as const;
 
 export type GameId = typeof GAMES[number]['id'];
