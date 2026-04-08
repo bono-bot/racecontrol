@@ -185,11 +185,6 @@ pub struct LockScreenManager {
     /// BILL-02: Current countdown warning state. Served via /countdown-warning endpoint.
     /// None = no warning displayed. The HTTP server reads this on each request.
     pub(crate) countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
-    /// URL to display in Edge kiosk mode for animated blanking screen.
-    /// When set, `show_blank_screen()` launches Edge --kiosk to this URL.
-    blanking_url: Option<String>,
-    /// PID of the Edge kiosk process launched for blanking (for cleanup in clear()).
-    blanking_edge_pid: Option<u32>,
 }
 
 impl LockScreenManager {
@@ -203,17 +198,7 @@ impl LockScreenManager {
             countdown_warning: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
             browser_disabled: false,
-            blanking_url: None,
-            blanking_edge_pid: None,
         }
-    }
-
-    /// Set the blanking URL for Edge kiosk mode.
-    pub fn set_blanking_url(&mut self, url: Option<String>) {
-        if let Some(ref u) = url {
-            tracing::info!(target: LOG_TARGET, "Blanking URL configured: {}", u);
-        }
-        self.blanking_url = url;
     }
 
     /// POS-01: Disable native window launch for auxiliary devices (POS, staff terminals).
@@ -551,9 +536,7 @@ impl LockScreenManager {
     }
 
     /// Show a blank (black) screen — used between sessions when screen blanking is enabled.
-    /// If `blanking_url` is set, launches Edge in kiosk mode to show the animated blanking page.
-    /// Falls back to native Win32 black window if Edge launch fails.
-    /// State is set to ScreenBlanked only AFTER the window/Edge is confirmed alive.
+    /// State is set to ScreenBlanked only AFTER the native window is confirmed alive.
     pub fn show_blank_screen(&mut self) {
         #[cfg(windows)]
         // ─── SAFE-06: skip Focus Assist registry write during safe mode ───
@@ -562,49 +545,13 @@ impl LockScreenManager {
         } else {
             tracing::info!(target: LOG_TARGET, "safe mode active — Focus Assist registry write deferred");
         }
-
-        // Try Edge kiosk mode first if blanking_url is configured
-        let mut edge_launched = false;
+        self.show_native_window();
+        // Gate state change on native window actually being alive — prevents
+        // "state=blanked but no window" when window creation fails.
         #[cfg(windows)]
-        if let Some(ref url) = self.blanking_url {
-            use std::os::windows::process::CommandExt;
-            // Kill any existing Edge blanking process
-            if let Some(pid) = self.blanking_edge_pid.take() {
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/PID", &pid.to_string()])
-                    .creation_flags(0x08000000u32) // CREATE_NO_WINDOW
-                    .output();
-            }
-            // Launch Edge in kiosk mode (fullscreen, no UI)
-            match std::process::Command::new("cmd")
-                .args(["/C", "start", "", "msedge.exe", "--kiosk", url, "--edge-kiosk-type=fullscreen", "--no-first-run"])
-                .creation_flags(0x08000000u32)
-                .spawn()
-            {
-                Ok(child) => {
-                    self.blanking_edge_pid = Some(child.id());
-                    tracing::info!(target: LOG_TARGET, "Edge kiosk launched for blanking (PID {}, URL {})", child.id(), url);
-                    edge_launched = true;
-                }
-                Err(e) => {
-                    tracing::warn!(target: LOG_TARGET, "Edge kiosk launch failed: {} — falling back to native window", e);
-                }
-            }
-        }
-
-        if !edge_launched {
-            self.show_native_window();
-        }
-
-        // Gate state change on window/Edge being alive
-        #[cfg(windows)]
-        let window_alive = if edge_launched {
-            true // Edge was just launched — trust spawn success
-        } else {
-            self.native_window.as_ref()
-                .map(|nw| nw.is_alive())
-                .unwrap_or(false)
-        };
+        let window_alive = self.native_window.as_ref()
+            .map(|nw| nw.is_alive())
+            .unwrap_or(false);
         #[cfg(not(windows))]
         let window_alive = false;
         if window_alive || self.browser_disabled {
@@ -677,16 +624,6 @@ impl LockScreenManager {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             *state = LockScreenState::Hidden;
-        }
-        // Kill Edge blanking process if running
-        #[cfg(windows)]
-        if let Some(pid) = self.blanking_edge_pid.take() {
-            use std::os::windows::process::CommandExt;
-            tracing::info!(target: LOG_TARGET, "Killing Edge blanking process (PID {})", pid);
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/PID", &pid.to_string()])
-                .creation_flags(0x08000000u32) // CREATE_NO_WINDOW
-                .output();
         }
         self.hide_native_window();
         #[cfg(windows)]
