@@ -101,11 +101,11 @@ test('non-AC wizard: F1 25 skips AC-specific steps', async ({ page }) => {
   if (await searchInput.isVisible({ timeout: 8000 }).catch(() => false)) {
     await searchInput.click();
     await page.waitForTimeout(3000); // wait for driver list to load
-    await page.keyboard.type('E2E', { delay: 100 });
+    await page.keyboard.type('E2E Test', { delay: 80 });
     await page.waitForTimeout(2000);
 
     // Click first driver result button
-    const driverBtn = page.locator('button').filter({ hasText: /E2E|Driver/ }).first();
+    const driverBtn = page.locator('button').filter({ hasText: /E2E Test Driver/ }).first();
     if (await driverBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await driverBtn.click();
       await page.waitForTimeout(1000);

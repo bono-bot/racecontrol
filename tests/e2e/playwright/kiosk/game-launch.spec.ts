@@ -63,10 +63,10 @@ async function selectDriver(page: import('@playwright/test').Page) {
   if (await driverSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
     await driverSearch.click();
     await page.waitForTimeout(3000);
-    await page.keyboard.type('E2E', { delay: 100 });
+    await page.keyboard.type('E2E Test', { delay: 80 });
     await page.waitForTimeout(2000);
 
-    const driverBtn = page.locator('button').filter({ hasText: /E2E|Driver/ }).first();
+    const driverBtn = page.locator('button').filter({ hasText: /E2E Test Driver/ }).first();
     if (await driverBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await driverBtn.click();
       await page.waitForTimeout(1000);
