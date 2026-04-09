@@ -49,7 +49,8 @@ sysinfo = "0.33"
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 # HTTP client for AI debugger (optional — only needed when ai-debugger feature is enabled)
-reqwest = { version = "0.12", features = ["json"], optional = true }
+# multipart feature required for GLD-C-03: CSV telemetry fallback push (push_csv_fallback)
+reqwest = { version = "0.12", features = ["json", "multipart"], optional = true }
 
 # Remote ops HTTP server (merged pod-agent)
 axum = "0.8"

@@ -411,6 +411,37 @@ pub async fn handle_ws_message(
             conn.current_driver_name = None;
             conn.blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
             conn.blank_timer_armed = true;
+
+            // GLD-C-03: Conditional CSV fallback push at session end (D-07).
+            // Detached tokio::spawn so SessionEnded processing is not blocked.
+            // Reads C:\RacingPoint\laps-offline.csv, POSTs to server, clears only on 200.
+            #[cfg(feature = "http-client")]
+            {
+                // Derive HTTP base URL from WebSocket URL (same pattern as main.rs:1531)
+                let server_http_base = state.config.core.url
+                    .replace("ws://", "http://")
+                    .replace("wss://", "https://")
+                    .split("/ws")
+                    .next()
+                    .unwrap_or("http://127.0.0.1:8080")
+                    .to_string();
+                // Service key: pods use RCAGENT_SERVICE_KEY env var (matches sentry_service_key on server)
+                let service_key = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
+                let sid = billing_session_id.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::csv_lap_fallback::push_csv_fallback(
+                        server_http_base,
+                        service_key,
+                        sid,
+                    ).await {
+                        tracing::warn!(
+                            target: "csv-lap-fallback",
+                            error = %e,
+                            "csv fallback push failed after retries"
+                        );
+                    }
+                });
+            }
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes } => {
