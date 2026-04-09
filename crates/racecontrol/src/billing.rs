@@ -5832,6 +5832,58 @@ async fn get_driver_phone(db: &sqlx::SqlitePool, driver_id: &str) -> anyhow::Res
     }
 }
 
+/// GLD-C-04 D-12: Record a lap rejection in the lap_rejections table with grace-window awareness.
+///
+/// Called when a lap is invalidated/rejected post-session. Computes `grace_window_caught`
+/// by checking whether the associated billing session's grace window is still active.
+///
+/// Column name is `session_id` per CONTEXT.md D-12 (holds billing_session_id at runtime,
+/// consistent with laps.session_id).
+pub async fn record_lap_rejection(
+    state: &std::sync::Arc<crate::state::AppState>,
+    billing_session_id: &str,
+    lap_number: u32,
+    reason: &str,
+) {
+    // Compute grace_window_caught by checking active_timers (lock dropped before .await)
+    let grace_window_caught: bool = {
+        let timers = state.billing.active_timers.read().await;
+        timers
+            .values()
+            .find(|t| t.session_id == billing_session_id)
+            .and_then(|t| t.lap_reject_grace_until)
+            .map(|grace_until| chrono::Utc::now() < grace_until)
+            .unwrap_or(false)
+    }; // guard dropped
+
+    let rejection_id = uuid::Uuid::new_v4().to_string();
+    let _ = sqlx::query(
+        "INSERT INTO lap_rejections (id, session_id, lap_number, reason, grace_window_caught)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&rejection_id)
+    .bind(billing_session_id)
+    .bind(lap_number as i64)
+    .bind(reason)
+    .bind(grace_window_caught)
+    .execute(&state.db)
+    .await;
+
+    if grace_window_caught {
+        tracing::info!(
+            session_id = %billing_session_id,
+            lap_number,
+            "GLD-C-04 D-12: lap reject caught within grace window — logged to lap_rejections"
+        );
+    } else {
+        tracing::info!(
+            session_id = %billing_session_id,
+            lap_number,
+            "GLD-C-04 D-12: lap reject outside grace window — logged to lap_rejections"
+        );
+    }
+}
+
 /// GLD-C-04 / Phase 363: Rebuild `active_timers` from `billing_sessions` at startup.
 /// Hydrates any row with a non-terminal status or a pending lap_reject_grace_until.
 ///
