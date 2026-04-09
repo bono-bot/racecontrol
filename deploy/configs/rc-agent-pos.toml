@@ -40,7 +40,7 @@ use_steam = true
 enabled = true
 ollama_url = "http://192.168.31.27:11434"
 ollama_model = "qwen2.5:3b"
-openrouter_api_key = "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"
+# openrouter_api_key REDACTED 2026-04-09 v47.0 — now read from OPENROUTER_API_KEY env var. Set in start-rcagent.bat.
 openrouter_model = "openrouter/auto"
 
 [lock_screen]

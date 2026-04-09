@@ -409,7 +409,25 @@ pub async fn analyze_crash(
     }
 
     // Fallback to OpenRouter API (seamless tier 2 transition)
-    if let Some(api_key) = &config.openrouter_api_key {
+    //
+    // v47.0 security fix (2026-04-09): never read openrouter_api_key from the TOML
+    // config — that file was committed to git with a live key in place. Prefer:
+    //   1. OPENROUTER_API_KEY environment variable (set per-pod via start-rcagent.bat)
+    //   2. config.openrouter_api_key (kept for backwards compat, will log a WARN)
+    //   3. None — skip OpenRouter fallback entirely (Ollama-only)
+    let api_key_from_env = std::env::var("OPENROUTER_API_KEY").ok().filter(|s| !s.is_empty());
+    let effective_api_key: Option<&str> = match (api_key_from_env.as_deref(), config.openrouter_api_key.as_deref()) {
+        (Some(env_key), _) => Some(env_key),
+        (None, Some(toml_key)) if !toml_key.is_empty() => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                "openrouter_api_key loaded from TOML config — migrate to OPENROUTER_API_KEY env var for security (v47.0 Phase 363)"
+            );
+            Some(toml_key)
+        }
+        _ => None,
+    };
+    if let Some(api_key) = effective_api_key {
         match query_openrouter(api_key, &config.openrouter_model, &prompt).await {
             Ok(suggestion) => {
                 let _ = result_tx
