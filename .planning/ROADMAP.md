@@ -915,3 +915,28 @@ Plans:
 | 342. Cloud Sync + E2E | 1/1 | Complete    | 2026-04-07 |
 
 *Created: 2026-04-07 — business rules confirmed with Uday. See memory: project_credits_rupees_separation.md*
+
+---
+
+## Backlog
+
+### Phase 999.1: rc-agent forza test Instant underflow on fresh CI VMs (BACKLOG)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Bug summary:** `crates/rc-agent/src/session_enforcer.rs:296` does `let past = Instant::now() - Duration::from_secs(3600);` which panics with "overflow when subtracting duration from instant" on windows-latest CI runners whose boot uptime is less than 1 hour. James local passes (high uptime). Latent bug masked for weeks/months by the rc-sentry-ai LNK1120 build failure that prevented CI from ever reaching the `Test rc-agent` step. Surfaced 2026-04-09 after `d027332a` fixed the rc-sentry-ai build.
+
+**Evidence:** CI runs 24183092938 (commit d027332a) and 24183396002 (commit d5b8af2f) both fail at `session_enforcer::tests::test_tick_terminate_forza_motorsport` with identical 763 passed / 1 failed counts. Stack: `std/src/time.rs:445:33`. Other 5 tests in the same file use 59-200s durations and are safe.
+
+**Fix options:**
+1. Refactor `SessionEnforcer::new_with_start` to take `Duration` (time-since-start) instead of raw `Instant` — cleanest, touches production API, ~10 lines.
+2. Use `Instant::now().checked_sub(Duration::from_secs(3600)).unwrap_or_else(Instant::now)` — semantically wrong (test would see 0 elapsed, not 3600).
+3. Reduce the test duration from 3600s to 60s with adjusted session-duration thresholds — smallest change, slightly weakens test coverage.
+4. Add `#[cfg(test)]` mock time source — most flexible, most work.
+
+**Recommendation:** Option 1. Scope: 1 file, ~10 lines, low risk.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
