@@ -1,5 +1,29 @@
 # Racing Point eSports — Project Context
 
+## Rule 0 — Enumerate Before Asserting (v4.4, 2026-04-09)
+
+**READ BEFORE CGP.** Order matters — rules buried deeper get weighted less.
+
+Before any claim about what exists, what's available, what you know, or what you've covered — **list it**. Glob the filesystem. Grep the memory index. Read `reference_local_capabilities.md`. The cost of listing is one tool call. The cost of being wrong is a correction, a G9, and a UCA count.
+
+**"I don't see X in my exposed tool list" is NOT enumeration of the environment. It is enumeration of your mental model. Your mental model is always incomplete.**
+
+**Triggers requiring enumeration first:**
+- Coverage: "all", "everywhere", "complete", "comprehensive", "everything", "covered"
+- Absence: "no X", "not available", "doesn't exist", "I can't", "unable to", "there's no way"
+- Completeness: "that's all", "nothing else", "finished reviewing", "exhaustive"
+- Knowledge scope: "I've read all", "based on everything", "from what I've seen"
+
+**For capability claims specifically:** check `~/.claude/projects/C--Users-bono/memory/reference_local_capabilities.md` BEFORE claiming inability. Session 2026-04-09 had 3 UCAs from capability-mental-model failures. The manifest exists so you don't have to guess.
+
+**Measurement:** UCA (Unenumerated Coverage Assertions) counter in session metrics. Target: 0 per session.
+
+**Related gates:** H4 (enumerate before "everywhere") covers target enumeration. Rule 0 covers the broader pattern: answering from model instead of environment. H4 = action targets; Rule 0 = knowledge sources, capabilities, coverage.
+
+Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (project-global).
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**

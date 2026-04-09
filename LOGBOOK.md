@@ -3,7 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
-| 2026-04-09 13:05 IST | James | PENDING | docs(cgp): v4.4 — add UCA metric (Unenumerated Coverage Assertions). Structural fix for "answer from model not environment" pattern. Session 2026-04-09 had 3 UCAs from same root cause (missed 40 feedback files, missed email capability, missed 5 MCP servers). Paired with reference_local_capabilities.md manifest + CLAUDE.md Rule 0. |
+| 2026-04-09 13:15 IST | James | PENDING | docs(cgp): v4.4 sync - Rule 0 (Enumerate Before Asserting) added to racecontrol/CLAUDE.md and comms-link/CLAUDE.md. Rule 0 pairs with CGP UCA metric (committed a3e140ef) + reference_local_capabilities.md manifest. Completes per-repo sync — 9 dependent CLAUDE.md files inherit via canonical-source pointer. |
+| 2026-04-09 13:05 IST | James | a3e140ef | docs(cgp): v4.4 — add UCA metric (Unenumerated Coverage Assertions). Structural fix for "answer from model not environment" pattern. Session 2026-04-09 had 3 UCAs from same root cause (missed 40 feedback files, missed email capability, missed 5 MCP servers). Paired with reference_local_capabilities.md manifest + CLAUDE.md Rule 0. |
 | 2026-04-09 02:00 IST | James | 6b80f88b | docs: LOGBOOK catch-up for 11 commits (2026-04-08/09 test+deploy session). |
 | 2026-04-09 01:45 IST | James | 5548da64 | feat: game launch diagnostics — post-launch verification + sim telemetry on all 5 sims. |
 | 2026-04-09 01:30 IST | James | 2aa3688c | rename: AC Rally from "EA SPORTS WRC" to "Assetto Corsa Rally" (Kunos, Steam 3917090). |
