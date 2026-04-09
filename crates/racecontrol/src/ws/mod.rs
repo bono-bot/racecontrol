@@ -872,6 +872,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 // Non-blocking send — drop frame if channel is full
                                 let _ = tx.try_send(frame.clone());
                             }
+                            // GLD-C-02: Record 1s coverage bucket.
+                            // Non-blocking try_write — if lock busy, skip this sample.
+                            // Minor coverage undercounting is acceptable per D-04.
+                            // CLAUDE.md: guard dropped immediately — no .await held.
+                            if let Ok(mut timers) = state.billing.active_timers.try_write() {
+                                if let Some(timer) = timers.get_mut(&frame.pod_id) {
+                                    let elapsed = timer.elapsed_seconds;
+                                    timer.telemetry_seconds_covered.insert(elapsed);
+                                }
+                            } // guard dropped here
                         }
                         AgentMessage::LapCompleted(lap) => {
                             let mut lap = lap.clone();

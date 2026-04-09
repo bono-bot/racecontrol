@@ -413,6 +413,12 @@ pub struct BillingTimer {
     pub low_balance_warning_paise: u32,
     /// Whether low-balance warning has been sent for this session.
     pub low_balance_warned: bool,
+    /// GLD-C-02: 1s-bucket telemetry coverage histogram. Set N = true if any telemetry
+    /// packet was received during second N of the session (elapsed_second index). Flushed
+    /// to billing_sessions.telemetry_coverage_pct on finalize. Lost on server crash
+    /// (→ NULL coverage → UNVERIFIED per D-05). Updated non-blocking via try_write().
+    /// Intentional default: empty set — pre-session state.
+    pub telemetry_seconds_covered: std::collections::HashSet<u32>,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -467,6 +473,7 @@ impl Default for BillingTimer {
             wallet_owner_id: String::new(),
             low_balance_warning_paise: 5000,
             low_balance_warned: false,
+            telemetry_seconds_covered: std::collections::HashSet::new(),
         }
     }
 }
@@ -2672,6 +2679,9 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             wallet_owner_id: row.1.clone(), // default to driver_id
             low_balance_warning_paise: 5000,
             low_balance_warned: false,
+            // GLD-C-02: Coverage histogram is lost on crash/restart — starts empty on recovery.
+            // Session that was running before restart will have NULL telemetry_coverage_pct (D-05).
+            telemetry_seconds_covered: std::collections::HashSet::new(),
         };
 
         tracing::info!(
@@ -3534,6 +3544,8 @@ pub async fn start_billing_session(
         wallet_owner_id: wallet_owner,
         low_balance_warning_paise: low_warn.unwrap_or(5000) as u32,
         low_balance_warned: false,
+        // GLD-C-02: Coverage histogram starts empty at session creation.
+        telemetry_seconds_covered: std::collections::HashSet::new(),
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
@@ -3702,6 +3714,8 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         wallet_owner_id: data.wallet_owner_id.clone(),
         low_balance_warning_paise: data.low_balance_warning_paise,
         low_balance_warned: false,
+        // GLD-C-02: Coverage histogram starts empty at session creation.
+        telemetry_seconds_covered: std::collections::HashSet::new(),
     };
 
     // Phase 283: Generate session nonce for replay protection
@@ -4028,6 +4042,13 @@ async fn end_billing_session(
                 "end_status": activity_action,
             }), &state.config.venue.venue_id);
 
+            // GLD-C-02: Capture telemetry coverage bucket BEFORE timer removal (D-05).
+            // The HashSet is lost after remove — capture its length now.
+            let seconds_covered_at_end: u32 = timers
+                .get(&pod_id)
+                .map(|t| t.telemetry_seconds_covered.len() as u32)
+                .unwrap_or(0);
+
             timers.remove(&pod_id);
             drop(timers);
 
@@ -4254,7 +4275,13 @@ async fn end_billing_session(
                 let session_id_clone = session_id.to_string();
                 let driver_id_clone = info.driver_id.clone();
                 tokio::spawn(async move {
-                    post_session_hooks(&state_clone, &session_id_clone, &driver_id_clone).await;
+                    post_session_hooks(
+                        &state_clone,
+                        &session_id_clone,
+                        &driver_id_clone,
+                        seconds_covered_at_end,
+                    )
+                    .await;
                 });
             }
             return true;
@@ -4599,7 +4626,12 @@ fn generate_receipt_pdf(
 }
 
 /// Post-session hooks: credit referral rewards, schedule review nudge.
-async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: &str) {
+async fn post_session_hooks(
+    state: &Arc<AppState>,
+    session_id: &str,
+    driver_id: &str,
+    seconds_covered: u32,
+) {
     // 1. Credit referral reward if this is the referee's first completed session
     let pending_referral: Option<(String, String)> = sqlx::query_as(
         "SELECT r.id, r.referrer_id FROM referrals r
@@ -4730,6 +4762,24 @@ async fn post_session_hooks(state: &Arc<AppState>, session_id: &str, driver_id: 
 
     // 8. Evaluate commitment ladder and queue escalation nudge (v14.0 Phase 94)
     evaluate_commitment_ladder(state, driver_id).await;
+
+    // 9. Phase 363 GLD-C-01/C-02: Session audit (lap count + telemetry coverage flags)
+    // CLAUDE.md: feature_flags is a RwLock — snapshot + drop guard before any .await.
+    // The read guard is dropped inside run_session_audit before DB awaits.
+    if let Err(e) = crate::session_audit::run_session_audit(
+        &state.db,
+        &state.feature_flags,
+        session_id,
+        seconds_covered,
+    )
+    .await
+    {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %e,
+            "session_audit failed — audit columns may be NULL for this session"
+        );
+    }
 }
 
 /// Evaluate driver's commitment ladder position based on completed session count.
@@ -8508,5 +8558,27 @@ mod tests {
 
         let status = get_session_status(&state, "s5").await;
         assert_eq!(status, "cancelled", "LBILL-03: Pending session should always be cancelled regardless of game state");
+    }
+
+    // ─── Phase 363 GLD-C-02: BillingTimer coverage histogram tests ───────────
+
+    /// GLD-C-02: BillingTimer via make_test_timer() starts with empty telemetry_seconds_covered.
+    #[test]
+    fn test_billing_timer_coverage_histogram_default_empty() {
+        let timer = make_test_timer("test-session", "pod1");
+        assert!(
+            timer.telemetry_seconds_covered.is_empty(),
+            "telemetry_seconds_covered should be empty by default"
+        );
+    }
+
+    /// GLD-C-02: BillingTimer Default impl has empty telemetry_seconds_covered.
+    #[test]
+    fn test_billing_timer_default_coverage_empty() {
+        let timer = BillingTimer::default();
+        assert!(
+            timer.telemetry_seconds_covered.is_empty(),
+            "BillingTimer::default() telemetry_seconds_covered must be empty"
+        );
     }
 }
