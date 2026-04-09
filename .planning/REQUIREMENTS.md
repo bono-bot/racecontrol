@@ -124,6 +124,59 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 - [ ] **DEP-03**: Racecontrol `/api/v1/admin/staff/{id}/change-pin` endpoint returns something other than 404 before Phase 347 deploys
 - [ ] **DEP-04**: Pre-deploy script greps git log for Phase 343 merge commits and hard-fails Phase 347 deploy if missing
 
+### Theme 13 — Business Rules SSOT (added 2026-04-09 after gap audit)
+
+Added after the 2026-04-09 SSOT gap audit found 38 hardcoded business rules + table CRUD gaps across all apps. See `.planning/phases/346-cafe-menu-proxy/ADMIN-SSOT-GAP-REPORT.md`.
+
+- [ ] **BIZRULE-01**: New `business_rules` SQLite table (key/value/type/description/updated_by/updated_at)
+- [ ] **BIZRULE-02**: `referral_reward_referrer_paise` + `referral_reward_referee_paise` migrated from billing.rs:4615-4630 hardcode to business_rules
+- [ ] **BIZRULE-03**: `discount_approval_threshold_paise` migrated from billing.rs:121 hardcode to business_rules
+- [ ] **BIZRULE-04**: `discount_floor_paise` migrated from billing.rs:126 hardcode to business_rules
+- [ ] **BIZRULE-05**: `max_manual_refund_paise` migrated from routes.rs:9367 hardcode to business_rules
+- [ ] **BIZRULE-06**: `max_linked_racers` migrated from routes.rs:7950 hardcode to business_rules
+- [ ] **BIZRULE-07**: `max_ai_single_player` migrated from catalog.rs:11 hardcode to business_rules
+- [ ] **BIZRULE-08**: `nudge_ttl_days` + `streak_grace_days` migrated from psychology.rs:136-139 hardcode to business_rules
+- [ ] **BIZRULE-09**: `whatsapp_daily_budget_per_customer` migrated from psychology.rs:127 hardcode to business_rules
+- [ ] **BIZRULE-10**: `refund_policy_text` + `pricing_policy_text` + `gst_note_text` migrated from routes.rs:2822-2829 literals to business_rules (legal compliance — Consumer Protection Act 2019)
+- [ ] **BIZRULE-11**: `trial_session_minutes` migrated to business_rules
+- [ ] **BIZRULE-12**: Admin `/settings/business-rules` page with read/edit UI (role-gated superadmin)
+- [ ] **BIZRULE-13**: Audit trail in `audit_log` for every business_rules update
+- [ ] **BIZRULE-14**: All consumers read from business_rules at runtime (not baked at startup)
+- [ ] **BIZRULE-15**: Rollback window — old hardcoded values kept as fallback constants for 30 days
+
+### Theme 14 — Pricing Tiers CRUD
+
+- [ ] **TIER-01**: Admin `/pricing/tiers` page — list, create, edit, delete, reorder
+- [ ] **TIER-02**: Racecontrol `POST /pricing/tiers` + `PUT /pricing/tiers/{id}` + `DELETE /pricing/tiers/{id}` admin-gated endpoints
+- [ ] **TIER-03**: Add `is_popular` column to `pricing_tiers` table — replaces hardcoded index heuristic in PricingDisplay.tsx:51
+- [ ] **TIER-04**: Remove hardcoded "save 7%" / "save 40%" strings from SetupWizard.tsx:297-298 — compute dynamically from tier `base_price_paise` vs `price_paise`
+- [ ] **TIER-05**: Schema-guard migration prevents new hardcoded tier references
+
+### Theme 15 — Cafe Promos Admin Page
+
+- [ ] **PROMO-01**: Admin `/cafe/promos` page — list active/inactive promos with type badge (combo/happy_hour/gaming_bundle)
+- [ ] **PROMO-02**: Create/edit modal with fields: name, promo_type, config (JSON), start_time, end_time, stacking_group, is_active
+- [ ] **PROMO-03**: Toggle active/inactive without reopening modal
+- [ ] **PROMO-04**: Delete with confirmation dialog
+- [ ] **PROMO-05**: "Broadcast to WhatsApp" button calls existing `POST /cafe/marketing/broadcast` endpoint with dedup cooldown check
+
+### Theme 16 — Bonus Tiers Admin Page
+
+- [ ] **BONUS-01**: Admin `/wallet/bonus-tiers` page — list tiers with min amount + bonus % + sort order
+- [ ] **BONUS-02**: Racecontrol `POST /wallet/bonus-tiers` + `PUT /wallet/bonus-tiers/{id}` + `DELETE /wallet/bonus-tiers/{id}` admin-gated endpoints
+- [ ] **BONUS-03**: Create/edit modal: min_amount_paise, bonus_percent, sort_order, is_active
+- [ ] **BONUS-04**: Preview widget shows "₹500 → 0% bonus → ₹500 credits" for current tiers
+- [ ] **BONUS-05**: Role-gated to superadmin + manager
+
+### Theme 17 — Topup Presets SSOT (shipped 2026-04-09 in commit 0c7a8d86)
+
+- [x] **TOPUP-01**: New `system_settings.wallet_topup_presets_paise` key — JSON array of i64 paise values
+- [x] **TOPUP-02**: Racecontrol `GET /wallet/topup-presets` public endpoint with safe 8-entry default fallback
+- [x] **TOPUP-03**: PWA `api.topupPresets()` helper + `wallet/topup/page.tsx` dynamic state + 8-entry matching fallback
+- [x] **TOPUP-04**: POS `WalletTopupModal.tsx` fetches from endpoint + 8-entry matching fallback
+- [ ] **TOPUP-05**: Admin `/wallet/topup-presets` editor UI — currently requires direct SQL; deferred to Phase 360-02
+- [ ] **TOPUP-06**: Integration test: change presets in system_settings, verify PWA and POS both reflect within 1 render cycle (deferred to Phase 350 contract tests)
+
 ## Future Requirements (deferred to v48+)
 
 - Plaintext → Argon2 PIN hashing for `staff_members.pin` (Phase 343 C1) — depends on v47.0 shipping

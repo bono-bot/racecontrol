@@ -20,7 +20,7 @@
 - [x] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, all code complete 2026-04-08)
 - [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
 - [ ] **v46.0 Game Launch Diagnostics** — Phase 343 (in progress, Phase B deployed 2026-04-09)
-- [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-355 (12 phases, started 2026-04-09)
+- [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-360 (17 phases, expanded 2026-04-09 after SSOT gap audit)
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -1187,3 +1187,96 @@ Plans:
 **Plans:**
 - [ ] 355-01-PLAN — Execute checklist, produce VERIFICATION.md
 - [ ] 355-02-PLAN — Milestone close + LOGBOOK + ARCHITECTURE.md + memory file updates
+
+### Phase 356: Business Rules Config Table
+
+**Goal:** Migrate ~15 hardcoded Rust consts into a `business_rules` SQLite table so tuning doesn't require a code ship.
+
+**Requirements:** BIZRULE-01..15
+
+**Success criteria:**
+1. New `business_rules` table exists with migration + seed values matching current hardcoded defaults (zero behavior change at deploy)
+2. All consumers (billing.rs, routes.rs, psychology.rs) read from the table at runtime
+3. Admin `/settings/business-rules` page lists rules with inline edit + audit log
+4. Changing `referral_reward_referrer_paise` from 10000 → 20000 via admin UI reflects on next session end without restart
+5. Legal policy text (refund/pricing/GST) served from `GET /pricing/display` reads from business_rules
+6. Startup seeds missing rules from fallback constants (graceful forward compat)
+
+**Plans:**
+- [ ] 356-01-PLAN — Schema migration + seed + read helpers
+- [ ] 356-02-PLAN — Refactor consumers (billing.rs, routes.rs, psychology.rs)
+- [ ] 356-03-PLAN — Admin /settings/business-rules page + audit log
+
+### Phase 357: Pricing Tiers CRUD
+
+**Goal:** Admin can create/edit/delete/reorder the plan cards that show on the kiosk staff wizard without touching the DB.
+
+**Requirements:** TIER-01..05
+
+**Success criteria:**
+1. Admin `/pricing/tiers` page lists all tiers with drag-to-reorder
+2. Add New Tier modal creates a row via `POST /pricing/tiers`
+3. Adding a new tier appears on kiosk staff wizard within 30s (sync cycle)
+4. `is_popular` flag replaces hardcoded "middle tier" heuristic in PricingDisplay.tsx
+5. SetupWizard "save 7%" / "save 40%" strings computed dynamically from tier prices
+6. Deleting a tier that has active sessions blocked with 409 + warning
+
+**Plans:**
+- [ ] 357-01-PLAN — Racecontrol CRUD endpoints + is_popular migration
+- [ ] 357-02-PLAN — Admin /pricing/tiers page
+- [ ] 357-03-PLAN — Remove kiosk hardcoded save-% strings
+
+### Phase 358: Cafe Promos Admin Page
+
+**Goal:** Admin UI for cafe promos. Backend already has full CRUD at `/api/v1/cafe/promos` — pure frontend work.
+
+**Requirements:** PROMO-01..05
+
+**Success criteria:**
+1. Admin `/cafe/promos` page lists all promos with type badge + active toggle
+2. Create combo promo ("Burger + Fries for 299") visible on kiosk cafe panel within 30s
+3. Toggle happy_hour active/inactive without modal
+4. Broadcast button calls `POST /cafe/marketing/broadcast` with dedup check
+5. Delete confirmation dialog; hard delete not soft
+
+**Plans:**
+- [ ] 358-01-PLAN — /cafe/promos list view
+- [ ] 358-02-PLAN — Create/edit modal with type-specific config fields
+- [ ] 358-03-PLAN — Broadcast integration
+
+### Phase 359: Bonus Tiers Admin Page
+
+**Goal:** Admin can define wallet topup bonus rules ("top up ₹2000 get 10% bonus") from the UI.
+
+**Requirements:** BONUS-01..05
+
+**Success criteria:**
+1. Admin `/wallet/bonus-tiers` page lists all tiers sorted by min_amount_paise
+2. Creating a new tier reflects on PWA + POS topup modals within 30s
+3. Bonus preview widget shows projected credits for each tier
+4. Inactive tiers hidden from customer-facing UIs but still in admin list
+
+**Plans:**
+- [ ] 359-01-PLAN — Racecontrol `/wallet/bonus-tiers` admin CRUD endpoints
+- [ ] 359-02-PLAN — Admin /wallet/bonus-tiers page
+
+### Phase 360: Topup Presets SSOT (partially shipped 2026-04-09)
+
+**Goal:** Both PWA wallet topup page and POS WalletTopupModal read preset amounts from a single server endpoint. Kill the drift where PWA showed `[500, 1000, 2000, 3000, 4000, 5000]` but POS showed `[500, 700, 900, 1000, 2000, 3000]`.
+
+**Requirements:** TOPUP-01..06
+
+**Shipped 2026-04-09 (commit `0c7a8d86`):**
+- [x] TOPUP-01: `system_settings.wallet_topup_presets_paise` key + server read path
+- [x] TOPUP-02: `GET /wallet/topup-presets` public endpoint with 8-entry safe default
+- [x] TOPUP-03: PWA `api.topupPresets()` + `wallet/topup/page.tsx` dynamic state
+- [x] TOPUP-04: POS `WalletTopupModal.tsx` dynamic state
+
+**Remaining:**
+- [ ] TOPUP-05: Admin `/wallet/topup-presets` editor UI
+- [ ] TOPUP-06: Playwright contract test (covered by Phase 350 umbrella)
+
+**Plans:**
+- [x] 360-01-PLAN — Backend + PWA + POS dynamic fetch (0c7a8d86)
+- [ ] 360-02-PLAN — Admin `/wallet/topup-presets` editor page
+- [ ] 360-03-PLAN — Contract test in Phase 350 suite
