@@ -1340,6 +1340,7 @@ Plans:
 
 **Plans:**
 3/3 plans complete
+- [x] 363-01-PLAN — Lap audit + telemetry completeness + DB migration
 - [x] 363-02-PLAN — CSV fallback auto-sync path
 - [x] 363-03-PLAN — Billing 5s grace window + lap-reject race fix
 
