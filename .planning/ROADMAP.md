@@ -1283,7 +1283,7 @@ Plans:
 
 ---
 
-# Milestone v46.0: Game Launch Diagnostics (PARALLEL with v47.0)
+## Milestone v46.0: Game Launch Diagnostics (PARALLEL with v47.0)
 
 **Started:** 2026-04-09 (retroactive — Phase 362 Layer 3 shipped ad-hoc as build `a9b5eaa3` same day)
 **Status:** Active, runs parallel with v47.0 Admin Dashboard Venue-Ready Hardening
