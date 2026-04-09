@@ -52,9 +52,8 @@ pub unsafe fn paint_lock_screen(
     // Dispatch based on state
     match state {
         LockScreenState::ScreenBlanked => {
-            // Asphalt background with centered Racing Point logo
-            FillRect(mem_dc, &full_rect, res.brush_asphalt);
-            paint_blanking_logo(mem_dc, res, screen_w, screen_h);
+            // Pure black — nothing else rendered
+            FillRect(mem_dc, &full_rect, res.brush_black);
         }
 
         LockScreenState::StartupConnecting => {
@@ -816,81 +815,6 @@ unsafe fn draw_stat_at(
 }
 
 // ---- Shared Helpers ----
-
-/// Paint the blanking screen: centered logo + "RACING POINT" text below.
-/// If logo bitmap is unavailable, falls back to text-only branding.
-#[cfg(windows)]
-unsafe fn paint_blanking_logo(
-    hdc: winapi::shared::windef::HDC,
-    res: &LockGdiResources,
-    screen_w: i32,
-    screen_h: i32,
-) {
-    use winapi::um::wingdi::*;
-
-    // Scale logo to fit screen — max 400px height, maintain aspect ratio
-    let max_logo_h = 400.min(screen_h / 3);
-
-    if let Some(logo_bmp) = res.logo_bitmap {
-        if res.logo_w > 0 && res.logo_h > 0 {
-            // Calculate scaled dimensions maintaining aspect ratio
-            let scale = (max_logo_h as f64) / (res.logo_h as f64);
-            let draw_w = (res.logo_w as f64 * scale) as i32;
-            let draw_h = max_logo_h;
-
-            // Center horizontally, place above center vertically
-            let x = (screen_w - draw_w) / 2;
-            let y = screen_h / 2 - draw_h / 2 - 40;
-
-            // Create a memory DC for the logo bitmap
-            let logo_dc = CreateCompatibleDC(hdc);
-            let old_obj = SelectObject(logo_dc, logo_bmp as *mut _);
-
-            // AlphaBlend for PNG transparency support
-            let blend_fn = winapi::um::wingdi::BLENDFUNCTION {
-                BlendOp: 0, // AC_SRC_OVER
-                BlendFlags: 0,
-                SourceConstantAlpha: 255,
-                AlphaFormat: 1, // AC_SRC_ALPHA (pre-multiplied)
-            };
-
-            // Link msimg32.lib for AlphaBlend
-            #[link(name = "msimg32")]
-            unsafe extern "system" {
-                fn AlphaBlend(
-                    hdc_dest: winapi::shared::windef::HDC,
-                    x_dest: i32, y_dest: i32, w_dest: i32, h_dest: i32,
-                    hdc_src: winapi::shared::windef::HDC,
-                    x_src: i32, y_src: i32, w_src: i32, h_src: i32,
-                    blend: winapi::um::wingdi::BLENDFUNCTION,
-                ) -> i32;
-            }
-
-            AlphaBlend(
-                hdc, x, y, draw_w, draw_h,
-                logo_dc, 0, 0, res.logo_w, res.logo_h,
-                blend_fn,
-            );
-
-            SelectObject(logo_dc, old_obj);
-            DeleteDC(logo_dc);
-
-            // "RACING POINT" text below logo
-            let col_red = rgb(225, 6, 0);
-            let text_y = y + draw_h + 20;
-            draw_centered_text(hdc, "RACING POINT", res.font_title, col_red, text_y, screen_w);
-
-            // "ESPORTS" subtitle
-            let col_grey = rgb(128, 128, 128);
-            draw_centered_text(hdc, "E S P O R T S", res.font_body, col_grey, text_y + 60, screen_w);
-
-            return;
-        }
-    }
-
-    // Fallback: text-only branding (same as other states)
-    paint_branding(hdc, res, screen_w, screen_h);
-}
 
 /// Paint the centered "RACING POINT" branding title in Racing Red.
 #[cfg(windows)]
