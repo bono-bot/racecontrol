@@ -774,6 +774,15 @@ export const api = {
       tiers?: { id: string; min_paise: number; bonus_pct: number; sort_order: number }[];
     }>("/wallet/bonus-tiers"),
 
+  // v47.0 Phase 360 (SSOT): unified wallet topup preset amounts.
+  // Server reads from system_settings `wallet_topup_presets_paise`, falls back
+  // to a safe default. Both PWA and POS fetch from this single source.
+  topupPresets: () =>
+    fetchApi<{
+      presets?: { paise: number; rupees: number; label: string }[];
+      source?: string;
+    }>("/wallet/topup-presets"),
+
   createTopupOrder: async (amount_paise: number) => {
     const token = getToken();
     const res = await fetch(`${GATEWAY_URL}/create-order`, {

@@ -12,7 +12,13 @@ interface BonusTier {
   sort_order: number;
 }
 
-const PRESET_AMOUNTS = [500_00, 1000_00, 2000_00, 3000_00, 4000_00, 5000_00];
+// v47.0 Phase 360 (SSOT): preset amounts come from the server via
+// GET /api/v1/wallet/topup-presets. This fallback EXACTLY matches the server
+// SAFE_DEFAULT_PAISE in crates/racecontrol/src/api/routes.rs `wallet_topup_presets`.
+// If you change one, change the other — otherwise drift returns during offline mode.
+const FALLBACK_PRESET_AMOUNTS_PAISE = [
+  50_000, 70_000, 90_000, 100_000, 200_000, 300_000, 400_000, 500_000,
+];
 
 function getBonusForAmount(
   amountPaise: number,
@@ -30,6 +36,7 @@ export default function WalletTopUpPage() {
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [bonusTiers, setBonusTiers] = useState<BonusTier[]>([]);
+  const [presetAmounts, setPresetAmounts] = useState<number[]>(FALLBACK_PRESET_AMOUNTS_PAISE);
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [showContactStaff, setShowContactStaff] = useState(false);
 
@@ -41,14 +48,18 @@ export default function WalletTopUpPage() {
 
     async function load() {
       try {
-        const [walletRes, tiersRes] = await Promise.all([
+        const [walletRes, tiersRes, presetsRes] = await Promise.all([
           api.wallet(),
           api.bonusTiers(),
+          api.topupPresets(),
         ]);
         if (walletRes.wallet) setWallet(walletRes.wallet);
         if (tiersRes.tiers) setBonusTiers(tiersRes.tiers);
+        if (presetsRes.presets && presetsRes.presets.length > 0) {
+          setPresetAmounts(presetsRes.presets.map((p) => p.paise));
+        }
       } catch {
-        // silent — page still renders
+        // silent — page still renders with fallback presets
       }
       setLoading(false);
     }
@@ -214,7 +225,7 @@ export default function WalletTopUpPage() {
                 Select Amount
               </h2>
               <div className="grid grid-cols-2 gap-3">
-                {PRESET_AMOUNTS.map((amount) => {
+                {presetAmounts.map((amount) => {
                   const tier = getBonusForAmount(amount, bonusTiers);
                   const isSelected = selectedAmount === amount;
                   return (

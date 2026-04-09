@@ -11,13 +11,20 @@ interface BonusTier {
 
 type PaymentMethod = "cash" | "upi" | "card";
 
-const QUICK_AMOUNTS = [
-  { label: "500", paise: 50000 },
-  { label: "700", paise: 70000 },
-  { label: "900", paise: 90000 },
-  { label: "1000", paise: 100000 },
-  { label: "2000", paise: 200000 },
-  { label: "3000", paise: 300000 },
+// v47.0 Phase 360 (SSOT): QUICK_AMOUNTS now fetched from racecontrol
+// GET /api/v1/wallet/topup-presets. This fallback EXACTLY matches the server
+// SAFE_DEFAULT_PAISE in crates/racecontrol/src/api/routes.rs `wallet_topup_presets`
+// AND the PWA fallback in pwa/src/app/wallet/topup/page.tsx. If you change
+// one, change all three — otherwise the drift this phase is fixing comes back.
+const FALLBACK_QUICK_AMOUNTS: { label: string; paise: number }[] = [
+  { label: "500", paise: 50_000 },
+  { label: "700", paise: 70_000 },
+  { label: "900", paise: 90_000 },
+  { label: "1000", paise: 100_000 },
+  { label: "2000", paise: 200_000 },
+  { label: "3000", paise: 300_000 },
+  { label: "4000", paise: 400_000 },
+  { label: "5000", paise: 500_000 },
 ];
 
 function getBonusForAmount(paise: number, tiers: BonusTier[]): { pct: number; bonus_paise: number } {
@@ -45,6 +52,7 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
   const [customAmount, setCustomAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [bonusTiers, setBonusTiers] = useState<BonusTier[]>([]);
+  const [quickAmounts, setQuickAmounts] = useState<{ label: string; paise: number }[]>(FALLBACK_QUICK_AMOUNTS);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +62,14 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
     api.listDrivers().then((res) => setDrivers(res.drivers || [])).catch(() => {});
     fetchApi<{ tiers?: BonusTier[] }>("/wallet/bonus-tiers")
       .then((res) => { if (res.tiers) setBonusTiers(res.tiers); })
+      .catch(() => {});
+    // v47.0 Phase 360: fetch unified topup presets (shared with PWA)
+    fetchApi<{ presets?: { paise: number; rupees: number; label: string }[] }>("/wallet/topup-presets")
+      .then((res) => {
+        if (res.presets && res.presets.length > 0) {
+          setQuickAmounts(res.presets.map((p) => ({ label: p.label, paise: p.paise })));
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -164,7 +180,7 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
                 {/* Quick amounts */}
                 <label className="block text-xs text-neutral-400 mb-1">Amount</label>
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  {QUICK_AMOUNTS.map((qa) => (
+                  {quickAmounts.map((qa) => (
                     <button
                       key={qa.paise}
                       onClick={() => { setAmount(qa.paise); setCustomAmount(""); }}

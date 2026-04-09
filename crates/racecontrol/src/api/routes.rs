@@ -104,6 +104,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/venue/register", post(venue_register))
         .route("/customer/register", post(customer_register))
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
+        .route("/wallet/topup-presets", get(wallet_topup_presets))
         // Public leaderboards, events, championships (no auth)
         .route("/public/leaderboard", get(public_leaderboard))
         .route("/public/leaderboard/{track}", get(public_track_leaderboard))
@@ -8789,6 +8790,45 @@ async fn wallet_bonus_tiers(
     })).collect();
 
     Json(json!({ "tiers": tiers_json }))
+}
+
+/// v47.0 Phase 360 (SSOT): unified wallet top-up preset amounts.
+/// Both the PWA wallet/topup page and the POS WalletTopupModal fetch from this
+/// endpoint instead of hardcoding their own lists. Fixes the drift where PWA
+/// showed [500,1000,2000,3000,4000,5000] but POS showed [500,700,900,1000,2000,3000].
+///
+/// Reads from `system_settings` key `wallet_topup_presets_paise` (JSON array of i64).
+/// Falls back to a hardcoded safe default if unset so venues never see an empty list.
+async fn wallet_topup_presets(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    // Safe default — used if system_settings has nothing configured.
+    // These are the UNION of PWA + POS lists from before v47.0 Phase 360.
+    const SAFE_DEFAULT_PAISE: &[i64] = &[50_000, 70_000, 90_000, 100_000, 200_000, 300_000, 400_000, 500_000];
+
+    let stored: Option<(String,)> = sqlx::query_as(
+        "SELECT value FROM system_settings WHERE key = 'wallet_topup_presets_paise'"
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let has_stored = stored.is_some();
+    let presets_paise: Vec<i64> = stored
+        .and_then(|(json_str,)| serde_json::from_str::<Vec<i64>>(&json_str).ok())
+        .unwrap_or_else(|| SAFE_DEFAULT_PAISE.to_vec());
+
+    let presets_json: Vec<Value> = presets_paise.iter().map(|p| json!({
+        "paise": p,
+        "rupees": p / 100,
+        "label": format!("{}", p / 100),
+    })).collect();
+
+    Json(json!({
+        "presets": presets_json,
+        "source": if has_stored { "system_settings" } else { "default" },
+    }))
 }
 
 async fn get_wallet(
