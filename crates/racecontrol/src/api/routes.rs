@@ -9017,30 +9017,49 @@ async fn payment_gateway_webhook(
         "FATM-11: Payment gateway webhook received"
     );
 
-    // MMA-WEBHOOK: Verify gateway HMAC signature when webhook_secret is configured.
-    // Without this, any caller can POST fabricated wallet credits.
-    // TODO: When integrating a real payment gateway (Razorpay/Cashfree), set
-    //       [integrations].payment_webhook_secret in racecontrol.toml and verify
-    //       the X-Webhook-Signature header using HMAC-SHA256(secret, raw_body).
-    if let Some(ref webhook_secret) = state.config.integrations.payment_webhook_secret {
-        if !webhook_secret.is_empty() {
-            let provided_sig = headers
-                .get("x-webhook-signature")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            if provided_sig.is_empty() {
-                tracing::warn!(
-                    transaction_id = %req.transaction_id,
-                    "FATM-11: Gateway webhook rejected — missing X-Webhook-Signature header"
-                );
-                return Json(json!({ "ok": false, "error": "missing webhook signature" }));
-            }
-            // NOTE: Full HMAC-SHA256 verification requires raw body bytes.
-            // This is a structural guard — when a real gateway is integrated,
-            // replace this with proper HMAC verification using the raw request body.
-            tracing::debug!("FATM-11: Webhook signature present (full HMAC check pending gateway integration)");
+    // v47.0 Phase 345-03 (Phase 343 C6): refuse ALL webhook calls when the secret
+    // is not configured. Previously a missing secret silently skipped HMAC verify,
+    // accepting any caller's fabricated wallet credits. Now the endpoint is closed
+    // until operators explicitly set `[integrations].payment_webhook_secret`.
+    //
+    // Full HMAC-SHA256 verification against raw body is still pending real gateway
+    // integration (Razorpay/Cashfree). This is the structural guard.
+    let webhook_secret = state
+        .config
+        .integrations
+        .payment_webhook_secret
+        .as_ref()
+        .filter(|s| !s.is_empty());
+    let webhook_secret = match webhook_secret {
+        Some(s) => s,
+        None => {
+            tracing::warn!(
+                transaction_id = %req.transaction_id,
+                "FATM-11: Gateway webhook rejected — payment_webhook_secret is not configured. \
+                 Set [integrations].payment_webhook_secret in racecontrol.toml to enable the webhook endpoint."
+            );
+            return Json(json!({
+                "ok": false,
+                "error": "payment webhook endpoint is disabled (no secret configured)"
+            }));
         }
+    };
+    // Secret is set — require the signature header
+    let provided_sig = headers
+        .get("x-webhook-signature")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided_sig.is_empty() {
+        tracing::warn!(
+            transaction_id = %req.transaction_id,
+            "FATM-11: Gateway webhook rejected — missing X-Webhook-Signature header"
+        );
+        return Json(json!({ "ok": false, "error": "missing webhook signature" }));
     }
+    // NOTE: Full HMAC-SHA256 verification requires raw body bytes.
+    // When a real gateway is integrated, replace this with proper verification using the raw request body.
+    let _ = webhook_secret; // reference to avoid unused warning until HMAC is wired
+    tracing::debug!("FATM-11: Webhook signature present (full HMAC check pending gateway integration)");
 
     // Basic field validation
     if req.transaction_id.is_empty() || req.driver_id.is_empty() {

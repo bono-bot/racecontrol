@@ -1149,7 +1149,11 @@ fn default_color() -> String { "#E10600".to_string() }
 fn default_theme() -> String { "dark".to_string() }
 fn default_acserver_path() -> String { "C:/RacingPoint/ac-server/acServer.exe".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
-fn default_jwt_secret() -> String { "racingpoint-jwt-change-me-in-production".to_string() }
+// v47.0 Phase 345-03 (Phase 343 C5): return empty so the dangerous default literal
+// is no longer compiled into the binary. resolve_jwt_secret treats empty as unset
+// and auto-generates or reads from env. Tests that reference the literal remain
+// unchanged because they pass the literal explicitly as a function argument.
+fn default_jwt_secret() -> String { String::new() }
 fn default_pin_expiry() -> u64 { 600 }
 fn default_otp_expiry() -> u64 { 300 }
 fn default_watchdog_interval() -> u64 { 10 }
