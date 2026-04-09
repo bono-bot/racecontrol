@@ -8,6 +8,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # rc-sentry-ai's ort-sys dependency compiles ONNX Runtime C++ from source via
+  # cc-rs and emits __imp_<crt_fn> dllimport references (expects dynamic CRT).
+  # Without this flag, windows-latest's MSVC toolchain resolves libucrt.lib
+  # (static CRT) instead of the import lib, leaving 33 unresolved externals
+  # (LNK1120). Matches the known-working local build recipe on James .27.
+  # See memory/project_camera_architecture.md and ci run 24181655147.
+  RUSTFLAGS: "-C target-feature=-crt-static"
 
 jobs:
   build:
