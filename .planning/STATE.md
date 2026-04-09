@@ -1,17 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v47.0
-milestone_name: Admin Dashboard Venue-Ready Hardening
+milestone: v40.0
+milestone_name: Game Launch Reliability
 status: executing
-stopped_at: "Phase 363 code-complete (v46.0 paused); v47.0 resume point = pick next unblocked phase (348/352/354)"
-last_updated: "2026-04-10T03:20:00+05:30"
-last_activity: "2026-04-10 — pivoted from v46.0 Phase 363 code-complete back to v47.0"
+last_updated: "2026-04-09T22:24:22.213Z"
 progress:
-  total_phases: 17
-  completed_phases: 3
-  partial_phases: 1
-  total_plans: 36
-  completed_plans: 7
+  total_phases: 60
+  completed_phases: 28
+  total_plans: 55
+  completed_plans: 53
   percent: 23
 ---
 
@@ -71,7 +68,9 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 ## Accumulated Context
 
 ### Milestone origin (from 2026-04-09 session)
+
 v47.0 was triggered by the 2026-04-09 Admin Dashboard audit which found:
+
 - Cloud admin fully down (login 500 from missing RC_URL env, static assets 404)
 - Local admin better-sqlite3 ABI mismatch (Node 24 vs binding built for Node 22)
 - Cafe menu editor wired to dead `admin.db.menu_items` table (never reaches POS/kiosk)
@@ -82,6 +81,7 @@ v47.0 was triggered by the 2026-04-09 Admin Dashboard audit which found:
 Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap audit — added business rules config (356), pricing tiers CRUD (357), cafe promos (358), bonus tiers (359), topup presets SSOT (360).
 
 ### Scope decisions (2026-04-09)
+
 - **Sync topology:** Litestream venue→cloud read replica (Option A)
 - **Phase numbering:** starts at 344 (continues from Phase 343 precursor)
 - **Hard dependency:** Phase 343 Plans 01+02+04 must ship BEFORE Phase 347
@@ -89,7 +89,7 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-09 — Phase 363 code-complete (v46.0 plans 01/02/03 committed + tested, MMA+deploy deferred)
+Last session: 2026-04-09T22:24:22.202Z
 This session (2026-04-10): Pivoted back to v47.0 to execute next unblocked phase while v46.0 Phase 363 awaits deploy window.
 
 **Resume decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
