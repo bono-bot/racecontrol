@@ -1,6 +1,7 @@
 pub mod metrics;
 pub mod metrics_prometheus;
 pub mod metrics_query;
+pub mod pods;
 pub mod routes;
 pub mod security;
 pub mod survival;

@@ -15,5 +15,6 @@ pub mod fleet_event;
 pub mod safety;
 pub mod spawn_safe;
 pub mod diagnostic_types;
+pub mod inventory_types;
 #[cfg(feature = "tokio")]
 pub mod boot_resilience;

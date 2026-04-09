@@ -205,6 +205,7 @@ pub fn start(port: u16) {
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
+            .route("/debug/content-dirs", get(content_dirs_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
             // When RCAGENT_SERVICE_KEY is unset/empty, permissive mode allows all
             // requests through (safe rollout — set the env var to enforce auth).
@@ -315,6 +316,7 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
+            .route("/debug/content-dirs", get(content_dirs_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
             // When RCAGENT_SERVICE_KEY is unset/empty, permissive mode allows all
             // requests through (safe rollout — set the env var to enforce auth).
@@ -469,6 +471,7 @@ fn start_checked_tls_inner(
             .route("/screenshot", get(screenshot))
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
+            .route("/debug/content-dirs", get(content_dirs_handler))
             .layer(middleware::from_fn(require_service_key));
 
         let app = public_routes
@@ -1417,6 +1420,224 @@ async fn detect_local_ip() -> Option<String> {
     None
 }
 
+// ─── Phase 361-01: GET /debug/content-dirs ─────────────────────────────────
+//
+// Live filesystem probe of each installed game's `content/cars` and
+// `content/tracks` directories. Consumed by racecontrol (361-03) to detect
+// drift between committed pod TOMLs (`deploy/configs/rc-agent-pod{N}.toml`
+// [content.*] sections) and what is actually on disk.
+//
+// This endpoint reads the rc-agent's OWN rc-agent.toml config to discover
+// installed games, then enumerates their known content directories with a
+// fresh `std::fs::read_dir`. It does NOT use the cached `content_scanner`
+// because the whole point of this endpoint is to reflect RIGHT NOW on disk,
+// not a cached snapshot that may lag a Steam install by up to 5 minutes.
+//
+// Security: registered behind `require_service_key` middleware in all three
+// router start paths below.
+
+/// Heuristic mapping from game key to (cars_dir, tracks_dir, cars_enumerable,
+/// tracks_enumerable). Games whose content is not enumerable at the
+/// filesystem level (FH5 via MS Store, F1 25, iRacing, Forza) return
+/// `enumerable = false` with placeholder path strings — the server treats
+/// these as degrade-open during validation.
+fn game_content_dirs(
+    game_key: &str,
+    exe_path: Option<&str>,
+) -> (String, String, bool, bool) {
+    let derive_base = |exe: &str, suffix: &str| -> Option<PathBuf> {
+        let p = PathBuf::from(exe);
+        let mut cur = p.as_path();
+        while let Some(parent) = cur.parent() {
+            if parent.file_name().and_then(|n| n.to_str()) == Some(suffix) {
+                return Some(parent.to_path_buf());
+            }
+            cur = parent;
+        }
+        None
+    };
+
+    match game_key {
+        "assetto_corsa" => {
+            let base = exe_path
+                .and_then(|e| derive_base(e, "assettocorsa"))
+                .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa"));
+            (
+                base.join("content").join("cars").display().to_string(),
+                base.join("content").join("tracks").display().to_string(),
+                true,
+                true,
+            )
+        }
+        "assetto_corsa_evo" => {
+            let base = PathBuf::from(
+                r"C:\Program Files (x86)\Steam\steamapps\common\Assetto Corsa EVO",
+            );
+            (
+                base.join("content").join("cars").display().to_string(),
+                base.join("content").join("tracks").display().to_string(),
+                true,
+                true,
+            )
+        }
+        "assetto_corsa_rally" => {
+            let base = PathBuf::from(
+                r"C:\Program Files (x86)\Steam\steamapps\common\Assetto Corsa Rally",
+            );
+            (
+                base.join("acr").join("Content").join("Vehicles").display().to_string(),
+                base.join("acr").join("Content").join("Locations").display().to_string(),
+                true,
+                true,
+            )
+        }
+        "le_mans_ultimate" | "lemu" => {
+            let base = PathBuf::from(
+                r"C:\Program Files (x86)\Steam\steamapps\common\Le Mans Ultimate",
+            );
+            (
+                base.join("Installed").join("Vehicles").display().to_string(),
+                base.join("Installed").join("Locations").display().to_string(),
+                true,
+                true,
+            )
+        }
+        "forza_horizon_5" => (
+            "(MS Store - not enumerable)".to_string(),
+            "(MS Store - not enumerable)".to_string(),
+            false,
+            false,
+        ),
+        "f1_25" => (
+            "(F1 25 - no per-car enumeration)".to_string(),
+            "(F1 25 - no per-track enumeration)".to_string(),
+            false,
+            false,
+        ),
+        "iracing" => (
+            "(iRacing - content in user Documents)".to_string(),
+            "(iRacing - content in user Documents)".to_string(),
+            false,
+            false,
+        ),
+        "forza" => (
+            "(Forza - not enumerable)".to_string(),
+            "(Forza - not enumerable)".to_string(),
+            false,
+            false,
+        ),
+        _ => (String::new(), String::new(), false, false),
+    }
+}
+
+/// Enumerate a directory, returning sorted subdirectory names. Returns
+/// empty vec on any I/O error.
+fn list_subdirs(path: &std::path::Path) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let rd = match std::fs::read_dir(path) {
+        Ok(r) => r,
+        Err(_) => return out,
+    };
+    for entry in rd.flatten() {
+        if let Ok(ft) = entry.file_type() {
+            if ft.is_dir() {
+                if let Some(name) = entry.file_name().to_str() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Build a `ContentDirsResponse` from a slice of (game_key, optional exe_path).
+/// Extracted so unit tests can feed a tempdir + synthetic game list without
+/// depending on a real rc-agent.toml on disk.
+pub(crate) fn build_content_dirs_response(
+    installed: &[(String, Option<String>)],
+) -> rc_common::inventory_types::ContentDirsResponse {
+    use rc_common::inventory_types::{ContentDirsResponse, GameDirs};
+    let games: Vec<GameDirs> = installed
+        .iter()
+        .map(|(key, exe)| {
+            let (cars_dir, tracks_dir, cars_enum, tracks_enum) =
+                game_content_dirs(key, exe.as_deref());
+            let cars_on_disk = if cars_enum {
+                list_subdirs(std::path::Path::new(&cars_dir))
+            } else {
+                Vec::new()
+            };
+            let tracks_on_disk = if tracks_enum {
+                list_subdirs(std::path::Path::new(&tracks_dir))
+            } else {
+                Vec::new()
+            };
+            GameDirs {
+                game_key: key.clone(),
+                cars_dir,
+                tracks_dir,
+                cars_on_disk,
+                tracks_on_disk,
+                cars_enumerable: cars_enum,
+                tracks_enumerable: tracks_enum,
+            }
+        })
+        .collect();
+    ContentDirsResponse { games }
+}
+
+/// axum handler for `GET /debug/content-dirs` (service-key protected).
+pub async fn content_dirs_handler(
+) -> Result<Json<rc_common::inventory_types::ContentDirsResponse>, (StatusCode, String)> {
+    let paths = crate::config::config_search_paths();
+    let mut raw: Option<String> = None;
+    for p in &paths {
+        if let Ok(s) = std::fs::read_to_string(p) {
+            raw = Some(s);
+            break;
+        }
+    }
+    let raw = match raw {
+        Some(r) => r,
+        None => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "rc-agent.toml not found".to_string(),
+            ));
+        }
+    };
+
+    #[derive(Deserialize)]
+    struct GameBlob {
+        #[serde(default)]
+        exe_path: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Doc {
+        #[serde(default)]
+        games: std::collections::BTreeMap<String, GameBlob>,
+    }
+
+    let doc: Doc = match toml::from_str(&raw) {
+        Ok(d) => d,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("parse rc-agent.toml: {}", e),
+            ));
+        }
+    };
+
+    let installed: Vec<(String, Option<String>)> = doc
+        .games
+        .into_iter()
+        .map(|(k, v)| (k, v.exe_path))
+        .collect();
+
+    Ok(Json(build_content_dirs_response(&installed)))
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1714,5 +1935,71 @@ mod tests {
         let status = info_get_with_key(app, None).await;
         unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
         assert_eq!(status, 401, "/info without header must return 401 when key is set");
+    }
+
+    // ─── Phase 361-01: content-dirs handler tests ──────────────────────────
+
+    #[test]
+    fn content_dirs_degrade_open_games_return_not_enumerable() {
+        let installed = vec![
+            ("forza_horizon_5".to_string(), None),
+            ("f1_25".to_string(), None),
+            ("iracing".to_string(), None),
+        ];
+        let resp = build_content_dirs_response(&installed);
+        assert_eq!(resp.games.len(), 3);
+        for g in &resp.games {
+            assert!(!g.cars_enumerable, "{} should be degrade-open", g.game_key);
+            assert!(!g.tracks_enumerable, "{} should be degrade-open", g.game_key);
+            assert!(g.cars_on_disk.is_empty());
+            assert!(g.tracks_on_disk.is_empty());
+        }
+    }
+
+    #[test]
+    fn content_dirs_ac_with_tempdir_enumerates_cars_and_tracks() {
+        // Create a fake AC install directory structure in a tempdir, then
+        // point game_content_dirs at it via a fabricated exe_path so
+        // derive_base finds the `assettocorsa` ancestor.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ac_root = dir.path().join("assettocorsa");
+        let cars_dir = ac_root.join("content").join("cars");
+        let tracks_dir = ac_root.join("content").join("tracks");
+        std::fs::create_dir_all(cars_dir.join("ferrari_458")).unwrap();
+        std::fs::create_dir_all(cars_dir.join("bmw_m3")).unwrap();
+        std::fs::create_dir_all(tracks_dir.join("spa")).unwrap();
+        std::fs::create_dir_all(tracks_dir.join("monza")).unwrap();
+        // A stray file should NOT appear in the listing.
+        std::fs::write(cars_dir.join("readme.txt"), b"x").unwrap();
+
+        let fake_exe = ac_root.join("acs.exe").display().to_string();
+        let installed = vec![("assetto_corsa".to_string(), Some(fake_exe))];
+        let resp = build_content_dirs_response(&installed);
+
+        assert_eq!(resp.games.len(), 1);
+        let ac = &resp.games[0];
+        assert_eq!(ac.game_key, "assetto_corsa");
+        assert!(ac.cars_enumerable);
+        assert!(ac.tracks_enumerable);
+        assert_eq!(ac.cars_on_disk, vec!["bmw_m3", "ferrari_458"]);
+        assert_eq!(ac.tracks_on_disk, vec!["monza", "spa"]);
+    }
+
+    #[test]
+    fn content_dirs_missing_ac_path_returns_empty_lists() {
+        // Use an exe path that cannot have derive_base find 'assettocorsa',
+        // so the fallback hardcoded path is used — which won't exist in CI.
+        let installed = vec![(
+            "assetto_corsa".to_string(),
+            Some("Z:/nope/nothing/acs.exe".to_string()),
+        )];
+        let resp = build_content_dirs_response(&installed);
+        assert_eq!(resp.games.len(), 1);
+        let ac = &resp.games[0];
+        assert!(ac.cars_enumerable);
+        assert!(ac.tracks_enumerable);
+        // Missing dirs yield empty subdirs vecs (graceful degrade).
+        assert!(ac.cars_on_disk.is_empty());
+        assert!(ac.tracks_on_disk.is_empty());
     }
 }

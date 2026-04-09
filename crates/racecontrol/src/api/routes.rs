@@ -341,6 +341,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pod-status-summary", get(pod_status_summary))
         .route("/pods/seed", post(seed_pods))
         .route("/pods/{id}", get(get_pod))
+        // Phase 361-01: per-pod content inventory (games + cars + tracks) for
+        // kiosk wizard filtering + admin drift detection. Staff JWT required
+        // (info disclosure class — reveals fleet content posture).
+        .route("/pods/{id}/inventory", get(crate::api::pods::pod_inventory_handler))
         .route("/pods/{id}/wake", post(wake_pod))
         .route("/pods/{id}/shutdown", post(shutdown_pod))
         .route("/pods/{id}/lockdown", post(lockdown_pod))
@@ -5638,6 +5642,94 @@ async fn launch_game(
         Ok(st) => st,
         Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type_str) })),
     };
+
+    // Phase 361-01: Server-side validity gate.
+    //
+    // Parse pod number from pod_id (e.g. "pod_1" -> 1, "1" -> 1). Load the
+    // pod's inventory TOML from `config_dir`, run the validity gate, and
+    // return HTTP 422 on failure with the ValidityError as JSON. This runs
+    // BEFORE game_launcher::handle_dashboard_command, which is the earliest
+    // point where we can inspect car/track AND the latest point before any
+    // WS dispatch / lock acquisition in game_launcher.
+    //
+    // NOTE: The plan specified wiring into `create_session` at routes.rs:2541,
+    // but that legacy handler only accepts (type, sim_type, track, car_class)
+    // via a Json<Value> body — it does NOT receive pod_id, car, or ai_count.
+    // The actual user-selected tuple flows through `launch_game` instead, so
+    // the gate lives here. Documented in 361-01-SUMMARY.md as a deviation.
+    //
+    // Pre-lock placement: this block does sync I/O only (std::fs::read_to_string
+    // + toml::from_str), no .await, no lock acquisition. The existing
+    // `game_launcher::handle_dashboard_command(&state, cmd).await` remains the
+    // first .await after this gate.
+    {
+        let pod_num: Option<u32> = pod_id
+            .strip_prefix("pod_")
+            .or(Some(pod_id))
+            .and_then(|s| s.parse::<u32>().ok());
+        if let Some(n) = pod_num {
+            let config_dir = state.config.server.config_dir_path();
+            match crate::api::pods::load_pod_inventory(n, &config_dir) {
+                Ok(inv) => {
+                    // Extract car/track/ai_count from the (already-validated
+                    // for injection) launch_args JSON. Missing fields default
+                    // to empty strings / 0 which degrade-open for games whose
+                    // inventory lists are empty and otherwise are rejected
+                    // with a CAR_NOT_AVAILABLE / TRACK_NOT_AVAILABLE error.
+                    let args_parsed: serde_json::Value = launch_args
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or(serde_json::Value::Object(Default::default()));
+                    let car = args_parsed
+                        .get("car")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let track = args_parsed
+                        .get("track")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let ai_count = args_parsed
+                        .get("ai_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    if let Err(err) = crate::validation::session_validity::validate_session_tuple(
+                        sim_type_str, car, track, ai_count, &inv,
+                    ) {
+                        // Return the structured ValidityError as JSON. The
+                        // HTTP status is 200 here for backward compatibility
+                        // with existing callers that consume `error` on the
+                        // body; we include `status: 422` inside the body so
+                        // clients can discriminate. Phase 361-02 kiosk will
+                        // switch to the status-code path once the endpoint
+                        // is moved to its own route.
+                        return Json(serde_json::json!({
+                            "error": err.reason,
+                            "reason": err.reason,
+                            "suggestion": err.suggestion,
+                            "code": err.code,
+                            "status": 422,
+                        }));
+                    }
+                }
+                Err((code, msg)) if code == axum::http::StatusCode::NOT_FOUND => {
+                    // Pod TOML missing — degrade-open (don't block launch on
+                    // infra gap). Log for drift detection.
+                    tracing::warn!(
+                        pod_id = pod_id,
+                        error = msg,
+                        "pod inventory TOML missing; validity gate skipped (degrade-open)"
+                    );
+                }
+                Err((_, msg)) => {
+                    tracing::error!(
+                        pod_id = pod_id,
+                        error = msg,
+                        "pod inventory TOML parse error; validity gate skipped"
+                    );
+                }
+            }
+        }
+    }
 
     // INTEL-01: Query combo reliability BEFORE launching — build warning if success_rate < 70%.
     // Parse car/track from the already-injected launch_args JSON (duration_minutes was added above).

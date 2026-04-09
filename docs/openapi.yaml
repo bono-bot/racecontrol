@@ -118,6 +118,93 @@ components:
         10 variants matching Rust BillingSessionStatus enum in crates/rc-common/src/types.rs.
         Run `node scripts/check-billing-status-parity.js` to verify cross-language parity.
 
+    # Phase 361-01: pod content inventory types
+    PodInventory:
+      type: object
+      required: [pod_number, pod_name, sim, games, ai_count_range, fetched_at]
+      description: |
+        Per-pod installed-content inventory, sourced from the committed
+        `deploy/configs/rc-agent-pod{N}.toml` `[content.<game_key>]` sections.
+        Must match `rc_common::inventory_types::PodInventory` byte-for-byte
+        (CLAUDE.md Phase 62 cross-boundary rule).
+      properties:
+        pod_number:
+          type: integer
+          format: uint32
+        pod_name:
+          type: string
+        sim:
+          type: string
+          description: Primary sim key for this pod (e.g. "assetto_corsa")
+        games:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameInventory'
+        ai_count_range:
+          $ref: '#/components/schemas/AiCountRange'
+        fetched_at:
+          type: string
+          description: IST timestamp "YYYY-MM-DD HH:MM IST"
+
+    GameInventory:
+      type: object
+      required: [key, display_name, installed, cars, tracks]
+      properties:
+        key:
+          type: string
+          description: Canonical game key (assetto_corsa, f1_25, iracing, ...)
+        display_name:
+          type: string
+        installed:
+          type: boolean
+        cars:
+          type: array
+          description: |
+            Installed cars on disk. Empty array = degrade-open (server
+            skips car validation for this game).
+          items:
+            type: string
+        tracks:
+          type: array
+          description: |
+            Installed tracks on disk. Empty array = degrade-open.
+          items:
+            type: string
+
+    AiCountRange:
+      type: object
+      required: [min, max]
+      properties:
+        min:
+          type: integer
+          format: uint32
+        max:
+          type: integer
+          format: uint32
+
+    ValidityError:
+      type: object
+      required: [reason, suggestion, code]
+      description: |
+        Structured error returned when a session launch tuple
+        (pod_id, game, car, track, ai_count) fails server-side validation.
+        Must match `rc_common::inventory_types::ValidityError`.
+      properties:
+        reason:
+          type: string
+          description: Human-readable explanation.
+        suggestion:
+          type: string
+          description: Suggested corrective action shown in UI toast.
+        code:
+          type: string
+          enum:
+            - GAME_NOT_INSTALLED
+            - CAR_NOT_AVAILABLE
+            - TRACK_NOT_AVAILABLE
+            - AI_COUNT_OUT_OF_RANGE
+            - POD_NOT_FOUND
+
     Pod:
       type: object
       required: [id, number, name, ip_address, sim_type, status]
@@ -916,6 +1003,45 @@ paths:
                 $ref: '#/components/schemas/Pod'
         '404':
           description: Pod not found
+
+  # Phase 361-01: per-pod content inventory (games + cars + tracks)
+  /pods/{id}/inventory:
+    get:
+      tags: [pods]
+      summary: Get pod content inventory (installed games, cars, tracks)
+      description: |
+        Returns the installed games and per-game cars/tracks for a single pod,
+        sourced from the committed `deploy/configs/rc-agent-pod{id}.toml`
+        `[content.<game_key>]` sections. Consumed by the kiosk wizard
+        (361-02) to filter user selections against real installed content,
+        and by the admin content drift page (361-03).
+
+        **Degrade-open semantics:** games whose `cars` or `tracks` arrays are
+        empty disable car/track validation for that game (FH5, F1 25, iRacing,
+        Forza). An empty array means "server cannot enumerate content; any
+        value passes."
+      operationId: getPodInventory
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Pod number (integer, e.g. 1-8)
+          schema:
+            type: integer
+            format: uint32
+      responses:
+        '200':
+          description: Pod inventory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodInventory'
+        '401':
+          description: Unauthorized (no staff JWT)
+        '404':
+          description: Pod TOML not found in config_dir
 
   /pods/{id}/wake:
     post:
@@ -1854,6 +1980,15 @@ paths:
     post:
       tags: [games]
       summary: Launch a game on a pod
+      description: |
+        Phase 361-01: this endpoint runs a server-side validity gate BEFORE
+        dispatching the launch command to the pod. When the
+        `(pod_id, sim_type, car, track, ai_count)` tuple is rejected, the
+        response body contains `{status: 422, code, reason, suggestion}`
+        matching the `ValidityError` schema. The HTTP status remains 200 for
+        backward compatibility with existing callers that discriminate on the
+        body's `error` field; clients should migrate to checking the
+        in-body `status` field for 361-02+.
       operationId: launchGame
       security:
         - staffJWT: []
@@ -1873,13 +2008,35 @@ paths:
                   type: string
                 session_id:
                   type: string
+                launch_args:
+                  type: string
+                  description: |
+                    JSON string containing `car`, `track`, `ai_count`, etc.
+                    The Phase 361-01 validity gate parses these fields out
+                    of `launch_args` and runs `validate_session_tuple`
+                    against the pod's inventory BEFORE the WS dispatch.
       responses:
         '200':
-          description: Game launch info
+          description: |
+            Game launch result. On success, body contains `{ok: true, verified}`.
+            On validity failure, body matches ValidityError with `status: 422`.
           content:
             application/json:
               schema:
-                type: object
+                oneOf:
+                  - type: object
+                    properties:
+                      ok:
+                        type: boolean
+                      verified:
+                        type: boolean
+                  - allOf:
+                      - $ref: '#/components/schemas/ValidityError'
+                      - type: object
+                        properties:
+                          status:
+                            type: integer
+                            enum: [422]
 
   /games/stop:
     post:

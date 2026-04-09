@@ -104,4 +104,5 @@ pub mod visits;
 pub mod weekend;
 pub mod wol;
 pub mod tls;
+pub mod validation;
 pub mod ws;

@@ -157,6 +157,25 @@ pub struct ServerConfig {
     /// Pods with `core.mdns_enabled = true` will find this server without hardcoded IPs.
     #[serde(default = "default_true")]
     pub mdns_enabled: bool,
+    /// Directory containing per-pod TOML files (`rc-agent-pod{N}.toml`) that the
+    /// `/api/v1/pods/{id}/inventory` endpoint reads to expose pod content
+    /// inventory to kiosk/admin clients. On production server .23 this is
+    /// `C:\RacingPoint\deploy\configs`; on dev machines it defaults to
+    /// `./deploy/configs`. Phase 361-01.
+    #[serde(default = "default_config_dir")]
+    pub config_dir: String,
+}
+
+fn default_config_dir() -> String {
+    "./deploy/configs".to_string()
+}
+
+impl ServerConfig {
+    /// Expand `config_dir` into a filesystem `PathBuf`. Separate helper so
+    /// handlers do not need to clone the underlying String.
+    pub fn config_dir_path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(&self.config_dir)
+    }
 }
 
 /// Mutual TLS configuration for the racecontrol server (v38.0 Phase 305).
@@ -923,6 +942,7 @@ impl Config {
                 key_path: None,
                 tls: MtlsConfig::default(),
                 mdns_enabled: true,
+                config_dir: default_config_dir(),
             },
             database: DatabaseConfig {
                 path: default_db_path(),
