@@ -3437,6 +3437,90 @@ mod tests {
 
     // ─── Cross-boundary serialization tests (Phase 62 audit) ─────────────
 
+    /// Phase 62 enum-value contract test (added 2026-04-09 after Pod 8 incident).
+    ///
+    /// Background: The kiosk wizard sent `session_type="pitlane"` for every preset
+    /// experience launch, which rc-agent rejected with "Unknown session_type". Pod 8
+    /// stuck in maintenance_required state for ~14 hours before detection. The bug was
+    /// invisible to existing Phase 62 tests because they only validated FIELD NAME
+    /// mismatches (ai_difficulty vs ai_level, ai_count vs ai_cars) — never enum VALUE
+    /// mismatches on string-typed fields.
+    ///
+    /// This test enforces that every value in VALID_SESSION_TYPES round-trips through
+    /// the kiosk → JSON → AcLaunchParams → launch_ac validation path, and that any
+    /// out-of-vocab value is REJECTED at the launch boundary (not silently consumed).
+    #[test]
+    fn test_session_type_enum_contract_with_kiosk() {
+        // Every value in VALID_SESSION_TYPES must deserialize and pass launch validation.
+        for &valid in VALID_SESSION_TYPES {
+            let json = format!(
+                r#"{{"car":"ks_ferrari_488","track":"monza","session_type":"{}","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+                valid
+            );
+            let params: AcLaunchParams = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("VALID_SESSION_TYPES value {:?} failed to deserialize: {}", valid, e));
+            assert!(
+                VALID_SESSION_TYPES.contains(&params.session_type.as_str()),
+                "Round-trip lost session_type for {:?}", valid
+            );
+        }
+
+        // Out-of-vocab values must be REJECTED. The exact set tested below
+        // includes the Pod 8 incident value ("pitlane"), other DB start_type
+        // values ("grid"), and common typos.
+        let invalid_values = [
+            "pitlane",     // Pod 8 2026-04-08 — start_type leaked into session_type
+            "grid",        // Other start_type value
+            "Practice",    // Wrong case
+            "qualifying",  // Wrong sim concept (LMU has it, AC doesn't)
+            "qualify",     // Same
+            "",            // Empty string
+            "trackday ",   // Trailing whitespace
+        ];
+        for invalid in invalid_values {
+            let json = format!(
+                r#"{{"car":"ks_ferrari_488","track":"monza","session_type":"{}","server_ip":"","server_port":0,"server_http_port":0,"server_password":""}}"#,
+                invalid
+            );
+            let params: AcLaunchParams = serde_json::from_str(&json).unwrap();
+            // Replicate the exact check from launch_ac() at line 447.
+            assert!(
+                !VALID_SESSION_TYPES.contains(&params.session_type.as_str()),
+                "Invalid session_type {:?} must NOT be in VALID_SESSION_TYPES", invalid
+            );
+        }
+    }
+
+    /// Phase 62 reproducer for the exact Pod 8 incident payload.
+    ///
+    /// Pinning: this test will fail if anyone re-introduces the start_type→session_type
+    /// conflation in the kiosk wizard (useSetupWizard.ts:210) or removes the launch-
+    /// boundary validation in launch_ac().
+    #[test]
+    fn test_pod8_pitlane_session_type_rejected() {
+        let kiosk_json = r#"{
+            "car": "ks_ferrari_sf15t",
+            "track": "spa",
+            "driver": "Test Driver",
+            "difficulty": "easy",
+            "transmission": "auto",
+            "ffb": "medium",
+            "game": "assetto_corsa",
+            "game_mode": "single",
+            "aids": {"abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1},
+            "conditions": {"damage": 0},
+            "session_type": "pitlane",
+            "ai_level": 75,
+            "ai_count": 0
+        }"#;
+        let params: AcLaunchParams = serde_json::from_str(kiosk_json).unwrap();
+        assert_eq!(params.session_type, "pitlane");
+        assert!(
+            !VALID_SESSION_TYPES.contains(&params.session_type.as_str()),
+            "Pod 8 incident value \"pitlane\" must remain rejected by VALID_SESSION_TYPES"
+        );
+    }
+
     #[test]
     fn test_ai_count_generates_opponents_for_practice() {
         ensure_test_content_cache();

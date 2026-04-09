@@ -204,10 +204,20 @@ export function useSetupWizard() {
       game_mode: isMulti ? "multi" : "single",
       aids,
       conditions: { damage: 0 },
-      // session_type: Rust ac_launcher accepts both "weekend" and "race_weekend".
-      // When using a preset experience, use its start_type (race/trackday/etc.) instead of
-      // the wizard default ("practice") since experience-mode skips the session_type step.
-      session_type: state.selectedExperience?.start_type || state.sessionType,
+      // session_type: rc-agent validates against VALID_SESSION_TYPES =
+      // ["practice","hotlap","race","trackday","weekend","race_weekend"] (ac_launcher.rs:435).
+      //
+      // CRITICAL: KioskExperience.start_type is a DIFFERENT field — it stores AC's
+      // pit/grid race-start position ("pitlane"|"grid") for the SESSION_0.START_RACE_FROM_PIT
+      // INI key. The previous code conflated these two semantically distinct fields and
+      // sent session_type="pitlane" for every preset experience, which rc-agent rejected
+      // with "Unknown session_type". This stuck Pod 8 in maintenance_required state on
+      // 2026-04-08 until the contract bug was found.
+      //
+      // All current seed experiences (db/mod.rs:921-926) are "Hot Lap" variants, so
+      // preset experiences map to session_type="hotlap". Future enhancement: add a
+      // session_type column to kiosk_experiences for per-preset override.
+      session_type: state.selectedExperience ? "hotlap" : state.sessionType,
       // ai_level: numeric 0-100 value matching rc-agent's AcLaunchParams.ai_level
       ai_level: AI_DIFFICULTY_TO_LEVEL[state.aiDifficulty] ?? 87,
       // ai_count: how many AI opponents to generate (agent auto-picks car models)
