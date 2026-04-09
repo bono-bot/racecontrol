@@ -79,6 +79,9 @@ walkdir = { version = "2", optional = true }
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "winuser", "memoryapi", "basetsd", "synchapi", "errhandlingapi", "winerror", "wingdi", "libloaderapi", "sysinfoapi"] }
 
+# Native Win32 blanking screen animation — PNG frame decoding
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 # DXGI Desktop Duplication API for D3D fullscreen game screenshots
 windows = { version = "0.58", features = [
     "Win32_Graphics_Direct3D",

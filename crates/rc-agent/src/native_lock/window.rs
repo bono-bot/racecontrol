@@ -15,11 +15,14 @@ use tokio::sync::mpsc;
 
 const LOG_TARGET: &str = "lock-screen-window";
 
-/// Timer ID for the 1-second repaint timer.
+/// Timer ID for the repaint timer.
 const TIMER_ID: usize = 100;
 
-/// Repaint interval in milliseconds (1 second for countdown timer).
-const REPAINT_INTERVAL_MS: u32 = 1000;
+/// Repaint interval in milliseconds. 125ms = 8 FPS for the animated
+/// ScreenBlanked state (24 frames * 125ms = 3-second loop). Non-animated
+/// states (PinEntry, Countdown, etc.) redraw identical content at this
+/// rate — overhead is negligible since they're just FillRect + text.
+const REPAINT_INTERVAL_MS: u32 = 125;
 
 /// Internal state held on the window thread, stored in GWLP_USERDATA.
 #[cfg(windows)]
@@ -34,6 +37,9 @@ struct LockWindowState {
     pin_input: PinInputState,
     /// Previous state variant name, used to detect state transitions and reset pin_input.
     prev_state_name: &'static str,
+    /// Monotonic frame tick counter for the animated ScreenBlanked state.
+    /// Incremented once per WM_TIMER, modulo `blanking_frames::FRAME_COUNT`.
+    blanking_frame_tick: usize,
 }
 
 /// Entry point for the lock screen window thread.
@@ -81,6 +87,7 @@ pub fn spawn_lock_window(
             event_tx,
             pin_input: PinInputState::new(),
             prev_state_name: "Hidden",
+            blanking_frame_tick: 0,
         })
     };
     let state_ptr = Box::into_raw(window_state);
@@ -217,6 +224,11 @@ unsafe extern "system" fn lock_wnd_proc(
                         ws.prev_state_name = current_state_name;
                     }
 
+                    // Advance blanking animation frame counter when ScreenBlanked
+                    if current_state_name == "ScreenBlanked" {
+                        ws.blanking_frame_tick = ws.blanking_frame_tick.wrapping_add(1);
+                    }
+
                     // Focus enforcement: reclaim focus when in PinEntry state
                     {
                         let state = ws.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -298,7 +310,8 @@ unsafe extern "system" fn lock_wnd_proc(
                     let state = ws.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
                     let pin_dots = ws.pin_input.display_dots();
                     let pin_count = ws.pin_input.len();
-                    painter::paint_lock_screen(hwnd, &state, &ws.res, ws.screen_w, ws.screen_h, &pin_dots, pin_count);
+                    let blanking_tick = ws.blanking_frame_tick;
+                    painter::paint_lock_screen(hwnd, &state, &ws.res, ws.screen_w, ws.screen_h, &pin_dots, pin_count, blanking_tick);
                 }
                 0
             }

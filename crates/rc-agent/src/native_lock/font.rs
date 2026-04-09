@@ -152,6 +152,9 @@ pub struct LockGdiResources {
     pub brush_card: HBRUSH,
     /// RGB(90, 90, 90) = #5A5A5A — Gunmetal Grey
     pub brush_grey: HBRUSH,
+    /// Pre-decoded animated blanking frames (24 x 960x540 BGRA DIB sections).
+    /// Empty Vec = decode failed at startup; painter falls back to pure black.
+    pub blanking_frames: Vec<winapi::shared::windef::HBITMAP>,
 }
 
 #[cfg(windows)]
@@ -179,6 +182,7 @@ impl LockGdiResources {
             brush_red: CreateSolidBrush(rgb(225, 6, 0)),
             brush_card: CreateSolidBrush(rgb(34, 34, 34)),
             brush_grey: CreateSolidBrush(rgb(90, 90, 90)),
+            blanking_frames: super::blanking_frames::load_all_frames(),
         }
     }
 }
@@ -199,6 +203,9 @@ impl Drop for LockGdiResources {
             DeleteObject(self.brush_red as *mut _);
             DeleteObject(self.brush_card as *mut _);
             DeleteObject(self.brush_grey as *mut _);
+            for hbmp in self.blanking_frames.drain(..) {
+                DeleteObject(hbmp as *mut _);
+            }
         }
     }
 }

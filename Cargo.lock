@@ -3644,6 +3644,7 @@ dependencies = [
  "futures-util",
  "hidapi",
  "http-body-util",
+ "image 0.25.10",
  "mdns-sd",
  "mockall",
  "native-tls",

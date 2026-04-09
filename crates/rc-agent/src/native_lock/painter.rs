@@ -26,6 +26,7 @@ pub unsafe fn paint_lock_screen(
     screen_h: i32,
     pin_dots: &str,
     pin_count: usize,
+    blanking_tick: usize,
 ) {
     use winapi::shared::windef::RECT;
     use winapi::um::wingdi::*;
@@ -52,8 +53,10 @@ pub unsafe fn paint_lock_screen(
     // Dispatch based on state
     match state {
         LockScreenState::ScreenBlanked => {
-            // Pure black — nothing else rendered
+            // Black background covers the full virtual desktop (all monitors).
             FillRect(mem_dc, &full_rect, res.brush_black);
+            // Paint the current animation frame centered on the middle monitor.
+            paint_blanking_frame(mem_dc, res, screen_w, screen_h, blanking_tick);
         }
 
         LockScreenState::StartupConnecting => {
@@ -868,6 +871,84 @@ fn rgb(r: u8, g: u8, b: u8) -> u32 {
     (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
 }
 
+/// Paint one animated blanking frame from the embedded sequence.
+///
+/// Frames are 960x540 captures of http://192.168.31.23:3300/kiosk/blanking.
+/// Positioned centered on the middle monitor of an NVIDIA Surround 7680x1440
+/// triple-display layout (or centered on the whole screen otherwise), and
+/// StretchBlt-upscaled to the native monitor height (so a single 2560x1440
+/// monitor displays the frame at full vertical fill with 16:9 letterboxing
+/// where needed).
+///
+/// If frame decoding failed at startup (`res.blanking_frames` empty), the
+/// function is a no-op and the background stays pure black.
+#[cfg(windows)]
+unsafe fn paint_blanking_frame(
+    hdc: winapi::shared::windef::HDC,
+    res: &LockGdiResources,
+    screen_w: i32,
+    screen_h: i32,
+    blanking_tick: usize,
+) {
+    use winapi::um::wingdi::{
+        BitBlt, CreateCompatibleDC, DeleteDC, SelectObject, SetStretchBltMode, StretchBlt,
+        DeleteObject, HALFTONE, SRCCOPY,
+    };
+
+    if res.blanking_frames.is_empty() {
+        return;
+    }
+
+    let frame_idx = blanking_tick % res.blanking_frames.len();
+    let hbmp = res.blanking_frames[frame_idx];
+    if hbmp.is_null() {
+        return;
+    }
+
+    let frame_w = super::blanking_frames::FRAME_W; // 960
+    let frame_h = super::blanking_frames::FRAME_H; // 540
+
+    // Target: fit the frame to the middle monitor height, preserving 16:9
+    // aspect ratio. On a 3x 2560x1440 surround (7680x1440), the middle
+    // monitor spans x=[2560..5120], y=[0..1440]. The frame's aspect ratio
+    // is 960/540 = 16:9, so fit-to-height gives target_w = 1440 * 16/9 = 2560.
+    // That exactly fills the middle monitor.
+    //
+    // For non-surround single-display pods, we fit to the full screen height
+    // with the same 16:9 ratio, centered horizontally.
+    let target_h = screen_h;
+    let target_w = target_h * frame_w / frame_h;
+    let target_x = (screen_w - target_w) / 2;
+    let target_y = 0;
+
+    let src_dc = CreateCompatibleDC(hdc);
+    if src_dc.is_null() {
+        return;
+    }
+    let old_obj = SelectObject(src_dc, hbmp as *mut _);
+
+    // HALFTONE gives smoother scaling than default COLORONCOLOR
+    SetStretchBltMode(hdc, HALFTONE as i32);
+
+    StretchBlt(
+        hdc,
+        target_x,
+        target_y,
+        target_w,
+        target_h,
+        src_dc,
+        0,
+        0,
+        frame_w,
+        frame_h,
+        SRCCOPY,
+    );
+
+    SelectObject(src_dc, old_obj);
+    DeleteDC(src_dc);
+    let _ = DeleteObject; // silence unused import warning when not called
+}
+
 // Non-windows stub
 #[cfg(not(windows))]
 pub unsafe fn paint_lock_screen(
@@ -878,4 +959,5 @@ pub unsafe fn paint_lock_screen(
     _screen_h: i32,
     _pin_dots: &str,
     _pin_count: usize,
+    _blanking_tick: usize,
 ) {}

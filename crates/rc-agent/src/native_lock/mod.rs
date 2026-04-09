@@ -9,6 +9,7 @@
 //! - `window.rs` — Win32 window creation, message loop thread, cross-thread PostMessage API
 //! - `painter.rs` — State-driven GDI paint dispatch (ScreenBlanked, StartupConnecting, etc.)
 
+pub mod blanking_frames;
 pub mod font;
 pub mod keyboard;
 pub mod painter;
