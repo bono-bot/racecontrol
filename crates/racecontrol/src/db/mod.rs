@@ -3956,6 +3956,70 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     tracing::info!("v45.0 wallet separation columns migrated and backfilled");
 
+    // ─── Phase 363: Data Recording Verification ──────────────────────────────
+    // GLD-C-01/C-02: Per-session lap audit + telemetry completeness columns on billing_sessions.
+    // Using `let _ =` idiom to silently swallow "duplicate column" on re-run (idempotent).
+    // NOTE: All 8 columns go on billing_sessions (NOT sessions) per 363-RESEARCH.md correction.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN lap_count_expected INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN lap_count_actual INTEGER")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN lap_count_flag TEXT DEFAULT 'UNVERIFIED'")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN telemetry_coverage_pct REAL")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN suspect BOOLEAN NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN suspect_reasons TEXT")
+        .execute(pool)
+        .await;
+    // GLD-C-03: CSV fallback receipt timestamp
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN csv_fallback_received_at TEXT")
+        .execute(pool)
+        .await;
+    // GLD-C-04: Grace window deferral timestamp (D-10)
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN lap_reject_grace_until TEXT")
+        .execute(pool)
+        .await;
+
+    // GLD-C-04 D-12: lap_rejections table.
+    // Intentional: `session_id` column holds the billing_session_id value at runtime,
+    // consistent with laps.session_id which also holds billing_session_id (per 363-RESEARCH.md
+    // Open Question 1). Column name matches CONTEXT.md D-12 schema spec exactly.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS lap_rejections (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            lap_number INTEGER NOT NULL,
+            rejected_at TEXT NOT NULL DEFAULT (datetime('now')),
+            reason TEXT,
+            grace_window_caught BOOLEAN NOT NULL DEFAULT 0,
+            venue_id TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_lap_rejections_session ON lap_rejections(session_id)",
+    )
+    .execute(pool)
+    .await;
+
+    // Phase 363 kill switch — default enabled; admin can toggle to false to bypass all audit paths
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('phase363_session_audit', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
+    tracing::info!("Phase 363 Data Recording Verification schema migrated");
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
@@ -4502,5 +4566,127 @@ mod venue_id_tests {
         drop(pool);
         let _ = std::fs::remove_file(&path);
         assert_eq!(row.0, events_json);
+    }
+}
+
+// ─── Phase 363: Data Recording Verification migration tests ───────────────────
+
+#[cfg(test)]
+mod phase363_migration_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Create a unique temp-file SQLite pool for each test (WAL mode requires file-based DB).
+    async fn test_pool() -> (SqlitePool, String) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos();
+        let tid = std::thread::current().id();
+        let path = std::env::temp_dir()
+            .join(format!("rc_phase363_test_{:?}_{}.db", tid, nonce))
+            .to_string_lossy()
+            .to_string();
+        let pool = init_pool(&path).await.expect("test pool init failed");
+        (pool, path)
+    }
+
+    /// Helper: return column names for the given table via PRAGMA.
+    async fn column_names(pool: &SqlitePool, table: &str) -> Vec<String> {
+        let rows: Vec<(i64, String, String, i64, Option<String>, i64)> =
+            sqlx::query_as(&format!("PRAGMA table_info({})", table))
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
+        rows.into_iter().map(|r| r.1).collect()
+    }
+
+    /// Test 1: all 8 new billing_sessions columns exist after migration.
+    #[tokio::test]
+    async fn test_phase363_columns_present() {
+        let (pool, path) = test_pool().await;
+        let cols = column_names(&pool, "billing_sessions").await;
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        for col in &[
+            "lap_count_expected",
+            "lap_count_actual",
+            "lap_count_flag",
+            "telemetry_coverage_pct",
+            "suspect",
+            "suspect_reasons",
+            "csv_fallback_received_at",
+            "lap_reject_grace_until",
+        ] {
+            assert!(
+                cols.contains(&col.to_string()),
+                "billing_sessions missing column '{}'. Got: {:?}",
+                col,
+                cols
+            );
+        }
+    }
+
+    /// Test 2: lap_rejections table exists with correct columns.
+    #[tokio::test]
+    async fn test_phase363_lap_rejections_table() {
+        let (pool, path) = test_pool().await;
+        // Confirm table exists
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lap_rejections'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        assert_eq!(count, 1, "lap_rejections table not found in sqlite_master");
+
+        // Confirm key column is session_id (NOT billing_session_id)
+        let cols = column_names(&pool, "lap_rejections").await;
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            cols.contains(&"session_id".to_string()),
+            "lap_rejections missing 'session_id' column. Got: {:?}",
+            cols
+        );
+        assert!(
+            !cols.contains(&"billing_session_id".to_string()),
+            "lap_rejections must use 'session_id' not 'billing_session_id'. Got: {:?}",
+            cols
+        );
+    }
+
+    /// Test 3: phase363_session_audit feature flag seeded with enabled=1.
+    #[tokio::test]
+    async fn test_phase363_feature_flag_seeded() {
+        let (pool, path) = test_pool().await;
+        let enabled: Option<i64> = sqlx::query_scalar(
+            "SELECT enabled FROM feature_flags WHERE name = 'phase363_session_audit'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            enabled,
+            Some(1),
+            "phase363_session_audit flag missing or not enabled=1"
+        );
+    }
+
+    /// Test 4: migration is idempotent — running migrate() twice must not error.
+    #[tokio::test]
+    async fn test_phase363_migrate_idempotent() {
+        let (pool, path) = test_pool().await;
+        // migrate() already ran via init_pool. Run it manually a second time.
+        let result = migrate(&pool).await;
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "Second migrate() call returned error: {:?}",
+            result.err()
+        );
     }
 }
