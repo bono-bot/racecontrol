@@ -1339,9 +1339,9 @@ Plans:
 4. Lap-reject arriving within 5s of session end updates refund calc before commit
 
 **Plans:**
-2/3 plans executed
+3/3 plans complete
 - [x] 363-02-PLAN — CSV fallback auto-sync path
-- [ ] 363-03-PLAN — Billing 5s grace window + lap-reject race fix
+- [x] 363-03-PLAN — Billing 5s grace window + lap-reject race fix
 
 ### Phase 364: Session Quality Monitor
 
