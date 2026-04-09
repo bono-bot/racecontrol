@@ -1,5 +1,31 @@
 # Racing Point Operations (Unified)
 
+## Parallel Active Milestone: v46.0 Game Launch Diagnostics
+
+**Started:** 2026-04-09 (retroactive — Phase 362 Layer 3 shipped ad-hoc as build `a9b5eaa3` the same day)
+**Goal:** Close all 21 silent data-loss points between kiosk session setup and race results. Move verification from "is the game alive?" to "is it running correctly AND recording everything?"
+**Runs in parallel with:** v47.0 (below). User directive 2026-04-09: finish v46.0 before v47.0 merge/ship.
+
+**Target features (7 phases — 1 shipped, 6 planned):**
+1. **Phase 361** — Kiosk preset filtering + server gate (wire unused `presetValidity`, filter car/track by pod inventory, server-side combo rejection)
+2. **Phase 362** — Post-launch config verification via shared memory ✅ **SHIPPED** as `a9b5eaa3` on all 8 pods 2026-04-09
+3. **Phase 363** — Data recording verification (lap audit, telemetry completeness, CSV auto-sync, 5s billing grace window) — closes 3 P0s
+4. **Phase 364** — Session quality monitor (telemetry gap >500ms, lap consistency, stalled session, silent-drop audit)
+5. **Phase 365** — AI behavior validation via MMA (AI lap time KB, live anomaly detection)
+6. **Phase 366** — Fleet intelligence (per-pod health score, content drift, concurrent session guard)
+7. **Phase 367** — Staff tools (suspect lap view, on-demand verify, replay, export, Phase B retro-validation)
+
+**Requirements file:** `.planning/milestones/v46.0-REQUIREMENTS.md` (30 REQ-IDs, 21 silent-loss points mapped)
+**Roadmap file:** `.planning/milestones/v46.0-ROADMAP.md` (mirrored into main ROADMAP.md)
+
+**Constraints:**
+- Phases 361-367 must not collide with v47.0 phases 344-360
+- Phase 362 retroactive shipping — deferred runtime tests tracked as GLD-G-05 in Phase 367
+- MMA audit mandatory before ship (cross-system data bridge: kiosk ↔ server ↔ pod)
+- Will be run autonomously via `/gsd:autonomous --from 361`
+
+---
+
 ## Current Milestone: v47.0 Admin Dashboard Venue-Ready Hardening
 
 **Started:** 2026-04-09

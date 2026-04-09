@@ -1,4 +1,25 @@
 # Milestones
+
+## v46.0 Game Launch Diagnostics (Active — runs parallel with v47.0, started 2026-04-09)
+
+**Status:** 1 of 7 phases shipped. Remaining phases to run via `/gsd:autonomous --from 361`.
+
+**Goal:** Close all 21 silent data-loss points (3 P0, 4 P1, 14 P2+) between kiosk session setup and race results. Move verification from "is the game alive?" to "is it running correctly AND recording everything?"
+
+**Phase range:** 361-367
+
+**Shipped phases:**
+- **Phase 362** (Post-Launch Config Verification / Layer 3) — build `a9b5eaa3`, deployed to all 8 pods 2026-04-09, Pod 8 canary visually confirmed. SessionConfig struct + read_session_config() on 5 sim adapters (AC, ACR, F1 25, iRacing, LMU) + verify_launch_config Stage 5 + ConfigMismatchDetected WS + admin dashboard broadcast + WhatsApp alert. Atomic race.ini write, readback verification, AI car content validation. Session-type and car/track name normalization for fuzzy matching.
+
+**Planned phases:** 361 (Kiosk Preset Gate), 363 (Data Recording Verification), 364 (Session Quality Monitor), 365 (AI Behavior Validation via MMA), 366 (Fleet Intelligence), 367 (Staff Tools).
+
+**Retroactive notes:**
+- Phase 362 was shipped ad-hoc on 2026-04-09 before the GSD milestone was formally opened. Recorded here for audit traceability.
+- Phase 362 has known deferred tests (deliberate-mismatch WhatsApp E2E, ACR/LMU runtime verification, 8-pod concurrent mismatch) — tracked as `GLD-G-05` in Phase 367 so they cannot fall off the backlog.
+- v46.0 was created after v47.0 (Admin Dashboard Hardening) was already in progress, at user directive to finish v46.0 before shipping v47.0.
+
+---
+
 ## v34.0 Time-Series Metrics & Operational Dashboards (Shipped: 2026-04-01)
 
 **Phases completed:** 7 phases (285-291), 9 plans, 741 tests passing

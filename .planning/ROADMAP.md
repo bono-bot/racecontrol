@@ -1280,3 +1280,138 @@ Plans:
 - [x] 360-01-PLAN — Backend + PWA + POS dynamic fetch (0c7a8d86)
 - [ ] 360-02-PLAN — Admin `/wallet/topup-presets` editor page
 - [ ] 360-03-PLAN — Contract test in Phase 350 suite
+
+---
+
+# Milestone v46.0: Game Launch Diagnostics (PARALLEL with v47.0)
+
+**Started:** 2026-04-09 (retroactive — Phase 362 Layer 3 shipped ad-hoc as build `a9b5eaa3` same day)
+**Status:** Active, runs parallel with v47.0 Admin Dashboard Venue-Ready Hardening
+**Requirements:** `.planning/milestones/v46.0-REQUIREMENTS.md`
+**Standalone roadmap:** `.planning/milestones/v46.0-ROADMAP.md`
+**Goal:** Close all 21 silent data-loss points between kiosk session setup and race results. Move verification from "is the game alive?" to "is it running correctly AND recording everything?"
+**Phase range:** 361-367
+
+### Phase 361: Kiosk Preset Filtering + Server Gate
+
+**Goal:** Prevent invalid car/track combos at source. Wire unused `presetValidity`, filter by pod inventory, reject at API.
+
+**Requirements:** GLD-A-01..04
+
+**Success criteria:**
+1. Kiosk car/track dropdowns filter to installed-on-pod only
+2. Invalid combos disable "Start Session" with `presetValidity` reason surfaced
+3. Server `/sessions/start` returns 422 with `{reason, suggestion}` on bypass attempt
+4. Admin `/admin/content-drift` lists pods with inventory drift
+
+**Plans:**
+- [ ] 361-01-PLAN — Server inventory endpoint + validity gate
+- [ ] 361-02-PLAN — Kiosk filter + presetValidity surface
+- [ ] 361-03-PLAN — Admin content-drift page + nyquist tests
+
+### Phase 362: Post-Launch Config Verification (Layer 3) — SHIPPED 2026-04-09
+
+**Goal:** Read sim shared-memory / UDP to verify launched game matches kiosk-requested config.
+
+**Requirements:** GLD-B-01..05 (all `[x]`)
+
+**Shipped:** build `a9b5eaa3`, all 8 pods, 2026-04-09. Pod 8 canary visually confirmed.
+
+**Files:** `crates/rc-agent/src/sims/{mod,assetto_corsa,f1_25,iracing,lmu,assetto_corsa_evo}.rs`, `launch_verifier.rs`, `event_loop.rs`, `ac_launcher.rs`, `rc-common/protocol.rs`, `racecontrol ws/mod.rs`.
+
+**NOT tested (tracked as GLD-G-05 in Phase 367):** deliberate-mismatch WhatsApp alert E2E, ACR/LMU runtime verification, 8-pod concurrent-mismatch load.
+
+**Plans:**
+- [x] 362-01-PLAN — SessionConfig struct + read_session_config on 5 adapters (`a9b5eaa3`)
+- [x] 362-02-PLAN — verify_launch_config Stage 5 + ConfigMismatchDetected WS + admin broadcast (`a9b5eaa3`)
+- [x] 362-03-PLAN — Atomic race.ini write + AI car content validation (`a9b5eaa3`)
+
+### Phase 363: Data Recording Verification
+
+**Goal:** Lap audit + telemetry completeness + CSV auto-sync + 5s billing grace window. Closes all 3 P0s.
+
+**Requirements:** GLD-C-01..04
+
+**Success criteria:**
+1. Session-end lap audit flags >10% lap-count gap as `incomplete`
+2. Telemetry coverage <80% marks session `suspect: true`
+3. CSV fallback auto-syncs within 30s of session end
+4. Lap-reject arriving within 5s of session end updates refund calc before commit
+
+**Plans:**
+- [ ] 363-01-PLAN — Lap audit + telemetry completeness + DB migration
+- [ ] 363-02-PLAN — CSV fallback auto-sync path
+- [ ] 363-03-PLAN — Billing 5s grace window + lap-reject race fix
+
+### Phase 364: Session Quality Monitor
+
+**Goal:** Detect in-flight session quality degradation before session end.
+
+**Requirements:** GLD-D-01..05
+
+**Success criteria:**
+1. `TelemetryGap` events fire on >500ms gaps and are logged
+2. Lap consistency checker flags >3σ outliers as suspect
+3. `SessionStalled` warning fires after 15s in-race telemetry silence
+4. Zero `let _ = ws_send(...)` patterns in hot path (rg verified)
+5. `ws_try_send_overflows_total` metric exposed
+
+**Plans:**
+- [ ] 364-01-PLAN — Telemetry gap + stall detectors
+- [ ] 364-02-PLAN — Lap consistency checker
+- [ ] 364-03-PLAN — Silent-drop audit + overflow metrics
+
+### Phase 365: AI Behavior Validation via MMA
+
+**Goal:** Expected AI lap time KB per (car, track, difficulty). Live anomaly detection.
+
+**Requirements:** GLD-E-01..04
+
+**Success criteria:**
+1. `ai_behavior_samples` table populated after any >3-lap AI session
+2. Weekly MMA batch produces KB updates with 3/5 consensus
+3. `AiBehaviorAnomaly` fires on >3 consecutive laps outside band
+4. Admin dashboard surfaces per-car-track AI performance trend
+
+**Plans:**
+- [ ] 365-01-PLAN — ai_behavior_samples schema + collector
+- [ ] 365-02-PLAN — Weekly MMA batch + KB format
+- [ ] 365-03-PLAN — Live anomaly detector
+
+### Phase 366: Fleet Intelligence
+
+**Goal:** Per-pod composite health + time-of-day patterns + content drift + concurrent session guard.
+
+**Requirements:** GLD-F-01..04
+
+**Success criteria:**
+1. `/fleet/intelligence` returns 0-100 composite per pod
+2. Time-of-day anomaly report identifies hour-correlated failures
+3. `ContentDriftDetected` fires on inventory delta vs TOML
+4. Second session attempt on active pod returns HTTP 409
+
+**Plans:**
+- [ ] 366-01-PLAN — Per-pod health score aggregator
+- [ ] 366-02-PLAN — Time-of-day pattern analysis
+- [ ] 366-03-PLAN — Content drift detector
+- [ ] 366-04-PLAN — Concurrent session guard
+
+### Phase 367: Staff Tools
+
+**Goal:** Admin UIs for suspect lap triage, on-demand verify, replay, export, and retro-validation of Phase B.
+
+**Requirements:** GLD-G-01..05
+
+**Success criteria:**
+1. `/admin/suspect-laps` drills into per-lap telemetry heatmap
+2. "Verify Pod N" button runs synthetic Phase B test in <15s
+3. Session replay plays at 1×-10× speed
+4. Batch export produces CSV/JSONL for billing + telemetry + laps
+5. GLD-G-05: Phase 362 retro-validation passes (deliberate mismatch → WhatsApp E2E, all 5 adapters runtime-verified, 8-pod load)
+
+**Plans:**
+- [ ] 367-01-PLAN — Suspect lap view + heatmap
+- [ ] 367-02-PLAN — On-demand pod verify
+- [ ] 367-03-PLAN — Session replay player
+- [ ] 367-04-PLAN — Batch export
+- [ ] 367-05-PLAN — Phase 362 retro-validation
