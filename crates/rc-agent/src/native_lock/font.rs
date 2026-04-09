@@ -9,7 +9,13 @@
 #[cfg(windows)]
 use winapi::shared::windef::{HBRUSH, HFONT};
 
+#[cfg(windows)]
+use winapi::shared::windef::HBITMAP;
+
 const LOG_TARGET: &str = "lock-screen-font";
+
+/// Embedded Racing Point logo PNG (~47KB).
+const LOGO_PNG: &[u8] = include_bytes!("../../assets/logo/rp-logo-blanking.png");
 
 /// Embedded Montserrat Regular TTF (~300KB, SIL Open Font License).
 const MONTSERRAT_REGULAR: &[u8] = include_bytes!("../../assets/fonts/Montserrat-Regular.ttf");
@@ -152,6 +158,13 @@ pub struct LockGdiResources {
     pub brush_card: HBRUSH,
     /// RGB(90, 90, 90) = #5A5A5A — Gunmetal Grey
     pub brush_grey: HBRUSH,
+    /// Embedded Racing Point logo as a GDI DIB section (HBITMAP).
+    /// `None` if logo failed to decode (fallback: text-only branding).
+    pub logo_bitmap: Option<HBITMAP>,
+    /// Logo width in pixels (0 if no logo).
+    pub logo_w: i32,
+    /// Logo height in pixels (0 if no logo).
+    pub logo_h: i32,
 }
 
 #[cfg(windows)]
@@ -167,7 +180,7 @@ impl LockGdiResources {
         }
 
         let null_hdc = std::ptr::null_mut();
-        Self {
+        let mut res = Self {
             font_title: create_font(null_hdc, "Montserrat", 48, true),
             font_heading: create_font(null_hdc, "Montserrat", 36, true),
             font_body: create_font(null_hdc, "Montserrat", 24, false),
@@ -179,7 +192,23 @@ impl LockGdiResources {
             brush_red: CreateSolidBrush(rgb(225, 6, 0)),
             brush_card: CreateSolidBrush(rgb(34, 34, 34)),
             brush_grey: CreateSolidBrush(rgb(90, 90, 90)),
+            logo_bitmap: None,
+            logo_w: 0,
+            logo_h: 0,
+        };
+        // Load embedded logo PNG into a GDI DIB section
+        match load_logo_bitmap() {
+            Some((hbmp, w, h)) => {
+                tracing::info!(target: LOG_TARGET, "Logo loaded: {}x{}", w, h);
+                res.logo_bitmap = Some(hbmp);
+                res.logo_w = w;
+                res.logo_h = h;
+            }
+            None => {
+                tracing::warn!(target: LOG_TARGET, "Failed to load logo — blanking will use text-only branding");
+            }
         }
+        res
     }
 }
 
@@ -199,6 +228,9 @@ impl Drop for LockGdiResources {
             DeleteObject(self.brush_red as *mut _);
             DeleteObject(self.brush_card as *mut _);
             DeleteObject(self.brush_grey as *mut _);
+            if let Some(bmp) = self.logo_bitmap {
+                DeleteObject(bmp as *mut _);
+            }
         }
     }
 }
@@ -238,6 +270,81 @@ unsafe fn create_font(
         0,                                  // pitch and family
         face_wide.as_ptr(),
     )
+}
+
+/// Decode the embedded PNG logo and create a GDI DIB section.
+/// Returns (HBITMAP, width, height) or None on failure.
+#[cfg(windows)]
+fn load_logo_bitmap() -> Option<(HBITMAP, i32, i32)> {
+    use winapi::um::wingdi::{CreateDIBSection, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
+
+    // Decode PNG from embedded bytes
+    let img = match image::load_from_memory(LOGO_PNG) {
+        Ok(img) => img.to_rgba8(),
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, "Failed to decode logo PNG: {}", e);
+            return None;
+        }
+    };
+
+    let w = img.width() as i32;
+    let h = img.height() as i32;
+
+    // DIB sections are bottom-up by default (negative height = top-down)
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h, // top-down
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        },
+        bmiColors: [unsafe { std::mem::zeroed() }],
+    };
+
+    let mut bits_ptr: *mut winapi::ctypes::c_void = std::ptr::null_mut();
+    let hbmp = unsafe {
+        CreateDIBSection(
+            std::ptr::null_mut(), // screen DC
+            &bmi,
+            DIB_RGB_COLORS,
+            &mut bits_ptr as *mut *mut winapi::ctypes::c_void,
+            std::ptr::null_mut(), // no file mapping
+            0,
+        )
+    };
+
+    if hbmp.is_null() || bits_ptr.is_null() {
+        tracing::warn!(target: LOG_TARGET, "CreateDIBSection failed for logo");
+        return None;
+    }
+
+    // Copy RGBA pixels into the DIB section (GDI expects BGRA pre-multiplied alpha)
+    let pixel_count = (w * h) as usize;
+    let dst: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(bits_ptr as *mut u8, pixel_count * 4) };
+    let src = img.as_raw();
+
+    for i in 0..pixel_count {
+        let si = i * 4;
+        let r = src[si];
+        let g = src[si + 1];
+        let b = src[si + 2];
+        let a = src[si + 3];
+        // GDI AlphaBlend expects pre-multiplied alpha BGRA
+        dst[si] = (b as u16 * a as u16 / 255) as u8;
+        dst[si + 1] = (g as u16 * a as u16 / 255) as u8;
+        dst[si + 2] = (r as u16 * a as u16 / 255) as u8;
+        dst[si + 3] = a;
+    }
+
+    tracing::info!(target: LOG_TARGET, "Logo DIB created: {}x{} ({} bytes)", w, h, pixel_count * 4);
+    Some((hbmp, w, h))
 }
 
 // Non-windows stubs for compilation

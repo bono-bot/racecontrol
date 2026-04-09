@@ -63,6 +63,9 @@ subtle = "2.6"
 # QR code generation for lock screen
 qrcode = "0.13"
 
+# PNG logo loading for native lock screen blanking
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 # Cross-platform directory paths (Documents, etc.)
 dirs-next = "2"
 

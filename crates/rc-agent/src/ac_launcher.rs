@@ -117,8 +117,19 @@ use rc_common::ai_names::pick_ai_names;
 
 const LOG_TARGET: &str = "ac-launcher";
 
-/// AC launch parameters parsed from the `launch_args` JSON
+/// AC launch parameters parsed from the `launch_args` JSON.
+///
+/// **Cross-boundary serialization contract (Phase 62 / MI gap P2):**
+/// `#[serde(deny_unknown_fields)]` is enforced to fail fast on field name drift
+/// between kiosk and agent. Historical bug: kiosk sent `ai_difficulty` (string)
+/// but agent expected `ai_level` (u32) — serde silently dropped the field, AI
+/// was always Semi-Pro. Strict mode catches this class of bug at deserialization.
+///
+/// When kiosk adds a new field, the agent struct must add it too (with
+/// `#[serde(default)]` if optional) before deploy. The contract test
+/// `test_deny_unknown_fields_rejects_drift` verifies this.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AcLaunchParams {
     pub car: String,
     pub track: String,
@@ -185,6 +196,20 @@ pub struct AcLaunchParams {
     /// - Some(N) = generate N opponents from trackday car pool
     #[serde(default)]
     pub ai_count: Option<u32>,
+
+    // --- Informational fields from kiosk (Phase 62 / MI gap P2) ---
+    // These fields are sent by kiosk's buildLaunchArgs() but the agent uses them
+    // only for logging/audit. The actual semantic effect is captured by
+    // `aids` (from difficulty), `ai_level` (from aiDifficulty), and outer `sim_type`.
+    // They are declared here so `#[serde(deny_unknown_fields)]` accepts them.
+    /// Driving difficulty preset name ("easy"/"medium"/"hard"). Informational; aids hold the values.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub difficulty: Option<String>,
+    /// Game identifier ("assetto_corsa"/"f1_24"/etc.). Informational; routing uses outer sim_type.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub game: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -2390,6 +2415,47 @@ mod tests {
             .expect("Hotlap JSON must deserialize");
         assert_eq!(params.session_type, "hotlap");
         assert!(params.ai_cars.is_empty());
+    }
+
+    /// Phase 62 / MI gap P2: deny_unknown_fields contract test.
+    /// Verifies that field name typos / drift between kiosk and agent fail FAST
+    /// instead of silently dropping the value (historical bug: ai_difficulty vs ai_level).
+    #[test]
+    fn test_deny_unknown_fields_rejects_drift() {
+        // A typo'd field name must cause deserialization to fail.
+        let json = r#"{"car":"ks_ferrari_488","track":"monza","ai_difficulty":"hard"}"#;
+        let result: Result<AcLaunchParams, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "deny_unknown_fields must reject ai_difficulty (typo for ai_level)");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("unknown field") || err_msg.contains("ai_difficulty"),
+            "Error must mention the offending field, got: {}", err_msg);
+    }
+
+    /// Phase 62 / MI gap P2: contract test for the EXACT current kiosk payload.
+    /// If kiosk's buildLaunchArgs() (kiosk/src/hooks/useSetupWizard.ts) adds a new
+    /// field, this test will fail and force the agent struct to be updated in the
+    /// same commit. This prevents future silent serde drift.
+    #[test]
+    fn test_kiosk_current_payload_deserializes() {
+        // Mirror of kiosk's buildLaunchArgs() output for AC single-player.
+        // KEEP IN SYNC with kiosk/src/hooks/useSetupWizard.ts:196-215
+        let json = r#"{
+            "car":"ks_ferrari_488","track":"monza","driver":"TestDriver",
+            "difficulty":"easy","transmission":"automatic","ffb":"medium",
+            "game":"assetto_corsa","game_mode":"single",
+            "aids":{"abs":1,"tc":1,"stability":1,"autoclutch":1,"ideal_line":0},
+            "conditions":{"damage":0},
+            "session_type":"practice","ai_level":87,"ai_count":5
+        }"#;
+        let result: Result<AcLaunchParams, _> = serde_json::from_str(json);
+        assert!(result.is_ok(),
+            "Current kiosk payload must deserialize cleanly. If this fails, kiosk added a field — update AcLaunchParams. Error: {:?}",
+            result.err());
+        let params = result.unwrap();
+        assert_eq!(params.ai_level, 87);
+        assert_eq!(params.ai_count, Some(5));
+        assert_eq!(params.difficulty.as_deref(), Some("easy"));
+        assert_eq!(params.game.as_deref(), Some("assetto_corsa"));
     }
 
     #[test]

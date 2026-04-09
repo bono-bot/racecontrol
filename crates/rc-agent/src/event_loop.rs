@@ -1912,6 +1912,8 @@ pub async fn run(
                                         weekend_practice_minutes: 0,
                                         weekend_qualify_minutes: 0,
                                         ai_count: None,
+                                        difficulty: None,
+                                        game: None,
                                     }),
                                     None => ac_launcher::AcLaunchParams {
                                         car: "ks_ferrari_sf15t".to_string(),
@@ -1937,6 +1939,8 @@ pub async fn run(
                                         weekend_practice_minutes: 0,
                                         weekend_qualify_minutes: 0,
                                         ai_count: None,
+                                        difficulty: None,
+                                        game: None,
                                     },
                                 };
                                 state.heartbeat_status.game_running.store(true, std::sync::atomic::Ordering::Relaxed);
