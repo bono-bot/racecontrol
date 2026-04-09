@@ -1,22 +1,30 @@
 # Milestones
 
-## v46.0 Game Launch Diagnostics (Active — runs parallel with v47.0, started 2026-04-09)
+## v46.0 Game Launch Diagnostics (PAUSED 2026-04-10 — runs parallel with v47.0, started 2026-04-09)
 
-**Status:** 1 of 7 phases shipped. Remaining phases to run via `/gsd:autonomous --from 361`.
+**Status:** 1 of 7 phases shipped, 1 phase code-complete-not-shipped, 1 phase partial execution. Paused at user directive to resume v47.0 work.
 
 **Goal:** Close all 21 silent data-loss points (3 P0, 4 P1, 14 P2+) between kiosk session setup and race results. Move verification from "is the game alive?" to "is it running correctly AND recording everything?"
 
 **Phase range:** 361-367
 
-**Shipped phases:**
+**Shipped phases (deployed to production):**
 - **Phase 362** (Post-Launch Config Verification / Layer 3) — build `a9b5eaa3`, deployed to all 8 pods 2026-04-09, Pod 8 canary visually confirmed. SessionConfig struct + read_session_config() on 5 sim adapters (AC, ACR, F1 25, iRacing, LMU) + verify_launch_config Stage 5 + ConfigMismatchDetected WS + admin dashboard broadcast + WhatsApp alert. Atomic race.ini write, readback verification, AI car content validation. Session-type and car/track name normalization for fuzzy matching.
 
-**Planned phases:** 361 (Kiosk Preset Gate), 363 (Data Recording Verification), 364 (Session Quality Monitor), 365 (AI Behavior Validation via MMA), 366 (Fleet Intelligence), 367 (Staff Tools).
+**Code-complete but NOT SHIPPED (awaiting deploy window + MMA audit):**
+- **Phase 363** (Data Recording Verification) — all 3 plans committed 2026-04-09/10: `e4784c51` (DB migration + session audit foundation), `09be10e6` + `aadefeb6` (CSV fallback endpoint + rc-agent push), `7e46227b` + `11450490` + `1e3eff44` (F-05 regression + grace window + hydration + lap reject). Test suite: 891 passed (racecontrol-crate) + 254 passed (rc-agent-crate) + 7 new Phase 363-03 tests. Production still runs `d4359d2e` — F-05 refund bug and GLD-C-04 lap-reject race remain live until racecontrol binary is built, MMA-audited, deployed to server .23, and synced to cloud Bono VPS.
+
+**Partial execution:**
+- **Phase 361** (Kiosk Preset Filtering + Server Gate) — Plan 01 code-only commit `37f7c64d` (22 new tests, 4 new files). Plans 02 + 03 not executed. Task 2.5 pod TOML content enumeration deferred. See `DEFERRED-361-01.md` for full gap list.
+
+**Planned phases:** 364 (Session Quality Monitor), 365 (AI Behavior Validation via MMA), 366 (Fleet Intelligence), 367 (Staff Tools + Phase 362 retro-validation).
+
+**Resume path:** `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STATE.md` — then (1) complete Phase 363 deploy: MMA audit → binary build → server+cloud deploy → behavioral verify, (2) finish Phase 361 plans 02+03, (3) execute phases 364-367.
 
 **Retroactive notes:**
 - Phase 362 was shipped ad-hoc on 2026-04-09 before the GSD milestone was formally opened. Recorded here for audit traceability.
 - Phase 362 has known deferred tests (deliberate-mismatch WhatsApp E2E, ACR/LMU runtime verification, 8-pod concurrent mismatch) — tracked as `GLD-G-05` in Phase 367 so they cannot fall off the backlog.
-- v46.0 was created after v47.0 (Admin Dashboard Hardening) was already in progress, at user directive to finish v46.0 before shipping v47.0.
+- v46.0 was created after v47.0 (Admin Dashboard Hardening) was already in progress, at user directive to finish v46.0 before shipping v47.0. Pivot to v47.0 on 2026-04-10 was a second directive after Phase 363 code-complete.
 
 ---
 

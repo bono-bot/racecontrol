@@ -100,7 +100,7 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 - Build commands:
   - `cargo build --release --bin rc-agent`
   - `cargo build --release --bin racecontrol`
-  - Tests: `cargo test -p rc-common && cargo test -p rc-agent && cargo test -p racecontrol`
+  - Tests: `cargo test -p rc-common && cargo test -p rc-agent-crate && cargo test -p racecontrol-crate` (workspace package names are `racecontrol-crate` + `rc-agent-crate`, NOT `racecontrol` + `rc-agent` — verify via `cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name'`. CLAUDE.md previously drifted and caused silent test misses.)
 
 ---
 
