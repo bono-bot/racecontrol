@@ -201,18 +201,56 @@ rm -rf "$STANDALONE/.next/static"
 mkdir -p "$STANDALONE/.next"
 cp -r "$STATIC" "$STANDALONE/.next/static"
 
-# Copy public/ if it exists
+# Copy public/ if it exists (idempotent — postbuild may already have copied it)
 if [ -d "$SRC/public" ]; then
+  rm -rf "$STANDALONE/public"
   cp -r "$SRC/public" "$STANDALONE/public"
 fi
+
+# Strip dev-only packages that get traced into standalone but aren't needed at runtime.
+# Why: 2026-04-09 — kiosk deploys silently failed for an unknown duration because
+# Compress-Archive crashed on `node_modules/typescript/lib/typesMap.json` (PermissionDenied
+# from deeply-nested typescript lib dir). PowerShell errors don't propagate to bash via
+# powershell.exe exit code, so `set -e` didn't catch it. Result: stale kiosk deploy with
+# missing public/ files. typescript is a devDependency and not used at runtime.
+echo "  Stripping dev tools from standalone (typescript, ts-node, eslint, prettier)..."
+for DEV_PKG in typescript ts-node eslint prettier @typescript-eslint @types; do
+  if [ -d "$STANDALONE/node_modules/$DEV_PKG" ]; then
+    rm -rf "$STANDALONE/node_modules/$DEV_PKG" 2>/dev/null || true
+  fi
+done
 
 # Create zip
 ZIP_PATH="$STAGING/$ZIP_NAME"
 rm -f "$ZIP_PATH"
-powershell -Command "Compress-Archive -Path '$STANDALONE/*' -DestinationPath '$ZIP_PATH' -Force"
+powershell -Command "
+  \$ErrorActionPreference = 'Stop'
+  try {
+    Compress-Archive -Path '$STANDALONE/*' -DestinationPath '$ZIP_PATH' -Force
+    Write-Output 'ZIP_OK'
+  } catch {
+    Write-Error \"Compress-Archive failed: \$_\"
+    exit 1
+  }
+"
+
+# HARD-FAIL if zip doesn't exist (PowerShell errors don't propagate to powershell.exe exit code)
+if [ ! -f "$ZIP_PATH" ]; then
+  echo "FATAL: Zip file was not created at $ZIP_PATH. Compress-Archive likely failed silently."
+  echo "       Check the standalone tree for problematic files (long paths, locked files, etc.)"
+  exit 3
+fi
 
 ZIP_SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
 echo "  Package: $ZIP_NAME ($ZIP_SIZE)"
+
+# Sanity-check zip size — kiosk standalone should be > 5 MB
+ZIP_BYTES=$(stat -c%s "$ZIP_PATH" 2>/dev/null || wc -c < "$ZIP_PATH")
+if [ "$ZIP_BYTES" -lt 1000000 ]; then
+  echo "FATAL: Zip is suspiciously small ($ZIP_BYTES bytes). Build likely incomplete."
+  rm -f "$ZIP_PATH"
+  exit 3
+fi
 
 # =========================================================================
 # [4/9] Pre-deploy health snapshot (curl /api/health for pages_before)
@@ -354,13 +392,39 @@ if [ "$HEALTH_OK" = true ]; then
     echo "  Testing: $STATIC_URL"
     STATIC_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$STATIC_URL" 2>/dev/null || echo "000")
     if [ "$STATIC_HTTP_CODE" = "200" ]; then
-      echo "  PASS: Static file returned HTTP $STATIC_HTTP_CODE"
+      echo "  PASS: _next/static/ returned HTTP $STATIC_HTTP_CODE"
     else
-      echo "  FAIL: Static file returned HTTP $STATIC_HTTP_CODE (expected 200)"
+      echo "  FAIL: _next/static/ returned HTTP $STATIC_HTTP_CODE (expected 200)"
       echo "  Static files not served correctly — deploy may have succeeded but CSS is broken"
       echo "  Manual fix: cp -r $SRC/.next/static $SRC/.next/standalone/.next/static"
       DEPLOY_RESULT="degraded"
       ERROR="static file smoke test failed: $STATIC_URL returned $STATIC_HTTP_CODE"
+    fi
+  fi
+
+  # ---- public/ smoke test (added 2026-04-09 after kiosk public/ silently dropped) ----
+  # The deploy script's `cp -r public/` step (line ~206) is silent on failure.
+  # Without this check, a deploy that drops public/ files passes the build/health
+  # check and the only way the bug surfaces is a customer reporting a broken image.
+  # Pick a non-directory file under public/ that we know was just built and curl it.
+  if [ -d "$SRC/public" ]; then
+    FIRST_PUBLIC=$(find "$SRC/public" -maxdepth 2 -type f \( -name "*.png" -o -name "*.ico" -o -name "*.svg" -o -name "*.webp" -o -name "*.jpg" \) 2>/dev/null | head -1)
+    if [ -n "$FIRST_PUBLIC" ]; then
+      REL_PATH="${FIRST_PUBLIC#$SRC/public/}"
+      PUBLIC_URL="http://192.168.31.23:$PORT${STATIC_BASE_PATH}/$REL_PATH"
+      echo "  Testing public/: $PUBLIC_URL"
+      PUBLIC_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$PUBLIC_URL" 2>/dev/null || echo "000")
+      if [ "$PUBLIC_HTTP_CODE" = "200" ]; then
+        echo "  PASS: public/$REL_PATH returned HTTP $PUBLIC_HTTP_CODE"
+      else
+        echo "  FAIL: public/$REL_PATH returned HTTP $PUBLIC_HTTP_CODE (expected 200)"
+        echo "  public/ directory not served. The cp -r public/ step likely failed."
+        echo "  Manual fix: cp -r $SRC/public $SRC/.next/standalone/public  (then re-zip + redeploy)"
+        DEPLOY_RESULT="degraded"
+        ERROR="public/ smoke test failed: $PUBLIC_URL returned $PUBLIC_HTTP_CODE"
+      fi
+    else
+      echo "  WARNING: No image files found under $SRC/public/ — skipping public/ smoke test"
     fi
   fi
 else
