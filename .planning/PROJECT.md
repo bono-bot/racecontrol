@@ -1,5 +1,34 @@
 # Racing Point Operations (Unified)
 
+## Current Milestone: v47.0 Admin Dashboard Venue-Ready Hardening
+
+**Started:** 2026-04-09
+**Goal:** Transform the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) into a resilient central source of truth before customers start using the venue. Absorb Phase 343 Plan 03 (superseded admin PIN UI) and close 18 audit findings from the 2026-04-09 Vishal-PIN incident.
+
+**Target features (11 themes):**
+1. Unbreakable deploys — single `admin-deploy.sh` + post-deploy verify gate + Node pin
+2. Backend resilience — module-load errors → JSON 503, admin.db lazy-load, remove hardcoded JWT default (C5), halt on missing webhook secret (C6)
+3. Single source of truth — cafe menu proxy to racecontrol (kill dead admin.db.menu_items), drop empty employees table (D4), identity consolidation (C8), remove hardcoded terminal_pin (D6)
+4. Local↔cloud sync contract — Litestream venue→cloud read replica (Option A)
+5. Live /api/health + WhatsApp alerting via comms-link relay
+6. Downstream propagation tests — Playwright admin→POS/kiosk contract tests
+7. Auth resilience — per-staff-id lockout (C4), DB persist (C7), 12h JWT, break-glass token
+8. Data durability — daily sqlite3 .backup, 30d retention, rsync DR, quarterly restore drill
+9. UI hardening — hide dead routes, loading/empty/error states, 46-page Playwright smoke
+10. Runbook + staff training — printed one-pagers at POS
+11. Admin Staff Management `/admin/staff` page + `change_staff_pin_safe` + `sync/pull-now` (from superseded Phase 343-03)
+
+**Phase numbering:** Starts at Phase 344 (continues from Phase 343 in racecontrol).
+
+**Hard dependency:** Phase 343 Plans 01+02+04 (racecontrol backend — cloud-authority 409 guard + post-write verify + e2e regression) must ship BEFORE v47.0 Phase 347 (admin staff PIN UI) can deploy. Other v47.0 phases can start immediately.
+
+**Constraints:**
+- Venue opening is the hard deadline — no slipping P0 items past go-live
+- Two separate repos: v47.0 ships in `racingpoint-admin/`, Phase 343 ships in `racecontrol/`
+- Dual deployment: venue Windows (.23) + cloud Linux (Bono VPS) — parity required
+- Node 24 on venue → must downgrade to 22 LTS as pre-work (better-sqlite3 ABI)
+- No new external services (no Sentry, no Redis, no Docker)
+
 ## Current State
 
 **Shipped:** v1.0 through v5.5, v7.0-v8.0, v11.0, v16.0-v16.1, v18.0-v18.2, v21.0 (2026-03-13 to 2026-03-23)

@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v40.0
-milestone_name: Game Launch Reliability
-status: executing
-stopped_at: Completed 333-01 MP Local Server + Sync Lobby
-last_updated: "2026-04-07T21:04:52.285Z"
-last_activity: 2026-04-07
+milestone: v47.0
+milestone_name: Admin Dashboard Venue-Ready Hardening
+status: defining_requirements
+stopped_at: "Milestone scaffolded 2026-04-09"
+last_updated: "2026-04-09T18:20:00.000Z"
+last_activity: 2026-04-09
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 50
+  total_phases: 12
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,72 +20,67 @@ progress:
 
 See: .planning/PROJECT.md
 
-**Core value:** Move MI brain from rc-agent to rc-sentry so self-healing survives rc-agent death.
-**Current focus:** Phase 340 — admin-dashboard
+**Core value (v47.0):** Make the admin dashboard a venue-ready, resilient single source of truth before customer opening. Close 18 audit findings from the 2026-04-09 Vishal-PIN incident and absorb Phase 343 Plan 03 (superseded admin PIN UI).
+
+**Current focus:** Phase 344 — Unbreakable Deploys (first P0 phase)
 
 ## Current Position
 
-Phase: 342
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-04-07
+Phase: 344 (not started)
+Plan: Pending
+Status: Defining requirements → roadmap → phase planning
+Last activity: 2026-04-09 — Milestone v47.0 scaffolded, research complete
 
-Progress: [█████░░░░░] 50% (v42.0 — 324-01 done, 324-02 next)
+Progress: [░░░░░░░░░░] 0% (v47.0 — 0 of 12 phases)
 
 ## Accumulated Context
 
-### Migration Scope (measured 2026-04-06)
+### Milestone origin
+v47.0 was triggered by the 2026-04-09 Admin Dashboard audit which found:
+- Cloud admin fully down (login 500 from missing RC_URL env, static assets 404)
+- Local admin better-sqlite3 ABI mismatch (Node 24 vs binding built for Node 22)
+- Cafe menu editor wired to dead `admin.db.menu_items` table (never reaches POS/kiosk)
+- No racecontrol.db replication between venue and cloud (210 drivers venue vs 21 cloud)
+- 3 missing rc endpoints (`/customer/drivers`, `/customer/membership/active`, `/customer/membership/tiers`)
+- Phase 343 Vishal-PIN incident findings (18 code + data gaps)
 
-| Module | Lines | Target Phase |
-|--------|-------|-------------|
-| tier_engine.rs | 2,968 | 322 |
-| mma_engine.rs | 1,891 | 323 |
-| knowledge_base.rs | 1,470 | 322 |
-| diagnostic_engine.rs | 783 | 322 |
-| cognitive_gate.rs | 733 | 323 |
-| mesh_gossip.rs | 465 | 322 |
-| mma_cache.rs | 215 | 323 |
-| diagnostic_log.rs | 91 | 322 |
-| **Total** | **8,616** | |
+### Scope decisions (2026-04-09)
+- **Sync topology: Option A confirmed** — Litestream venue→cloud read replica
+- **Research: full 4-agent parallel** completed (2 via agents, 2 via direct write due to API overload)
+- **Scope: 11 themes** (added "Admin Staff Management" from superseded 343-03)
+- **Phase numbering: starts at 344** (continues from Phase 343)
+- **Hard dependency:** Phase 343 Plans 01+02+04 must ship BEFORE Phase 347 (Admin Staff Management UI)
 
-rc-sentry today: 3,952 lines (7 files)
+### Phase wave plan (from SUMMARY-v47.md)
 
-### Dependency Chain
+**Wave 1 (no Phase 343 dependency, can start immediately):**
+- Phase 344: Unbreakable deploys
+- Phase 345: Backend resilience
+- Phase 346: Cafe menu proxy rewrite
 
-321 (Monitoring) → 322 (Core MI) → 323 (MMA+Gate) → 324 (Mesh)
+**Wave 2 (Wave 1 must be green):**
+- Phase 348: Auth resilience
+- Phase 349: Litestream sync contract
+- Phase 352: Health + WhatsApp alerts
+- Phase 354: UI hardening
 
-### Decisions
+**Wave 3 (Phase 343 must be shipped in racecontrol):**
+- Phase 347: Admin Staff Management
+- Phase 350: Playwright contract tests
 
-- [2026-04-06]: Strictly sequential — each phase depends on previous
-- [Phase 321]: Extracted build_whatsapp_alert_request() as testable helper for OnceLock config
-- [Phase 321-01]: Dual-detection FSM: fail-open tasklist, restart_suppressed check, MON-02/MON-03 verified
-- [Phase 321]: Used evaluate_results() helper to separate pixel evaluation from GDI for testability
-- [Phase 324-01]: Pure std::net UDP gossip, OnceLock global queue, ephemeral send socket, 120s seen-set TTL
-- [Phase 324]: TCP for coordinated launch (reliability over UDP), deterministic initiator selection (lowest pod#), 200ms ACK timeout with graceful fallback
-- [Phase 329]: Module named native_lock/ to coexist with lock_screen.rs (Plan 03 renames)
-- [Phase 329-02]: PIN dots rendered as GDI Ellipse circles for crisp rendering at 7680x1440
-- [Phase 329-02]: Timer color warnings: red at 60s, yellow at 300s, white otherwise
-- [Phase 337-db-schema-migration]: Idempotent ALTER TABLE with let _ = pattern for wallet rupee/credit columns; DEFAULT 'credit' makes existing rows valid without explicit backfill
-- [Phase 338]: adjustment txn_type routes to post_bonus (not post_topup) to match bonus_credited_paise column tracking (D-02)
-- [Phase 338]: max_cash_refund computed in get_wallet_info: rupee_deposited - rupee_refunded - total_debited clamped to [0, balance] (D-14)
-- [Phase 338-wallet-core-logic]: cash_refund defaults to method='cash' — Phase 339 API layer extends with actual method param
-- [Phase 338-wallet-core-logic]: TOCTOU-safe: cap check SELECT runs inside tx via &mut *tx, preventing concurrent over-refund
-- [Phase 339]: Serde renames keep Rust _paise fields stable; only JSON output renamed to credits terminology
-- [Phase 339]: transactions_count uses map_err+? for proper error propagation per CLAUDE.md no-unwrap rule
-- [Phase 339]: gateway_topup counted in total_rupee_deposits via starts_with(topup) OR exact match
-- [Phase 339]: Two-endpoint refund design: /refund for credits, /cash-refund for real money -- isolates MMA-203 security caps
-- [Phase 340]: SessionWithCurrency local interface extension for billing history currency_type display
-- [Phase 340]: Cash Refund role-gated via AuthContext isAdmin; Credit Adjustment available to all staff
-- [Phase 342]: Cloud sync columns placed after updated_at before phone/email in push json_object; process_debit_intents confirmed unchanged per D-07
-- [Phase 333]: Direct acs.exe launch for MP eliminates Content Manager dependency entirely
-- [Phase 333]: Lobby sync uses 3s polling of acServer HTTP /INFO endpoint with 120s proceed-anyway timeout
+**Wave 4 (final):**
+- Phase 351: Data durability
+- Phase 353: Runbook + staff training
+- Phase 355: Venue-ready readiness review
 
 ### Blockers/Concerns
 
-- None yet
+- **Phase 343 Plans 01+02+04 not yet executed** in racecontrol (scaffolded in commit 49314feb by another session, not yet built/tested/deployed). v47.0 Phase 347 is blocked until those ship.
+- **Node 24 on venue .23** — must downgrade to 22 LTS as pre-work OR bundle with Phase 344 if safe to do in one deploy window.
+- **Research agent API overload** — STACK + FEATURES + SUMMARY were written directly by the session AI instead of subagents. Quality may be lower than full 4-agent research.
 
 ## Session Continuity
 
-Last session: 2026-04-07T21:04:52.137Z
-Stopped at: Completed 333-01 MP Local Server + Sync Lobby
-Resume file: None
+Last session: 2026-04-09T18:20:00 IST — milestone v47.0 scaffolded
+Stopped at: Research complete, drafting REQUIREMENTS.md + ROADMAP.md
+Resume file: None — session continuing autonomously per user directive

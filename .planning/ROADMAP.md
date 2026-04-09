@@ -19,6 +19,9 @@
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
 - [x] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, all code complete 2026-04-08)
 - [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
+- [ ] **v46.0 Game Launch Diagnostics** — Phase 343 (in progress, Phase B deployed 2026-04-09)
+- [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-355 (12 phases, started 2026-04-09)
+
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
 ---
@@ -940,3 +943,247 @@ Plans:
 
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+---
+
+## v47.0 Admin Dashboard Venue-Ready Hardening
+
+**Goal:** Make the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) a resilient, venue-ready central source of truth before customers start using the venue. Close 18 audit findings from the 2026-04-09 Vishal-PIN incident and absorb the superseded Phase 343 Plan 03 (admin PIN UI).
+
+**Phases:** 12 | **Requirements:** 63 mapped | **Waves:** 4
+
+**Hard dependency:** Phase 343 Plans 01+02+04 (racecontrol backend) must ship before Phase 347 (Admin Staff Management UI). Other phases unblocked.
+
+### Phase Summary Table
+
+| # | Phase | Wave | Goal | Requirements | Depends on |
+|---|---|---|---|---|---|
+| 344 | Unbreakable Deploys | 1 | Single admin-deploy.sh + verify gate + rollback + Node pin | ADMIN-01..07 | — |
+| 345 | Backend Resilience | 1 | Module-load errors never 500, admin.db lazy-load, remove hardcoded JWT/webhook defaults | ADMIN-08..13 | 344 |
+| 346 | Cafe Menu Proxy Rewrite | 1 | Admin cafe/menu proxies to rc; drop dead admin.db tables; identity consolidation | ADMIN-14..20 | 345 |
+| 347 | Admin Staff Management | 3 | /admin/staff page + change_staff_pin_safe + sync/pull-now | STAFF-01..10, DEP-01..04 | 344, 345, Phase 343 (racecontrol) |
+| 348 | Auth Resilience | 2 | Per-staff-id lockout, DB persist, 12h JWT, break-glass | AUTH-01..07 | 344, 345 |
+| 349 | Litestream Sync Contract | 2 | Venue-to-cloud read replica via Litestream + B2 | SYNC-01..08 | 344 |
+| 350 | Contract Tests | 3 | Playwright admin-to-POS/kiosk propagation + 46-page smoke | TEST-01..06 | 346, 347 |
+| 351 | Data Durability | 4 | Daily backups + 30d retention + restore drill | OPS-08..14 | 349 |
+| 352 | Health + WhatsApp Alerts | 2 | Per-subsystem /api/health probes + comms-link alerter | OPS-01..07 | 345 |
+| 353 | Runbook + Training | 4 | Printed one-pagers at POS + incident log | OPS-15..19 | 347, 346 |
+| 354 | UI Hardening | 2 | Hide dead routes + loading/empty/error states | UI-01..07 | 345 |
+| 355 | Venue-Ready Readiness Review | 4 | Execute 18-criterion checklist + VERIFICATION.md | (all) | all above |
+
+### Phase 344: Unbreakable Deploys
+
+**Goal:** Replace the ad-hoc admin deploy procedure with a single scripted, verifiable, rollback-capable pipeline working identically on venue Windows + cloud Linux.
+
+**Requirements:** ADMIN-01, ADMIN-02, ADMIN-03, ADMIN-04, ADMIN-05, ADMIN-06, ADMIN-07
+
+**Success criteria:**
+1. Fresh VM deploy completes in <3 minutes from clone to running admin
+2. Post-deploy verify gate catches all 4 known P0 failure modes (missing static assets, missing env vars, ABI mismatch, login round-trip)
+3. Rollback command reverts to previous build within 60 seconds
+4. Deploy script fails loudly on any step error — no silent green deploys
+5. Six stale `deploy-staging/set-*pin*` scripts deleted from git
+
+**Plans:**
+- [ ] 344-01-PLAN — `admin-deploy.sh` + `verify-deploy.js` + `server-bootstrap.js`
+- [ ] 344-02-PLAN — Node version pin + nvmrc + bat/pm2 env exports
+- [ ] 344-03-PLAN — Archive stale PIN scripts + deploy script tests
+
+### Phase 345: Backend Resilience
+
+**Goal:** No module-load error crashes a route. Every admin API returns structured JSON. Remove dangerous hardcoded defaults (JWT secret, webhook secret) from racecontrol.
+
+**Requirements:** ADMIN-08, ADMIN-09, ADMIN-10, ADMIN-11, ADMIN-12, ADMIN-13
+
+**Success criteria:**
+1. Killing racecontrol — admin UI loads, shows degraded banner, admin-native pages still work
+2. Every admin API error response is valid JSON with `error_code` field
+3. Booting admin with missing `RC_URL` returns 503 on every rcFetch call — NOT a 500 at module load
+4. Racecontrol refuses to start if `RC_JWT_SECRET` env is unset or default literal
+5. Racecontrol refuses to start if `payment_webhook_secret` is unset
+
+**Plans:**
+- [ ] 345-01-PLAN — Admin rc proxy env validation moved inside handlers
+- [ ] 345-02-PLAN — admin.db lazy-load + ABI auto-rebuild retry
+- [ ] 345-03-PLAN — racecontrol halt-on-missing-secrets (C5 + C6)
+
+### Phase 346: Cafe Menu Proxy Rewrite (SSOT)
+
+**Goal:** Kill the dead-end `admin.db.menu_items` table. Admin cafe menu/inventory proxy to racecontrol `cafe_items`. Drop dead `admin.db.employees` table. Consolidate identity source reads.
+
+**Requirements:** ADMIN-14, ADMIN-15, ADMIN-16, ADMIN-17, ADMIN-18, ADMIN-19, ADMIN-20
+
+**Success criteria:**
+1. Adding a menu item in admin appears on POS `/billing` within 10 seconds
+2. `admin.db.menu_items`, `admin.db.inventory`, `admin.db.employees` tables no longer exist after migration
+3. Startup schema-guard aborts boot if dropped tables re-appear
+4. Schema-diff doc in PLAN.md matches all fields 1:1 between admin UI and racecontrol cafe_items
+5. Pre-cutover snapshot of admin.db stored off-machine
+
+**Plans:**
+- [ ] 346-01-PLAN — Schema-diff + admin cafe routes rewrite to rcFetch
+- [ ] 346-02-PLAN — Drop migration + schema-guard
+- [ ] 346-03-PLAN — Identity source consolidation (C8) + terminal_pin cleanup (D6)
+
+### Phase 347: Admin Staff Management
+
+**Goal:** `/admin/staff` page + `change_staff_pin_safe` endpoint + `sync/pull-now` endpoint. Make safe PIN changes the easy path. Replaces curl/sqlite3/deploy-staging scripts.
+
+**Requirements:** STAFF-01..10, DEP-01..04
+
+**Success criteria:**
+1. Uday can change a staff PIN via `/admin/staff` and see green "Verified on cloud + venue" within 5 seconds
+2. Response includes both `cloud_verified` and `venue_verified` booleans
+3. Kiosk on any pod accepts the new PIN within 10 seconds of green success
+4. Old PIN no longer works on any pod or cloud admin
+5. Feature flag `FEATURE_STAFF_PIN_UI` defaults off; pre-deploy script checks Phase 343 shipped
+6. No plaintext PINs displayed anywhere in the UI
+
+**Depends on:** Phase 343 Plans 01+02 must be SHIPPED in racecontrol (not just committed).
+
+**Plans:**
+- [ ] 347-01-PLAN — racecontrol `change_staff_pin_safe` + `sync_pull_now` handlers
+- [ ] 347-02-PLAN — admin `/admin/staff` page + change-pin modal + Next.js proxy route
+- [ ] 347-03-PLAN — Feature flag + pre-deploy gate + smoke test
+
+### Phase 348: Auth Resilience
+
+**Goal:** Lockout survives restart. Per-staff-id tracking in addition to per-IP. 12h JWT with sliding refresh. Break-glass token.
+
+**Requirements:** AUTH-01..07
+
+**Success criteria:**
+1. 10 failed logins for staff_id=X from 5 different IPs locks staff_id X, not 5 separate IP counters
+2. Restarting racecontrol does not reset lockout counters
+3. A staff JWT issued at 09:00 is still valid at 21:00 (12h)
+4. Logging in on a second device does not invalidate the first
+5. Break-glass token use triggers WhatsApp alert within 30 seconds
+
+**Plans:**
+- [ ] 348-01-PLAN — racecontrol `lockout.rs` module + lockout_counters table
+- [ ] 348-02-PLAN — JWT 12h + sliding refresh + multi-device test
+- [ ] 348-03-PLAN — Break-glass token flow + audit log + alert
+
+### Phase 349: Litestream Sync Contract
+
+**Goal:** Venue `racecontrol.db` replicates to cloud via Litestream (Option A). Cloud admin is read-only for replicated tables. Lag detection wired to /api/health.
+
+**Requirements:** SYNC-01..08
+
+**Success criteria:**
+1. Writing a driver on venue racecontrol is visible on cloud racecontrol SQLite within 60 seconds (same row hash)
+2. Attempting PUT on cloud racecontrol for a replicated table returns 409 with hint
+3. `/api/health` reports `litestream_lag_seconds` accurately; 5min lag = WARN banner in cloud admin
+4. Restoring from B2 to a scratch path produces a DB with matching row counts
+5. Break-glass "pause replication" command documented in runbook
+
+**Plans:**
+- [ ] 349-01-PLAN — Litestream install + pre-flight test on Windows venue
+- [ ] 349-02-PLAN — B2 bucket setup + replicate config + cloud restore daemon
+- [ ] 349-03-PLAN — Cloud racecontrol read-replica guard + /api/health lag probe
+
+### Phase 350: Contract Tests
+
+**Goal:** Playwright contract tests for every admin-to-downstream data flow. 46-page smoke test in deploy gate. Reuses Phase 343-04 sync-wait pattern.
+
+**Requirements:** TEST-01..06
+
+**Success criteria:**
+1. Cafe menu contract test passes against live venue + live cloud
+2. 46-page smoke test runs in <2 minutes, zero console errors on hydration
+3. Tests run as part of `admin-deploy.sh --verify` — failing tests block deploy
+4. Staff PIN contract test uses 70s sync-wait (reuses Phase 343-04 pattern)
+5. Test data is cleaned up after each run (no test pollution in prod DB)
+
+**Plans:**
+- [ ] 350-01-PLAN — Cafe/pricing/coupon contract tests
+- [ ] 350-02-PLAN — Staff PIN contract test (depends on Phase 347)
+- [ ] 350-03-PLAN — 46-page smoke test + deploy gate integration
+
+### Phase 351: Data Durability
+
+**Goal:** Daily `sqlite3 .backup` on both DBs, 30d retention, rsync to Bono VPS, quarterly restore drill.
+
+**Requirements:** OPS-08..14
+
+**Success criteria:**
+1. Daily scheduled task runs at 03:00 IST on venue + cloud
+2. Backups appear in `C:\RacingPoint\backups\` (venue) + `/root/backups/` (cloud) with non-zero size
+3. Both DBs verified in WAL mode at startup
+4. Restore drill on a scratch machine recovers admin.db with matching row counts
+5. Alert fires if backup missing or size 0 after scheduled window
+
+**Plans:**
+- [ ] 351-01-PLAN — `backup-sqlite.ps1` venue + `backup-sqlite.sh` cloud
+- [ ] 351-02-PLAN — Rsync to Bono VPS + retention policy
+- [ ] 351-03-PLAN — Restore drill SOP + first execution + LOGBOOK entry
+
+### Phase 352: Health + WhatsApp Alerts
+
+**Goal:** `/api/health` reports true ground truth per subsystem. Degradation triggers WhatsApp alert via comms-link relay within 30 seconds.
+
+**Requirements:** OPS-01..07
+
+**Success criteria:**
+1. Killing admin.db file permission — `/api/health` admin_db subsystem reports not ok within 10s
+2. WhatsApp alert fires within 30s of degradation — confirmed by message in the venue channel
+3. Same subsystem + error_code within 10 min produces single alert (dedup works)
+4. Phase 343 Plan 02 `whatsapp_alerter.rs` TODO wired and firing
+5. Structured JSON logs rotate daily and appear on Bono VPS within 24h
+
+**Plans:**
+- [ ] 352-01-PLAN — Per-subsystem probes in `/api/health`
+- [ ] 352-02-PLAN — comms-link `/relay/alert` integration + dedup logic
+- [ ] 352-03-PLAN — Structured JSON logs + rotation + rsync
+
+### Phase 353: Runbook + Staff Training
+
+**Goal:** Printed one-pagers at POS. Incident log ritual. Staff know what to do when admin breaks.
+
+**Requirements:** OPS-15..19
+
+**Success criteria:**
+1. Three printed one-pagers physically present at POS (general, PIN change, cafe menu change)
+2. Staff can describe the escalation path from memory
+3. Incident log used at least once during the first week of operation
+4. Morning review of incident log happens daily for the first 2 weeks
+5. Uday signs off on the runbook content
+
+**Plans:**
+- [ ] 353-01-PLAN — Write printable runbook markdown + PDF render
+- [ ] 353-02-PLAN — Staff training session + sign-off
+
+### Phase 354: UI Hardening
+
+**Goal:** No broken buttons or blank loading screens on any admin page. Dead routes removed from nav.
+
+**Requirements:** UI-01..07
+
+**Success criteria:**
+1. `/memberships` and `/wallet-transactions` not in nav (or behind feature flag)
+2. Every rcFetch call shows a loading skeleton during fetch
+3. Every empty list shows a meaningful empty state message
+4. Every mutation shows success/failure toast
+5. `/settings/health` page tiles update live
+
+**Plans:**
+- [ ] 354-01-PLAN — Nav cleanup + dead route handling
+- [ ] 354-02-PLAN — Loading/empty/error state pattern + apply to 20 top pages
+- [ ] 354-03-PLAN — `/settings/health` live tiles page
+
+### Phase 355: Venue-Ready Readiness Review
+
+**Goal:** Execute the 18-criterion Venue Opening Readiness Checklist. Produce VERIFICATION.md. Decide ship vs. defer remaining items.
+
+**Requirements:** (cross-theme — final verification)
+
+**Success criteria:**
+1. All 15 P0 criteria green
+2. P1 criteria either green or explicitly deferred with reason
+3. VERIFICATION.md committed with evidence per criterion
+4. User (Uday) signs off on venue-ready state
+5. v47.0 COMPLETE marker added to MILESTONES.md
+
+**Plans:**
+- [ ] 355-01-PLAN — Execute checklist, produce VERIFICATION.md
+- [ ] 355-02-PLAN — Milestone close + LOGBOOK + ARCHITECTURE.md + memory file updates
