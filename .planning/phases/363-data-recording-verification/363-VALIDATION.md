@@ -28,8 +28,8 @@ revised: 2026-04-09
 |----------|-------|
 | **Framework** | Rust `#[cfg(test)]` inline modules + `#[tokio::test]` for async |
 | **Config file** | None — inline modules in each .rs file |
-| **Quick run command** | `cargo test -p racecontrol -- billing 2>&1 \| tail -20` |
-| **Full suite command** | `cargo test -p racecontrol && cargo test -p rc-common && cargo test -p rc-agent` |
+| **Quick run command** | `cargo test -p racecontrol-crate --lib -- billing 2>&1 \| tail -20` |
+| **Full suite command** | `cargo test -p racecontrol-crate && cargo test -p rc-common && cargo test -p rc-agent-crate --features http-client` |
 | **Estimated runtime** | ~90 seconds (quick: ~15s, full: ~90s) |
 
 ### Test Module Layout
@@ -48,8 +48,8 @@ revised: 2026-04-09
 
 ## Sampling Rate
 
-- **After every task commit:** Run `cargo test -p racecontrol -- billing 2>&1 | tail -20`
-- **After every plan wave:** Run `cargo test -p racecontrol && cargo test -p rc-common && cargo test -p rc-agent`
+- **After every task commit:** Run `cargo test -p racecontrol-crate --lib -- billing 2>&1 | tail -20`
+- **After every plan wave:** Run `cargo test -p racecontrol-crate && cargo test -p rc-common && cargo test -p rc-agent-crate --features http-client`
 - **Before `/gsd:verify-work`:** Full suite must be green
 - **Max feedback latency:** 90 seconds
 
@@ -61,25 +61,25 @@ revised: 2026-04-09
 
 | Req ID | Behavior | Test Type | Automated Command | Plan/Task | Status |
 |--------|----------|-----------|-------------------|-----------|--------|
-| GLD-C-01 | Lap heuristic: 30min trackday → expect 10 laps; 0 actual → UNDER_RECORDED | unit | `cargo test -p racecontrol -- session_audit::tests::test_lap_heuristic` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-01 | Lap audit: 9 laps in 30min (>10% gap) → UNDER_RECORDED | unit | `cargo test -p racecontrol -- session_audit::tests::test_lap_audit_under_recorded` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-01 | Lap audit: fast driver, 12 laps in 30min → OK (directional, no over-flag) | unit | `cargo test -p racecontrol -- session_audit::tests::test_lap_audit_ok_over_expected` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-01 | Crash path: session ended before audit → UNVERIFIED preserved | integration | `cargo test -p racecontrol -- session_audit::tests::test_crash_unverified` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-02 | Coverage: 1800s session, 1200s covered → 66.7% → suspect=true | unit | `cargo test -p racecontrol -- session_audit::tests::test_telemetry_coverage_suspect` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-02 | Coverage: 1800s session, 1500s covered → 83% → suspect=false | unit | `cargo test -p racecontrol -- session_audit::tests::test_telemetry_coverage_ok` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-02 | suspect_reasons JSON array emitted when multiple flags fire | unit | `cargo test -p racecontrol -- session_audit::tests::test_suspect_reasons_multi` | 363-01 / Task 2 | ⬜ pending |
-| GLD-C-03 | CSV fallback: file has content → POST fired on SessionEnded | integration (mock server) | `cargo test -p rc-agent -- csv_fallback::test_push_on_session_end` | 363-02 / Task 2 | ⬜ pending |
-| GLD-C-03 | CSV fallback: file empty → no POST | unit | `cargo test -p rc-agent -- csv_fallback::test_no_push_when_empty` | 363-02 / Task 2 | ⬜ pending |
-| GLD-C-03 | CSV fallback: clear_csv_laps only after confirmed 200 | integration (mock server) | `cargo test -p rc-agent -- csv_fallback::test_no_clear_on_failure` | 363-02 / Task 2 | ⬜ pending |
-| GLD-C-03 | Server endpoint: POST /api/v1/sessions/{id}/telemetry-fallback requires service key | integration | `cargo test -p racecontrol -- telemetry_fallback::test_telemetry_fallback_requires_service_key` | 363-02 / Task 1 | ⬜ pending |
-| GLD-C-03 | Server endpoint: writes csv_fallback_received_at on 200 | integration (SQLite) | `cargo test -p racecontrol -- telemetry_fallback::test_telemetry_fallback_receipt_timestamp` | 363-02 / Task 1 | ⬜ pending |
-| GLD-C-04 | Grace window: lap reject arrives within 5s → grace_window_caught=true, lap removed before finalize | integration | `cargo test -p racecontrol -- billing_grace::test_grace_window_catches_reject` | 363-03 / Task 2 | ⬜ pending |
-| GLD-C-04 | Grace window: no lap reject in 5s → finalize proceeds with original count | integration | `cargo test -p racecontrol -- billing_grace::test_grace_window_expires_normally` | 363-03 / Task 2 | ⬜ pending |
-| GLD-C-04 | Grace window: server restart mid-window → hydrate_active_timers_from_db rebuilds timer with grace fields | integration (SQLite) | `cargo test -p racecontrol -- billing_grace::test_grace_window_restart_safe` | 363-03 / Task 2 | ⬜ pending |
-| F-05 regression | end_billing_session early-end: CAS UPDATE SQL does not include wallet_debit_paise in SET clause (invariant test via create_test_db) | integration (SQLite) | `cargo test -p racecontrol -- billing::tests::test_end_billing_session_early_end_refund_amount` | 363-03 / Task 1 | ⬜ pending |
-| F-05 regression | Rs.700 30min session ends at 15min → compute_refund(1800, 900, 70000) == 35000 | unit (pure) | `cargo test -p racecontrol -- billing::tests::test_f05_refund_uses_original_debit` | 363-03 / Task 1 | ⬜ pending |
-| GLD-C-01..04 | Cloud sync payload: all 8 new billing_sessions columns present in upsert | integration | `cargo test -p racecontrol -- cloud_sync::test_billing_session_push_columns_phase363` | 363-01 / Task 3 | ⬜ pending |
-| GLD-C-01..04 | Feature flag: phase363_session_audit=false bypasses all new audit paths | integration | `cargo test -p racecontrol -- session_audit::tests::test_feature_flag_kill_switch` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-01 | Lap heuristic: 30min trackday → expect 10 laps; 0 actual → UNDER_RECORDED | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_lap_heuristic` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-01 | Lap audit: 9 laps in 30min (>10% gap) → UNDER_RECORDED | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_lap_audit_under_recorded` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-01 | Lap audit: fast driver, 12 laps in 30min → OK (directional, no over-flag) | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_lap_audit_ok_over_expected` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-01 | Crash path: session ended before audit → UNVERIFIED preserved | integration | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_crash_unverified` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-02 | Coverage: 1800s session, 1200s covered → 66.7% → suspect=true | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_telemetry_coverage_suspect` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-02 | Coverage: 1800s session, 1500s covered → 83% → suspect=false | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_telemetry_coverage_ok` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-02 | suspect_reasons JSON array emitted when multiple flags fire | unit | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_suspect_reasons_multi` | 363-01 / Task 2 | ⬜ pending |
+| GLD-C-03 | CSV fallback: file has content → POST fired on SessionEnded | integration (mock server) | `cargo test -p rc-agent-crate --features http-client -- csv_lap_fallback::csv_fallback_tests::test_push_on_session_end` | 363-02 / Task 2 | ⬜ pending |
+| GLD-C-03 | CSV fallback: file empty → no POST | unit | `cargo test -p rc-agent-crate --features http-client -- csv_lap_fallback::csv_fallback_tests::test_no_push_when_empty` | 363-02 / Task 2 | ⬜ pending |
+| GLD-C-03 | CSV fallback: clear_csv_laps only after confirmed 200 | integration (mock server) | `cargo test -p rc-agent-crate --features http-client -- csv_lap_fallback::csv_fallback_tests::test_no_clear_on_failure` | 363-02 / Task 2 | ⬜ pending |
+| GLD-C-03 | Server endpoint: POST /api/v1/sessions/{id}/telemetry-fallback requires service key | integration | `cargo test -p racecontrol-crate --lib -- telemetry_fallback_tests::test_telemetry_fallback_requires_service_key` | 363-02 / Task 1 | ⬜ pending |
+| GLD-C-03 | Server endpoint: writes csv_fallback_received_at on 200 | integration (SQLite) | `cargo test -p racecontrol-crate --lib -- telemetry_fallback_tests::test_telemetry_fallback_receipt_timestamp` | 363-02 / Task 1 | ⬜ pending |
+| GLD-C-04 | Grace window: lap reject arrives within 5s → grace_window_caught=true, lap removed before finalize | integration | `cargo test -p racecontrol-crate --lib -- billing_grace::test_grace_window_catches_reject` | 363-03 / Task 2 | ⬜ pending |
+| GLD-C-04 | Grace window: no lap reject in 5s → finalize proceeds with original count | integration | `cargo test -p racecontrol-crate --lib -- billing_grace::test_grace_window_expires_normally` | 363-03 / Task 2 | ⬜ pending |
+| GLD-C-04 | Grace window: server restart mid-window → hydrate_active_timers_from_db rebuilds timer with grace fields | integration (SQLite) | `cargo test -p racecontrol-crate --lib -- billing_grace::test_grace_window_restart_safe` | 363-03 / Task 2 | ⬜ pending |
+| F-05 regression | end_billing_session early-end: CAS UPDATE SQL does not include wallet_debit_paise in SET clause (invariant test via create_test_db) | integration (SQLite) | `cargo test -p racecontrol-crate --lib -- billing::tests::test_end_billing_session_early_end_refund_amount` | 363-03 / Task 1 | ⬜ pending |
+| F-05 regression | Rs.700 30min session ends at 15min → compute_refund(1800, 900, 70000) == 32500 (Rs.325 — see Known Deviations) | unit (pure) | `cargo test -p racecontrol-crate --lib -- billing::tests::test_f05_refund_uses_original_debit` | 363-03 / Task 1 | ⬜ pending |
+| GLD-C-01..04 | Cloud sync payload: all 8 new billing_sessions columns present in upsert | integration | `cargo test -p racecontrol-crate --lib -- cloud_sync::tests::test_billing_session_push_columns_phase363` | 363-01 / Task 3 | ⬜ pending |
+| GLD-C-01..04 | Feature flag: phase363_session_audit=false bypasses all new audit paths | integration | `cargo test -p racecontrol-crate --lib -- session_audit::tests::test_feature_flag_kill_switch` | 363-01 / Task 2 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
