@@ -2,16 +2,17 @@
 gsd_state_version: 1.0
 milestone: v47.0
 milestone_name: Admin Dashboard Venue-Ready Hardening
-status: defining_requirements
-stopped_at: "Milestone scaffolded 2026-04-09"
-last_updated: "2026-04-09T18:20:00.000Z"
+status: executing
+stopped_at: "Phase 346-01 complete; cutover (346-02) and phases 347-355 pending"
+last_updated: "2026-04-09T19:30:00.000Z"
 last_activity: 2026-04-09
 progress:
   total_phases: 12
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 2
+  partial_phases: 1
+  total_plans: 36
+  completed_plans: 7
+  percent: 19
 ---
 
 # Project State
