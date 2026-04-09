@@ -1339,7 +1339,7 @@ Plans:
 4. Lap-reject arriving within 5s of session end updates refund calc before commit
 
 **Plans:**
-- [ ] 363-01-PLAN — Lap audit + telemetry completeness + DB migration
+1/3 plans executed
 - [ ] 363-02-PLAN — CSV fallback auto-sync path
 - [ ] 363-03-PLAN — Billing 5s grace window + lap-reject race fix
 
