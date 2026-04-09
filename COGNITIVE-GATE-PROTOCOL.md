@@ -145,11 +145,12 @@ Each rule is here because it prevented a documented incident AND cannot be autom
 - **Gate overhead:** Tokens spent on gate compliance vs. problem-solving. Target: < 15% (estimated 30-40% under v3.6).
 - **Time to first evidence:** How many messages between "I'll fix it" and actual evidence paste. Target: ≤ 2 messages.
 - **Enumeration before assertion:** Did grep/list precede "everywhere" claims? Binary yes/no per instance.
+- **UCA — Unenumerated Coverage Assertions (v4.4, 2026-04-09):** Count of claims made about the state of a set (coverage, capability existence, completeness) without a preceding enumeration of the set. Examples: "I've read all the feedback files" without `ls feedback_*.md` first; "I can't send email" without `ls ~/.claude/*email*`; "that's all of them" without grep. Each UCA = one G9 unless self-caught and corrected in the same message. **Target: 0 per session.** Origin: session 2026-04-09 had 3 UCAs on the same root cause (missed 40 feedback files, missed email capability, missed 5 MCP servers) — all were instances of answering from mental model instead of enumerating environment. Structural fix: this metric + `reference_local_capabilities.md` manifest + CLAUDE.md Rule 0 (enumerate before assert).
 
 ### How to Track
 At session end, report:
 ```
-SESSION METRICS: Claims: N | Corrections: N | FCR: N% | G9s: N | Overhead: ~N%
+SESSION METRICS: Claims: N | Corrections: N | FCR: N% | G9s: N | UCAs: N | Overhead: ~N%
 ```
 
 ---
