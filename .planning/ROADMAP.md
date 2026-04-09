@@ -19,7 +19,7 @@
 - ✅ **v42.0 Meshed Intelligence Migration** — Phases 321-324 (shipped 2026-04-07)
 - [x] **v44.0 VMS Architecture Integration** — Phases 329-336 (8 phases, all code complete 2026-04-08)
 - [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
-- [ ] **v46.0 Game Launch Diagnostics** — Phase 343 (in progress, Phase B deployed 2026-04-09)
+- [ ] **v46.0 Game Launch Diagnostics** — Phases 361-367 (Phase 362 shipped 2026-04-09 `a9b5eaa3`; Phase 363 code-complete + tested 2026-04-10, deploy+MMA deferred)
 - [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-360 (17 phases, expanded 2026-04-09 after SSOT gap audit)
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
@@ -1326,9 +1326,11 @@ Plans:
 - [x] 362-02-PLAN — verify_launch_config Stage 5 + ConfigMismatchDetected WS + admin broadcast (`a9b5eaa3`)
 - [x] 362-03-PLAN — Atomic race.ini write + AI car content validation (`a9b5eaa3`)
 
-### Phase 363: Data Recording Verification
+### Phase 363: Data Recording Verification — CODE-COMPLETE 2026-04-10 (deploy deferred)
 
 **Goal:** Lap audit + telemetry completeness + CSV auto-sync + 5s billing grace window. Closes all 3 P0s.
+
+**Status:** All 3 plans committed + tested. `cargo test -p racecontrol-crate` = 891 passed, `-p rc-agent-crate` = 254 passed, 7 Phase 363-03 tests green (F-05 formula + SQL invariant + grace window × 3 + lap reject × 2). **NOT SHIPPED to server .23 or Bono VPS** — MMA audit + binary build + deploy still required per CLAUDE.md. Production still runs `d4359d2e` (pre-v46.0 binary); F-05 refund bug and GLD-C-04 lap-reject race remain live until deploy. Parked pending deploy window.
 
 **Requirements:** GLD-C-01..04
 
