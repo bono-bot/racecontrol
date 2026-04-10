@@ -1209,6 +1209,150 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
     Ok(())
 }
 
+/// Perform a filtered cloud pull for the specified tables only.
+/// Used by `sync_pull_now_handler` and `change_staff_pin_safe` for immediate out-of-band pulls.
+/// Does NOT update the `last_synced` timestamp (this is an out-of-band pull, not a regular cycle).
+pub(crate) async fn pull_tables_now(state: &Arc<AppState>, tables: &[&str]) -> anyhow::Result<()> {
+    let cloud_url = state
+        .config
+        .cloud
+        .api_url
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("cloud_url not configured"))?;
+
+    let tables_param = tables.join(",");
+    let url = format!("{}/sync/changes", cloud_url);
+
+    tracing::debug!("pull_tables_now: requesting tables={} from {}", tables_param, url);
+
+    // Use since=epoch so we get all current data for the requested tables
+    let since = "1970-01-01T00:00:00Z";
+
+    let mut req = state
+        .http_client
+        .get(&url)
+        .query(&[
+            ("since", since),
+            ("tables", tables_param.as_str()),
+        ])
+        .timeout(Duration::from_secs(30));
+
+    if let Some(secret) = &state.config.cloud.terminal_secret {
+        req = req.header("x-terminal-secret", secret);
+    }
+
+    if let Some(hmac_key) = &state.config.cloud.sync_hmac_key {
+        let query_body = format!("since={}&tables={}", since, tables_param);
+        let (signature, timestamp, nonce) = sign_sync_request(query_body.as_bytes(), hmac_key.as_bytes());
+        req = req
+            .header("x-sync-timestamp", timestamp.to_string())
+            .header("x-sync-nonce", &nonce)
+            .header("x-sync-signature", &signature);
+    }
+
+    let resp = req.send().await?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("pull_tables_now: cloud returned status {}", resp.status());
+    }
+
+    let body: Value = resp.json().await?;
+    let mut total_upserted = 0u64;
+
+    // Apply upserts only for the tables present in the response (same logic as sync_once_http)
+    if let Some(drivers) = body.get("drivers").and_then(|v| v.as_array()) {
+        for driver in drivers {
+            if let Err(e) = upsert_driver(state, driver).await {
+                tracing::warn!("pull_tables_now: failed to upsert driver: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    if let Some(wallets) = body.get("wallets").and_then(|v| v.as_array()) {
+        for wallet in wallets {
+            if let Err(e) = upsert_wallet(state, wallet).await {
+                tracing::warn!("pull_tables_now: failed to upsert wallet: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    if let Some(tiers) = body.get("pricing_tiers").and_then(|v| v.as_array()) {
+        for tier in tiers {
+            if let Err(e) = upsert_pricing_tier(state, tier).await {
+                tracing::warn!("pull_tables_now: failed to upsert pricing_tier: {}", e);
+            } else {
+                total_upserted += 1;
+            }
+        }
+    }
+
+    if let Some(staff) = body.get("staff_members").and_then(|v| v.as_array()) {
+        for s in staff {
+            let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO staff_members (id, name, phone, pin, is_active, role, created_at, updated_at, last_login_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name, phone = excluded.phone, pin = excluded.pin,
+                    is_active = excluded.is_active, role = excluded.role,
+                    updated_at = excluded.updated_at, last_login_at = excluded.last_login_at",
+            )
+            .bind(id)
+            .bind(s.get("name").and_then(|v| v.as_str()))
+            .bind(s.get("phone").and_then(|v| v.as_str()))
+            .bind(s.get("pin").and_then(|v| v.as_str()))
+            .bind(s.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+            .bind(s.get("role").and_then(|v| v.as_str()).unwrap_or("staff"))
+            .bind(s.get("created_at").and_then(|v| v.as_str()))
+            .bind(s.get("updated_at").and_then(|v| v.as_str()))
+            .bind(s.get("last_login_at").and_then(|v| v.as_str()))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total_upserted += 1; }
+        }
+    }
+
+    // Additional tables that may be requested
+    if let Some(rates) = body.get("billing_rates").and_then(|v| v.as_array()) {
+        for rate in rates {
+            let id = rate.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() { continue; }
+            let r = sqlx::query(
+                "INSERT INTO billing_rates (id, tier_name, tier_order, rate_per_min_paise, threshold_minutes, sim_type, is_active)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                    tier_name = excluded.tier_name, tier_order = excluded.tier_order,
+                    rate_per_min_paise = excluded.rate_per_min_paise,
+                    threshold_minutes = excluded.threshold_minutes,
+                    sim_type = excluded.sim_type, is_active = excluded.is_active",
+            )
+            .bind(id)
+            .bind(rate.get("tier_name").and_then(|v| v.as_str()))
+            .bind(rate.get("tier_order").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("rate_per_min_paise").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("threshold_minutes").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(rate.get("sim_type").and_then(|v| v.as_str()))
+            .bind(rate.get("is_active").and_then(|v| v.as_i64()).unwrap_or(1))
+            .execute(&state.db)
+            .await;
+            if r.is_ok() { total_upserted += 1; }
+        }
+    }
+
+    if total_upserted > 0 {
+        tracing::info!("pull_tables_now: upserted {} records for tables [{}]", total_upserted, tables_param);
+    } else {
+        tracing::debug!("pull_tables_now: no records for tables [{}]", tables_param);
+    }
+
+    Ok(())
+}
+
 /// Push venue-generated data (laps, billing, pods, leaderboard) to cloud via direct HTTP.
 async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
     let (payload, has_data) = collect_push_payload(state).await?;
