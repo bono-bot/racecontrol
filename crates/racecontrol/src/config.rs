@@ -320,6 +320,12 @@ pub fn allow_venue_staff_write() -> bool {
     std::env::var("RC_ALLOW_VENUE_STAFF_WRITE").as_deref() == Ok("1")
 }
 
+/// Phase 349: Emergency override — allows cloud instance to write venue-authoritative tables.
+/// Set RC_ALLOW_CLOUD_VENUE_WRITE=1 on the cloud instance for break-glass scenarios.
+pub fn allow_cloud_venue_write() -> bool {
+    std::env::var("RC_ALLOW_CLOUD_VENUE_WRITE").as_deref() == Ok("1")
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PodsConfig {
     #[serde(default = "default_pod_count")]
