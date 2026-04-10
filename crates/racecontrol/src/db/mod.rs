@@ -2942,6 +2942,22 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_alert_incidents_started ON alert_incidents(started_at)")
         .execute(pool).await?;
 
+    // Phase 352: Add subsystem-level columns to alert_incidents (per OPS-05/D4)
+    for col in &[
+        "ALTER TABLE alert_incidents ADD COLUMN subsystem TEXT",
+        "ALTER TABLE alert_incidents ADD COLUMN severity TEXT DEFAULT 'info'",
+        "ALTER TABLE alert_incidents ADD COLUMN correlation_id TEXT",
+    ] {
+        if let Err(e) = sqlx::query(col).execute(pool).await {
+            let err_str = e.to_string();
+            if !err_str.contains("duplicate column") {
+                tracing::warn!(target: "db", "alert_incidents migration: {}", err_str);
+            }
+        }
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_alert_incidents_subsystem ON alert_incidents(subsystem)")
+        .execute(pool).await?;
+
     // --- Psychology Foundation (Phase 1) ---
 
     // Table 1: achievements (badge/achievement definitions with JSON criteria)

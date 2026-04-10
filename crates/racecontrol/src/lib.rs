@@ -62,6 +62,7 @@ pub mod maintenance_models;
 pub mod maintenance_store;
 pub mod maintenance_xai;
 pub mod snapshot_manager;
+pub mod subsystem_health;
 pub mod synthetic_monitor;
 pub mod metrics;
 pub mod metrics_tsdb;
