@@ -1159,6 +1159,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn subsystem health probes (10s interval, per-subsystem ground truth for /api/v1/health)
     racecontrol_crate::subsystem_health::spawn(state.clone());
 
+    // Spawn log sync task (daily rsync of JSONL logs to Bono VPS, OPS-07)
+    racecontrol_crate::log_sync::spawn(state.clone());
+
     // Spawn synthetic transaction monitor (5min interval, golden-path API validation)
     racecontrol_crate::synthetic_monitor::spawn(state.clone());
 

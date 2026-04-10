@@ -41,6 +41,7 @@ pub mod config_push;
 pub mod flags;
 pub mod fleet_alert;
 pub mod lobby;
+pub mod log_sync;
 pub mod mdns;
 pub mod fleet_deploy;
 pub mod fleet_healer;
