@@ -83,7 +83,7 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 - [x] **OPS-10**: 30-day rolling retention + first-of-month snapshots retained for 12 months
 - [x] **OPS-11**: Venue backups rsync'd to Bono VPS `/root/backups/venue/` same night
 - [ ] **OPS-12**: Both databases run in WAL mode (`PRAGMA journal_mode=WAL`) — verified at startup
-- [ ] **OPS-13**: Restore drill SOP documented; executed quarterly with LOGBOOK.md entry
+- [x] **OPS-13**: Restore drill SOP documented; executed quarterly with LOGBOOK.md entry
 - [x] **OPS-14**: Automated check alerts if backup file missing or size 0 after scheduled window
 
 ### Theme 9 — UI Hardening
@@ -98,11 +98,11 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 ### Theme 10 — Runbook + Staff Training
 
-- [x] **OPS-15**: Printed one-pager at POS — "If admin is slow/broken: refresh → WhatsApp Bono → don't restart anything"
-- [x] **OPS-16**: Printed one-pager "How to change a staff PIN" — use `/admin/staff`, do NOT use curl/sqlite3/deploy-staging scripts
-- [x] **OPS-17**: Printed one-pager "How to change a cafe menu item" — open admin → Cafe → edit → verify on POS within 10s
-- [x] **OPS-18**: Staff incident log (paper or shared Google Sheet) — one-line per incident
-- [x] **OPS-19**: Morning review ritual — James + Bono read incident log each day before opening
+- [ ] **OPS-15**: Printed one-pager at POS — "If admin is slow/broken: refresh → WhatsApp Bono → don't restart anything"
+- [ ] **OPS-16**: Printed one-pager "How to change a staff PIN" — use `/admin/staff`, do NOT use curl/sqlite3/deploy-staging scripts
+- [ ] **OPS-17**: Printed one-pager "How to change a cafe menu item" — open admin → Cafe → edit → verify on POS within 10s
+- [ ] **OPS-18**: Staff incident log (paper or shared Google Sheet) — one-line per incident
+- [ ] **OPS-19**: Morning review ritual — James + Bono read incident log each day before opening
 
 ### Theme 11 — Admin Staff Management (from superseded Phase 343-03)
 
