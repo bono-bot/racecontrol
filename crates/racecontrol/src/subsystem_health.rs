@@ -541,9 +541,77 @@ fn should_alert(subsystem: &str, error_code: &str) -> bool {
     true
 }
 
-// ─── Alert Dispatch (D2) ────────────────────────────────────────────────────
+// ─── Alert Dispatch (D2) — Fallback Chain: Direct -> Relay ─────────────────
+
+/// Try direct Evolution API dispatch. Returns Ok(()) on success, Err(reason) on failure.
+/// Used only by subsystem_health for the fallback chain — existing callers use send_whatsapp() unchanged.
+async fn try_direct_whatsapp(config: &Config, message: &str) -> Result<(), String> {
+    let (evo_url, evo_key, evo_instance, phone) = match (
+        &config.auth.evolution_url,
+        &config.auth.evolution_api_key,
+        &config.auth.evolution_instance,
+        &config.alerting.uday_phone,
+    ) {
+        (Some(u), Some(k), Some(i), Some(p)) if !u.is_empty() && !k.is_empty() => {
+            (u.clone(), k.clone(), i.clone(), p.clone())
+        }
+        _ => return Err("Evolution API not configured".to_string()),
+    };
+
+    let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .post(&url)
+        .header("apikey", &evo_key)
+        .json(&serde_json::json!({
+            "number": phone,
+            "text": message
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Evolution API returned {}", resp.status()))
+    }
+}
+
+/// Fallback: POST to comms-link relay on James .27:8766
+async fn try_relay_fallback(subsystem: &str, _error_code: &str, message: &str) -> Result<(), String> {
+    let relay_url = "http://192.168.31.27:8766/relay/alert";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .post(relay_url)
+        .json(&serde_json::json!({
+            "source": "venue-racecontrol",
+            "subsystem": subsystem,
+            "severity": "critical",
+            "message": message,
+            "timestamp": crate::whatsapp_alerter::ist_now_string()
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Relay unreachable: {}", e))?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Relay returned {}", resp.status()))
+    }
+}
 
 /// Fire a WhatsApp alert for a subsystem degradation.
+/// Fallback chain per D2: try direct Evolution API first, fall back to comms-link relay.
 async fn dispatch_subsystem_alert(
     config: &Config,
     db: &SqlitePool,
@@ -570,9 +638,25 @@ async fn dispatch_subsystem_alert(
     tracing::warn!(target: LOG_TARGET, subsystem, error_code, detail, "Subsystem degraded, sending alert");
 
     // Primary: direct Evolution API dispatch
-    crate::whatsapp_alerter::send_whatsapp(config, &msg).await;
+    match try_direct_whatsapp(config, &msg).await {
+        Ok(()) => {
+            tracing::info!(target: LOG_TARGET, subsystem, "Alert sent via direct Evolution API");
+        }
+        Err(e) => {
+            tracing::warn!(target: LOG_TARGET, subsystem, error = %e, "Direct WhatsApp failed, trying relay fallback");
+            // Fallback: comms-link relay on James .27:8766
+            match try_relay_fallback(subsystem, error_code, &msg).await {
+                Ok(()) => {
+                    tracing::info!(target: LOG_TARGET, subsystem, "Alert sent via relay fallback");
+                }
+                Err(e2) => {
+                    tracing::error!(target: LOG_TARGET, subsystem, direct_error = %e, relay_error = %e2, "Both direct and relay failed for alert dispatch");
+                }
+            }
+        }
+    }
 
-    // Record in alert_incidents (D4/OPS-05)
+    // Always record incident regardless of dispatch success (D4/OPS-05)
     record_subsystem_incident(db, subsystem, error_code, &msg).await;
 }
 
