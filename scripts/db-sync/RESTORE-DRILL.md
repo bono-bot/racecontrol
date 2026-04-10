@@ -203,13 +203,14 @@ ssh bono-vps "cp /root/backups/venue/${TARGET_BACKUP}/admin.db /tmp/drill-restor
 ssh bono-vps "sqlite3 /tmp/drill-restore-venue/racecontrol.db 'SELECT COUNT(*) FROM drivers; SELECT COUNT(*) FROM billing_sessions; PRAGMA integrity_check;'"
 
 # Verify admin.db (if available)
-ssh bono-vps "sqlite3 /tmp/drill-restore-venue/admin.db 'SELECT COUNT(*) FROM staff_members; PRAGMA integrity_check;' 2>/dev/null || echo 'admin.db not available in this backup'"
+# NOTE: admin.db uses 'employees' table (verified 2026-04-11 drill — not 'staff_members')
+ssh bono-vps "sqlite3 /tmp/drill-restore-venue/admin.db 'SELECT COUNT(*) FROM employees; PRAGMA integrity_check;' 2>/dev/null || echo 'admin.db not available in this backup'"
 ```
 
 Expected:
 - `drivers` count: > 0 for an active venue
 - `billing_sessions` count: >= 0
-- `staff_members` count: > 0 (for admin.db)
+- `employees` count: > 0 (for admin.db — table is `employees`, not `staff_members`)
 - `integrity_check`: `ok` (must pass — any other output means corrupt backup, escalate to Uday)
 
 ### Step V4: Disaster Recovery (Production Restore)
@@ -273,5 +274,5 @@ A restore drill PASSes when:
 1. racecontrol.db: `PRAGMA integrity_check` returns `ok`
 2. racecontrol.db: `drivers` table has > 0 rows
 3. admin.db: `PRAGMA integrity_check` returns `ok` (or documented as not-yet-available)
-4. admin.db: `staff_members` table has > 0 rows (or documented as not-yet-available)
+4. admin.db: `employees` table has > 0 rows (or documented as not-yet-available) — table is `employees`, not `staff_members` (verified 2026-04-11)
 5. Row counts match production within 24h tolerance (backup is daily)
