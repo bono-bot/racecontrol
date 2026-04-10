@@ -53,5 +53,14 @@ export default defineConfig({
         'tests/08-chaos/kiosk-chaos.spec.ts',
       ],
     },
+    {
+      name: 'api-auth',
+      use: {
+        baseURL: `http://${SERVER_IP}:8080`,
+      },
+      testMatch: [
+        'tests/10-auth/**',
+      ],
+    },
   ],
 });

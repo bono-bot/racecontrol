@@ -61,6 +61,38 @@ export async function waitForApp(page: Page): Promise<void> {
   await page.waitForTimeout(2000);
 }
 
+// Get admin JWT from API (validates with ADMIN_PIN)
+export async function getAdminToken(baseUrl: string = API_BASE): Promise<string> {
+  const pin = process.env.ADMIN_PIN || ADMIN_PIN;
+  if (!pin) throw new Error('ADMIN_PIN env var or test-data constant required');
+
+  // Try validate-pin first (staff endpoint works for admin too)
+  const resp = await fetch(`${baseUrl}/staff/validate-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+
+  if (resp.ok) {
+    const data = await resp.json();
+    if (data.token) return data.token;
+  }
+
+  // Fallback to admin-login endpoint
+  const resp2 = await fetch(`${baseUrl}/auth/admin-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+
+  if (resp2.ok) {
+    const data = await resp2.json();
+    if (data.token) return data.token;
+  }
+
+  throw new Error(`Admin login failed on both endpoints: validate-pin=${resp.status}, admin-login=${resp2.status}`);
+}
+
 // Clear cached token (for testing wrong PIN scenarios)
 export function clearCachedToken(): void {
   cachedStaffToken = null;
