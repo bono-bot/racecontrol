@@ -50,7 +50,7 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 - ✅ **344** Unbreakable Deploys — shipped to git, 3 plans committed
 - ✅ **345** Backend Resilience — shipped to git, 3 plans committed
 - 🟡 **346** Cafe Menu Proxy — 346-01 scaffolding shipped; 346-02 cutover REQUIRES venue closure maintenance window (can't do autonomously)
-- 🔒 **347** Admin Staff Management — **BLOCKED** on Phase 343 Plans 01+02+04 shipping in racecontrol (343 scaffolded in `49314feb`, NOT executed)
+- 🔒 **347** Admin Staff Management — **BLOCKED** on Phase 343 live deploy. Plans 01 (`b31c38e0`), 02 (`6c870f99`), 04 (`4074bb0d`) all committed to git but NOT deployed to server/cloud.
 - 🟢 **348** Auth Resilience — no external deps; new `lockout.rs` Rust module in racecontrol, extend admin lockout. MMA audit required (cross-system auth bridge).
 - ⏸ **349** Litestream Sync Contract — requires Backblaze B2 setup + live Windows infra
 - 🟡 **350** Contract Tests — can start but staff PIN tests depend on Phase 347 (which depends on 343)
