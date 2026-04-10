@@ -850,6 +850,16 @@ async fn main() -> anyhow::Result<()> {
     // Recover any active billing sessions from DB
     billing::recover_active_sessions(&state).await?;
 
+    // GLD-C-04 Phase 363 (P0-3 fix): Patch grace-window fields onto timers that
+    // recover_active_sessions just populated. MUST run AFTER recover — recover populates
+    // all 30+ BillingTimer fields correctly; this only patches lap_reject_grace_until +
+    // pending_end_status. Original ordering (hydrate-first, recover-second) was broken:
+    // recover explicitly cleared grace fields, making restart-safety non-functional.
+    // See .planning/audits/PHASE-363-MMA-SUMMARY-2026-04-10.md P0-3.
+    if let Err(e) = billing::hydrate_grace_fields_from_db(&state.billing, &state.db).await {
+        tracing::error!(error = %e, "GLD-C-04: failed to hydrate grace fields on startup");
+    }
+
     // FSM-10: Detect orphaned sessions on startup (sessions with stale heartbeat)
     billing::detect_orphaned_sessions_on_startup(&state).await;
 

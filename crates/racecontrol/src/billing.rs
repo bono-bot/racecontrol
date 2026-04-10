@@ -1442,8 +1442,11 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
     // GLD-C-04: Grace window DB writes (session_id, grace_until RFC3339)
     let mut grace_window_sets: Vec<(String, String)> = Vec::new();
-    // GLD-C-04: Expired grace windows to finalize (session_id, end_status)
-    let mut deferred_finalizes: Vec<(String, BillingSessionStatus)> = Vec::new();
+    // GLD-C-04: Expired grace windows to finalize (pod_id, session_id, end_status)
+    // P0-2 fix: pod_id included so we can remove the timer from active_timers BEFORE
+    // dropping the write lock, preventing the double-finalize race where the next tick
+    // sees the timer with cleared grace fields and treats it as a normal active timer.
+    let mut deferred_finalizes: Vec<(String, String, BillingSessionStatus)> = Vec::new();
 
     // Read pod statuses for offline detection
     let pods = state.pods.read().await;
@@ -1455,7 +1458,9 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         // The timer stays in active_timers until end_billing_session removes it.
         if let (Some(grace_until), Some(end_status)) = (timer.lap_reject_grace_until, timer.pending_end_status) {
             if now_for_grace >= grace_until {
-                deferred_finalizes.push((timer.session_id.clone(), end_status));
+                // P0-2 fix: include pod_id so timer can be removed from active_timers
+                // BEFORE dropping the write lock (prevents double-finalize race).
+                deferred_finalizes.push((pod_id.clone(), timer.session_id.clone(), end_status));
                 timer.lap_reject_grace_until = None;
                 timer.pending_end_status = None;
                 // Skip normal tick processing for this timer — it's being finalized
@@ -1660,6 +1665,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         timers.remove(pod_id);
     }
 
+    // P0-2 fix: Remove deferred-finalize timers BEFORE dropping the write lock.
+    // This prevents the double-finalize race: without this, the next tick (1s cadence)
+    // could see the timer with cleared grace fields and treat it as a normal active
+    // timer, potentially spawning a new grace window and double-finalizing.
+    // end_billing_session (called after lock drop) handles missing timers gracefully.
+    for (pod_id, _, _) in &deferred_finalizes {
+        timers.remove(pod_id);
+    }
+
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
 
@@ -1676,7 +1690,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     // GLD-C-04: Execute deferred finalizes for timers whose grace windows have elapsed.
     // Lock is released above — end_billing_session acquires its own locks as needed.
-    for (sid, end_status) in deferred_finalizes {
+    // Timer was already removed from active_timers above (P0-2 fix).
+    for (_pod_id, sid, end_status) in deferred_finalizes {
         // Clear DB grace column (finalize will set terminal status)
         let _ = sqlx::query(
             "UPDATE billing_sessions SET lap_reject_grace_until = NULL WHERE id = ?"
@@ -2746,9 +2761,11 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             // GLD-C-02: Coverage histogram is lost on crash/restart — starts empty on recovery.
             // Session that was running before restart will have NULL telemetry_coverage_pct (D-05).
             telemetry_seconds_covered: std::collections::HashSet::new(),
-            // GLD-C-04: Grace window fields — cleared on recovery (new hydration path handles these)
-            lap_reject_grace_until: None, // Intentional default: no pending deferral
-            pending_end_status: None,     // Intentional default: no deferred end status
+            // GLD-C-04: Grace window fields — left as None here. hydrate_grace_fields_from_db
+            // runs AFTER recover and patches these from the DB if a grace window was pending.
+            // P0-3 fix: original code cleared these explicitly, which clobbered the hydration.
+            lap_reject_grace_until: None,
+            pending_end_status: None,
         };
 
         tracing::info!(
@@ -5884,57 +5901,91 @@ pub async fn record_lap_rejection(
     }
 }
 
-/// GLD-C-04 / Phase 363: Rebuild `active_timers` from `billing_sessions` at startup.
-/// Hydrates any row with a non-terminal status or a pending lap_reject_grace_until.
+/// GLD-C-04 / Phase 363 (P0-3 fix): Patch grace-window fields onto existing timers.
 ///
-/// This is the first time active_timers hydration has been wired into racecontrol —
-/// prior to Phase 363, there was no hydration path and BillingManager::new() always
-/// started with an empty HashMap. Restart-safety for grace windows requires this.
+/// MUST run AFTER `recover_active_sessions()`. recover populates all 30+ BillingTimer
+/// fields correctly (driver_id, driving_seconds, rate, status, etc.). This function
+/// only patches `lap_reject_grace_until` + `pending_end_status` on timers that are
+/// already present in `active_timers`.
 ///
-/// Intentional defaults documented per CLAUDE.md "Every ::default() must be reviewed":
-/// - telemetry_seconds_covered: empty (D-05 — coverage bucket lost on crash)
-/// - pending_end_status: Completed if grace window was set (conservative restart behavior)
-pub async fn hydrate_active_timers_from_db(
+/// Original `hydrate_active_timers_from_db` (pre-P0-3) created full BillingTimer
+/// instances via `..Default::default()`, which left 25+ fields zeroed/empty. That was
+/// then clobbered by recover_active_sessions running second and clearing grace fields.
+/// See .planning/audits/PHASE-363-MMA-SUMMARY-2026-04-10.md P0-3 for full root cause.
+///
+/// For sessions with `lap_reject_grace_until IS NOT NULL` that were NOT picked up by
+/// recover (e.g., terminal status rows where grace was set at crash time), we clear
+/// the stale grace column in DB so it doesn't confuse future restarts.
+pub async fn hydrate_grace_fields_from_db(
     billing: &BillingManager,
     pool: &sqlx::SqlitePool,
 ) -> anyhow::Result<()> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, String, i64)>(
-        "SELECT id, pod_id, lap_reject_grace_until, status, allocated_seconds
+    // Fetch only rows with pending grace windows — recover already handled the rest.
+    let rows = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT id, pod_id, lap_reject_grace_until
          FROM billing_sessions
-         WHERE status IN ('active','paused_manual','paused_game_pause','paused_disconnect','paused_crash_recovery','waiting_for_game')
-            OR lap_reject_grace_until IS NOT NULL"
+         WHERE lap_reject_grace_until IS NOT NULL"
     )
     .fetch_all(pool)
     .await?;
 
-    let mut timers = billing.active_timers.write().await;
-    let count = rows.len();
-    for (sid, pod_id, grace_str, _status_str, allocated) in rows {
-        let grace_until = grace_str
-            .as_deref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc));
-
-        let timer = BillingTimer {
-            session_id: sid,
-            pod_id: pod_id.clone(),
-            allocated_seconds: allocated as u32,
-            // Intentional default: coverage bucket lost on crash per D-05 → NULL coverage → UNVERIFIED
-            telemetry_seconds_covered: std::collections::HashSet::new(),
-            lap_reject_grace_until: grace_until,
-            // If a grace window was set when the crash hit, the session was ending normally.
-            // Conservative default: Completed (finalize on next tick once grace_until elapses).
-            // Intentional default: Completed for grace-window sessions.
-            pending_end_status: if grace_until.is_some() {
-                Some(BillingSessionStatus::Completed)
-            } else {
-                None
-            },
-            ..Default::default()
-        };
-        timers.insert(pod_id, timer);
+    if rows.is_empty() {
+        tracing::info!("GLD-C-04: no pending grace windows found on startup");
+        return Ok(());
     }
-    tracing::info!(count, "GLD-C-04: hydrated active_timers from DB at startup");
+
+    let mut patched = 0u32;
+    let mut cleared_stale = 0u32;
+
+    // Collect stale session IDs outside the lock to avoid holding lock across .await
+    let mut stale_session_ids: Vec<String> = Vec::new();
+
+    {
+        let mut timers = billing.active_timers.write().await;
+        for (sid, pod_id, grace_str) in &rows {
+            let grace_until = chrono::DateTime::parse_from_rfc3339(grace_str)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+
+            if let Some(grace_until) = grace_until {
+                if let Some(timer) = timers.get_mut(pod_id) {
+                    // Timer exists (recover populated it) — patch grace fields only.
+                    timer.lap_reject_grace_until = Some(grace_until);
+                    // Conservative default: Completed. The actual end_status was not persisted
+                    // (tracked as P1 in MMA audit — add pending_end_status column in future).
+                    timer.pending_end_status = Some(BillingSessionStatus::Completed);
+                    patched += 1;
+                    tracing::info!(
+                        session_id = %sid, pod_id = %pod_id,
+                        "GLD-C-04: patched grace window onto recovered timer"
+                    );
+                } else {
+                    // Timer NOT in active_timers — recover didn't pick it up. This means
+                    // the session reached a status recover doesn't handle (e.g., terminal)
+                    // while a grace window was still set. Clear the stale grace column.
+                    stale_session_ids.push(sid.clone());
+                    cleared_stale += 1;
+                }
+            }
+        }
+    } // write guard dropped before any .await
+
+    // Clear stale grace columns outside the lock
+    for sid in &stale_session_ids {
+        if let Err(e) = sqlx::query(
+            "UPDATE billing_sessions SET lap_reject_grace_until = NULL WHERE id = ?"
+        )
+        .bind(sid)
+        .execute(pool)
+        .await
+        {
+            tracing::warn!(session_id = %sid, error = %e, "failed to clear stale grace column");
+        } else {
+            tracing::info!(session_id = %sid, "GLD-C-04: cleared stale grace column (session not in active_timers)");
+        }
+    }
+
+    tracing::info!(patched, cleared_stale, "GLD-C-04: grace field hydration complete");
     Ok(())
 }
 
@@ -8985,8 +9036,10 @@ mod billing_grace {
 
     #[tokio::test]
     async fn test_grace_window_restart_safe() {
-        // Insert a billing_sessions row with a past-due grace_until, call
-        // hydrate_active_timers_from_db, verify the timer was rebuilt with grace fields.
+        // Simulates the startup sequence: recover_active_sessions populates timer,
+        // then hydrate_grace_fields_from_db patches grace fields onto it.
+        // P0-3 fix: original test called hydrate_active_timers_from_db which created
+        // a broken partial timer. New test verifies the patching-only approach.
         let pool = make_grace_test_db().await;
 
         let past = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
@@ -9000,17 +9053,33 @@ mod billing_grace {
         .unwrap();
 
         let mgr = BillingManager::new();
-        hydrate_active_timers_from_db(&mgr, &pool).await.unwrap();
+
+        // Simulate recover_active_sessions: pre-populate timer with correct fields
+        // (in production, recover fetches driver_id, driving_seconds, status, etc.)
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let mut timer = make_grace_test_timer("restart-test", "pod-restart");
+            timer.driving_seconds = 900; // 15 min driven before crash
+            timer.driver_id = "test-driver".into();
+            // recover sets grace fields to None — hydrate patches them back
+            timer.lap_reject_grace_until = None;
+            timer.pending_end_status = None;
+            timers.insert("pod-restart".to_string(), timer);
+        }
+
+        // Now run the new patching function (runs AFTER recover in production)
+        hydrate_grace_fields_from_db(&mgr, &pool).await.unwrap();
 
         let timers = mgr.active_timers.read().await;
-        // Timer should be hydrated keyed by pod_id (= 'pod-restart' from the inserted row)
         let timer = timers
             .get("pod-restart")
-            .expect("timer hydrated for pod-restart");
+            .expect("timer should still be present after hydrate");
         assert_eq!(timer.session_id, "restart-test");
+        assert_eq!(timer.driving_seconds, 900, "driving_seconds preserved from recover");
+        assert_eq!(timer.driver_id, "test-driver", "driver_id preserved from recover");
         assert!(
             timer.lap_reject_grace_until.is_some(),
-            "lap_reject_grace_until should be hydrated"
+            "lap_reject_grace_until should be patched from DB"
         );
         assert!(
             timer.pending_end_status.is_some(),
