@@ -588,7 +588,7 @@ async fn main() -> anyhow::Result<()> {
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info,debug=info,pod_healer=info".into());
+        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info,admin_api=info,debug=info,pod_healer=info".into());
 
     // Error rate monitoring — broadcast bridge from sync Layer to async alerters
     let (alert_tx, _) = tokio::sync::broadcast::channel::<()>(4);
@@ -1281,7 +1281,34 @@ async fn main() -> anyhow::Result<()> {
                 .allow_credentials(false)
         )
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB request body limit
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                    let correlation_id = uuid::Uuid::new_v4().to_string();
+                    tracing::info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        route = %request.uri().path(),
+                        correlation_id = %correlation_id,
+                    )
+                })
+                .on_request(|request: &axum::http::Request<axum::body::Body>, _span: &tracing::Span| {
+                    tracing::info!(
+                        target: "admin_api",
+                        method = %request.method(),
+                        route = %request.uri().path(),
+                        "request_started"
+                    );
+                })
+                .on_response(|response: &axum::http::Response<axum::body::Body>, latency: std::time::Duration, _span: &tracing::Span| {
+                    tracing::info!(
+                        target: "admin_api",
+                        status = response.status().as_u16(),
+                        latency_ms = latency.as_millis() as u64,
+                        "request_completed"
+                    );
+                })
+        )
         .layer(axum_mw::from_fn(classify_source_middleware))
         .with_state(state.clone());
 
