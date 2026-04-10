@@ -761,13 +761,12 @@ async fn main() -> anyhow::Result<()> {
     // v22.0 Phase 177: Load feature flags into in-memory cache and initialize config_push_seq
     state.load_feature_flags().await;
 
-    // GLD-C-04 Phase 363: Hydrate active_timers from billing_sessions at startup.
-    // First-ever hydration path — prior to Phase 363, BillingManager::new() always started
-    // with empty active_timers and restart-safety did not exist. This rebuilds any sessions
-    // that were active or had pending grace windows when the server last stopped.
-    if let Err(e) = billing::hydrate_active_timers_from_db(&state.billing, &state.db).await {
-        tracing::error!(error = %e, "GLD-C-04: failed to hydrate active_timers on startup — sessions may need manual recovery");
-    }
+    // GLD-C-04 Phase 363: Grace-field hydration is deferred to AFTER recover_active_sessions
+    // (line ~852 below). recover_active_sessions populates all 30+ BillingTimer fields correctly;
+    // hydrate_grace_fields_from_db then patches in lap_reject_grace_until + pending_end_status
+    // on timers that were mid-grace-window when the server stopped. This ordering was fixed by
+    // P0-3 in the 2026-04-10 MMA audit — the original ordering (hydrate-first, recover-second)
+    // caused recover to clobber grace fields, making restart-safety non-functional.
 
     // v22.0 Phase 179: Check for interrupted OTA pipeline on startup
     racecontrol_crate::ota_pipeline::check_interrupted_pipeline();
