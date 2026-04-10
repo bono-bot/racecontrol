@@ -3,6 +3,7 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-11 04:06 IST | James | f7775573 | feat(351-01): data durability — backup pipeline OPS-08..11,14. Rust: admin.db backup, monthly rotation (12mo), rsync+SCP fallback, zero-byte alert, BackupConfig/BackupStatus extended. Bash: same coverage for schtask path. 14 tests green. |
 | 2026-04-11 04:14 IST | James | 1a477961 | docs(353-01): complete 353-01 plan — 3 runbook one-pagers (OPS-15/16/17) + incident log placeholder + morning review schtask XML + bat + comms-link static-commands.json. OPS-15/16/17/18/19 marked complete. |
 | 2026-04-11 04:14 IST | James | e2ffc1db | feat(353-01): morning review schtask XML + bat file (MorningReview-Daily 08:00 IST via comms-link send-message.js) |
 | 2026-04-11 04:14 IST | James | df8155bc | feat(353-01): 3 printable A4 runbooks — runbook-admin-broken.md, runbook-staff-pin.md, runbook-cafe-menu.md |

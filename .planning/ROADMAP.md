@@ -1114,7 +1114,7 @@ Plans:
 5. Alert fires if backup missing or size 0 after scheduled window
 
 **Plans:** 3 plans
-- [ ] 351-01-PLAN — Extend Rust backup_pipeline.rs (admin.db, monthly retention, rsync, zero-byte alert)
+- [x] 351-01-PLAN — Extend Rust backup_pipeline.rs (admin.db, monthly retention, rsync, zero-byte alert)
 - [ ] 351-02-PLAN — WAL mode verification + restore drill update + drill execution
 - [ ] 351-03-PLAN — Cloud backup script (backup-cloud.sh on Bono VPS + cron)
 
