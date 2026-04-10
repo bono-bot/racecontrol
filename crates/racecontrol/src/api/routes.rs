@@ -12762,10 +12762,124 @@ struct StaffValidatePinRequest {
     pin: String,
 }
 
+// ─── Phase 348: Staff PIN login lockout (per-IP, in-memory + DB audit) ────────
+// Same pattern as PIN_LOCKOUT for kiosk_redeem_pin, adapted for staff login.
+// 10 failed attempts per IP → 15-minute lockout. Also tracks per-staff-id in DB.
+const STAFF_LOGIN_MAX_ATTEMPTS: u32 = 10;
+const STAFF_LOGIN_LOCKOUT_SECS: u64 = 900; // 15 minutes
+
+static STAFF_PIN_LOCKOUT: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, PinLockoutState>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Phase 348: Check per-IP lockout for staff login. Returns remaining seconds if locked.
+fn check_staff_login_lockout(ip: std::net::IpAddr) -> Option<u64> {
+    let mut map = STAFF_PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+    if map.len() > 1000 {
+        let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(STAFF_LOGIN_LOCKOUT_SECS + 60);
+        map.retain(|_, v| v.last_attempt > cutoff);
+    }
+    if let Some(entry) = map.get_mut(&ip) {
+        if let Some(locked_until) = entry.locked_until {
+            let now = std::time::Instant::now();
+            if now < locked_until {
+                return Some(locked_until.duration_since(now).as_secs());
+            }
+            // Lockout expired
+            entry.fail_count = 0;
+            entry.locked_until = None;
+        }
+    }
+    None
+}
+
+/// Phase 348: Record failed staff login attempt per-IP. Returns remaining attempts.
+fn record_staff_login_failure(ip: std::net::IpAddr) -> u32 {
+    let mut map = STAFF_PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = map.entry(ip).or_insert(PinLockoutState {
+        fail_count: 0,
+        last_attempt: std::time::Instant::now(),
+        locked_until: None,
+    });
+    entry.fail_count += 1;
+    entry.last_attempt = std::time::Instant::now();
+    if entry.fail_count >= STAFF_LOGIN_MAX_ATTEMPTS {
+        entry.locked_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(STAFF_LOGIN_LOCKOUT_SECS));
+        tracing::warn!(
+            target: "auth",
+            ip = %ip,
+            "Staff PIN login LOCKOUT — {} failed attempts, locked for {}s",
+            STAFF_LOGIN_MAX_ATTEMPTS, STAFF_LOGIN_LOCKOUT_SECS
+        );
+        0
+    } else {
+        STAFF_LOGIN_MAX_ATTEMPTS - entry.fail_count
+    }
+}
+
+/// Phase 348: Clear lockout on successful staff login.
+fn clear_staff_login_lockout(ip: std::net::IpAddr) {
+    let mut map = STAFF_PIN_LOCKOUT.lock().unwrap_or_else(|e| e.into_inner());
+    map.remove(&ip);
+}
+
+/// Phase 348: Record failed attempt in DB for per-staff-id tracking + audit trail.
+async fn record_staff_login_attempt_db(db: &sqlx::SqlitePool, ip: &str, success: bool, staff_id: Option<&str>) {
+    let _ = sqlx::query(
+        "INSERT INTO staff_login_attempts (id, source_ip, staff_id, success, attempted_at) \
+         VALUES (?, ?, ?, ?, datetime('now'))"
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(ip)
+    .bind(staff_id)
+    .bind(success)
+    .execute(db)
+    .await;
+}
+
+/// Phase 348: Check per-staff-id lockout from DB. Returns locked_until if locked.
+async fn check_staff_id_lockout_db(db: &sqlx::SqlitePool, staff_id: &str) -> Option<String> {
+    // Count recent failed attempts for this staff_id in the last 5 minutes
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM staff_login_attempts \
+         WHERE staff_id = ? AND success = 0 AND attempted_at > datetime('now', '-5 minutes')"
+    )
+    .bind(staff_id)
+    .fetch_one(db)
+    .await
+    .unwrap_or(0);
+
+    if count >= STAFF_LOGIN_MAX_ATTEMPTS as i64 {
+        // Check when the lockout should expire (15 min after 10th failure)
+        let last_fail = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT MAX(attempted_at) FROM staff_login_attempts \
+             WHERE staff_id = ? AND success = 0 AND attempted_at > datetime('now', '-15 minutes')"
+        )
+        .bind(staff_id)
+        .fetch_one(db)
+        .await
+        .ok()
+        .flatten();
+        return last_fail;
+    }
+    None
+}
+
 async fn staff_validate_pin(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(state): State<Arc<AppState>>,
     Json(req): Json<StaffValidatePinRequest>,
 ) -> (StatusCode, Json<Value>) {
+    let client_ip = addr.ip();
+    let ip_str = client_ip.to_string();
+
+    // Phase 348: Check per-IP lockout FIRST
+    if let Some(remaining_secs) = check_staff_login_lockout(client_ip) {
+        return (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+            "error": format!("Too many failed attempts. Please wait {} seconds.", remaining_secs),
+            "lockout_remaining_seconds": remaining_secs,
+        })));
+    }
+
     // Read role from DB — DEFAULT 'staff' (legacy, maps to cashier in middleware)
     let result = sqlx::query_as::<_, (String, String, Option<String>)>(
         "SELECT id, name, role FROM staff_members WHERE pin = ? AND is_active = 1",
@@ -12776,12 +12890,24 @@ async fn staff_validate_pin(
 
     match result {
         Ok(Some((id, name, role_opt))) => {
+            // Phase 348: Check per-staff-id lockout from DB
+            if let Some(_locked_at) = check_staff_id_lockout_db(&state.db, &id).await {
+                return (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+                    "error": "This account is temporarily locked due to too many failed attempts.",
+                    "staff_id": id,
+                })));
+            }
+
             let _ = sqlx::query(
                 "UPDATE staff_members SET last_login_at = datetime('now') WHERE id = ?",
             )
             .bind(&id)
             .execute(&state.db)
             .await;
+
+            // Phase 348: Record successful login + clear IP lockout
+            record_staff_login_attempt_db(&state.db, &ip_str, true, Some(&id)).await;
+            clear_staff_login_lockout(client_ip);
 
             // Use role from DB, default to "cashier" if NULL
             let role = role_opt.as_deref().unwrap_or("cashier");
@@ -12808,7 +12934,18 @@ async fn staff_validate_pin(
                 }))),
             }
         }
-        Ok(None) => (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid staff PIN" }))),
+        Ok(None) => {
+            // Phase 348: Record failed attempt + per-IP lockout
+            let remaining = record_staff_login_failure(client_ip);
+            record_staff_login_attempt_db(&state.db, &ip_str, false, None).await;
+            if remaining == 0 {
+                (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+                    "error": format!("Too many failed attempts. Locked for {} minutes.", STAFF_LOGIN_LOCKOUT_SECS / 60),
+                })))
+            } else {
+                (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid staff PIN" })))
+            }
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Database error: {}", e) }))),
     }
 }

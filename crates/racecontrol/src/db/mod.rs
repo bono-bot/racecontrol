@@ -3614,6 +3614,21 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Phase 348: Staff login attempt audit trail + per-staff-id lockout ──────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_login_attempts (
+            id TEXT PRIMARY KEY,
+            source_ip TEXT NOT NULL,
+            staff_id TEXT,
+            success INTEGER NOT NULL DEFAULT 0,
+            attempted_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"
+    ).execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_staff_login_attempts_staff_id ON staff_login_attempts(staff_id, attempted_at)")
+        .execute(pool).await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_staff_login_attempts_ip ON staff_login_attempts(source_ip, attempted_at)")
+        .execute(pool).await?;
+
     // ─── Phase 260: Leaderboard integrity — kiosk assist config (UX-06) ─────────
     // assist_config: JSON object with per-experience assist settings.
     // Used as fallback assist evidence for laps until telemetry sends per-lap config.
