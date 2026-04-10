@@ -115,14 +115,14 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 - [x] **STAFF-07**: New racecontrol endpoint `POST /api/v1/sync/pull-now {tables:[...]}` triggers immediate cloud→venue pull, bypassing 30s interval
 - [ ] **STAFF-08**: Admin UI shows staged progress: "Writing cloud... ✓ Syncing venue... ✓ Verifying cloud... ✓ Verifying venue... ✓"
 - [ ] **STAFF-09**: Error banner on partial success ("PIN changed on cloud but venue sync failed — contact James")
-- [ ] **STAFF-10**: Feature-flag `FEATURE_STAFF_PIN_UI=off` by default; deploy gate checks Phase 343 Plans 01+02 shipped in racecontrol before enabling
+- [x] **STAFF-10**: Feature-flag `FEATURE_STAFF_PIN_UI=off` by default; deploy gate checks Phase 343 Plans 01+02 shipped in racecontrol before enabling
 
 ### Theme 12 — Pre-Flight (Phase 343 Dependency Management)
 
-- [ ] **DEP-01**: Phase 343 Plans 01 + 02 + 04 executed and deployed to venue + cloud racecontrol before Phase 347 ships
+- [x] **DEP-01**: Phase 343 Plans 01 + 02 + 04 executed and deployed to venue + cloud racecontrol before Phase 347 ships
 - [ ] **DEP-02**: Venue .23 Node version downgraded to 22 LTS (or deploy script forces explicit Node 22 path)
 - [x] **DEP-03**: Racecontrol `/api/v1/admin/staff/{id}/change-pin` endpoint returns something other than 404 before Phase 347 deploys
-- [ ] **DEP-04**: Pre-deploy script greps git log for Phase 343 merge commits and hard-fails Phase 347 deploy if missing
+- [x] **DEP-04**: Pre-deploy script greps git log for Phase 343 merge commits and hard-fails Phase 347 deploy if missing
 
 ### Theme 13 — Business Rules SSOT (added 2026-04-09 after gap audit)
 

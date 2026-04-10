@@ -1042,9 +1042,9 @@ Plans:
 **Depends on:** Phase 343 Plans 01+02 must be SHIPPED in racecontrol (not just committed).
 
 **Plans:**
-1/3 plans executed
+2/3 plans executed
 - [ ] 347-02-PLAN — admin `/admin/staff` page + change-pin modal + Next.js proxy route
-- [ ] 347-03-PLAN — Feature flag + pre-deploy gate + smoke test
+- [x] 347-03-PLAN — Feature flag + pre-deploy gate + smoke test
 
 ### Phase 348: Auth Resilience
 
