@@ -280,6 +280,44 @@ pub struct CloudConfig {
     /// Set to "local" on venue server, "cloud" on VPS. Prevents sync loops.
     #[serde(default = "default_origin_local")]
     pub origin_id: String,
+    /// Phase 343: Tables that are cloud-authoritative. Venue mutations to these
+    /// tables return 409 Conflict, directing the caller to the cloud endpoint.
+    #[serde(default = "default_authoritative_tables")]
+    pub authoritative_tables: Vec<String>,
+}
+
+fn default_authoritative_tables() -> Vec<String> {
+    vec!["staff_members".to_string()]
+}
+
+impl CloudConfig {
+    /// Phase 343: Check if a table is cloud-authoritative on this instance.
+    /// Returns true only when cloud sync is enabled AND the table is in the list.
+    pub fn is_cloud_authoritative_for(&self, table: &str) -> bool {
+        self.enabled && self.authoritative_tables.iter().any(|t| t == table)
+    }
+}
+
+/// Phase 343: Returns true if this racecontrol instance IS the cloud (authoritative writer).
+/// Cloud does NOT reject staff mutations — it's the source of truth.
+pub fn this_instance_is_cloud(config: &Config) -> bool {
+    if std::env::var("RC_IS_CLOUD").as_deref() == Ok("1") {
+        return true;
+    }
+    // Heuristic: if cloud api_url points at our own host:port, we ARE the cloud
+    if let Some(ref api_url) = config.cloud.api_url {
+        let self_pattern = format!(":{}", config.server.port);
+        if api_url.contains("127.0.0.1") || api_url.contains("localhost") || api_url.contains(&self_pattern) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Phase 343: Emergency override — allows venue staff writes even when cloud-authoritative.
+/// Set RC_ALLOW_VENUE_STAFF_WRITE=1 on the venue instance for break-glass scenarios.
+pub fn allow_venue_staff_write() -> bool {
+    std::env::var("RC_ALLOW_VENUE_STAFF_WRITE").as_deref() == Ok("1")
 }
 
 #[derive(Debug, Clone, Deserialize)]

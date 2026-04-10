@@ -12821,10 +12821,40 @@ struct CreateStaffRequest {
     pin: String,
 }
 
+/// Phase 343: Cloud-authority guard for staff mutation endpoints.
+/// Returns Some((409, JSON)) if this is a venue instance and the table is cloud-authoritative.
+/// Returns None if the mutation should proceed (cloud instance, override set, or not authoritative).
+fn cloud_authority_guard(state: &AppState, table: &str) -> Option<(StatusCode, Json<Value>)> {
+    if !state.config.cloud.is_cloud_authoritative_for(table) {
+        return None; // cloud sync not enabled or table not in authoritative list
+    }
+    if crate::config::this_instance_is_cloud(&state.config) {
+        return None; // we ARE the cloud — accept mutations
+    }
+    if crate::config::allow_venue_staff_write() {
+        tracing::warn!("Phase 343: RC_ALLOW_VENUE_STAFF_WRITE override active — allowing venue {table} mutation");
+        return None;
+    }
+    let cloud_url = state.config.cloud.api_url.clone().unwrap_or_default();
+    Some((
+        StatusCode::CONFLICT,
+        Json(json!({
+            "error": format!("{table} is cloud-authoritative on this instance"),
+            "cloud_url": cloud_url,
+            "hint": "Submit your change to the cloud endpoint. It will sync to venue within 30s.",
+            "override_hint": "Emergency: set RC_ALLOW_VENUE_STAFF_WRITE=1 on the venue instance and restart."
+        })),
+    ))
+}
+
 async fn create_staff(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateStaffRequest>,
-) -> Json<Value> {
+) -> impl IntoResponse {
+    // Phase 343: Cloud-authority guard — venue rejects staff mutations when cloud sync is enabled
+    if let Some(rejection) = cloud_authority_guard(&state, "staff_members") {
+        return rejection.into_response();
+    }
     // Prevent duplicate names (case-insensitive)
     let existing = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM staff_members WHERE LOWER(name) = LOWER(?) AND is_active = 1",
@@ -12835,7 +12865,7 @@ async fn create_staff(
     .unwrap_or(0);
 
     if existing > 0 {
-        return Json(json!({ "error": format!("Staff member '{}' already exists. Use update instead.", req.name) }));
+        return Json(json!({ "error": format!("Staff member '{}' already exists. Use update instead.", req.name) })).into_response();
     }
 
     // Prevent duplicate PINs
@@ -12848,7 +12878,7 @@ async fn create_staff(
     .unwrap_or(0);
 
     if pin_exists > 0 {
-        return Json(json!({ "error": "PIN already in use by another staff member. Choose a different PIN." }));
+        return Json(json!({ "error": "PIN already in use by another staff member. Choose a different PIN." })).into_response();
     }
 
     let id = format!("staff_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
@@ -12863,8 +12893,8 @@ async fn create_staff(
     .execute(&state.db)
     .await
     {
-        Ok(_) => Json(json!({ "status": "ok", "id": id, "name": req.name })),
-        Err(e) => Json(json!({ "error": format!("{}", e) })),
+        Ok(_) => Json(json!({ "status": "ok", "id": id, "name": req.name })).into_response(),
+        Err(e) => Json(json!({ "error": format!("{}", e) })).into_response(),
     }
 }
 
@@ -12909,7 +12939,11 @@ async fn update_staff(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(req): Json<UpdateStaffRequest>,
-) -> Json<Value> {
+) -> impl IntoResponse {
+    // Phase 343: Cloud-authority guard
+    if let Some(rejection) = cloud_authority_guard(&state, "staff_members") {
+        return rejection.into_response();
+    }
     // Verify staff exists
     let exists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM staff_members WHERE id = ?",
@@ -12920,13 +12954,13 @@ async fn update_staff(
     .unwrap_or(0);
 
     if exists == 0 {
-        return Json(json!({ "error": "Staff member not found" }));
+        return Json(json!({ "error": "Staff member not found" })).into_response();
     }
 
     // Validate role if provided
     if let Some(ref role) = req.role {
         if !["staff", "cashier", "manager", "superadmin"].contains(&role.as_str()) {
-            return Json(json!({ "error": format!("Invalid role: {}. Must be one of: staff, cashier, manager, superadmin", role) }));
+            return Json(json!({ "error": format!("Invalid role: {}. Must be one of: staff, cashier, manager, superadmin", role) })).into_response();
         }
     }
 
@@ -12953,7 +12987,7 @@ async fn update_staff(
         .await
         .unwrap_or(0);
         if pin_conflict > 0 {
-            return Json(json!({ "error": "PIN already in use by another staff member." }));
+            return Json(json!({ "error": "PIN already in use by another staff member." })).into_response();
         }
         sets.push("pin = ?".to_string());
         binds.push(pin.clone());
@@ -12968,7 +13002,7 @@ async fn update_staff(
     }
 
     if sets.is_empty() {
-        return Json(json!({ "error": "No fields to update" }));
+        return Json(json!({ "error": "No fields to update" })).into_response();
     }
 
     sets.push("updated_at = datetime('now')".to_string());
@@ -12982,15 +13016,19 @@ async fn update_staff(
     query = query.bind(&id);
 
     match query.execute(&state.db).await {
-        Ok(_) => Json(json!({ "status": "ok", "id": id })),
-        Err(e) => Json(json!({ "error": format!("{}", e) })),
+        Ok(_) => Json(json!({ "status": "ok", "id": id })).into_response(),
+        Err(e) => Json(json!({ "error": format!("{}", e) })).into_response(),
     }
 }
 
 async fn delete_staff(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Json<Value> {
+) -> impl IntoResponse {
+    // Phase 343: Cloud-authority guard
+    if let Some(rejection) = cloud_authority_guard(&state, "staff_members") {
+        return rejection.into_response();
+    }
     match sqlx::query(
         "UPDATE staff_members SET is_active = 0, updated_at = datetime('now') WHERE id = ?",
     )
@@ -13000,19 +13038,23 @@ async fn delete_staff(
     {
         Ok(result) => {
             if result.rows_affected() == 0 {
-                Json(json!({ "error": "Staff member not found" }))
+                Json(json!({ "error": "Staff member not found" })).into_response()
             } else {
-                Json(json!({ "status": "ok", "id": id }))
+                Json(json!({ "status": "ok", "id": id })).into_response()
             }
         }
-        Err(e) => Json(json!({ "error": format!("{}", e) })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })).into_response(),
     }
 }
 
 async fn reset_staff_pin(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Json<Value> {
+) -> impl IntoResponse {
+    // Phase 343: Cloud-authority guard
+    if let Some(rejection) = cloud_authority_guard(&state, "staff_members") {
+        return rejection.into_response();
+    }
     // Look up staff member
     let staff = sqlx::query_as::<_, (String, String)>(
         "SELECT name, phone FROM staff_members WHERE id = ? AND is_active = 1",
@@ -13024,7 +13066,7 @@ async fn reset_staff_pin(
 
     let (name, phone) = match staff {
         Some(s) => s,
-        None => return Json(json!({ "error": "Staff member not found" })),
+        None => return Json(json!({ "error": "Staff member not found" })).into_response(),
     };
 
     // Generate unique PIN with collision retry
@@ -13045,7 +13087,7 @@ async fn reset_staff_pin(
         }
     }
     if new_pin.is_empty() {
-        return Json(json!({ "error": "Could not generate unique PIN after 10 attempts" }));
+        return Json(json!({ "error": "Could not generate unique PIN after 10 attempts" })).into_response();
     }
 
     if let Err(e) = sqlx::query("UPDATE staff_members SET pin = ?, updated_at = datetime('now') WHERE id = ?")
@@ -13054,7 +13096,7 @@ async fn reset_staff_pin(
         .execute(&state.db)
         .await
     {
-        return Json(json!({ "error": format!("Failed to reset PIN: {}", e) }));
+        return Json(json!({ "error": format!("Failed to reset PIN: {}", e) })).into_response();
     }
 
     // Send via WhatsApp
@@ -13068,7 +13110,7 @@ async fn reset_staff_pin(
         "staff_id": id,
         "staff_name": name,
         "new_pin": new_pin,
-    }))
+    })).into_response()
 }
 
 // ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────
