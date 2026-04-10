@@ -1132,7 +1132,7 @@ Plans:
 5. Structured JSON logs rotate daily and appear on Bono VPS within 24h
 
 **Plans:**
-- [ ] 352-01-PLAN — Per-subsystem probes in `/api/health`
+- [x] 352-01-PLAN — Per-subsystem probes in `/api/health`
 - [ ] 352-02-PLAN — comms-link `/relay/alert` integration + dedup logic
 - [ ] 352-03-PLAN — Structured JSON logs + rotation + rsync
 
