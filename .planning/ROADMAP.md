@@ -1113,10 +1113,9 @@ Plans:
 4. Restore drill on a scratch machine recovers admin.db with matching row counts
 5. Alert fires if backup missing or size 0 after scheduled window
 
-**Plans:**
-- [ ] 351-01-PLAN — `backup-sqlite.ps1` venue + `backup-sqlite.sh` cloud
-- [ ] 351-02-PLAN — Rsync to Bono VPS + retention policy
-- [ ] 351-03-PLAN — Restore drill SOP + first execution + LOGBOOK entry
+**Plans:** 2 plans
+- [ ] 351-01-PLAN — Fix backup-databases.sh (admin.db, retention, validation, alert, schtask)
+- [ ] 351-02-PLAN — WAL mode verification + restore drill update + drill execution
 
 ### Phase 352: Health + WhatsApp Alerts
 
