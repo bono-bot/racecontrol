@@ -1078,9 +1078,9 @@ Plans:
 5. Cloud racecontrol read-replica guard returns 409 on venue-authoritative writes (TODO: Phase 349-03)
 
 **Plans:**
-- [x] 349-01-PLAN — Google Drive folder + upload script (upload-db.ps1) + schtask on James .27
+1/1 plans complete
 - [x] 349-02-PLAN — Download script (download-db.sh) + cron on Bono VPS + env file deployment
-- [ ] 349-03-PLAN — Cloud racecontrol read-replica guard + /api/health sync lag probe
+- [x] 349-03-PLAN — Cloud racecontrol read-replica guard + /api/health sync lag probe
 
 ### Phase 350: Contract Tests
 

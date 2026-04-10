@@ -42,10 +42,10 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 - [ ] **SYNC-02**: Backblaze B2 bucket `racingpoint-replica` stores WAL segments with 30-day (720h) retention
 - [ ] **SYNC-03**: Litestream systemd service on Bono VPS continuously restores the replica
 - [ ] **SYNC-04**: Cloud admin header shows "VENUE MIRROR — read only" badge + last-sync timestamp for replicated tables
-- [ ] **SYNC-05**: Cloud racecontrol refuses writes to replicated tables (409 with hint) — mirrors Phase 343 venue-side guard
-- [ ] **SYNC-06**: `/api/health` includes `litestream_lag_seconds` probe — WARN >300s, CRITICAL >900s
-- [ ] **SYNC-07**: Monthly restore drill documented and executed on a scratch path
-- [ ] **SYNC-08**: Break-glass "pause replication" command documented for maintenance windows
+- [x] **SYNC-05**: Cloud racecontrol refuses writes to replicated tables (409 with hint) — mirrors Phase 343 venue-side guard
+- [x] **SYNC-06**: `/api/health` includes `litestream_lag_seconds` probe — WARN >300s, CRITICAL >900s
+- [x] **SYNC-07**: Monthly restore drill documented and executed on a scratch path
+- [x] **SYNC-08**: Break-glass "pause replication" command documented for maintenance windows
 
 ### Theme 5 — Live /api/health + Alerting
 
