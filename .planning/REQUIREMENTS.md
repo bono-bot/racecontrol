@@ -51,7 +51,7 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 - [x] **OPS-01**: `/api/health` probes admin_db, rc_backend, gateway, static_assets, db_writable, litestream_lag, disk_free — each returns `{ok, latency_ms, error_code, detail}`
 - [x] **OPS-02**: `/settings/health` page renders live per-subsystem tiles with 10s auto-refresh
-- [ ] **OPS-03**: Degraded subsystem triggers WhatsApp alert via POST to comms-link relay `/relay/alert` on James .27
+- [x] **OPS-03**: Degraded subsystem triggers WhatsApp alert via POST to comms-link relay `/relay/alert` on James .27
 - [x] **OPS-04**: Alert dedup — same subsystem + error_code within 10 minutes = single alert
 - [x] **OPS-05**: Phase 343 Plan 02 `whatsapp_alerter.rs` TODO wired to the alert path
 - [ ] **OPS-06**: Structured JSON log format for admin API requests (`{ts, level, route, status, latency, user, err, corr_id}`)
