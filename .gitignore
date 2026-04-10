@@ -68,3 +68,4 @@ audit/results/auto-detect-cooldown.json
 
 # Page crawler auth cache
 tests/page-crawler/.auth/
+scripts/db-sync/db-sync.env
