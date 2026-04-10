@@ -16,7 +16,7 @@ check_service() {
   local response
   response=$(curl -sf --max-time "$TIMEOUT" "$url" 2>/dev/null || echo "")
   local status
-  status=$(echo "$response" | grep -o '"status":"ok"' | head -1)
+  status=$(echo "$response" | grep -oE '"status":"(ok|degraded)"' | head -1)
   if [ -n "$status" ]; then
     echo "  PASS  $name ($url)"
     PASS=$((PASS + 1))

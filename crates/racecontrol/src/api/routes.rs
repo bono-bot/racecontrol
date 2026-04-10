@@ -746,13 +746,21 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     // Check Evolution API (WhatsApp) reachability — non-blocking, 2s timeout
     let whatsapp_status = check_evolution_health(&state).await;
 
+    // Phase 352: Per-subsystem probes (cached, zero latency — reads from background task)
+    let subsystems = crate::subsystem_health::get_current_status();
+
+    // Derive overall status from subsystem probes (closes "probes that lie" standing rule)
+    let all_ok = subsystems.is_empty() || subsystems.values().all(|s| s.ok);
+    let overall_status = if all_ok { "ok" } else { "degraded" };
+
     Json(json!({
-        "status": "ok",
+        "status": overall_status,
         "service": "racecontrol",
         "version": env!("CARGO_PKG_VERSION"),
         "build_id": BUILD_ID,
         "whatsapp": whatsapp_status,
         "deploy_context": "v34-v39 merged: metrics TSDB, config management, data durability, security hardening, meshed intelligence v2, session trace ID. Skip-once pod offline detection. Audit hash chain. 44-table venue_id migration.",
+        "subsystems": subsystems,
     }))
 }
 

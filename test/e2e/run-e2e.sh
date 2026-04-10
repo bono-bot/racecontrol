@@ -165,7 +165,7 @@ if [ -f "$HEALTH_SCRIPT" ]; then
 else
   echo "  WARN  check-health.sh not found at ${HEALTH_SCRIPT} — attempting inline check"
   RC_HEALTH=$(curl -s --max-time "$TIMEOUT" "http://${SERVER}:8080/api/v1/health" 2>/dev/null || echo "")
-  if ! echo "$RC_HEALTH" | grep -q '"status":"ok"'; then
+  if ! echo "$RC_HEALTH" | grep -qE '"status":"(ok|degraded)"'; then
     echo "ABORTED: racecontrol (:8080) health check failed. Services not ready."
     exit 1
   fi

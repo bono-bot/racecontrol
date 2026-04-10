@@ -188,8 +188,8 @@ server_health=$(curl -s --max-time 10 "$SERVER_URL/api/v1/health" 2>/dev/null ||
 server_status=$(echo "$server_health" | jq -r '.status // ""' 2>/dev/null || echo "")
 server_build=$(echo "$server_health" | jq -r '.build_id // ""' 2>/dev/null || echo "")
 
-if [[ "$server_status" == "ok" ]]; then
-  log INFO "Venue server: OK (build=$server_build)"
+if [[ "$server_status" == "ok" || "$server_status" == "degraded" ]]; then
+  log INFO "Venue server: OK (build=$server_build, status=$server_status)"
 else
   log ERROR "Venue server: DOWN or unreachable"
   BUGS_FOUND=$((BUGS_FOUND + 1))
@@ -202,7 +202,7 @@ else
     sleep 30
     server_health=$(curl -s --max-time 10 "$SERVER_URL/api/v1/health" 2>/dev/null || echo "")
     server_status=$(echo "$server_health" | jq -r '.status // ""' 2>/dev/null || echo "")
-    if [[ "$server_status" == "ok" ]]; then
+    if [[ "$server_status" == "ok" || "$server_status" == "degraded" ]]; then
       log INFO "  Server recovered after restart!"
       BUGS_FIXED=$((BUGS_FIXED + 1))
     else
@@ -226,8 +226,8 @@ cloud_health=$(curl -s --max-time 5 "$CLOUD_URL/api/v1/health" 2>/dev/null || ec
 cloud_status=$(echo "$cloud_health" | jq -r '.status // ""' 2>/dev/null || echo "")
 cloud_build=$(echo "$cloud_health" | jq -r '.build_id // ""' 2>/dev/null || echo "")
 
-if [[ "$cloud_status" == "ok" ]]; then
-  log INFO "Cloud racecontrol: OK (build=$cloud_build)"
+if [[ "$cloud_status" == "ok" || "$cloud_status" == "degraded" ]]; then
+  log INFO "Cloud racecontrol: OK (build=$cloud_build, status=$cloud_status)"
 else
   log WARN "Cloud racecontrol: not running (expected if no failover active)"
 fi

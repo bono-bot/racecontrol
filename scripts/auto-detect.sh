@@ -281,8 +281,8 @@ run_e2e_health() {
   server_health=$(curl -s --max-time 10 "$SERVER_URL/api/v1/health" 2>/dev/null || echo "")
   local server_status
   server_status=$(echo "$server_health" | jq -r '.status // ""' 2>/dev/null || echo "")
-  if [[ "$server_status" == "ok" ]]; then
-    log INFO "Server: OK (build=$(echo "$server_health" | jq -r '.build_id // "?"'))"
+  if [[ "$server_status" == "ok" || "$server_status" == "degraded" ]]; then
+    log INFO "Server: OK (build=$(echo "$server_health" | jq -r '.build_id // "?"'), status=$server_status)"
   else
     log ERROR "Server: UNREACHABLE or unhealthy"
     all_ok=false
@@ -293,8 +293,8 @@ run_e2e_health() {
   bono_health=$(curl -s --max-time 10 "http://srv1422716.hstgr.cloud:8080/api/v1/health" 2>/dev/null || echo "")
   local bono_status
   bono_status=$(echo "$bono_health" | jq -r '.status // ""' 2>/dev/null || echo "")
-  if [[ "$bono_status" == "ok" ]]; then
-    log INFO "Bono VPS: OK"
+  if [[ "$bono_status" == "ok" || "$bono_status" == "degraded" ]]; then
+    log INFO "Bono VPS: OK (status=$bono_status)"
   else
     log WARN "Bono VPS: unreachable"
   fi

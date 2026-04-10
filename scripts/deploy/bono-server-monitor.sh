@@ -90,7 +90,7 @@ fi
 
 # Check racecontrol health
 health_response=$(curl -s --connect-timeout 5 --max-time 10 "$HEALTH_URL" 2>/dev/null)
-health_status=$(echo "$health_response" | grep -o '"status":"ok"' 2>/dev/null)
+health_status=$(echo "$health_response" | grep -oE '"status":"(ok|degraded)"' 2>/dev/null)
 
 if [ -n "$health_status" ]; then
     # Healthy — heartbeat log every 10th check (~30 min) so we know the monitor is alive

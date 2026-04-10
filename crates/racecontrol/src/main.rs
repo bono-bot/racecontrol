@@ -1156,6 +1156,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn app health monitor (30s interval, probes admin/kiosk/web health endpoints)
     app_health_monitor::spawn(state.clone());
 
+    // Spawn subsystem health probes (10s interval, per-subsystem ground truth for /api/v1/health)
+    racecontrol_crate::subsystem_health::spawn(state.clone());
+
     // Spawn synthetic transaction monitor (5min interval, golden-path API validation)
     racecontrol_crate::synthetic_monitor::spawn(state.clone());
 
