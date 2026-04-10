@@ -1150,7 +1150,7 @@ Plans:
 5. Uday signs off on the runbook content
 
 **Plans:**
-- [ ] 353-01-PLAN — Write 3 printable runbook one-pagers + morning_review comms-link command
+1/2 plans executed
 - [ ] 353-02-PLAN — Staff training session + sign-off
 
 ### Phase 354: UI Hardening
