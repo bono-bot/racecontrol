@@ -963,7 +963,7 @@ Plans:
 | 346 | Cafe Menu Proxy Rewrite | 1 | Admin cafe/menu proxies to rc; drop dead admin.db tables; identity consolidation | ADMIN-14..20 | 345 |
 | 347 | Admin Staff Management | 3 | /admin/staff page + change_staff_pin_safe + sync/pull-now | STAFF-01..10, DEP-01..04 | 344, 345, Phase 343 (racecontrol) |
 | 348 | Auth Resilience | 2 | Per-staff-id lockout, DB persist, 12h JWT, break-glass | AUTH-01..07 | 344, 345 |
-| 349 | Litestream Sync Contract | 2 | Venue-to-cloud read replica via Litestream + B2 | SYNC-01..08 | 344 |
+| 349 | DB Sync via Google Drive | 2 | Venue-to-cloud DB sync via shared Google Drive folder (revised from Litestream+B2) | SYNC-01..08 | 344 |
 | 350 | Contract Tests | 3 | Playwright admin-to-POS/kiosk propagation + 46-page smoke | TEST-01..06 | 346, 347 |
 | 351 | Data Durability | 4 | Daily backups + 30d retention + restore drill | OPS-08..14 | 349 |
 | 352 | Health + WhatsApp Alerts | 2 | Per-subsystem /api/health probes + comms-link alerter | OPS-01..07 | 345 |
@@ -1064,23 +1064,23 @@ Plans:
 - [x] 348-02-PLAN — SKIPPED: JWT already 24h, no session revocation (pre-existing)
 - [x] 348-03-PLAN — break-glass emergency access endpoint + WhatsApp alert (`a051c5d7`)
 
-### Phase 349: Litestream Sync Contract
+### Phase 349: DB Sync via Google Drive (revised)
 
-**Goal:** Venue `racecontrol.db` replicates to cloud via Litestream (Option A). Cloud admin is read-only for replicated tables. Lag detection wired to /api/health.
+**Goal:** Venue `racecontrol.db` syncs to cloud via shared Google Drive folder. Replaces original Litestream+B2 plan — simpler, free (2TB Google Workspace), uses existing OAuth credentials.
 
 **Requirements:** SYNC-01..08
 
 **Success criteria:**
-1. Writing a driver on venue racecontrol is visible on cloud racecontrol SQLite within 60 seconds (same row hash)
-2. Attempting PUT on cloud racecontrol for a replicated table returns 409 with hint
-3. `/api/health` reports `litestream_lag_seconds` accurately; 5min lag = WARN banner in cloud admin
-4. Restoring from B2 to a scratch path produces a DB with matching row counts
-5. Break-glass "pause replication" command documented in runbook
+1. Writing a driver on venue racecontrol is visible on cloud racecontrol SQLite within 10 minutes
+2. Upload script (James .27) runs every 5 min via schtask, SCP from server .23 then Drive upload
+3. Download script (Bono VPS) runs every 5 min via cron, skips if unchanged
+4. sync-status.json on both sides reports last sync timestamp and DB size
+5. Cloud racecontrol read-replica guard returns 409 on venue-authoritative writes (TODO: Phase 349-03)
 
 **Plans:**
-- [ ] 349-01-PLAN — Litestream install + pre-flight test on Windows venue
-- [ ] 349-02-PLAN — B2 bucket setup + replicate config + cloud restore daemon
-- [ ] 349-03-PLAN — Cloud racecontrol read-replica guard + /api/health lag probe
+- [x] 349-01-PLAN — Google Drive folder + upload script (upload-db.ps1) + schtask on James .27
+- [x] 349-02-PLAN — Download script (download-db.sh) + cron on Bono VPS + env file deployment
+- [ ] 349-03-PLAN — Cloud racecontrol read-replica guard + /api/health sync lag probe
 
 ### Phase 350: Contract Tests
 
