@@ -88,13 +88,13 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 ### Theme 9 — UI Hardening
 
-- [ ] **UI-01**: `/memberships` + `/wallet-transactions` hidden from nav until racecontrol backends exist (`/customer/drivers`, `/customer/membership/active`, `/customer/membership/tiers`)
-- [ ] **UI-02**: Loading skeletons on every rcFetch call — no blank screens during fetch
-- [ ] **UI-03**: Empty states on every list page ("No sessions today yet" instead of blank)
-- [ ] **UI-04**: Error toasts on every mutation (create/update/delete) success and failure
-- [ ] **UI-05**: `/settings/health` page with live per-subsystem tiles (ties to OPS-02)
-- [ ] **UI-06**: Degraded banner component per page — shows which subsystem is down + retry button
-- [ ] **UI-07**: 46-page Playwright smoke test (shared with TEST-05)
+- [x] **UI-01**: `/memberships` + `/wallet-transactions` hidden from nav until racecontrol backends exist (`/customer/drivers`, `/customer/membership/active`, `/customer/membership/tiers`)
+- [x] **UI-02**: Loading skeletons on every rcFetch call — no blank screens during fetch
+- [x] **UI-03**: Empty states on every list page ("No sessions today yet" instead of blank)
+- [x] **UI-04**: Error toasts on every mutation (create/update/delete) success and failure
+- [x] **UI-05**: `/settings/health` page with live per-subsystem tiles (ties to OPS-02)
+- [x] **UI-06**: Degraded banner component per page — shows which subsystem is down + retry button
+- [x] **UI-07**: 46-page Playwright smoke test (shared with TEST-05)
 
 ### Theme 10 — Runbook + Staff Training
 
