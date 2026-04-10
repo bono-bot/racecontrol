@@ -2,6 +2,7 @@
 
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
+| 2026-04-11 04:31 IST | James | 6893c736 | docs(351-02): Phase 351 Data Durability finalized — 3/3 plans complete. Added 351-03 ROADMAP checkbox (was missing), marked OPS-12 complete (WAL mode confirmed in Phase 345 RESIL-01: db/mod.rs bail! if journal_mode != wal). OPS-13 restore drill logged (PASS: RC-Drivers: 210, RC-Sessions: 303, integrity: ok). Phase 351 all requirements OPS-08..14 satisfied. |
 
 | 2026-04-11 04:21 IST | James | restore-drill | PASS — RC-Drivers: 210, RC-Sessions: 303, Admin-Staff: N/A (admin_db_path not set in racecontrol.toml — first backup pending), integrity_check: ok | Phase 351 OPS-13 drill on Google Drive backup. Racecontrol.db backup clean. Admin.db backup not yet available (expected — pipeline needs racecontrol.toml config). |
 | 2026-04-11 04:16 IST | James | restore-drill | PARTIAL-PASS — RC-Drivers: 210, RC-Sessions: 303, integrity_check: FAIL (idx_activity_hash index corruption on cloud DB, 2 page double-reference errors), Admin-Employees: 2, admin integrity_check: ok | Phase 351 OPS-13 first restore drill. Cloud racecontrol.db has index corruption — data readable, queries work, but index needs REINDEX. admin.db uses employees table (not staff_members). |
