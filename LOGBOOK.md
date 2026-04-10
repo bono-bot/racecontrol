@@ -3,6 +3,10 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-11 04:14 IST | James | 1a477961 | docs(353-01): complete 353-01 plan — 3 runbook one-pagers (OPS-15/16/17) + incident log placeholder + morning review schtask XML + bat + comms-link static-commands.json. OPS-15/16/17/18/19 marked complete. |
+| 2026-04-11 04:14 IST | James | e2ffc1db | feat(353-01): morning review schtask XML + bat file (MorningReview-Daily 08:00 IST via comms-link send-message.js) |
+| 2026-04-11 04:14 IST | James | df8155bc | feat(353-01): 3 printable A4 runbooks — runbook-admin-broken.md, runbook-staff-pin.md, runbook-cafe-menu.md |
+| 2026-04-11 04:14 IST | James | 48b8753 (comms-link) | feat(353-01): static-commands.json with morning_review entry + .gitignore exception |
 | 2026-04-11 03:51 IST | James | a58fed4e | docs(353): discuss-phase --auto — capture context for Runbook + Staff Training. 6 decisions locked: markdown+browser-print runbooks, Google Sheet incident log, comms-link morning review, A4 one-pager format, WhatsApp sign-off. |
 | 2026-04-11 03:51 IST | James | 9706af78 | docs(state): record phase 353 context session. |
 | 2026-04-11 03:23 IST | James | 428bcd44 | feat(349-03): venue_authority_guard + allow_cloud_venue_write on 24 write endpoints — cloud instance returns 409 CONFLICT for venue-authoritative table writes, break-glass via RC_ALLOW_CLOUD_VENUE_WRITE=1, 6 parallel-safe TDD tests. |
