@@ -1,22 +1,30 @@
 //! Phase 300-01: SQLite Backup Pipeline
 //!
-//! Hourly WAL-safe backup of racecontrol.db and telemetry.db using VACUUM INTO.
-//! Rotation: 7 daily + 4 weekly files per database.
+//! Hourly WAL-safe backup of racecontrol.db, telemetry.db, and admin.db using VACUUM INTO.
+//! Rotation: 30 daily + 4 weekly + 12 monthly files per database (OPS-09, OPS-10).
 //! Staleness alert: WhatsApp alert if no successful backup in staleness_alert_hours (default: 2h).
-//! Debounce: alert suppressed if already fired within 2 * staleness_alert_hours.
+//! Zero-byte alert: immediate WhatsApp alert if backup file is empty (OPS-14, no debounce).
+//! Debounce: staleness alert suppressed if already fired within 2 * staleness_alert_hours.
 //!
 //! Phase 300-02 additions:
-//! - Nightly SCP transfer to Bono VPS (02:00-04:00 IST window, once per day)
+//! - Nightly rsync transfer to Bono VPS (02:00-04:00 IST window, once per day, SCP fallback)
 //! - SHA256 local+remote checksum verification
 //! - Remote reachability checked every tick via `ssh ... echo ok`
 //! - BackupStatus updated with remote fields on every tick
+//!
+//! Phase 351 additions:
+//! - admin.db VACUUM INTO backup (config.backup.admin_db_path, OPS-08)
+//! - Monthly rotation tier: first-of-month snapshot retained 12 months (OPS-10)
+//! - Rsync replaces SCP; SCP is automatic fallback (OPS-11)
+//! - Zero-byte backup fires immediate WhatsApp alert bypassing debounce (OPS-14)
+//! - BackupStatus.last_admin_backup_at + last_admin_backup_size for admin.db visibility
 //!
 //! Standing rules compliance:
 //! - No .unwrap() — uses ? and if let Err(e)
 //! - No lock held across .await — clone/snapshot before async work
 //! - VACUUM INTO (not file copy) per locked decision
 //! - File paths: forward slashes in VACUUM INTO SQL string
-//! - StrictHostKeyChecking=no + BatchMode=yes on all ssh/scp (Pitfall 4)
+//! - StrictHostKeyChecking=no + BatchMode=yes on all ssh/scp/rsync (Pitfall 4)
 //! - No hardcoded IPs — uses config.backup.remote_host
 
 use std::sync::Arc;
@@ -79,7 +87,7 @@ pub fn spawn(state: Arc<AppState>) {
     });
 }
 
-/// One backup tick: create backups for both databases, rotate, update status, check staleness.
+/// One backup tick: create backups for all databases, rotate, update status, check staleness.
 /// Also checks remote reachability every tick, and transfers the daily racecontrol.db backup
 /// to Bono VPS once per day during the 02:00-04:00 IST window.
 async fn backup_tick(
@@ -90,6 +98,8 @@ async fn backup_tick(
     let backup_dir = state.config.backup.backup_dir.clone();
     let daily_retain = state.config.backup.daily_retain;
     let weekly_retain = state.config.backup.weekly_retain;
+    let monthly_retain = state.config.backup.monthly_retain;
+    let admin_db_path = state.config.backup.admin_db_path.clone();
 
     // Create backup directory if it does not exist
     std::fs::create_dir_all(&backup_dir)?;
@@ -98,15 +108,20 @@ async fn backup_tick(
     let now_ist = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
     let timestamp = now_ist.format("%Y-%m-%dT%H-%M-%S").to_string();
 
-    // Determine if this is a weekly backup (Sunday = day 0 / chrono Weekday::Sun)
+    // Determine rotation tiers for this tick
     use chrono::Datelike;
     let is_weekly = now_ist.weekday() == chrono::Weekday::Sun;
+    // OPS-10: monthly snapshot on the 1st of the month at any backup tick (hourly)
+    let is_monthly_first = now_ist.day() == 1;
     let year = now_ist.year();
     let week_num = now_ist.iso_week().week();
+    let year_month = now_ist.format("%Y-%m").to_string();
 
     let mut last_backup_file: Option<String> = None;
     let mut last_backup_size: Option<u64> = None;
     let mut total_count: usize = 0;
+    let mut admin_backup_at: Option<String> = None;
+    let mut admin_backup_size: Option<u64> = None;
 
     // Backup main racecontrol.db
     {
@@ -129,9 +144,19 @@ async fn backup_tick(
                 } else {
                     tracing::info!(target: LOG_TARGET, "racecontrol backup created: {} ({}s)", daily_name, elapsed);
                 }
-                // Record size
+                // Record size and check for zero-byte (OPS-14)
                 if let Ok(meta) = std::fs::metadata(&daily_path) {
-                    last_backup_size = Some(meta.len());
+                    let size = meta.len();
+                    last_backup_size = Some(size);
+                    if size == 0 {
+                        let msg = format!(
+                            "[BACKUP] Zero-byte racecontrol.db backup: {} | {}",
+                            daily_name,
+                            crate::whatsapp_alerter::ist_now_string()
+                        );
+                        tracing::error!(target: LOG_TARGET, "{}", msg);
+                        crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                    }
                 }
                 last_backup_file = Some(daily_name.clone());
 
@@ -145,13 +170,26 @@ async fn backup_tick(
                         tracing::info!(target: LOG_TARGET, "Weekly snapshot created: {}", weekly_name);
                     }
                 }
+
+                // OPS-10: Monthly snapshot on 1st of month — retain 12 months
+                if is_monthly_first {
+                    let monthly_name = format!("{}-monthly-{}.db", main_prefix, year_month);
+                    let monthly_path = format!("{}/{}", backup_dir, monthly_name);
+                    if !std::path::Path::new(&monthly_path).exists() {
+                        if let Err(e) = std::fs::copy(&daily_path, &monthly_path) {
+                            tracing::warn!(target: LOG_TARGET, "Monthly copy for racecontrol failed: {}", e);
+                        } else {
+                            tracing::info!(target: LOG_TARGET, "Monthly snapshot created: {}", monthly_name);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!(target: LOG_TARGET, "VACUUM INTO racecontrol.db failed: {}", e);
             }
         }
 
-        rotate_backups(&backup_dir, main_prefix, daily_retain, weekly_retain)?;
+        rotate_backups(&backup_dir, main_prefix, daily_retain, weekly_retain, monthly_retain)?;
         total_count += count_backup_files(&backup_dir, main_prefix);
     }
 
@@ -186,14 +224,97 @@ async fn backup_tick(
                         tracing::info!(target: LOG_TARGET, "Weekly snapshot created: {}", weekly_name);
                     }
                 }
+
+                // OPS-10: Monthly snapshot on 1st of month
+                if is_monthly_first {
+                    let monthly_name = format!("{}-monthly-{}.db", tel_prefix, year_month);
+                    let monthly_path = format!("{}/{}", backup_dir, monthly_name);
+                    if !std::path::Path::new(&monthly_path).exists() {
+                        if let Err(e) = std::fs::copy(&daily_path, &monthly_path) {
+                            tracing::warn!(target: LOG_TARGET, "Monthly copy for telemetry failed: {}", e);
+                        } else {
+                            tracing::info!(target: LOG_TARGET, "Monthly snapshot created: {}", monthly_name);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!(target: LOG_TARGET, "VACUUM INTO telemetry.db failed: {}", e);
             }
         }
 
-        rotate_backups(&backup_dir, tel_prefix, daily_retain, weekly_retain)?;
+        rotate_backups(&backup_dir, tel_prefix, daily_retain, weekly_retain, monthly_retain)?;
         total_count += count_backup_files(&backup_dir, tel_prefix);
+    }
+
+    // OPS-08: Backup admin.db if path is configured (uses sqlite3 .backup via subprocess —
+    // admin.db may not be open in the racecontrol sqlx pool, so we use a subprocess call).
+    if !admin_db_path.is_empty() {
+        let adm_prefix = "admin";
+        let daily_name = format!("{}-{}.db", adm_prefix, timestamp);
+        let daily_path = format!("{}/{}", backup_dir, daily_name);
+
+        // Use sqlite3 subprocess: safe for cross-pool backup (WAL-safe .backup command)
+        let sqlite3_output = tokio::process::Command::new("sqlite3")
+            .arg(&admin_db_path)
+            .arg(format!(".backup {}", daily_path.replace('\\', "/")))
+            .output()
+            .await;
+
+        match sqlite3_output {
+            Ok(out) if out.status.success() => {
+                if let Ok(meta) = std::fs::metadata(&daily_path) {
+                    let size = meta.len();
+                    admin_backup_size = Some(size);
+                    // OPS-14: zero-byte alert for admin.db (no debounce)
+                    if size == 0 {
+                        let msg = format!(
+                            "[BACKUP] Zero-byte admin.db backup: {} | {}",
+                            daily_name,
+                            crate::whatsapp_alerter::ist_now_string()
+                        );
+                        tracing::error!(target: LOG_TARGET, "{}", msg);
+                        crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
+                    }
+                }
+                admin_backup_at = Some(crate::whatsapp_alerter::ist_now_string());
+                tracing::info!(target: LOG_TARGET, "admin.db backup created: {}", daily_name);
+
+                // Weekly snapshot on Sunday
+                if is_weekly {
+                    let weekly_name = format!("{}-weekly-{}-W{:02}.db", adm_prefix, year, week_num);
+                    let weekly_path = format!("{}/{}", backup_dir, weekly_name);
+                    if let Err(e) = std::fs::copy(&daily_path, &weekly_path) {
+                        tracing::warn!(target: LOG_TARGET, "Weekly copy for admin failed: {}", e);
+                    } else {
+                        tracing::info!(target: LOG_TARGET, "Weekly admin snapshot created: {}", weekly_name);
+                    }
+                }
+
+                // OPS-10: Monthly snapshot on 1st of month
+                if is_monthly_first {
+                    let monthly_name = format!("{}-monthly-{}.db", adm_prefix, year_month);
+                    let monthly_path = format!("{}/{}", backup_dir, monthly_name);
+                    if !std::path::Path::new(&monthly_path).exists() {
+                        if let Err(e) = std::fs::copy(&daily_path, &monthly_path) {
+                            tracing::warn!(target: LOG_TARGET, "Monthly copy for admin failed: {}", e);
+                        } else {
+                            tracing::info!(target: LOG_TARGET, "Monthly admin snapshot created: {}", monthly_name);
+                        }
+                    }
+                }
+
+                rotate_backups(&backup_dir, adm_prefix, daily_retain, weekly_retain, monthly_retain)?;
+                total_count += count_backup_files(&backup_dir, adm_prefix);
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::error!(target: LOG_TARGET, "admin.db backup failed: {}", stderr);
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, "sqlite3 subprocess failed (admin.db backup skipped): {}", e);
+            }
+        }
     }
 
     // Compute staleness from newest file mtime
@@ -208,6 +329,10 @@ async fn backup_tick(
         status.last_backup_file = last_backup_file;
         status.backup_count_local = total_count;
         status.staleness_hours = staleness;
+        if admin_backup_at.is_some() {
+            status.last_admin_backup_at = admin_backup_at;
+            status.last_admin_backup_size = admin_backup_size;
+        }
     }
 
     // Check staleness and fire alert if needed
@@ -232,6 +357,51 @@ async fn backup_tick(
     }
 
     Ok(())
+}
+
+/// SCP transfer helper — used as fallback when rsync is unavailable or fails.
+/// Returns Ok(true) on success, Ok(false) on transfer failure, Err on spawn failure.
+async fn transfer_via_scp(
+    state: &Arc<AppState>,
+    backup_path: &str,
+    filename: &str,
+    remote_dest: &str,
+) -> anyhow::Result<bool> {
+    let scp_output = tokio::time::timeout(
+        Duration::from_secs(120),
+        tokio::process::Command::new("scp")
+            .arg("-o").arg("StrictHostKeyChecking=no")
+            .arg("-o").arg("BatchMode=yes")
+            .arg("-o").arg("ConnectTimeout=10")
+            .arg(backup_path)
+            .arg(remote_dest)
+            .output(),
+    )
+    .await;
+
+    match scp_output {
+        Err(_timeout) => {
+            tracing::error!(target: LOG_TARGET, "SCP timed out after 120s for {}", filename);
+            let mut status = state.backup_status.write().await;
+            status.remote_reachable = false;
+            Ok(false)
+        }
+        Ok(Err(e)) => {
+            Err(anyhow::anyhow!("SCP spawn error: {}", e))
+        }
+        Ok(Ok(output)) => {
+            if output.status.success() {
+                tracing::info!(target: LOG_TARGET, "SCP transfer complete: {}", filename);
+                Ok(true)
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::error!(target: LOG_TARGET, "SCP transfer failed for {}: {}", filename, stderr);
+                let mut status = state.backup_status.write().await;
+                status.remote_reachable = false;
+                Ok(false)
+            }
+        }
+    }
 }
 
 /// Check whether the remote host (Bono VPS) is reachable via SSH and update BackupStatus.
@@ -267,14 +437,15 @@ async fn check_remote_reachable(state: &Arc<AppState>) {
     }
 }
 
-/// Transfer the most recent racecontrol daily backup to Bono VPS via SCP with SHA256 verification.
+/// Transfer the most recent racecontrol daily backup to Bono VPS via rsync with SHA256 verification.
 ///
 /// Transfer runs only:
 /// 1. When `config.backup.remote_enabled` is true
 /// 2. During the nightly window: IST hour 2 or 3 (02:00-03:59)
 /// 3. Once per day (tracked via `last_remote_transfer` NaiveDate)
 ///
-/// Steps: mkdir -p remote_path → compute local SHA256 → SCP (120s timeout) → remote sha256sum → compare
+/// Steps: mkdir -p remote_path → compute local SHA256 → rsync (SCP fallback) → remote sha256sum → compare
+/// OPS-11: rsync preferred; SCP fallback if rsync unavailable (config.backup.use_rsync).
 async fn transfer_to_remote(
     state: &Arc<AppState>,
     backup_path: &str,
@@ -285,6 +456,7 @@ async fn transfer_to_remote(
     let remote_enabled = state.config.backup.remote_enabled;
     let remote_host = state.config.backup.remote_host.clone();
     let remote_path = state.config.backup.remote_path.clone();
+    let use_rsync = state.config.backup.use_rsync;
 
     if !remote_enabled {
         return Ok(());
@@ -330,48 +502,63 @@ async fn transfer_to_remote(
     let local_checksum = hex::encode(sha2::Sha256::digest(&bytes));
     tracing::debug!(target: LOG_TARGET, "Local SHA256: {}", local_checksum);
 
-    // Step C: SCP the file with 120s timeout.
+    // Step C: Transfer the file — rsync preferred (OPS-11), SCP fallback.
     let remote_dest = format!("{}:{}/{}", remote_host, remote_path, filename);
-    let scp_output = tokio::time::timeout(
-        Duration::from_secs(120),
-        tokio::process::Command::new("scp")
-            .arg("-o").arg("StrictHostKeyChecking=no")
-            .arg("-o").arg("BatchMode=yes")
-            .arg("-o").arg("ConnectTimeout=10")
-            .arg(backup_path)
-            .arg(&remote_dest)
-            .output(),
-    )
-    .await;
+    let transfer_ok = if use_rsync {
+        // Try rsync first — Git Bash rsync.exe on Windows
+        let rsync_bin = if cfg!(target_os = "windows") {
+            "C:/Program Files/Git/usr/bin/rsync.exe"
+        } else {
+            "rsync"
+        };
+        let rsync_result = tokio::time::timeout(
+            Duration::from_secs(180),
+            tokio::process::Command::new(rsync_bin)
+                .arg("-az")
+                .arg("--checksum")
+                .arg("--no-perms")
+                .arg("--timeout=60")
+                .arg("-e")
+                .arg("ssh -o StrictHostKeyChecking=no -o BatchMode=yes")
+                .arg(backup_path)
+                .arg(&remote_dest)
+                .output(),
+        )
+        .await;
 
-    let scp_result = match scp_output {
-        Err(_timeout) => {
-            let msg = format!("SCP transfer timed out after 120s for {}", filename);
-            tracing::error!(target: LOG_TARGET, "{}", msg);
-            let mut status = state.backup_status.write().await;
-            status.remote_reachable = false;
-            return Err(anyhow::anyhow!(msg));
+        let rsync_ok = match rsync_result {
+            Ok(Ok(out)) => out.status.success(),
+            Ok(Err(e)) => {
+                tracing::debug!(target: LOG_TARGET, "rsync spawn failed ({}), falling back to SCP", e);
+                false
+            }
+            Err(_) => {
+                tracing::debug!(target: LOG_TARGET, "rsync timed out, falling back to SCP");
+                false
+            }
+        };
+
+        if rsync_ok {
+            tracing::info!(target: LOG_TARGET, "rsync transfer complete: {}", filename);
+            true
+        } else {
+            // Fall back to SCP
+            tracing::info!(target: LOG_TARGET, "rsync failed/unavailable, using SCP fallback");
+            transfer_via_scp(state, backup_path, filename, &remote_dest).await?
         }
-        Ok(Err(e)) => {
-            let msg = format!("SCP spawn error: {}", e);
-            tracing::error!(target: LOG_TARGET, "{}", msg);
-            let mut status = state.backup_status.write().await;
-            status.remote_reachable = false;
-            return Err(anyhow::anyhow!(msg));
-        }
-        Ok(Ok(output)) => output,
+    } else {
+        transfer_via_scp(state, backup_path, filename, &remote_dest).await?
     };
 
-    if !scp_result.status.success() {
-        let stderr = String::from_utf8_lossy(&scp_result.stderr);
-        let msg = format!("SCP transfer failed for {}: {}", filename, stderr);
+    if !transfer_ok {
+        let msg = format!("Remote transfer failed for {} (both rsync and SCP exhausted)", filename);
         tracing::error!(target: LOG_TARGET, "{}", msg);
         let mut status = state.backup_status.write().await;
         status.remote_reachable = false;
         return Err(anyhow::anyhow!(msg));
     }
 
-    tracing::info!(target: LOG_TARGET, "SCP transfer complete: {}", filename);
+    tracing::info!(target: LOG_TARGET, "Remote transfer complete: {}", filename);
 
     // Step D: Remote SHA256 verification.
     let verify_output = tokio::process::Command::new("ssh")
@@ -431,29 +618,38 @@ async fn transfer_to_remote(
     Ok(())
 }
 
-/// Rotate backup files: keep newest `daily_retain` daily + `weekly_retain` weekly per prefix.
+/// Rotate backup files: keep newest `daily_retain` daily + `weekly_retain` weekly +
+/// `monthly_retain` monthly per prefix (OPS-09, OPS-10).
+///
+/// File naming:
+/// - Daily:   {prefix}-YYYY-MM-DDTHH-MM-SS.db
+/// - Weekly:  {prefix}-weekly-YYYY-WNN.db
+/// - Monthly: {prefix}-monthly-YYYY-MM.db
 pub fn rotate_backups(
     backup_dir: &str,
     prefix: &str,
     daily_retain: usize,
     weekly_retain: usize,
+    monthly_retain: usize,
 ) -> anyhow::Result<()> {
     let dir = std::path::Path::new(backup_dir);
     if !dir.exists() {
         return Ok(());
     }
 
-    // Collect daily files: {prefix}-YYYY-MM-DDTHH-MM-SS.db (NOT weekly)
     let daily_pattern = format!("{}-", prefix);
     let weekly_pattern = format!("{}-weekly-", prefix);
+    let monthly_pattern = format!("{}-monthly-", prefix);
 
+    // Collect daily files: {prefix}-YYYY-..., NOT weekly, NOT monthly
     let mut daily_files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
             if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                // Daily: starts with prefix-, NOT weekly
-                name.starts_with(&daily_pattern) && !name.contains("-weekly-")
+                name.starts_with(&daily_pattern)
+                    && !name.contains("-weekly-")
+                    && !name.contains("-monthly-")
             } else {
                 false
             }
@@ -499,6 +695,32 @@ pub fn rotate_backups(
             }
         }
         tracing::info!(target: LOG_TARGET, "Rotated {} old weekly backup(s) for prefix '{}'", to_delete, prefix);
+    }
+
+    // Collect and rotate monthly files: {prefix}-monthly-YYYY-MM.db (OPS-10)
+    let mut monthly_files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                name.starts_with(&monthly_pattern)
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    monthly_files.sort();
+
+    if monthly_files.len() > monthly_retain {
+        let to_delete = monthly_files.len() - monthly_retain;
+        for path in monthly_files.iter().take(to_delete) {
+            tracing::debug!(target: LOG_TARGET, "Rotating monthly backup: {:?}", path);
+            if let Err(e) = std::fs::remove_file(path) {
+                tracing::warn!(target: LOG_TARGET, "Failed to delete old monthly backup {:?}: {}", path, e);
+            }
+        }
+        tracing::info!(target: LOG_TARGET, "Rotated {} old monthly backup(s) for prefix '{}'", to_delete, prefix);
     }
 
     Ok(())
@@ -637,6 +859,7 @@ mod tests {
             "racecontrol",
             7, // daily_retain
             4, // weekly_retain
+            12, // monthly_retain
         )
         .unwrap();
 
@@ -667,7 +890,7 @@ mod tests {
             make_file(dir, &format!("racecontrol-2026-01-{:02}T12-00-00.db", i));
         }
 
-        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4).unwrap();
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4, 12).unwrap();
 
         // The oldest 3 (01..03) should be gone
         for i in 1..=3 {
@@ -699,7 +922,7 @@ mod tests {
             make_file(dir, &format!("racecontrol-weekly-2026-W{:02}.db", i));
         }
 
-        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4).unwrap();
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4, 12).unwrap();
 
         let remaining: Vec<_> = fs::read_dir(dir)
             .unwrap()
@@ -729,7 +952,7 @@ mod tests {
             make_file(dir, &format!("racecontrol-2026-01-{:02}T12-00-00.db", i));
         }
 
-        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4).unwrap();
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4, 12).unwrap();
 
         let remaining: Vec<_> = fs::read_dir(dir)
             .unwrap()
@@ -825,7 +1048,7 @@ mod tests {
             make_file(dir, &format!("telemetry-2026-01-{:02}T12-00-00.db", i));
         }
 
-        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4).unwrap();
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 7, 4, 12).unwrap();
 
         // Telemetry files should be untouched
         let telemetry_count = fs::read_dir(dir)
@@ -843,6 +1066,67 @@ mod tests {
             3,
             "Rotating racecontrol should not affect telemetry files"
         );
+    }
+
+    #[test]
+    fn rotate_backups_monthly_tier_retains_up_to_monthly_retain() {
+        let tmp = make_temp_dir();
+        let dir = tmp.path();
+
+        // Create 15 monthly backup files (beyond 12-month retain)
+        for i in 1..=15 {
+            make_file(dir, &format!("racecontrol-monthly-2025-{:02}.db", i));
+        }
+
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 30, 4, 12).unwrap();
+
+        let monthly_remaining: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("-monthly-"))
+            .collect();
+
+        assert_eq!(
+            monthly_remaining.len(),
+            12,
+            "Expected 12 monthly files after rotation, got {}",
+            monthly_remaining.len()
+        );
+    }
+
+    #[test]
+    fn rotate_backups_monthly_files_not_affected_by_daily_rotation() {
+        let tmp = make_temp_dir();
+        let dir = tmp.path();
+
+        // Create daily files and monthly files for same prefix
+        for i in 1..=35 {
+            make_file(dir, &format!("racecontrol-2026-01-{:02}T12-00-00.db", i));
+        }
+        for i in 1..=5 {
+            make_file(dir, &format!("racecontrol-monthly-2025-{:02}.db", i));
+        }
+
+        rotate_backups(dir.to_str().unwrap(), "racecontrol", 30, 4, 12).unwrap();
+
+        // Daily: 35 created, 30 retained → 5 deleted
+        let daily_remaining = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.starts_with("racecontrol-2026-") && !name.contains("-monthly-") && !name.contains("-weekly-")
+            })
+            .count();
+        assert_eq!(daily_remaining, 30, "Daily files should be 30 after rotation");
+
+        // Monthly: 5 created, all 5 retained (below 12 limit)
+        let monthly_remaining = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("-monthly-"))
+            .count();
+        assert_eq!(monthly_remaining, 5, "Monthly files should all be retained when below limit");
     }
 
     #[test]

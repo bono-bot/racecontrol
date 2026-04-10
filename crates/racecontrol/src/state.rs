@@ -130,6 +130,10 @@ pub struct BackupStatus {
     pub backup_count_local: usize,
     /// Hours since the most recent backup file was created (None if no backups exist)
     pub staleness_hours: Option<f64>,
+    /// ISO timestamp of the last successful admin.db backup (IST). None if admin_db_path unconfigured.
+    pub last_admin_backup_at: Option<String>,
+    /// Size in bytes of the last admin.db backup file. None if not yet backed up.
+    pub last_admin_backup_size: Option<u64>,
 }
 
 /// Phase 317 (LAUNCH-04): Tracks consecutive game launch failures per pod+SimType.
