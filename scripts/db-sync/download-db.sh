@@ -46,6 +46,13 @@ write_status() {
 EOF
 }
 
+# SYNC-08: Break-glass pause -- operator can pause replication by creating sentinel
+if [ -f "/tmp/DB_SYNC_PAUSED" ]; then
+    write_status "paused" "Sync paused by operator sentinel"
+    echo "=== SYNC PAUSED (rm /tmp/DB_SYNC_PAUSED to resume) ==="
+    exit 0
+fi
+
 # Step 1: Get access token
 echo "[1/5] Getting access token..."
 TOKEN=$(curl -s -X POST 'https://oauth2.googleapis.com/token' \

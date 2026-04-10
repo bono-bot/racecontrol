@@ -87,3 +87,5 @@ winapi = { version = "0.3", features = ["synchapi", "errhandlingapi", "handleapi
 tokio = { version = "1", features = ["test-util"] }
 # Temp directories for backup pipeline tests
 tempfile = "3"
+# Cross-platform file mtime manipulation in tests (set_file_times works on Windows)
+filetime = "0.2"

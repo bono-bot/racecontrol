@@ -6,7 +6,7 @@
 //! 10-minute dedup per (subsystem, error_code) pair.
 //!
 //! Probes: db_writable, rc_backend, disk_free, cloud_sync, whatsapp_api,
-//! fleet_connectivity, admin_db.
+//! fleet_connectivity, admin_db, db_sync_lag.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
@@ -90,7 +90,7 @@ async fn subsystem_health_task(state: Arc<AppState>) {
 
 async fn run_probes(state: &AppState, prev_states: &mut HashMap<String, PrevState>) {
     // Run all probes concurrently where independent
-    let (db_writable, rc_backend, disk_free, cloud_sync, whatsapp_api, fleet_conn, admin_db) =
+    let (db_writable, rc_backend, disk_free, cloud_sync, whatsapp_api, fleet_conn, admin_db, db_sync_lag) =
         tokio::join!(
             probe_db_writable(&state.db),
             probe_rc_backend(),
@@ -99,6 +99,7 @@ async fn run_probes(state: &AppState, prev_states: &mut HashMap<String, PrevStat
             probe_whatsapp_api(state),
             probe_fleet_connectivity(state),
             probe_admin_db(),
+            probe_db_sync_lag(&state.config),
         );
 
     let mut results: HashMap<String, SubsystemStatus> = HashMap::new();
@@ -109,6 +110,7 @@ async fn run_probes(state: &AppState, prev_states: &mut HashMap<String, PrevStat
     results.insert("whatsapp_api".to_string(), whatsapp_api);
     results.insert("fleet_connectivity".to_string(), fleet_conn);
     results.insert("admin_db".to_string(), admin_db);
+    results.insert("db_sync_lag".to_string(), db_sync_lag);
 
     // Check transitions and dispatch alerts
     for (name, status) in &results {
@@ -283,6 +285,86 @@ fn check_disk_free_sync() -> SubsystemStatus {
             latency_ms: 0,
             error_code: Some("DISK_NOT_FOUND".to_string()),
             detail: Some("Could not find disk for data directory".to_string()),
+        },
+    }
+}
+
+/// Probe 8 (Phase 349): DB Sync Lag — check age of racecontrol.db mtime (CLOUD-ONLY).
+/// On venue instances, returns ok with "skipped" detail.
+/// On cloud, checks file mtime of racecontrol.db (last written by download-db.sh).
+/// Thresholds: WARN >300s (1 missed 5-min cycle), CRITICAL >900s (3 missed cycles).
+async fn probe_db_sync_lag(config: &Config) -> SubsystemStatus {
+    if !crate::config::this_instance_is_cloud(config) {
+        return SubsystemStatus {
+            ok: true,
+            latency_ms: 0,
+            error_code: None,
+            detail: Some("venue instance — db_sync_lag probe skipped".to_string()),
+        };
+    }
+
+    let db_path = config.database.path.clone();
+    match tokio::task::spawn_blocking(move || check_db_sync_lag_sync(&db_path)).await {
+        Ok(status) => status,
+        Err(e) => SubsystemStatus {
+            ok: false,
+            latency_ms: 0,
+            error_code: Some("DB_SYNC_LAG_CHECK_FAILED".to_string()),
+            detail: Some(e.to_string()),
+        },
+    }
+}
+
+fn check_db_sync_lag_sync(db_path: &str) -> SubsystemStatus {
+    use std::time::{Duration, SystemTime};
+
+    const WARN_SECS: u64 = 300;
+    const CRITICAL_SECS: u64 = 900;
+
+    let path = std::path::Path::new(db_path);
+    match std::fs::metadata(path) {
+        Ok(meta) => match meta.modified() {
+            Ok(mtime) => {
+                let age_secs = SystemTime::now()
+                    .duration_since(mtime)
+                    .unwrap_or(Duration::from_secs(u64::MAX))
+                    .as_secs();
+                let detail = Some(format!("Last sync {}m {}s ago", age_secs / 60, age_secs % 60));
+                if age_secs >= CRITICAL_SECS {
+                    SubsystemStatus {
+                        ok: false,
+                        latency_ms: 0,
+                        error_code: Some("DB_SYNC_LAG_CRITICAL".to_string()),
+                        detail,
+                    }
+                } else if age_secs >= WARN_SECS {
+                    SubsystemStatus {
+                        ok: false,
+                        latency_ms: 0,
+                        error_code: Some("DB_SYNC_LAG_WARN".to_string()),
+                        detail,
+                    }
+                } else {
+                    SubsystemStatus {
+                        ok: true,
+                        latency_ms: 0,
+                        error_code: None,
+                        detail,
+                    }
+                }
+            }
+            Err(e) => SubsystemStatus {
+                ok: false,
+                latency_ms: 0,
+                error_code: Some("DB_SYNC_MTIME_UNAVAILABLE".to_string()),
+                detail: Some(e.to_string()),
+            },
+        },
+        Err(_) => SubsystemStatus {
+            ok: false,
+            latency_ms: 0,
+            error_code: Some("DB_SYNC_FILE_NOT_FOUND".to_string()),
+            detail: Some(format!("File not found: {}", db_path)),
         },
     }
 }
@@ -725,6 +807,70 @@ async fn resolve_subsystem_incident(db: &SqlitePool, subsystem: &str) {
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod db_sync_lag_tests {
+    use super::*;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn set_mtime_past(path: &std::path::Path, secs_ago: u64) {
+        let now_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+        let past_epoch = now_epoch.saturating_sub(secs_ago);
+        // Use filetime crate for cross-platform mtime manipulation (works on Windows)
+        let ft = filetime::FileTime::from_unix_time(past_epoch as i64, 0);
+        filetime::set_file_mtime(path, ft).expect("set_file_mtime");
+    }
+
+    #[test]
+    fn db_sync_lag_ok_when_file_is_fresh() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("racecontrol-test-fresh.db");
+        std::fs::write(&path, b"test").expect("write");
+        // Default mtime is now() — should be ok
+        let status = check_db_sync_lag_sync(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert!(status.ok, "Fresh file should be ok, got: {:?}", status.error_code);
+        assert!(status.error_code.is_none());
+    }
+
+    #[test]
+    fn db_sync_lag_warn_when_400s_old() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("racecontrol-test-warn.db");
+        std::fs::write(&path, b"test").expect("write");
+        set_mtime_past(&path, 400);
+        let status = check_db_sync_lag_sync(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert!(!status.ok, "400s old should not be ok");
+        assert_eq!(status.error_code.as_deref(), Some("DB_SYNC_LAG_WARN"),
+            "Expected WARN at 400s, got: {:?}", status.error_code);
+    }
+
+    #[test]
+    fn db_sync_lag_critical_when_1000s_old() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("racecontrol-test-critical.db");
+        std::fs::write(&path, b"test").expect("write");
+        set_mtime_past(&path, 1000);
+        let status = check_db_sync_lag_sync(path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert!(!status.ok, "1000s old should not be ok");
+        assert_eq!(status.error_code.as_deref(), Some("DB_SYNC_LAG_CRITICAL"),
+            "Expected CRITICAL at 1000s, got: {:?}", status.error_code);
+    }
+
+    #[test]
+    fn db_sync_lag_not_found_when_no_file() {
+        let path = "/tmp/racecontrol-test-nonexistent-12345.db";
+        let status = check_db_sync_lag_sync(path);
+        assert!(!status.ok, "Non-existent file should not be ok");
+        assert_eq!(status.error_code.as_deref(), Some("DB_SYNC_FILE_NOT_FOUND"),
+            "Expected FILE_NOT_FOUND, got: {:?}", status.error_code);
+    }
+}
 
 #[cfg(test)]
 mod tests {
