@@ -3,6 +3,8 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-11 03:51 IST | James | a58fed4e | docs(353): discuss-phase --auto — capture context for Runbook + Staff Training. 6 decisions locked: markdown+browser-print runbooks, Google Sheet incident log, comms-link morning review, A4 one-pager format, WhatsApp sign-off. |
+| 2026-04-11 03:51 IST | James | 9706af78 | docs(state): record phase 353 context session. |
 | 2026-04-11 03:23 IST | James | 428bcd44 | feat(349-03): venue_authority_guard + allow_cloud_venue_write on 24 write endpoints — cloud instance returns 409 CONFLICT for venue-authoritative table writes, break-glass via RC_ALLOW_CLOUD_VENUE_WRITE=1, 6 parallel-safe TDD tests. |
 | 2026-04-11 03:23 IST | James | 42d1ce8c | feat(349-03): db_sync_lag health probe (Probe 8, cloud-only, WARN 300s/CRITICAL 900s) + DB_SYNC_PAUSED sentinel in download-db.sh + RESTORE-DRILL.md 6-step runbook. filetime dev-dep for Windows mtime tests. 1003 tests pass. |
 | 2026-04-11 03:23 IST | James | d77403a6 | docs(349-03): SUMMARY.md + STATE.md + ROADMAP.md (349 complete) + REQUIREMENTS.md (SYNC-05/06/07/08 closed). |
