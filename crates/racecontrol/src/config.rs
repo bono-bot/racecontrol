@@ -477,6 +477,12 @@ pub struct AuthConfig {
     /// Set via config file or RACECONTROL_ADMIN_PIN_HASH env var.
     #[serde(default)]
     pub admin_pin_hash: Option<String>,
+    /// Phase 348: Pre-shared secret for break-glass emergency access.
+    /// When set, enables POST /api/v1/auth/break-glass which issues a 1-hour
+    /// superadmin JWT. Every use triggers a WhatsApp alert + audit log.
+    /// Set via RACECONTROL_BREAK_GLASS_SECRET env var or config file.
+    #[serde(default)]
+    pub break_glass_secret: Option<String>,
 }
 
 impl Default for AuthConfig {
@@ -490,6 +496,7 @@ impl Default for AuthConfig {
             evolution_api_key: None,
             evolution_instance: None,
             admin_pin_hash: None,
+            break_glass_secret: None,
         }
     }
 }

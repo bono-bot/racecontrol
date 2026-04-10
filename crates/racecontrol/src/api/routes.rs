@@ -83,6 +83,7 @@ fn auth_rate_limited_routes() -> Router<Arc<AppState>> {
         .route("/kiosk/redeem-pin", post(kiosk_redeem_pin))
         .route("/staff/validate-pin", post(staff_validate_pin))
         .route("/auth/admin-login", post(auth::admin::admin_login))
+        .route("/auth/break-glass", post(auth::admin::break_glass))
         .layer(auth::rate_limit::auth_rate_limit_layer())
 }
 

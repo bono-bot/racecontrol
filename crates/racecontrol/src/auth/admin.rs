@@ -235,6 +235,89 @@ pub async fn admin_login(
     }
 }
 
+// ---- Phase 348: Break-glass emergency access ---------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BreakGlassRequest {
+    pub secret: String,
+    pub reason: String,
+}
+
+/// POST /api/v1/auth/break-glass
+///
+/// Emergency access when normal admin login is unavailable (lockout, PIN forgotten,
+/// cloud down). Validates a pre-shared secret from config. Issues a 1-hour
+/// superadmin JWT. Every use triggers WhatsApp alert + audit log.
+///
+/// - 404 if break_glass_secret not configured (don't reveal the endpoint exists)
+/// - 401 if secret is wrong
+/// - 200 + { token, expires_in } on success + WhatsApp alert
+pub async fn break_glass(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<BreakGlassRequest>,
+) -> impl IntoResponse {
+    let configured_secret = match &state.config.auth.break_glass_secret {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => {
+            // Don't reveal that the endpoint exists if not configured
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    if body.secret != configured_secret {
+        tracing::warn!(
+            target: "auth",
+            reason = %body.reason,
+            "break_glass: INVALID SECRET attempted"
+        );
+        // Audit trail for failed break-glass attempt
+        crate::accounting::log_admin_action(
+            &state, "break_glass_failed", "Invalid break-glass secret", None, None,
+        ).await;
+        crate::whatsapp_alerter::send_admin_alert(
+            &state.config,
+            "BREAK-GLASS FAILED",
+            &format!("Invalid break-glass attempt. Reason given: {}", body.reason),
+        ).await;
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // Valid secret — issue 1-hour superadmin JWT
+    let secret = &state.config.auth.jwt_secret;
+    match super::middleware::create_staff_jwt_with_role(secret, "break-glass", "superadmin", 1) {
+        Ok(token) => {
+            tracing::warn!(
+                target: "auth",
+                reason = %body.reason,
+                "break_glass: EMERGENCY ACCESS GRANTED — 1-hour superadmin JWT issued"
+            );
+            // Audit trail
+            crate::accounting::log_admin_action(
+                &state, "break_glass_success",
+                &format!("Emergency break-glass access granted. Reason: {}", body.reason),
+                None, None,
+            ).await;
+            // WhatsApp alert — P0 priority
+            crate::whatsapp_alerter::send_admin_alert(
+                &state.config,
+                "BREAK-GLASS ACTIVATED",
+                &format!("Emergency access granted. Reason: {}. Token expires in 1 hour.", body.reason),
+            ).await;
+
+            Ok(Json(serde_json::json!({
+                "token": token,
+                "expires_in": 3600,
+                "warning": "This is an emergency token. All actions are logged.",
+            })))
+        }
+        Err(e) => {
+            tracing::error!("break_glass: JWT creation failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
