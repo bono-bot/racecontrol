@@ -985,9 +985,9 @@ Plans:
 5. Six stale `deploy-staging/set-*pin*` scripts deleted from git
 
 **Plans:**
-- [ ] 344-01-PLAN — `admin-deploy.sh` + `verify-deploy.js` + `server-bootstrap.js`
-- [ ] 344-02-PLAN — Node version pin + nvmrc + bat/pm2 env exports
-- [ ] 344-03-PLAN — Archive stale PIN scripts + deploy script tests
+- [x] 344-01-PLAN — `admin-deploy.sh` + `verify-deploy.js` + `server-bootstrap.js` (`racingpoint-admin@b10b487`)
+- [x] 344-02-PLAN — Node version pin + .nvmrc + engines + npm deploy scripts (`racingpoint-admin@b10b487`)
+- [x] 344-03-PLAN — Archive 8 stale PIN scripts to `deploy-staging/archived/`
 
 ### Phase 345: Backend Resilience
 
