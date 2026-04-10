@@ -1167,9 +1167,7 @@ Plans:
 5. `/settings/health` page tiles update live
 
 **Plans:**
-- [ ] 354-01-PLAN — Nav cleanup + dead route handling
-- [ ] 354-02-PLAN — Loading/empty/error state pattern + apply to 20 top pages
-- [ ] 354-03-PLAN — `/settings/health` live tiles page
+- [ ] 354-01-PLAN — Close remaining skeleton gaps (4), replace alert() with toast (15), empty states
 
 ### Phase 355: Venue-Ready Readiness Review
 
