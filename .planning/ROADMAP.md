@@ -1132,9 +1132,9 @@ Plans:
 5. Structured JSON logs rotate daily and appear on Bono VPS within 24h
 
 **Plans:**
-2/3 plans executed
+3/3 plans complete
 - [x] 352-02-PLAN — comms-link `/relay/alert` integration + dedup logic
-- [ ] 352-03-PLAN — Structured JSON logs + rotation + rsync
+- [x] 352-03-PLAN — Structured JSON logs + rotation + rsync
 
 ### Phase 353: Runbook + Staff Training
 

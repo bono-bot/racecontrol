@@ -54,8 +54,8 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 - [x] **OPS-03**: Degraded subsystem triggers WhatsApp alert via POST to comms-link relay `/relay/alert` on James .27
 - [x] **OPS-04**: Alert dedup — same subsystem + error_code within 10 minutes = single alert
 - [x] **OPS-05**: Phase 343 Plan 02 `whatsapp_alerter.rs` TODO wired to the alert path
-- [ ] **OPS-06**: Structured JSON log format for admin API requests (`{ts, level, route, status, latency, user, err, corr_id}`)
-- [ ] **OPS-07**: Admin API logs rotated daily and rsync'd to Bono VPS `/root/backups/venue-logs/`
+- [x] **OPS-06**: Structured JSON log format for admin API requests (`{ts, level, route, status, latency, user, err, corr_id}`)
+- [x] **OPS-07**: Admin API logs rotated daily and rsync'd to Bono VPS `/root/backups/venue-logs/`
 
 ### Theme 6 — Downstream Propagation Tests
 
