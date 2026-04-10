@@ -78,13 +78,13 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 ### Theme 8 — Data Durability
 
-- [ ] **OPS-08**: Daily `sqlite3 .backup` of admin.db on venue and cloud at 03:00 IST
-- [ ] **OPS-09**: Daily `sqlite3 .backup` of racecontrol.db on venue at 03:00 IST (cloud uses Litestream history as backup)
-- [ ] **OPS-10**: 30-day rolling retention + first-of-month snapshots retained for 12 months
-- [ ] **OPS-11**: Venue backups rsync'd to Bono VPS `/root/backups/venue/` same night
+- [x] **OPS-08**: Daily `sqlite3 .backup` of admin.db on venue and cloud at 03:00 IST
+- [x] **OPS-09**: Daily `sqlite3 .backup` of racecontrol.db on venue at 03:00 IST (cloud uses Litestream history as backup)
+- [x] **OPS-10**: 30-day rolling retention + first-of-month snapshots retained for 12 months
+- [x] **OPS-11**: Venue backups rsync'd to Bono VPS `/root/backups/venue/` same night
 - [ ] **OPS-12**: Both databases run in WAL mode (`PRAGMA journal_mode=WAL`) — verified at startup
 - [ ] **OPS-13**: Restore drill SOP documented; executed quarterly with LOGBOOK.md entry
-- [ ] **OPS-14**: Automated check alerts if backup file missing or size 0 after scheduled window
+- [x] **OPS-14**: Automated check alerts if backup file missing or size 0 after scheduled window
 
 ### Theme 9 — UI Hardening
 

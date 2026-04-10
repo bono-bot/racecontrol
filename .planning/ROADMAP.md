@@ -1113,10 +1113,9 @@ Plans:
 4. Restore drill on a scratch machine recovers admin.db with matching row counts
 5. Alert fires if backup missing or size 0 after scheduled window
 
-**Plans:** 3 plans
-- [x] 351-01-PLAN — Extend Rust backup_pipeline.rs (admin.db, monthly retention, rsync, zero-byte alert)
+**Plans:** 1/2 plans executed
+- [x] 351-01-PLAN — Fix backup-databases.sh (admin.db, retention, validation, alert, schtask)
 - [ ] 351-02-PLAN — WAL mode verification + restore drill update + drill execution
-- [ ] 351-03-PLAN — Cloud backup script (backup-cloud.sh on Bono VPS + cron)
 
 ### Phase 352: Health + WhatsApp Alerts
 
@@ -1150,7 +1149,7 @@ Plans:
 5. Uday signs off on the runbook content
 
 **Plans:**
-1/2 plans executed
+- [ ] 353-01-PLAN — Write 3 printable runbook one-pagers + morning_review comms-link command
 - [ ] 353-02-PLAN — Staff training session + sign-off
 
 ### Phase 354: UI Hardening
