@@ -98,11 +98,11 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 ### Theme 10 — Runbook + Staff Training
 
-- [ ] **OPS-15**: Printed one-pager at POS — "If admin is slow/broken: refresh → WhatsApp Bono → don't restart anything"
-- [ ] **OPS-16**: Printed one-pager "How to change a staff PIN" — use `/admin/staff`, do NOT use curl/sqlite3/deploy-staging scripts
-- [ ] **OPS-17**: Printed one-pager "How to change a cafe menu item" — open admin → Cafe → edit → verify on POS within 10s
-- [ ] **OPS-18**: Staff incident log (paper or shared Google Sheet) — one-line per incident
-- [ ] **OPS-19**: Morning review ritual — James + Bono read incident log each day before opening
+- [x] **OPS-15**: Printed one-pager at POS — "If admin is slow/broken: refresh → WhatsApp Bono → don't restart anything"
+- [x] **OPS-16**: Printed one-pager "How to change a staff PIN" — use `/admin/staff`, do NOT use curl/sqlite3/deploy-staging scripts
+- [x] **OPS-17**: Printed one-pager "How to change a cafe menu item" — open admin → Cafe → edit → verify on POS within 10s
+- [x] **OPS-18**: Staff incident log (paper or shared Google Sheet) — one-line per incident
+- [x] **OPS-19**: Morning review ritual — James + Bono read incident log each day before opening
 
 ### Theme 11 — Admin Staff Management (from superseded Phase 343-03)
 
