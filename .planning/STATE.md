@@ -33,8 +33,8 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 ## Current Position
 
 **Milestone:** v47.0 Admin Dashboard Venue-Ready Hardening
-**Progress:** [██░░░░░░░░] 23% (3 of 17 phases shipped to git, 1 partial)
-**Next unblocked phases (no deploy/infra dependencies):** 348, 352, 354
+**Progress:** [███░░░░░░░] 35% (5 of 17 phases shipped to git, 1 partial)
+**Next unblocked phases (no deploy/infra dependencies):** 348, 352
 
 ### Shipped to git (from 2026-04-09 session per SESSION-HANDOFF.md)
 
@@ -44,20 +44,24 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 | 344 Unbreakable Deploys | admin-deploy.sh + verify-deploy.js + server-bootstrap.js + Node pin + stale PIN script archive | `a7859cad` | `b10b487` | git — **NOT live-deployed** |
 | 345 Backend Resilience | rc proxy env-in-handler + admin.db lazy-load + AdminDbError + C5 JWT literal removal + C6 webhook rejection | `7e00d1e4` | `f4268d1` | git — **NOT live-deployed** |
 | 346-01 Cafe Proxy (scaffolding) | Dual-path cafe/menu route with CAFE_PROXY_ENABLED flag (default off) + schema diff doc | `b6f2effa` | `613d1c4` | git — flag off, safe |
+| 343 Staff PIN Hardening | Cloud-authority 409 guard + post-write verify + delayed sync verify + E2E spec | `b31c38e0`, `6c870f99`, `4074bb0d` | — | git — **NOT live-deployed** |
+| 354-01 Nav Cleanup | Hide /memberships + /wallet-transactions from sidebar | — | `79d2649` | git — **NOT live-deployed** |
+| 354-02 Skeleton Loading | Replace 13 "Loading..." text states with SkeletonTable across 11 pages | — | `4c24bad` | git — **NOT live-deployed** |
 
 ### Phase status
 
 - ✅ **344** Unbreakable Deploys — shipped to git, 3 plans committed
 - ✅ **345** Backend Resilience — shipped to git, 3 plans committed
 - 🟡 **346** Cafe Menu Proxy — 346-01 scaffolding shipped; 346-02 cutover REQUIRES venue closure maintenance window (can't do autonomously)
-- 🔒 **347** Admin Staff Management — **BLOCKED** on Phase 343 live deploy. Plans 01 (`b31c38e0`), 02 (`6c870f99`), 04 (`4074bb0d`) all committed to git but NOT deployed to server/cloud.
+- ✅ **343** Staff PIN Hardening — code-complete. Plans 01 (`b31c38e0`), 02 (`6c870f99`), 04 (`4074bb0d`) all committed. Deploy pending.
+- 🔒 **347** Admin Staff Management — **BLOCKED** on Phase 343 live deploy.
 - 🟢 **348** Auth Resilience — no external deps; new `lockout.rs` Rust module in racecontrol, extend admin lockout. MMA audit required (cross-system auth bridge).
 - ⏸ **349** Litestream Sync Contract — requires Backblaze B2 setup + live Windows infra
 - 🟡 **350** Contract Tests — can start but staff PIN tests depend on Phase 347 (which depends on 343)
 - ⏸ **351** Data Durability — backups, live infra
 - 🟢 **352** Health + WhatsApp Alerts — no external deps; per-subsystem probes in `/api/health`, comms-link relay integration. MMA audit likely required (cross-system alert bridge).
 - ⏸ **353** Runbook + Staff Training — physical printed materials, requires Uday
-- 🟢 **354** UI Hardening — no external deps, no MMA required (pure frontend); hide `/memberships` + `/wallet-transactions` nav, add loading/empty/error states. MANDATORY: `gsd-ui-researcher` + `gsd-ui-auditor` gates per CLAUDE.md.
+- ✅ **354** UI Hardening — 354-01 nav cleanup (`79d2649`) + 354-02 skeleton loading (`4c24bad`) shipped to git. 354-03 (/settings/health) already existed. Deploy pending.
 - 🔲 **355** Venue-Ready Readiness Review — final human gate, requires 344-354 shipped
 - 🔲 **356** Business Rules Config Table — pending
 - 🔲 **357** Pricing Tiers CRUD — pending
