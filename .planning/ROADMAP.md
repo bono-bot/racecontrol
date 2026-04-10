@@ -1113,9 +1113,10 @@ Plans:
 4. Restore drill on a scratch machine recovers admin.db with matching row counts
 5. Alert fires if backup missing or size 0 after scheduled window
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 - [x] 351-01-PLAN — Fix backup-databases.sh (admin.db, retention, validation, alert, schtask)
 - [x] 351-02-PLAN — WAL mode verification + restore drill update + drill execution
+- [x] 351-03-PLAN — Cloud backup script (backup-cloud.sh) + cron + first restore drill executed
 
 ### Phase 352: Health + WhatsApp Alerts
 
