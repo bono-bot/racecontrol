@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-last_updated: "2026-04-10T18:47:36.611Z"
+status: Ready to execute
+last_updated: "2026-04-10T19:02:17.551Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -20,7 +20,7 @@ See: .planning/PROJECT.md
 
 **Core value (v47.0):** Make the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) a resilient, venue-ready single source of truth before customers start using the venue. Close 18 audit findings from the 2026-04-09 Vishal-PIN incident + the 2026-04-09 Admin Dashboard audit (cloud admin down, ABI mismatch, dead cafe menu table, no venue↔cloud replication, 3 missing rc endpoints), and absorb the superseded Phase 343 Plan 03 (admin PIN UI).
 
-**Current focus:** Pick next unblocked phase — candidates 348/352/354 (see "Next action" below).
+**Current focus:** Phase 347 — admin-staff-management
 
 ## Parallel Milestone (PAUSED)
 
@@ -32,6 +32,8 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 
 ## Current Position
 
+Phase: 347 (admin-staff-management) — EXECUTING
+Plan: 2 of 3
 **Milestone:** v47.0 Admin Dashboard Venue-Ready Hardening
 **Progress:** [██████████] 100%
 **Next unblocked phases (no deploy/infra dependencies):** 348, 352
@@ -93,7 +95,7 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-10T18:47:36.606Z
+Last session: 2026-04-10T19:02:17.546Z
 This session (2026-04-10): Pivoted back to v47.0 to execute next unblocked phase while v46.0 Phase 363 awaits deploy window.
 
 **Resume decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
