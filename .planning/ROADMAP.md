@@ -1113,9 +1113,10 @@ Plans:
 4. Restore drill on a scratch machine recovers admin.db with matching row counts
 5. Alert fires if backup missing or size 0 after scheduled window
 
-**Plans:** 2 plans
-- [ ] 351-01-PLAN — Fix backup-databases.sh (admin.db, retention, validation, alert, schtask)
+**Plans:** 3 plans
+- [ ] 351-01-PLAN — Extend Rust backup_pipeline.rs (admin.db, monthly retention, rsync, zero-byte alert)
 - [ ] 351-02-PLAN — WAL mode verification + restore drill update + drill execution
+- [ ] 351-03-PLAN — Cloud backup script (backup-cloud.sh on Bono VPS + cron)
 
 ### Phase 352: Health + WhatsApp Alerts
 
