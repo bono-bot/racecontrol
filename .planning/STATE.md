@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: Phase complete — ready for verification
-last_updated: "2026-04-10T19:08:36.605Z"
+status: Milestone complete
+last_updated: "2026-04-10T19:21:57.786Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -32,8 +32,8 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 
 ## Current Position
 
-Phase: 347 (admin-staff-management) — EXECUTING
-Plan: 3 of 3
+Phase: 347
+Plan: Not started
 **Milestone:** v47.0 Admin Dashboard Venue-Ready Hardening
 **Progress:** [██████████] 100%
 **Next unblocked phases (no deploy/infra dependencies):** 348, 352
