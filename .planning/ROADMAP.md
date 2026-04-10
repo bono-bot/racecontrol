@@ -1060,9 +1060,9 @@ Plans:
 5. Break-glass token use triggers WhatsApp alert within 30 seconds
 
 **Plans:**
-- [ ] 348-01-PLAN — racecontrol `lockout.rs` module + lockout_counters table
-- [ ] 348-02-PLAN — JWT 12h + sliding refresh + multi-device test
-- [ ] 348-03-PLAN — Break-glass token flow + audit log + alert
+- [x] 348-01-PLAN — per-IP + per-staff-id lockout on staff_validate_pin (`da0fb590`)
+- [x] 348-02-PLAN — SKIPPED: JWT already 24h, no session revocation (pre-existing)
+- [x] 348-03-PLAN — break-glass emergency access endpoint + WhatsApp alert (`a051c5d7`)
 
 ### Phase 349: Litestream Sync Contract
 
