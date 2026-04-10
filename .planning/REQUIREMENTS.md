@@ -106,21 +106,21 @@ Requirements grouped by feature theme. Each maps to one or more roadmap phases. 
 
 ### Theme 11 — Admin Staff Management (from superseded Phase 343-03)
 
-- [ ] **STAFF-01**: `/admin/staff` page renders list of active staff (name, role, last_login_at) with per-row Change PIN button
+- [x] **STAFF-01**: `/admin/staff` page renders list of active staff (name, role, last_login_at) with per-row Change PIN button
 - [x] **STAFF-02**: Page is role-gated superadmin + manager only
-- [ ] **STAFF-03**: Existing PINs are never displayed (not even redacted) — only metadata
-- [ ] **STAFF-04**: Change PIN modal validates: 4+ digit numeric, both inputs match
+- [x] **STAFF-03**: Existing PINs are never displayed (not even redacted) — only metadata
+- [x] **STAFF-04**: Change PIN modal validates: 4+ digit numeric, both inputs match
 - [x] **STAFF-05**: New racecontrol endpoint `POST /api/v1/admin/staff/{id}/change-pin` orchestrates cloud write → immediate verify → venue sync → venue verify
 - [x] **STAFF-06**: `change_staff_pin_safe` response includes `cloud_verified: bool`, `venue_verified: bool`, `latency_ms`, `correlation_id`
 - [x] **STAFF-07**: New racecontrol endpoint `POST /api/v1/sync/pull-now {tables:[...]}` triggers immediate cloud→venue pull, bypassing 30s interval
-- [ ] **STAFF-08**: Admin UI shows staged progress: "Writing cloud... ✓ Syncing venue... ✓ Verifying cloud... ✓ Verifying venue... ✓"
-- [ ] **STAFF-09**: Error banner on partial success ("PIN changed on cloud but venue sync failed — contact James")
+- [x] **STAFF-08**: Admin UI shows staged progress: "Writing cloud... ✓ Syncing venue... ✓ Verifying cloud... ✓ Verifying venue... ✓"
+- [x] **STAFF-09**: Error banner on partial success ("PIN changed on cloud but venue sync failed — contact James")
 - [x] **STAFF-10**: Feature-flag `FEATURE_STAFF_PIN_UI=off` by default; deploy gate checks Phase 343 Plans 01+02 shipped in racecontrol before enabling
 
 ### Theme 12 — Pre-Flight (Phase 343 Dependency Management)
 
 - [x] **DEP-01**: Phase 343 Plans 01 + 02 + 04 executed and deployed to venue + cloud racecontrol before Phase 347 ships
-- [ ] **DEP-02**: Venue .23 Node version downgraded to 22 LTS (or deploy script forces explicit Node 22 path)
+- [x] **DEP-02**: Venue .23 Node version downgraded to 22 LTS (or deploy script forces explicit Node 22 path)
 - [x] **DEP-03**: Racecontrol `/api/v1/admin/staff/{id}/change-pin` endpoint returns something other than 404 before Phase 347 deploys
 - [x] **DEP-04**: Pre-deploy script greps git log for Phase 343 merge commits and hard-fails Phase 347 deploy if missing
 
