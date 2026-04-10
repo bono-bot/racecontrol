@@ -3,6 +3,9 @@
 Chronological record of all changes by Bono (cloud) and James (venue).
 Both must append here when committing. Format: `| timestamp | author | commit | summary |`
 
+| 2026-04-11 03:23 IST | James | 428bcd44 | feat(349-03): venue_authority_guard + allow_cloud_venue_write on 24 write endpoints — cloud instance returns 409 CONFLICT for venue-authoritative table writes, break-glass via RC_ALLOW_CLOUD_VENUE_WRITE=1, 6 parallel-safe TDD tests. |
+| 2026-04-11 03:23 IST | James | 42d1ce8c | feat(349-03): db_sync_lag health probe (Probe 8, cloud-only, WARN 300s/CRITICAL 900s) + DB_SYNC_PAUSED sentinel in download-db.sh + RESTORE-DRILL.md 6-step runbook. filetime dev-dep for Windows mtime tests. 1003 tests pass. |
+| 2026-04-11 03:23 IST | James | d77403a6 | docs(349-03): SUMMARY.md + STATE.md + ROADMAP.md (349 complete) + REQUIREMENTS.md (SYNC-05/06/07/08 closed). |
 | 2026-04-11 00:39 IST | James | 23f0208f | feat(347-03): phase347 pre-deploy gate script — scripts/deploy/phase347-preflight.sh checks Phase 343 Plans 01+02+04 in git log (b31c38e0/6c870f99/4074bb0d), change_staff_pin_safe handler in routes.rs, FEATURE_STAFF_PIN_UI default off. Exits 1 on missing dep, 0 on pass. Per DEP-01/DEP-04. All 5 checks pass on current repo. ASCII-clean. |
 | 2026-04-11 00:39 IST | James | abd9b610 | docs(347-03): 347-03-SUMMARY.md + STATE.md + ROADMAP.md + REQUIREMENTS.md — DEP-01/DEP-04/STAFF-10 marked complete, plan advanced to 3/3. |
 | 2026-04-10 14:20 IST | James | dd7779ee | feat(352-01): subsystem_health.rs module — 7 probes (db_writable, rc_backend, disk_free, cloud_sync, whatsapp_api, fleet_connectivity, admin_db), LazyLock<RwLock<>> cached state, 10-min dedup, WhatsApp alert dispatch on transitions, alert_incidents ALTER TABLE (subsystem, severity, correlation_id), 9 unit tests. |
