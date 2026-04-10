@@ -1,5 +1,15 @@
 # Racing Point eSports — Project Context
 
+## The Principle — Verify Before Generate (2026-04-11)
+
+**Before generating ANY output, verify the inputs it depends on.**
+- **BEFORE:** Enumerate from environment (ls, cat, grep) — not memory
+- **DURING:** After every block: *"What did I just assume that I could have checked?"*
+- **AFTER:** Evidence = exact behavior + raw output + where + not-tested
+Backtest: 77% catch rate on 26 historical incidents. See `feedback_ultimate_cgp.md`.
+
+---
+
 ## Rule 0 — Enumerate Before Asserting (v4.4, 2026-04-09)
 
 **READ BEFORE CGP.** Order matters — rules buried deeper get weighted less.
