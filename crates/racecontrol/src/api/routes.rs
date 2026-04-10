@@ -12847,6 +12847,84 @@ fn cloud_authority_guard(state: &AppState, table: &str) -> Option<(StatusCode, J
     ))
 }
 
+/// Phase 343-02: Immediate post-write verification for staff PIN mutations.
+/// Re-reads the row after INSERT/UPDATE and compares the PIN value.
+/// Returns Ok(()) on match, Err(reason) on mismatch or missing row.
+async fn post_write_verify_staff_pin(
+    db: &sqlx::SqlitePool,
+    staff_id: &str,
+    expected_pin: &str,
+) -> Result<(), String> {
+    let row = sqlx::query_scalar::<_, String>(
+        "SELECT pin FROM staff_members WHERE id = ?",
+    )
+    .bind(staff_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| format!("verify query failed: {}", e))?;
+
+    match row {
+        Some(actual) if actual == expected_pin => Ok(()),
+        Some(actual) => Err(format!(
+            "pin mismatch: expected={} actual={}",
+            expected_pin, actual
+        )),
+        None => Err("staff row not found after update".to_string()),
+    }
+}
+
+/// Phase 343-02: Delayed sync verification. Spawned after a PIN mutation succeeds.
+/// Waits sync_interval_secs + 5 seconds, then re-reads the row. If the PIN has
+/// changed (indicating cloud sync reverted the write), logs an error and writes
+/// an alert_incidents row for staff notification.
+fn spawn_delayed_sync_verify(
+    db: sqlx::SqlitePool,
+    sync_interval_secs: u64,
+    staff_id: String,
+    expected_pin: String,
+    correlation_id: String,
+) {
+    let delay = std::time::Duration::from_secs(sync_interval_secs + 5);
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        match post_write_verify_staff_pin(&db, &staff_id, &expected_pin).await {
+            Ok(()) => {
+                tracing::info!(
+                    target: "auth",
+                    correlation_id = %correlation_id,
+                    staff_id = %staff_id,
+                    "Staff PIN delayed verify passed (survived one sync cycle)"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    target: "auth",
+                    correlation_id = %correlation_id,
+                    staff_id = %staff_id,
+                    error = %e,
+                    "Staff PIN delayed verify FAILED — sync may have reverted the change"
+                );
+                // Write alert_incidents row for staff notification
+                let alert_id = format!("pin_revert_{}", correlation_id);
+                let description = format!(
+                    "Staff PIN change reverted for {}: {} (correlation_id: {})",
+                    staff_id, e, correlation_id
+                );
+                let _ = sqlx::query(
+                    "INSERT INTO alert_incidents (id, alert_type, description) \
+                     VALUES (?, 'staff_pin_revert', ?)"
+                )
+                .bind(&alert_id)
+                .bind(&description)
+                .execute(&db)
+                .await;
+                // TODO: WhatsApp alert integration — wire via whatsapp_alerter.rs
+                // when v47.0 Phase 352 (Health + WhatsApp Alerts) ships.
+            }
+        }
+    });
+}
+
 async fn create_staff(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateStaffRequest>,
@@ -12893,7 +12971,32 @@ async fn create_staff(
     .execute(&state.db)
     .await
     {
-        Ok(_) => Json(json!({ "status": "ok", "id": id, "name": req.name })).into_response(),
+        Ok(_) => {
+            // Phase 343-02: Post-write verify for new staff PIN
+            let correlation_id = uuid::Uuid::new_v4().to_string();
+            if let Err(e) = post_write_verify_staff_pin(&state.db, &id, &req.pin).await {
+                tracing::error!(target: "auth", correlation_id = %correlation_id, error = %e, "create_staff post_write_verify failed");
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                    "error": format!("PIN write verification failed: {}", e),
+                    "correlation_id": correlation_id,
+                }))).into_response();
+            }
+            // Schedule delayed verify after one sync cycle
+            spawn_delayed_sync_verify(
+                state.db.clone(),
+                state.config.cloud.sync_interval_secs,
+                id.clone(),
+                req.pin.clone(),
+                correlation_id.clone(),
+            );
+            Json(json!({
+                "status": "ok",
+                "id": id,
+                "name": req.name,
+                "verified": true,
+                "correlation_id": correlation_id,
+            })).into_response()
+        }
         Err(e) => Json(json!({ "error": format!("{}", e) })).into_response(),
     }
 }
@@ -13016,7 +13119,33 @@ async fn update_staff(
     query = query.bind(&id);
 
     match query.execute(&state.db).await {
-        Ok(_) => Json(json!({ "status": "ok", "id": id })).into_response(),
+        Ok(_) => {
+            // Phase 343-02: Post-write verify when PIN was changed
+            if let Some(ref new_pin) = req.pin {
+                let correlation_id = uuid::Uuid::new_v4().to_string();
+                if let Err(e) = post_write_verify_staff_pin(&state.db, &id, new_pin).await {
+                    tracing::error!(target: "auth", correlation_id = %correlation_id, error = %e, "update_staff post_write_verify failed");
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                        "error": format!("PIN write verification failed: {}", e),
+                        "correlation_id": correlation_id,
+                    }))).into_response();
+                }
+                spawn_delayed_sync_verify(
+                    state.db.clone(),
+                    state.config.cloud.sync_interval_secs,
+                    id.clone(),
+                    new_pin.clone(),
+                    correlation_id.clone(),
+                );
+                return Json(json!({
+                    "status": "ok",
+                    "id": id,
+                    "verified": true,
+                    "correlation_id": correlation_id,
+                })).into_response();
+            }
+            Json(json!({ "status": "ok", "id": id })).into_response()
+        }
         Err(e) => Json(json!({ "error": format!("{}", e) })).into_response(),
     }
 }
@@ -13099,17 +13228,36 @@ async fn reset_staff_pin(
         return Json(json!({ "error": format!("Failed to reset PIN: {}", e) })).into_response();
     }
 
+    // Phase 343-02: Post-write verify for reset PIN
+    let correlation_id = uuid::Uuid::new_v4().to_string();
+    if let Err(e) = post_write_verify_staff_pin(&state.db, &id, &new_pin).await {
+        tracing::error!(target: "auth", correlation_id = %correlation_id, error = %e, "reset_staff_pin post_write_verify failed");
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+            "error": format!("PIN write verification failed: {}", e),
+            "correlation_id": correlation_id,
+        }))).into_response();
+    }
+    spawn_delayed_sync_verify(
+        state.db.clone(),
+        state.config.cloud.sync_interval_secs,
+        id.clone(),
+        new_pin.clone(),
+        correlation_id.clone(),
+    );
+
     // Send via WhatsApp
     let msg = format!("Racing Point - Your new staff PIN is: {}\nReset by admin.", new_pin);
     whatsapp_alerter::send_whatsapp_to(&state.config, &phone, &msg).await;
 
-    tracing::info!("Staff PIN reset for {} ({}) by admin", name, id);
+    tracing::info!(target: "auth", correlation_id = %correlation_id, "Staff PIN reset for {} ({}) by admin", name, id);
 
     Json(json!({
         "status": "ok",
         "staff_id": id,
         "staff_name": name,
         "new_pin": new_pin,
+        "verified": true,
+        "correlation_id": correlation_id,
     })).into_response()
 }
 
@@ -24745,5 +24893,65 @@ mod telemetry_fallback_tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST,
             "multipart without 'csv' field must return 400");
+    }
+}
+
+#[cfg(test)]
+mod post_write_verify_tests {
+    use super::*;
+
+    async fn make_test_db() -> sqlx::SqlitePool {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::query(
+            "CREATE TABLE staff_members (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                phone TEXT NOT NULL DEFAULT '',
+                pin TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                role TEXT DEFAULT 'staff',
+                last_login_at TEXT,
+                updated_at TEXT
+            )",
+        )
+        .execute(&db)
+        .await
+        .expect("create staff_members");
+        db
+    }
+
+    #[tokio::test]
+    async fn post_write_verify_detects_mismatch() {
+        let db = make_test_db().await;
+        sqlx::query("INSERT INTO staff_members (id, name, pin) VALUES ('test_verify', 'Test', '1234')")
+            .execute(&db)
+            .await
+            .unwrap();
+        // Expected pin is 9999, actual is 1234
+        let result = post_write_verify_staff_pin(&db, "test_verify", "9999").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("mismatch"));
+    }
+
+    #[tokio::test]
+    async fn post_write_verify_passes_on_match() {
+        let db = make_test_db().await;
+        sqlx::query("INSERT INTO staff_members (id, name, pin) VALUES ('test_verify2', 'Test', '5555')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let result = post_write_verify_staff_pin(&db, "test_verify2", "5555").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn post_write_verify_detects_missing_row() {
+        let db = make_test_db().await;
+        let result = post_write_verify_staff_pin(&db, "nonexistent", "1234").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 }
