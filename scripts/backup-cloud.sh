@@ -26,7 +26,7 @@ echo "============================================================"
 mkdir -p "${BACKUP_DIR}"
 
 # ---- racecontrol.db (OPS-09) -----------------------------------------
-RC_DB="/root/racingpoint/racecontrol/data/racecontrol.db"
+RC_DB="/root/racecontrol/data/racecontrol.db"
 if [ -f "${RC_DB}" ]; then
   sqlite3 "${RC_DB}" ".backup ${BACKUP_DIR}/racecontrol.db" 2>/dev/null && \
     echo "  OK: racecontrol.db ($(wc -c < "${BACKUP_DIR}/racecontrol.db" 2>/dev/null || echo '?') bytes)" || \
@@ -40,8 +40,8 @@ fi
 # Try primary path first, then fallback
 ADMIN_DB=""
 for candidate in \
-  "/root/racingpoint/racingpoint-admin/data/admin.db" \
   "/root/racingpoint-admin/data/admin.db" \
+  "/root/racingpoint/racingpoint-admin/data/admin.db" \
   "/root/racingpoint/admin/data/admin.db"; do
   if [ -f "${candidate}" ]; then
     ADMIN_DB="${candidate}"
@@ -54,7 +54,7 @@ if [ -n "${ADMIN_DB}" ]; then
     echo "  OK: admin.db ($(wc -c < "${BACKUP_DIR}/admin.db" 2>/dev/null || echo '?') bytes) [from ${ADMIN_DB}]" || \
     { echo "  FAIL: admin.db -- sqlite3 backup failed"; FAILURES=$((FAILURES + 1)); }
 else
-  echo "  WARN: admin.db not found (paths tried: /root/racingpoint/racingpoint-admin/data/, /root/racingpoint-admin/data/, /root/racingpoint/admin/data/)"
+  echo "  WARN: admin.db not found (paths tried: /root/racingpoint-admin/data/, /root/racingpoint/racingpoint-admin/data/, /root/racingpoint/admin/data/)"
   echo "  NOTE: admin.db backup skipped -- locate actual path and update ADMIN_DB candidates"
 fi
 
