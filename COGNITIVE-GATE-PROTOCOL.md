@@ -35,6 +35,9 @@ These gates have CODE enforcement. They block action, not just advise.
 
 **Anti-theater rule:** If the "evidence" is a health endpoint, build_id, or ws=True, it is NOT evidence of the fix working. It's evidence the binary is running. Name the ACTUAL behavior.
 
+**Observations, not verdicts (v4.4, 2026-04-11):** Report what you observed, not what you concluded. Write "API returned `{ok: true}`. Screenshot shows blanking screen, no game visible." Do NOT write "PASS" or "FAIL." Contradictions between observations are obvious without labels; labels hide them. The completion bias lives in the verdict — the moment you write "PASS," you've committed to a position and will defend it against your own evidence.
+_Why: 2026-04-11 — game launch API returned `{ok: true, verified: true}`. Screenshot showed blanking screen (game not running). James wrote "PASS" for game launch and downgraded the contradictory screenshot to "INFO." The verdict created the bias; without it, the contradiction would have been obvious to anyone reading the report._
+
 **Anti-substitution rule (v4.2, 2026-04-04):** Testing from Machine A when the user said Machine B is not "close enough" — it's a different network path, different browser context, different DNS/proxy resolution. The bug that prompted this rule: kiosk at `:3300` works from James (Playwright) but fails from server browser because `:3300` has no API proxy — only `:8080` (racecontrol reverse proxy) routes API calls correctly. This class of bug is INVISIBLE to any test that doesn't run from the specified machine.
 
 ### H4: Target Enumeration Before "Everywhere"

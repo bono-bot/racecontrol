@@ -46,7 +46,7 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 |------|---------|-------------|
 | **H1** | Before action tools | Hook blocks until PROBLEM + PLAN produced |
 | **H2** | Completion claims | Fix and verify in SEPARATE messages |
-| **H3** | Before "done/fixed/PASS" | Exact behavior + raw output + WHERE (must match user-specified targets) + NOT TESTED list. Proxies NOT evidence. |
+| **H3** | Before "done/fixed/PASS" | Exact behavior + raw output + WHERE (must match user-specified targets) + NOT TESTED list. Proxies NOT evidence. **Observations not verdicts:** report what you saw, not PASS/FAIL — contradictions are obvious without labels, labels hide them. |
 | **H4** | Before "all/everywhere" | Grep + per-target list BEFORE assertion |
 | **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0 |
 
