@@ -1412,7 +1412,7 @@ Plans:
 5. GLD-G-05: Phase 362 retro-validation passes (deliberate mismatch → WhatsApp E2E, all 5 adapters runtime-verified, 8-pod load)
 
 **Plans:**
-2/5 plans executed
+3/5 plans executed
 - [x] 367-02-PLAN — On-demand pod verify
 - [x] 367-03-PLAN — Session replay player
 - [ ] 367-04-PLAN — Batch export
