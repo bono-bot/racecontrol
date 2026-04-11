@@ -962,6 +962,14 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Phase 365: AI behavior MMA batch (weekly)
+    {
+        let ai_batch_state = state.clone();
+        tokio::spawn(async move {
+            racecontrol_crate::ai_behavior_batch::spawn_ai_behavior_batch(ai_batch_state).await;
+        });
+    }
+
     // Spawn daily staff PIN rotation (10:00 AM IST every day)
     {
         let pin_state = state.clone();

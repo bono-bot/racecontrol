@@ -35,6 +35,7 @@ use crate::billing;
 use crate::catalog;
 use crate::cloud_sync;
 use crate::fleet_health;
+use crate::fleet_intelligence;
 use crate::process_guard;
 use crate::friends;
 use crate::game_launcher;
@@ -340,6 +341,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
         .route("/pod-status-summary", get(pod_status_summary))
+        // Phase 366 GLD-F-01/F-02: Fleet intelligence — composite health scores + time-of-day patterns
+        .route("/fleet/intelligence", get(fleet_intelligence::fleet_intelligence_handler))
         .route("/pods/seed", post(seed_pods))
         .route("/pods/{id}", get(get_pod))
         // Phase 361-01: per-pod content inventory (games + cars + tracks) for
@@ -659,6 +662,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/admin/staff/{id}/change-pin", post(change_staff_pin_safe))
                 // Phase 347-01: On-demand filtered cloud pull
                 .route("/admin/sync/pull-now", post(sync_pull_now_handler))
+                // Phase 365: Manual trigger for AI behavior MMA batch
+                .route("/admin/ai-behavior-batch/run", post(ai_behavior_batch_trigger))
                 .layer(axum::middleware::from_fn(require_role_manager))
         )
         .merge(
@@ -13765,6 +13770,23 @@ async fn sync_pull_now_handler(
             }))).into_response()
         }
     }
+}
+
+// ─── Phase 365: AI Behavior MMA Batch Trigger ────────────────────────────
+
+/// POST /api/v1/admin/ai-behavior-batch/run
+/// Manually triggers one MMA batch cycle (normally runs weekly).
+async fn ai_behavior_batch_trigger(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let batch_state = state.clone();
+    tokio::spawn(async move {
+        crate::ai_behavior_batch::run_ai_behavior_batch_cycle(batch_state).await;
+    });
+    (StatusCode::OK, Json(serde_json::json!({
+        "status": "triggered",
+        "message": "MMA batch queued"
+    })))
 }
 
 // ─── HR & Hiring Psychology (v14.0 Phase 96) ─────────────────────────────
