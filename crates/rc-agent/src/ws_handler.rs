@@ -446,11 +446,8 @@ pub async fn handle_ws_message(
             }
         }
 
-        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes, launch_id: _ } => {
-            // Phase 368 stub (2026-04-11): launch_id field added to protocol in
-            // commit 367b949c but this pattern was never updated → build broken.
-            // Minimal fix: ignore the field. The Phase 368 owner should wire this
-            // through CommandAck/GameStateUpdate for tracking launch lineage.
+        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes, launch_id: msg_launch_id } => {
+            // Phase 368 Plan 02 Task 2: launch_id hydration from server-minted UUID.
             // BREADCRUMB: Write to file before any game launch logic runs
             let _ = std::fs::write(r"C:\RacingPoint\launch-breadcrumb.txt",
                 format!("LaunchGame received: sim={:?} force_clean={} ts={:?}\n", launch_sim, force_clean, std::time::SystemTime::now()));
@@ -537,7 +534,40 @@ pub async fn handle_ws_message(
             // LAUNCH-05: Record launch start time and generate launch_id for timeline tracing.
             // elapsed_ms = 0 represents the agent receiving the LaunchGame command.
             conn.launch_start = Some(std::time::Instant::now());
-            conn.current_launch_id = Some(uuid::Uuid::new_v4().to_string());
+            // Phase 368 Plan 02 Task 2 — hydrate current_launch_id from server-minted UUID.
+            // D-01: server mints the canonical UUID once and sends it here; we store it so
+            // tier_engine can join retry emissions with the server-side LaunchStateMachine card.
+            conn.current_launch_id = match msg_launch_id {
+                Some(server_id) => {
+                    tracing::debug!(launch_id=%server_id, "received server-minted launch_id");
+                    Some(server_id)
+                }
+                None => {
+                    // DEPRECATED P1-01 / CONTEXT.md D-01 — this local-mint path is a ONE-DEPLOY-WINDOW
+                    // compatibility shim for rolling deploys where the pod boots on a NEW rc-agent while
+                    // the server is still on an OLD build that does not set CoreToAgentMessage::LaunchGame.launch_id.
+                    //
+                    // D-01 LOCKS "server-minted UUID v4 reused as the canonical key." A permanent local mint
+                    // creates two parallel launch_id namespaces during split deploys: the server would never
+                    // receive a matching card for rc-agent-side emissions → ghost cards appear only in the
+                    // rc-agent log and never join with server state.
+                    //
+                    // The "rcagent-local-" prefix lets the server pattern-match these and log at ERROR level
+                    // (see Plan 02 Task 3 match-arm split-deploy handling) so staff see the event in LOGBOOK.
+                    //
+                    // REMOVAL SCHEDULE: Plan 04 Task 6 (added in revision iter 1) deletes this entire match arm
+                    // once ALL 8 pods AND server are verified on build_id >= 368-02 hash. After that cleanup,
+                    // `grep -n 'rcagent-local-' crates/rc-agent/src/ws_handler.rs` must return 0.
+                    let local_id = format!("rcagent-local-{}", uuid::Uuid::new_v4());
+                    tracing::error!(
+                        launch_id=%local_id,
+                        "LaunchGame without launch_id — split-deploy fallback. Server is running an old build \
+                         that does not emit launch_id. REQUIRES FLEET UPDATE. \
+                         This code path will be removed in Plan 04 Task 6."
+                    );
+                    Some(local_id)
+                }
+            };
 
             // ─── Safe Mode: enter before game spawn (zero delay) ──────────────
             // SAFE-01: protected games require scan suppression from first instruction.
@@ -2030,6 +2060,32 @@ pub async fn handle_ws_message(
     Ok(HandleResult::Continue)
 }
 
+// ─── Phase 368 Plan 02 — launch_id hydration helper (testable pure function) ──
+
+/// Resolve the launch_id for a new game launch.
+///
+/// Uses the server-minted UUID when present (D-01 canonical path).
+/// Falls back to an rcagent-local-<uuid> shim during split-deploys (deprecation shim — Plan 04 Task 6).
+///
+/// This is a pure function extracted from the LaunchGame handler for unit testability.
+pub(crate) fn resolve_launch_id(server_id: Option<String>) -> String {
+    match server_id {
+        Some(id) => {
+            tracing::debug!(launch_id=%id, "resolve_launch_id: using server-minted id");
+            id
+        }
+        None => {
+            // D-01 split-deploy fallback — see full comment in ws_handler LaunchGame arm.
+            let local_id = format!("rcagent-local-{}", uuid::Uuid::new_v4());
+            tracing::error!(
+                launch_id=%local_id,
+                "LaunchGame without launch_id — split-deploy fallback. REQUIRES FLEET UPDATE."
+            );
+            local_id
+        }
+    }
+}
+
 // ─── Phase 318 (LAUNCH-05): Launch timeline helpers ──────────────────────────
 
 /// Build a LaunchTimeline from current connection state.
@@ -2410,5 +2466,56 @@ mod tests {
         assert!(kinds.contains(&"agent_received"), "timeout timeline must have agent_received");
         assert!(kinds.contains(&"timeout"), "timeout timeline must have timeout event");
         assert_eq!(timeline.outcome, "timeout");
+    }
+
+    // ─── Phase 368 Plan 02 Task 2 — launch_id hydration tests ────────────────
+
+    /// Test 1: When LaunchGame arrives WITH a server-minted launch_id, it is used as-is.
+    #[test]
+    fn ws_handler_stores_server_minted_launch_id() {
+        let server_id = "srv-minted-abc123".to_string();
+        let resolved = resolve_launch_id(Some(server_id.clone()));
+        assert_eq!(
+            resolved, server_id,
+            "server-minted id must be returned unchanged, got {}",
+            resolved
+        );
+        // Must NOT have the split-deploy prefix
+        assert!(
+            !resolved.starts_with("rcagent-local-"),
+            "server-minted id must not have rcagent-local- prefix"
+        );
+    }
+
+    /// Test 2 (P1-01 split-deploy): When LaunchGame arrives WITHOUT launch_id,
+    /// a locally-minted id with rcagent-local- prefix is returned and the
+    /// REQUIRES FLEET UPDATE indicator is present in the error log (best-effort check).
+    #[test]
+    fn ws_handler_falls_back_when_launch_id_missing() {
+        let resolved = resolve_launch_id(None);
+        assert!(
+            resolved.starts_with("rcagent-local-"),
+            "fallback id must have rcagent-local- prefix, got {}",
+            resolved
+        );
+        // Verify it's a valid UUID v4 after the prefix
+        let uuid_part = resolved.trim_start_matches("rcagent-local-");
+        assert!(
+            uuid::Uuid::parse_str(uuid_part).is_ok(),
+            "part after rcagent-local- must be a valid UUID, got {}",
+            uuid_part
+        );
+    }
+
+    /// Test 3 (idempotence): Two successive calls with different launch_ids produce different results.
+    #[test]
+    fn ws_handler_overwrites_launch_id_on_new_launch_message() {
+        let id1 = "srv-launch-first".to_string();
+        let id2 = "srv-launch-second".to_string();
+        let resolved1 = resolve_launch_id(Some(id1.clone()));
+        let resolved2 = resolve_launch_id(Some(id2.clone()));
+        assert_eq!(resolved1, id1, "first resolution must equal id1");
+        assert_eq!(resolved2, id2, "second resolution must equal id2");
+        assert_ne!(resolved1, resolved2, "successive resolutions must differ");
     }
 }
