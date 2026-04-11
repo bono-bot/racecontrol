@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { api } from "@/lib/api";
 import { GAMES, GAME_LABELS, CLASS_COLORS, DIFFICULTY_PRESETS } from "@/lib/constants";
-import type { Driver, PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType } from "@/lib/types";
+import type { Driver, PricingTier, AcCatalog, CatalogItem, KioskExperience, SessionType, PodInventory } from "@/lib/types";
 import type { AlternativeCombo } from "@racingpoint/types";
 import type { WizardState } from "@/hooks/useSetupWizard";
 import PricingDisplay from "./PricingDisplay";
 import ScarcityBanner from "./ScarcityBanner";
+import { InventoryStatusBanner } from "./InventoryStatusBanner";
 
 interface SetupWizardProps {
   podId: string;
@@ -63,6 +64,81 @@ export function SetupWizard({
   const [catalog, setCatalog] = useState<AcCatalog | null>(null);
   const [experiences, setExperiences] = useState<KioskExperience[]>([]);
 
+  // ─── Pod Inventory (Phase 361-02) ────────────────────────────────────
+  const [inventoryFetchState, setInventoryFetchState] = useState<"loading" | "ok" | "error">("loading");
+  const [podInventoryData, setPodInventoryData] = useState<PodInventory | null>(null);
+  const [lastInventoryCheck, setLastInventoryCheck] = useState<string>("--:-- IST");
+  const [inventoryRetrying, setInventoryRetrying] = useState(false);
+  const inventoryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Helper: current IST timestamp as "HH:MM IST"
+  function nowIst(): string {
+    return (
+      new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(new Date()) + " IST"
+    );
+  }
+
+  // Fetch inventory for the selected pod
+  async function fetchInventory(isRetry = false) {
+    if (isRetry) setInventoryRetrying(true);
+    try {
+      const podIdNum = parseInt(podId, 10);
+      if (isNaN(podIdNum)) {
+        setInventoryFetchState("error");
+        setLastInventoryCheck(nowIst());
+        return;
+      }
+      const data = await api.podInventoryFull(podIdNum);
+      setPodInventoryData(data);
+      setInventoryFetchState("ok");
+      setLastInventoryCheck(nowIst());
+    } catch {
+      setInventoryFetchState("error");
+      setPodInventoryData(null);
+      setLastInventoryCheck(nowIst());
+    } finally {
+      if (isRetry) setInventoryRetrying(false);
+    }
+  }
+
+  // Fetch on podId change + auto-refresh every 30s with visibility guard
+  useEffect(() => {
+    setInventoryFetchState("loading");
+    setPodInventoryData(null);
+    fetchInventory();
+
+    // Auto-refresh interval
+    function startInterval() {
+      if (inventoryIntervalRef.current) clearInterval(inventoryIntervalRef.current);
+      inventoryIntervalRef.current = setInterval(() => {
+        if (document.visibilityState !== "hidden") {
+          fetchInventory();
+        }
+      }, 30_000);
+    }
+
+    startInterval();
+
+    // Resume polling when tab becomes visible again
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        fetchInventory();
+        startInterval();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (inventoryIntervalRef.current) clearInterval(inventoryIntervalRef.current);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [podId]);
 
   // Search/filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -120,6 +196,21 @@ export function SetupWizard({
       )
     : [];
 
+  // Inventory-allowed cars/tracks for the selected game (degrade-open when empty)
+  const inventoryAllowedCars = useMemo((): string[] | null => {
+    if (!podInventoryData || inventoryFetchState !== "ok") return null;
+    const game = podInventoryData.games.find((g) => g.key === ws.selectedGame);
+    if (!game || game.cars.length === 0) return null; // degrade-open
+    return game.cars;
+  }, [podInventoryData, inventoryFetchState, ws.selectedGame]);
+
+  const inventoryAllowedTracks = useMemo((): string[] | null => {
+    if (!podInventoryData || inventoryFetchState !== "ok") return null;
+    const game = podInventoryData.games.find((g) => g.key === ws.selectedGame);
+    if (!game || game.tracks.length === 0) return null; // degrade-open
+    return game.tracks;
+  }, [podInventoryData, inventoryFetchState, ws.selectedGame]);
+
   // Filtered tracks
   const filteredTracks = useMemo(() => {
     if (!catalog) return [];
@@ -139,8 +230,12 @@ export function SetupWizard({
         return !available || available.includes(ws.sessionType);
       });
     }
+    // Filter by pod inventory (degrade-open: if allowedTracks is null, show all)
+    if (inventoryAllowedTracks) {
+      items = items.filter((t) => inventoryAllowedTracks.includes(t.id));
+    }
     return items;
-  }, [catalog, trackCategory, trackSearch, ws.sessionType]);
+  }, [catalog, trackCategory, trackSearch, ws.sessionType, inventoryAllowedTracks]);
 
   // Filtered cars
   const filteredCars = useMemo(() => {
@@ -153,8 +248,32 @@ export function SetupWizard({
       const q = carSearch.toLowerCase();
       items = items.filter((c) => c.name.toLowerCase().includes(q));
     }
+    // Filter by pod inventory (degrade-open: if allowedCars is null, show all)
+    if (inventoryAllowedCars) {
+      items = items.filter((c) => inventoryAllowedCars.includes(c.id));
+    }
     return items;
-  }, [catalog, carCategory, carSearch]);
+  }, [catalog, carCategory, carSearch, inventoryAllowedCars]);
+
+  // canLaunch: inventory must be ok AND selected experience preset must be valid (if applicable)
+  const selectedPresetId = ws.selectedExperience?.ac_preset_id;
+  const presetIsValid = selectedPresetId
+    ? presetValidity[selectedPresetId] !== "invalid"
+    : true;
+  const canLaunch = inventoryFetchState === "ok" && presetIsValid;
+
+  // Reason text when canLaunch is false
+  const launchBlockReason: string | null = (() => {
+    if (inventoryFetchState === "error") return "Pod inventory unreachable — retry to continue";
+    if (inventoryFetchState === "loading") return "Checking pod inventory...";
+    if (!presetIsValid) {
+      const preset = selectedPresetId ? presetValidity[selectedPresetId] : undefined;
+      return preset === "invalid"
+        ? "This experience is not available on this pod"
+        : null;
+    }
+    return null;
+  })();
 
   const trackCategories = ["Featured", ...(catalog?.categories.tracks || []), "All"];
   const carCategories = ["Featured", ...(catalog?.categories.cars || []), "All"];
@@ -221,6 +340,18 @@ export function SetupWizard({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Inventory Status Banner — hard-block when pod inventory fetch fails */}
+      {inventoryFetchState === "error" && (
+        <div className="px-5 pt-4">
+          <InventoryStatusBanner
+            id="inventory-status-banner"
+            lastCheckIst={lastInventoryCheck}
+            onRetry={() => fetchInventory(true)}
+            retrying={inventoryRetrying}
+          />
+        </div>
+      )}
+
       {/* Step Header */}
       <div className="px-5 py-3 border-b border-rp-border bg-rp-card/50">
         <div className="flex items-center gap-2 text-xs text-rp-grey">
@@ -660,7 +791,7 @@ export function SetupWizard({
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {isUnavailable && (
-                        <span className="px-2 py-0.5 rounded text-xs font-semibold text-white bg-[#E10600]">
+                        <span className="px-2 py-0.5 rounded text-xs font-semibold text-white bg-rp-red">
                           Unavailable
                         </span>
                       )}
@@ -964,11 +1095,21 @@ export function SetupWizard({
             <button
               data-testid="launch-btn"
               onClick={handleLaunch}
-              disabled={isLaunching}
+              disabled={isLaunching || !canLaunch}
+              aria-disabled={isLaunching || !canLaunch}
+              {...(inventoryFetchState === "error" && { "aria-describedby": "inventory-status-banner" })}
+              title={
+                !canLaunch && launchBlockReason
+                  ? launchBlockReason
+                  : undefined
+              }
               className="w-full py-4 bg-rp-red hover:bg-rp-red-hover text-white font-bold text-lg rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLaunching ? "LAUNCHING..." : "LAUNCH"}
             </button>
+            {!canLaunch && launchBlockReason && (
+              <p className="text-rp-red text-sm text-center mt-2">{launchBlockReason}</p>
+            )}
           </div>
         )}
       </div>
