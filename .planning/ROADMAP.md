@@ -1358,10 +1358,10 @@ Plans:
 **Goal:** Kiosk /debug page shows real-time per-launch status cards (4-state model: started → analyzing → fixing → fixed), WS-push only, launch-phase bounded, billing internal, inline staff notes. Surfaces Phase 275's existing rc-agent retry/KB/gossip machinery via new WS event channel (LaunchStateChanged) + new UI component replacing flat activity feed. Removes 30s poll (anti-cheat risk). Deploy venue + cloud parity.
 **Requirements:** LLS-01, LLS-02, LLS-03, LLS-04, LLS-05, LLS-06, LLS-07, LLS-08, LLS-09, LLS-10, LLS-11, LLS-12 (proposed by 368-RESEARCH.md §Proposed REQ-IDs; authoritative for this phase — REQUIREMENTS.md has no pre-existing Phase 368 entries)
 **Depends on:** Phase 275 (autonomous game launch fix — rc-agent retry + KB + gossip, shipped 2026-04-01)
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
-- [ ] 368-01-PLAN.md — Protocol types + LaunchStateMachine + launch_id threading + billing-reject sanitization + issue_fixed emission (Wave 1, autonomous)
+- [x] 368-01-PLAN.md — Protocol types + LaunchStateMachine + launch_id threading + billing-reject sanitization + issue_fixed emission (Wave 1, autonomous)
 - [ ] 368-02-PLAN.md — rc-agent emissions at 4 retry boundaries + server relay of AgentMessage::LaunchStatusUpdate (Wave 2, autonomous, parallel with 03)
 - [ ] 368-03-PLAN.md — launch_notes DB + cloud_sync + 5 REST endpoints + feature flag seed + tier gate (Wave 2, autonomous, parallel with 02)
 - [ ] 368-04-PLAN.md — Kiosk LaunchCard + types + WS handling + Playwright probe + MMA audit + deploy parity (Wave 3, non-autonomous — UI + MMA + deploy checkpoints)
