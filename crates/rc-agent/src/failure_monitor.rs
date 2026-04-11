@@ -32,6 +32,8 @@ const STARTUP_GRACE_SECS: u64 = 30;
 const FREEZE_UDP_SILENCE_SECS: u64 = 30;
 const LAUNCH_TIMEOUT_SECS: u64 = 90;
 const TELEM_GAP_SECS: u64 = 60;
+const QUALITY_GAP_MS: u64 = 500;   // QUALITY-01: UDP silent >500ms -> TelemetryQualityGap
+const STALL_WARN_SECS: u64 = 15;   // STALL-01: UDP silent >=15s -> SessionStalled
 
 /// Shared state updated by main.rs event loop and read by failure_monitor.
 /// Sent via tokio::sync::watch channel — clone-on-read, no locking required.
@@ -107,6 +109,8 @@ pub fn spawn(
         let mut prev_hid_connected = false;
         let mut launch_timeout_fired = false; // prevents duplicate fires per launch attempt
         let mut telem_gap_fired = false; // TELEM-01: prevents repeated TelemetryGap sends per silence window
+        let mut quality_gap_fired = false; // QUALITY-01: prevents duplicate TelemetryQualityGap per window
+        let mut stall_warn_fired = false;  // STALL-01: prevents duplicate SessionStalled per window
 
         loop {
             interval.tick().await;
@@ -186,9 +190,59 @@ pub fn spawn(
                 if !udp_silent_60 {
                     telem_gap_fired = false;
                 }
+
+                // QUALITY-01: UDP silent >500ms -> TelemetryQualityGap (advisory quality signal)
+                let udp_silent_500ms = state
+                    .last_udp_secs_ago
+                    .map(|s| s * 1000 >= QUALITY_GAP_MS)  // secs * 1000 as ms approximation
+                    .unwrap_or(false);
+
+                if udp_silent_500ms && !quality_gap_fired {
+                    quality_gap_fired = true;
+                    let gap_ms = state.last_udp_secs_ago.unwrap_or(0) * 1000;
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "QUALITY-01: UDP silent {}ms on pod {} -- sending TelemetryQualityGap",
+                        gap_ms, pod_id
+                    );
+                    let msg = AgentMessage::TelemetryQualityGap {
+                        pod_id: pod_id.clone(),
+                        gap_ms: gap_ms as u32,
+                    };
+                    let _ = agent_msg_tx.try_send(msg);
+                }
+                if !udp_silent_500ms {
+                    quality_gap_fired = false;
+                }
+
+                // STALL-01: UDP silent >=15s -> SessionStalled (warning before 60s crash threshold)
+                let udp_silent_15s = state
+                    .last_udp_secs_ago
+                    .map(|s| s >= STALL_WARN_SECS)
+                    .unwrap_or(false);
+
+                if udp_silent_15s && !stall_warn_fired {
+                    stall_warn_fired = true;
+                    let silence_s = state.last_udp_secs_ago.unwrap_or(STALL_WARN_SECS);
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "STALL-01: UDP silent {}s on pod {} -- sending SessionStalled",
+                        silence_s, pod_id
+                    );
+                    let msg = AgentMessage::SessionStalled {
+                        pod_id: pod_id.clone(),
+                        silence_seconds: silence_s as u32,
+                    };
+                    let _ = agent_msg_tx.try_send(msg);
+                }
+                if !udp_silent_15s {
+                    stall_warn_fired = false;
+                }
             } else {
-                // Billing stopped or game exited — reset flag
+                // Billing stopped or game exited — reset flags
                 telem_gap_fired = false;
+                quality_gap_fired = false;
+                stall_warn_fired = false;
             }
 
             // CRASH-02: Launch timeout — game process never appeared 90s after LaunchGame
@@ -549,6 +603,38 @@ mod tests {
             .unwrap_or(false);
         // When not silent, telem_gap_fired should be reset to false
         assert!(!udp_silent_60, "10s is below threshold — telem_gap_fired must reset");
+    }
+
+    // ── Phase 364 QUALITY-01 and STALL-01 threshold tests ──
+
+    #[test]
+    fn quality_gap_fires_at_1s_silence() {
+        // QUALITY-01: last_udp_secs_ago=1 * 1000 = 1000 >= 500 -> fires
+        let gap_ms: u64 = 1 * 1000;
+        assert!(gap_ms >= QUALITY_GAP_MS, "1s silence should exceed 500ms QUALITY_GAP_MS threshold");
+    }
+
+    #[test]
+    fn stall_warn_fires_at_15s_silence() {
+        let secs: u64 = 15;
+        assert!(secs >= STALL_WARN_SECS, "15s silence must meet STALL_WARN_SECS threshold");
+    }
+
+    #[test]
+    fn quality_gap_does_not_fire_before_silence() {
+        // last_udp_secs_ago = None (just received) -> no gap
+        let last_udp_secs_ago: Option<u64> = None;
+        let udp_silent_500ms = last_udp_secs_ago
+            .map(|s| s * 1000 >= QUALITY_GAP_MS)
+            .unwrap_or(false);
+        assert!(!udp_silent_500ms);
+    }
+
+    #[test]
+    fn stall_warn_does_not_fire_below_threshold() {
+        // STALL-01: 14s < 15s threshold -> should not fire
+        let secs: u64 = 14;
+        assert!(secs < STALL_WARN_SECS, "14s must be below STALL_WARN_SECS=15 threshold");
     }
 
     // ── Requirement-named tests (TEST-02) — explicit traceability for CRASH-01 and CRASH-02 ──
