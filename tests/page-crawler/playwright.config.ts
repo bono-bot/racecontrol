@@ -12,7 +12,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: 'crawl.spec.ts',
+  testMatch: process.env.PROBE_SPEC ?? 'crawl.spec.ts',
   outputDir: '../../test-results/page-crawler',
   fullyParallel: false,
   workers: 1,

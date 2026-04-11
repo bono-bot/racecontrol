@@ -1353,6 +1353,16 @@ Plans:
 - [ ] 360-02-PLAN — Admin `/wallet/topup-presets` editor page
 - [ ] 360-03-PLAN — Contract test in Phase 350 suite
 
+### Phase 368: Live Launch Status with Autonomous Debug
+
+**Goal:** Kiosk /debug page shows real-time per-launch status cards (4-state model: started → analyzing → fixing → fixed), WS-push only, launch-phase bounded, billing internal, inline staff notes. Surfaces Phase 275's existing rc-agent retry/KB/gossip machinery via new WS event channel (LaunchStateChanged) + new UI component replacing flat activity feed. Removes 30s poll (anti-cheat risk). Deploy venue + cloud parity.
+**Requirements**: TBD (run /gsd:plan-phase 368 to derive)
+**Depends on:** Phase 275 (autonomous game launch fix — rc-agent retry + KB + gossip, shipped 2026-04-01)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 368 to break down)
+
 ---
 
 ## Milestone v46.0: Game Launch Diagnostics (PARALLEL with v47.0)

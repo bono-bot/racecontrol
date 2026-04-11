@@ -93,6 +93,11 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 - **Hard dependency:** Phase 343 Plans 01+02+04 must ship BEFORE Phase 347
 - **Subagent gates:** frontend phases require ui-researcher + ui-auditor; business logic phases require nyquist-auditor; new cross-system bridges require MMA audit
 
+### Roadmap Evolution
+
+- **2026-04-09:** v47.0 expanded 12 → 17 phases (added 356–360: business rules, pricing tiers CRUD, cafe promos, bonus tiers, topup presets SSOT)
+- **2026-04-11:** Phase 368 added — Live Launch Status with Autonomous Debug. Kiosk /debug page grows real-time per-launch status cards (4-state model), WS-push only, launch-phase bounded, billing internal, inline staff notes. Depends on Phase 275 (autonomous rc-agent retry already shipped). NOTE: gsd-tools phase add initially computed collision number 315; manually renumbered to 368 (max integer phase + 1).
+
 ### Session Continuity
 
 Last session: 2026-04-10T22:57:56.174Z
