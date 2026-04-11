@@ -308,6 +308,7 @@ export default function DebugPage() {
 
       <div className="flex-1 flex gap-4 p-4 min-h-0">
         {/* ─── LEFT SIDEBAR: Pod Grid ──────────────────────────────── */}
+        {/* ── DEBUG-PAGE-INCIDENTS-REGION-START ── */}
         <div className="w-48 flex-shrink-0 flex flex-col gap-3 overflow-y-auto">
           <div className="bg-rp-card border border-rp-border rounded-xl p-3">
             <h2 className="text-xs font-semibold text-rp-grey uppercase tracking-wider mb-3">
@@ -374,6 +375,7 @@ export default function DebugPage() {
             </button>
           )}
         </div>
+        {/* ── DEBUG-PAGE-INCIDENTS-REGION-END ── */}
 
         {/* ─── MAIN: Live Activity Feed ────────────────────────────── */}
         <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0 overflow-hidden">
