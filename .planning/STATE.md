@@ -3,8 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Milestone complete
-stopped_at: Completed 367-staff-tools-04-PLAN.md
-last_updated: "2026-04-11T09:08:00.000Z"
+last_updated: "2026-04-10T22:57:56.180Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -96,50 +95,10 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T04:45:00.000Z
-Stopped at: Completed 367-staff-tools-01-PLAN.md
+Last session: 2026-04-10T22:57:56.174Z
+This session (2026-04-10): Pivoted back to v47.0 to execute next unblocked phase while v46.0 Phase 363 awaits deploy window.
 
-**Phase 366 CODE-COMPLETE (2026-04-11):**
-
-- fleet_intelligence.rs: composite 0-100 health score per pod, /fleet/intelligence endpoint, TSDB upgrade
-- content_drift.rs: 60-min background task, ContentDriftDetected WS event, WhatsApp for game_removed
-- content_drift_events table migration in db/mod.rs (Phase 366 block)
-- HTTP 409 for billing start (pod_already_active) and game launch (game_already_active)
-- 959 tests pass, 0 regressions
-- Commits: c1b647e5 (plan 01), 47a22520 (plan 02), 92bdc00b+546d00d8 (plan 03), e3659ba6 (plan 04)
-- Deploy pending: racecontrol binary rebuild + server .23 + cloud (Bono VPS)
-
-**Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
-
-- Server .23: build `4c6d53b2` — inventory endpoint + validity gate live
-- All 8 pods: rc-agent `4c6d53b2` — /debug/content-dirs live
-- Cloud (Bono VPS): racecontrol `f0e7089e` — inventory endpoint verified
-- NYQUIST: PASS (11/11 unit tests + live regression test)
-- v46.0 Phase A (361) Plan 01 DONE.
-
-**Phase 361-02 CODE-COMPLETE (2026-04-11):**
-
-- Kiosk wizard inventory filtering committed (`3efc161e`, `4ba17b01`).
-- Deploy pending.
-
-**Phase 361-03 CODE-COMPLETE (2026-04-11):**
-
-- Admin Content Drift page + server proxy committed:
-  - racecontrol: `e180f3c2` (proxy handler), `6e250706` (OpenAPI + compile fix)
-  - racingpoint-admin: `c4f244f` (API/types/nav), `b4d4112` (page)
-- 6/6 pods tests pass, tsc clean, eslint clean
-- Deploy pending (Task 3 deferred)
-- GLD-A-04 requirement satisfied at code level
-
-**Phase 365 ALL 3 PLANS DOCUMENTED (2026-04-11):**
-
-- 365-01 SUMMARY written: ai_behavior_samples schema + collector (commit `773fff93`)
-- 365-02 SUMMARY written: MMA batch + KB format (commit `ced70634`)
-- 365-03 SUMMARY written: live anomaly detector + AiBehaviorAnomaly WS event (commit `39674046`)
-- ROADMAP.md Phase 365 plan checkboxes updated to [x] with commit hashes
-- Phase 365 code is git-complete, deploy required for server .23 and cloud (Bono VPS)
-
-**Resume v47.0 decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
+**Resume decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
 
 ## Next Action
 
