@@ -25,6 +25,7 @@ pub mod cafe_promos;
 pub mod catalog;
 pub mod cloud_sync;
 pub mod config;
+pub mod content_drift;
 pub mod crypto;
 pub mod data_collector;
 pub mod dependency_chain;

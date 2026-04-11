@@ -4104,6 +4104,38 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     tracing::info!("Phase 363+364+365 schema migrated");
 
+    // ─── Phase 366: Fleet Intelligence ──────────────────────────────────────
+
+    // GLD-F-03: Content drift events audit log
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS content_drift_events (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            detected_at TEXT NOT NULL,
+            game_key TEXT NOT NULL,
+            delta_type TEXT NOT NULL,
+            item TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution_note TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_content_drift_pod ON content_drift_events(pod_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_content_drift_detected ON content_drift_events(detected_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    tracing::info!("Phase 366 Fleet Intelligence schema migrated");
+
     tracing::info!("Database migrations complete");
     Ok(())
 }

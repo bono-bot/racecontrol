@@ -1408,6 +1408,18 @@ pub enum DashboardEvent {
 
     /// Phase 365 GLD-E-04: AI behavior deviates from KB band for this (car, track, tier).
     /// Fires when session-end AI median lap time is outside the expected p10-p90 band.
+    // ─── Fleet Intelligence (Phase 366) ────────────────────────────────────
+
+    /// GLD-F-03: Content drift detected on a pod -- live disk differs from TOML SSOT.
+    /// delta_type: "game_added" | "game_removed" | "car_added" | "car_removed" | "track_added" | "track_removed"
+    ContentDriftDetected {
+        pod_id: String,
+        game_key: String,
+        delta_type: String,
+        item: String,
+        detected_at: String,
+    },
+
     AiBehaviorAnomaly {
         pod_id: String,
         session_id: String,

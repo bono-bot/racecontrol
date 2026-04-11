@@ -1156,6 +1156,9 @@ async fn main() -> anyhow::Result<()> {
     // Spawn fleet health probe loop (15s interval, HTTP :8090/health on each registered pod)
     fleet_health::start_probe_loop(state.clone());
 
+    // Phase 366 GLD-F-03: Content drift detector (60-min interval, compares TOML vs live disk)
+    racecontrol_crate::content_drift::spawn_content_drift_task(state.clone());
+
     // Spawn deployment awareness (60s interval, fleet version consistency + crash detection)
     deploy_awareness::spawn(state.clone());
 
