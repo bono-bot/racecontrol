@@ -123,6 +123,18 @@ pub static CLEAR_SCREEN_REQUESTED: std::sync::atomic::AtomicBool = std::sync::at
 /// Used for E2E testing when the server billing endpoint is unavailable.
 /// Cmd format: RCAGENT_TEST_LAUNCH:car:track (e.g. RCAGENT_TEST_LAUNCH:abarth500:spa)
 pub static TEST_LAUNCH_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// RCAGENT_PREFLIGHT diagnostic sentinel. Triggers a one-shot pre_flight::run
+/// from the event_loop heartbeat tick so the result is logged to JSONL without
+/// starting a real billing session and without mutating any state (no
+/// in_maintenance flip, no lock_screen transition).
+///
+/// Intended for: debugging stuck-in-maintenance pods, verifying pre_flight.rs
+/// changes on canary pods before fleet rollout, and routine pod health audits.
+///
+/// Usage: `POST /exec { "cmd": "RCAGENT_PREFLIGHT" }`. Observe result in the
+/// rc-agent JSONL log (key: "RCAGENT_PREFLIGHT diagnostic result").
+pub static PREFLIGHT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Car and track for test launch, set atomically with the flag.
 pub static TEST_LAUNCH_CAR: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 pub static TEST_LAUNCH_TRACK: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
@@ -831,6 +843,20 @@ async fn exec_command(Json(req): Json<ExecRequest>) -> Result<Json<ExecResponse>
             stderr: String::new(),
         }));
     }
+    // Diagnostic pre-flight sentinel: runs pre_flight::run on-demand and logs
+    // the result to JSONL. Does NOT mutate any state. Used to verify pre_flight
+    // fixes on canary pods before fleet rollout.
+    if req.cmd.trim() == "RCAGENT_PREFLIGHT" {
+        PREFLIGHT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(target: LOG_TARGET, "RCAGENT_PREFLIGHT sentinel — flag set, event_loop will run pre-flight on next heartbeat tick");
+        return Ok(Json(ExecResponse {
+            success: true,
+            exit_code: Some(0),
+            stdout: "preflight_requested — check JSONL for result (search RCAGENT_PREFLIGHT diagnostic result)".to_string(),
+            stderr: String::new(),
+        }));
+    }
+
     // HARDENING: Test launch sentinel — RCAGENT_TEST_LAUNCH:car:track
     if req.cmd.trim().starts_with("RCAGENT_TEST_LAUNCH") {
         let parts: Vec<&str> = req.cmd.trim().splitn(3, ':').collect();

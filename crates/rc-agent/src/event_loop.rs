@@ -288,6 +288,26 @@ pub async fn run(
                     }
                 }
 
+                // Diagnostic pre-flight sentinel: runs pre_flight::run on demand
+                // and logs the result to JSONL. Does NOT mutate any state —
+                // no in_maintenance flip, no lock-screen transition, no alerts.
+                // Used to verify pre_flight.rs fixes on canary pods before
+                // committing to a full billing attempt.
+                if crate::remote_ops::PREFLIGHT_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    tracing::info!(target: LOG_TARGET, "RCAGENT_PREFLIGHT diagnostic: running pre-flight checks");
+                    let ffb_ref: &dyn crate::ffb_controller::FfbBackend = state.ffb.as_ref();
+                    let ws_elapsed = conn.ws_connect_time.elapsed().as_secs();
+                    match crate::pre_flight::run(state, ffb_ref, ws_elapsed).await {
+                        crate::pre_flight::PreFlightResult::Pass => {
+                            tracing::info!(target: LOG_TARGET, "RCAGENT_PREFLIGHT diagnostic result: PASS");
+                        }
+                        crate::pre_flight::PreFlightResult::MaintenanceRequired { failures } => {
+                            let failure_strings: Vec<String> = failures.iter().map(|f| f.detail.clone()).collect();
+                            tracing::warn!(target: LOG_TARGET, "RCAGENT_PREFLIGHT diagnostic result: FAIL — {:?}", failure_strings);
+                        }
+                    }
+                }
+
                 // RESIL-04: Detect wheelbase USB disconnect
                 let now_connected = state.detector.is_hid_connected();
                 if conn.prev_wheelbase_connected && !now_connected {
