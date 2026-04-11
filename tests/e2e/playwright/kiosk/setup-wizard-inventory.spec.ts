@@ -207,8 +207,8 @@ async function loginAndOpenWizard(page: import('@playwright/test').Page) {
 // ────────────────────────────────────────────────────────────────────────────
 
 test('A: inventory ok — car/track dropdowns filtered to pod inventory, Start enabled, no aria-describedby', async ({ page }) => {
-  // Mock inventory returning 2 cars + 2 tracks for AC
-  await page.route('**/api/v1/pods/1/inventory', async (route) => {
+  // Mock inventory for all pods (live kiosk has 8 pods — clicked pod may be any number)
+  await page.route('**/api/v1/pods/*/inventory', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -338,8 +338,8 @@ test('A: inventory ok — car/track dropdowns filtered to pod inventory, Start e
 // ────────────────────────────────────────────────────────────────────────────
 
 test('B: invalid combo — server returns 422 CAR_NOT_AVAILABLE, wizard surfaces inline reason', async ({ page }) => {
-  // Mock inventory returning AC with limited cars/tracks
-  await page.route('**/api/v1/pods/1/inventory', async (route) => {
+  // Mock inventory for all pods
+  await page.route('**/api/v1/pods/*/inventory', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -459,55 +459,46 @@ test('B: invalid combo — server returns 422 CAR_NOT_AVAILABLE, wizard surfaces
 // ────────────────────────────────────────────────────────────────────────────
 
 test('C: inventory unreachable — banner shown, Start disabled with aria-describedby, retry re-enables', async ({ page }) => {
-  let inventoryCallCount = 0;
+  // Use a shared state object — objects are passed by reference so handler sees mutations.
+  // Mock ALL pod inventory URLs (not just pod 1) because the live kiosk has 8 pods and
+  // the pod card click may land on any pod number.
+  const mockState = { shouldSucceed: false };
 
-  // First call: return 500; subsequent calls (retry): return 200
-  await page.route('**/api/v1/pods/1/inventory', async (route) => {
-    inventoryCallCount++;
-    if (inventoryCallCount === 1) {
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Internal server error' }),
-      });
-    } else {
+  await page.route('**/api/v1/pods/*/inventory', async (route) => {
+    if (mockState.shouldSucceed) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(MOCK_INVENTORY_OK),
+      });
+    } else {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Internal server error' }),
       });
     }
   });
 
   await loginAndOpenWizard(page);
 
-  // Wait for wizard to open — the wizard step title is the definitive indicator
-  // (loginAndOpenWizard clicks a pod card; wizard opens asynchronously)
-  await page.waitForSelector('[data-testid="wizard-step-title"]', { timeout: 10000 }).catch(() => {
-    // If wizard didn't open via pod click, try clicking any available pod card
-  });
+  // Wait for wizard to open
+  await page.waitForSelector('[data-testid="wizard-step-title"]', { timeout: 10000 }).catch(() => {});
 
-  // Wait for inventory fetch to fail and banner to appear
-  await page.waitForTimeout(3000);
-
-  // Banner should be visible with role="alert"
+  // Wait for inventory fetch to fail (fetchApi retries 3x, ~1.5s backoff) and banner to appear.
+  // Use waitForSelector for reliability instead of waitForTimeout.
   const banner = page.locator('[role="alert"]#inventory-status-banner');
-  await expect(banner).toBeVisible({ timeout: 8000 });
+  await expect(banner).toBeVisible({ timeout: 10000 });
 
   // Banner should contain the verbatim copy
   await expect(banner).toContainText('Pod inventory unreachable');
   await expect(banner).toContainText("We can't confirm which experiences are installed on this pod");
 
-  // Retry button should be visible
-  const retryBtn = banner.getByRole('button', { name: /retry/i });
-  await expect(retryBtn).toBeVisible();
+  // Locate retry button within banner using text content (most reliable locator)
+  const retryBtn = banner.getByRole('button').filter({ hasText: /Retry/i });
+  await expect(retryBtn).toBeVisible({ timeout: 5000 });
 
-  // Navigate to review step to check launch button state
-  // (wizard may not be on review yet — check if we can navigate there)
-  // The launch button's disabled state is checked at review step
-  // For now verify the banner is blocking and aria-describedby is set once we reach review
-
-  // Try to reach review step quickly using preset experience
+  // Navigate to review step to verify launch-disabled state with aria-describedby
   const driverSearchInput = page.getByTestId('driver-search');
   if (await driverSearchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
     await driverSearchInput.fill('Test');
@@ -570,12 +561,23 @@ test('C: inventory unreachable — banner shown, Start disabled with aria-descri
     expect(ariaDescribedBy).toBe('inventory-status-banner');
   }
 
-  // Click Retry — second inventory call returns 200
+  // Switch mock to 200 and set up a response listener BEFORE clicking retry
+  mockState.shouldSucceed = true;
+
+  // Use waitForResponse to confirm the inventory request succeeds after retry
+  const responsePromise = page.waitForResponse(
+    resp => resp.url().includes('/api/v1/pods/') && resp.url().includes('/inventory'),
+    { timeout: 15000 }
+  );
+
   await retryBtn.click();
-  await page.waitForTimeout(2000);
+
+  // Confirm the response came back 200
+  const response = await responsePromise;
+  expect(response.status()).toBe(200);
 
   // Banner should unmount after successful retry
-  await expect(banner).not.toBeVisible({ timeout: 5000 });
+  await expect(banner).not.toBeVisible({ timeout: 10000 });
 
   // Launch button should now be enabled (if at review step)
   const reviewStepAfter = page.getByTestId('step-review');

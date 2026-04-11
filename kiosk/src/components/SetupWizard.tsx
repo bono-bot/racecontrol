@@ -87,7 +87,10 @@ export function SetupWizard({
   async function fetchInventory(isRetry = false) {
     if (isRetry) setInventoryRetrying(true);
     try {
-      const podIdNum = parseInt(podId, 10);
+      // podId format from server WS: "pod_N" (e.g. "pod_1"). Extract numeric part.
+      // Also handles plain numeric strings for test compat.
+      const numericPart = podId.replace(/^pod[_-]?/i, "");
+      const podIdNum = parseInt(numericPart, 10);
       if (isNaN(podIdNum)) {
         setInventoryFetchState("error");
         setLastInventoryCheck(nowIst());
