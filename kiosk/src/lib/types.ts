@@ -146,6 +146,50 @@ export interface LaunchDiagnostics {
   direct_exit_code?: number;
 }
 
+// ─── Phase 368: Live Launch Status cards ─────────────────────────────────
+// IMPORTANT: LaunchState values MUST match Rust crates/rc-common/src/protocol.rs LaunchState enum
+// exactly. Phase 62 cross-boundary contract — tests enforced in both kiosk and rc-common.
+
+export type LaunchState =
+  | "launch_started"
+  | "ai_analysis_requested"
+  | "issue_being_fixed"
+  | "issue_fixed"
+  | "needs_manual_intervention";
+
+export type LaunchOrigin = "customer" | "staff" | "auto_token" | "retry";
+
+export interface LaunchStatusCard {
+  launch_id: string;
+  pod_id: string;
+  sim_type: string;
+  state: LaunchState;
+  detail: string | null;
+  timestamp: string;    // ISO8601
+  origin: LaunchOrigin;
+  ai_tier: number | null;     // 1, 2, or 3
+  fix_action: string | null;
+}
+
+export interface LaunchNoteEvent {
+  launch_id: string;
+  pod_id: string;
+  note_id: string;
+  staff_id: string;
+  staff_name: string;
+  body: string;
+  created_at: string;   // ISO8601
+}
+
+export interface FeatureFlagRow {
+  name: string;
+  enabled: boolean;
+  default_value: boolean;
+  overrides: string;
+  version: number;
+  updated_at?: string;
+}
+
 // ─── Kiosk Multiplayer ──────────────────────────────────────────────────
 
 export interface KioskMultiplayerAssignment {

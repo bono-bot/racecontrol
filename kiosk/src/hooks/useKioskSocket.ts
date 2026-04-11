@@ -15,6 +15,8 @@ import type {
   DeployState,
   AcServerInfo,
   MultiplayerGroupStatus,
+  LaunchStatusCard,
+  LaunchNoteEvent,
 } from "@/lib/types";
 
 const WS_BASE =
@@ -71,6 +73,9 @@ export function useKioskSocket() {
   const [deployStates, setDeployStates] = useState<Map<string, DeployState>>(new Map());
   const [acServerInfo, setAcServerInfo] = useState<AcServerInfo | null>(null);
   const [multiplayerGroup, setMultiplayerGroup] = useState<MultiplayerGroupStatus | null>(null);
+  // Phase 368: Live Launch Status cards
+  const [launches, setLaunches] = useState<Map<string, LaunchStatusCard>>(new Map());
+  const [launchNotes, setLaunchNotes] = useState<Map<string, LaunchNoteEvent[]>>(new Map());
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -325,6 +330,26 @@ export function useKioskSocket() {
             }, 60 * 1000);
             break;
           }
+          // Phase 368: Live Launch Status cards
+          case "launch_status_changed": {
+            const card = msg.data as LaunchStatusCard;
+            setLaunches((prev) => {
+              const next = new Map(prev);
+              next.set(card.launch_id, card);
+              return next;
+            });
+            break;
+          }
+          case "launch_note_added": {
+            const note = msg.data as LaunchNoteEvent;
+            setLaunchNotes((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(note.launch_id) ?? [];
+              next.set(note.launch_id, [...existing, note]);
+              return next;
+            });
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -395,6 +420,14 @@ export function useKioskSocket() {
     sendCommand("deploy_rolling", { binary_url: binaryUrl });
   }, [sendCommand]);
 
+  const removeLaunch = useCallback((launchId: string) => {
+    setLaunches((prev) => {
+      const next = new Map(prev);
+      next.delete(launchId);
+      return next;
+    });
+  }, []);
+
   return {
     connected,
     pods,
@@ -417,5 +450,9 @@ export function useKioskSocket() {
     sendDeployRolling,
     acServerInfo,
     multiplayerGroup,
+    // Phase 368: Live Launch Status cards
+    launches,
+    launchNotes,
+    removeLaunch,
   };
 }

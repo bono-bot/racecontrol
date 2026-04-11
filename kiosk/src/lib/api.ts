@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory, LaunchStatusCard, LaunchNoteEvent, FeatureFlagRow } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -575,4 +575,26 @@ export const api = {
   // from sessionStorage("kiosk_staff_token"). Returns full PodInventory with cars/tracks for filtering.
   podInventoryFull: (podId: number): Promise<PodInventory> =>
     fetchApi<PodInventory>(`/pods/${podId}/inventory`),
+
+  // Phase 368: Live Launch Status cards
+  listActiveLaunches: (): Promise<LaunchStatusCard[]> =>
+    fetchApi<LaunchStatusCard[]>("/debug/launches/active"),
+
+  getLaunchNotes: (launchId: string): Promise<LaunchNoteEvent[]> =>
+    fetchApi<LaunchNoteEvent[]>(`/debug/launches/${encodeURIComponent(launchId)}/notes`),
+
+  postLaunchNote: (launchId: string, body: string): Promise<{ note_id: string; created_at: string }> =>
+    fetchApi<{ note_id: string; created_at: string }>(`/debug/launches/${encodeURIComponent(launchId)}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  approveLaunchFix: (launchId: string): Promise<void> =>
+    fetchApi<void>(`/debug/launches/${encodeURIComponent(launchId)}/approve-fix`, { method: "POST" }),
+
+  dismissLaunch: (launchId: string): Promise<void> =>
+    fetchApi<void>(`/debug/launches/${encodeURIComponent(launchId)}/dismiss`, { method: "POST" }),
+
+  listFlags: (): Promise<FeatureFlagRow[]> =>
+    fetchApi<FeatureFlagRow[]>("/flags"),
 };
