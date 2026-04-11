@@ -664,9 +664,14 @@ impl LockScreenManager {
             return;
         }
 
-        // If native window is already alive, just request a repaint
+        // If native window is already alive, bring it to foreground and repaint.
+        // LAUNCH-FIX-4: Must call request_show() (WM_APP+3 = SW_SHOW + SetForegroundWindow)
+        // in addition to repaint. After close_browser() → SW_HIDE, the HWND slot remains Some
+        // (is_alive()=true) but the window is invisible. A repaint-only call paints a hidden
+        // window — no-op. request_show() re-displays it before the repaint renders content.
         if self.native_window.as_ref().map_or(false, |nw| nw.is_alive()) {
             if let Some(ref nw) = self.native_window {
+                nw.request_show();
                 nw.request_repaint();
             }
             return;
