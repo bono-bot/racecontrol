@@ -190,21 +190,33 @@ async fn check_conspit() -> CheckResult {
     let result = spawn_blocking(|| {
         use sysinfo::{ProcessesToUpdate, System};
 
+        // BUG FIX (2026-04-11): Actual process name is ConspitLink2.0.exe, NOT
+        // ConspitLink.exe. The previous literal never matched any running process,
+        // so pre-flight always returned Fail → pods stuck in MaintenanceRequired
+        // after any billing attempt, even though ConspitLink2.0.exe was running.
+        // Confirmed via `Get-Process ConspitLink*` on pods 1/4/5/6/8. Real install
+        // path is C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe.
+        // CLAUDE.md standing rules reference ConspitLink2.0.exe consistently in
+        // start-rcagent.bat taskkill and kiosk.rs kill list — this check was the
+        // only place that drifted.
         let mut sys = System::new();
         sys.refresh_processes(ProcessesToUpdate::All, true);
         let found = sys.processes().values().any(|p| {
-            p.name().to_string_lossy().eq_ignore_ascii_case("ConspitLink.exe")
+            p.name().to_string_lossy().eq_ignore_ascii_case("ConspitLink2.0.exe")
         });
 
         if !found {
             return CheckResult {
                 name: "conspit_link",
                 status: CheckStatus::Fail,
-                detail: "ConspitLink.exe not running".into(),
+                detail: "ConspitLink2.0.exe not running".into(),
             };
         }
 
         // Stage 2: check config file
+        // NOTE: config path may also be wrong (likely lives under Program Files),
+        // but Stage 2 returns Warn not Fail, so it does not block billing. Fix
+        // deferred to a follow-up so the scope of this patch stays minimal.
         let config_path = std::path::Path::new(r"C:\ConspitLink\config.json");
         if !config_path.exists() {
             return CheckResult {
@@ -448,11 +460,20 @@ async fn check_lock_screen_http_on(addr: &str) -> CheckResult {
 
 // ─── DISP-02: Lock Screen Window Rect ────────────────────────────────────────
 
-/// Check that the Edge/Chromium lock screen window covers >= 90% of the screen.
+/// Check that the native lock screen window covers >= 90% of the screen.
 ///
-/// Uses FindWindowA("Chrome_WidgetWin_1") + GetWindowRect via spawn_blocking.
-/// Returns Warn (not Fail) if the window is not found — it may not be launched yet.
-/// Returns Fail only if the window is found but does not cover enough of the screen.
+/// Uses FindWindowA("RacingPointLockScreen", "Racing Point Lock Screen") + GetWindowRect
+/// via spawn_blocking. Returns Warn (not Fail) if the window is not found — it may not
+/// be launched yet. Returns Fail only if the window is found but does not cover enough
+/// of the screen.
+///
+/// BUG FIX (2026-04-11): Previously searched for `Chrome_WidgetWin_1` (the Edge kiosk
+/// class from the pre-native era). The new native lock uses a custom Win32 class
+/// `RacingPointLockScreen` registered in native_lock/window.rs:96. The old fallback
+/// with a null title matched ANY Chrome_WidgetWin_1 window — including hidden 0x0
+/// ConspitLink2.0 WebView2 helper windows. That produced the bogus
+/// "Lock screen window too small: 0x0 vs screen 7680x1440" failure that trapped
+/// pods 4/5/6/8 in MaintenanceRequired state indefinitely.
 #[cfg(windows)]
 pub(crate) async fn check_window_rect() -> CheckResult {
     let result = spawn_blocking(|| {
@@ -468,24 +489,20 @@ pub(crate) async fn check_window_rect() -> CheckResult {
         let screen_w = unsafe { GetSystemMetrics(78) }; // SM_CXVIRTUALSCREEN
         let screen_h = unsafe { GetSystemMetrics(79) }; // SM_CYVIRTUALSCREEN
 
-        // Find the Edge kiosk window by class + title.
-        // Standing rule: FindWindowA with null title is fragile — ConspitLink WebView2
-        // also uses Chrome_WidgetWin_1 class. Match by title "Racing Point" to find
-        // the kiosk lock screen, not a random WebView2 widget.
-        let class_name = b"Chrome_WidgetWin_1\0";
-        let title = b"Racing Point\0";
-        let mut hwnd = unsafe { FindWindowA(class_name.as_ptr(), title.as_ptr()) };
-
-        // Fallback: try null title if titled search fails (Edge may not have loaded yet)
-        if hwnd == 0 {
-            hwnd = unsafe { FindWindowA(class_name.as_ptr(), std::ptr::null()) };
-        }
+        // Find the native lock screen window by its registered class + title.
+        // Class `RacingPointLockScreen` and title `Racing Point Lock Screen` are
+        // defined in crates/rc-agent/src/native_lock/window.rs. Do NOT fall back
+        // to a class-only search — the old Chrome_WidgetWin_1 fallback used to
+        // pick up unrelated WebView2 helper windows.
+        let class_name = b"RacingPointLockScreen\0";
+        let title = b"Racing Point Lock Screen\0";
+        let hwnd = unsafe { FindWindowA(class_name.as_ptr(), title.as_ptr()) };
 
         if hwnd == 0 {
             return CheckResult {
                 name: "lock_screen_window_rect",
                 status: CheckStatus::Warn,
-                detail: "Lock screen Edge window not found (may not be launched yet)".into(),
+                detail: "Lock screen native window not found (may not be launched yet)".into(),
             };
         }
 
@@ -1212,17 +1229,26 @@ async fn fix_popup_windows() {
     }
 }
 
-/// Attempt to restart ConspitLink.exe.
+/// Attempt to restart ConspitLink2.0.exe.
 ///
 /// Spawns the process with CREATE_NO_WINDOW, waits 2 seconds, then re-scans.
-/// Returns true if ConspitLink.exe is found in the process list after the wait.
+/// Returns true if ConspitLink2.0.exe is found in the process list after the wait.
 /// Wraps everything in a 3-second timeout.
+///
+/// BUG FIX (2026-04-11): Both the spawn path and the re-check process name
+/// below used the wrong literal "ConspitLink.exe". Actual install lives at
+/// "C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe". The old
+/// spawn target did not exist on disk, so auto-fix silently did nothing;
+/// pods that hit a pre-flight failure stayed stuck in MaintenanceRequired
+/// until manual intervention.
 async fn fix_conspit() -> bool {
     let fix_result = timeout(Duration::from_secs(3), async {
         spawn_blocking(|| {
             use sysinfo::{ProcessesToUpdate, System};
 
-            let mut cmd = rc_common::spawn_safe::spawn_safe(r"C:\ConspitLink\ConspitLink.exe");
+            let mut cmd = rc_common::spawn_safe::spawn_safe(
+                r"C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe",
+            );
             // Attempt to spawn — ignore result (process may already be starting)
             let _ = cmd.spawn();
 
@@ -1233,7 +1259,7 @@ async fn fix_conspit() -> bool {
             let mut sys = System::new();
             sys.refresh_processes(ProcessesToUpdate::All, true);
             sys.processes().values().any(|p| {
-                p.name().to_string_lossy().eq_ignore_ascii_case("ConspitLink.exe")
+                p.name().to_string_lossy().eq_ignore_ascii_case("ConspitLink2.0.exe")
             })
         })
         .await
