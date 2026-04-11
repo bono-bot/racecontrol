@@ -1024,7 +1024,16 @@ async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Resul
         anyhow::bail!("Cloud returned status {}", resp.status());
     }
 
-    let body: Value = resp.json().await?;
+    // Handle empty response body gracefully — cloud may return 200 with no body
+    // when there are no changes to sync (e.g., stale cloud build, empty result set).
+    // This is not an error — treat it as "nothing to sync" and update the timestamp.
+    let body_bytes = resp.bytes().await?;
+    let body: Value = if body_bytes.is_empty() {
+        tracing::debug!("Cloud sync: empty response body (no changes)");
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_slice(&body_bytes)?
+    };
     let mut total_upserted = 0u64;
 
     // Upsert drivers
@@ -1279,7 +1288,12 @@ pub(crate) async fn pull_tables_now(state: &Arc<AppState>, tables: &[&str]) -> a
         anyhow::bail!("pull_tables_now: cloud returned status {}", resp.status());
     }
 
-    let body: Value = resp.json().await?;
+    let body_bytes = resp.bytes().await?;
+    let body: Value = if body_bytes.is_empty() {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_slice(&body_bytes)?
+    };
     let mut total_upserted = 0u64;
 
     // Apply upserts only for the tables present in the response (same logic as sync_once_http)
@@ -1422,7 +1436,12 @@ async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result
         return Ok(());
     }
 
-    let result: serde_json::Value = resp.json().await?;
+    let body_bytes = resp.bytes().await?;
+    let result: serde_json::Value = if body_bytes.is_empty() {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_slice(&body_bytes)?
+    };
     let upserted = result.get("upserted").and_then(|v| v.as_u64()).unwrap_or(0);
 
     if upserted > 0 {
