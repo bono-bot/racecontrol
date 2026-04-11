@@ -4057,17 +4057,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
-    tracing::info!("Phase 363 Data Recording Verification schema migrated");
-
-    // Phase 364 kill switch — default enabled; admin can toggle to false to bypass quality monitoring
-    let _ = sqlx::query(
-        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
-         VALUES ('phase364_quality_monitor', 1, 1, '{}')",
-    )
-    .execute(pool)
-    .await;
-
-    tracing::info!("Phase 364 Session Quality Monitor feature flag seeded");
+    tracing::info!("Phase 363+364 schema migrated");
 
     tracing::info!("Database migrations complete");
     Ok(())
