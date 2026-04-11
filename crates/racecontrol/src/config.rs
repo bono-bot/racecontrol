@@ -422,6 +422,10 @@ pub struct AiDebuggerConfig {
     pub anthropic_api_key: Option<String>,
     #[serde(default = "default_anthropic_model")]
     pub anthropic_model: String,
+    /// OpenRouter model for debug diagnostics (used before Ollama fallback).
+    /// Key read from OPENROUTER_KEY env var or data/openrouter-mma-key.txt.
+    #[serde(default = "default_openrouter_model")]
+    pub openrouter_model: String,
     #[serde(default = "default_true")]
     pub chat_enabled: bool,
     #[serde(default = "default_true")]
@@ -438,6 +442,7 @@ impl Default for AiDebuggerConfig {
             ollama_model: default_ollama_model(),
             anthropic_api_key: None,
             anthropic_model: default_anthropic_model(),
+            openrouter_model: default_openrouter_model(),
             chat_enabled: true,
             proactive_analysis: true,
         }
@@ -1249,6 +1254,7 @@ fn default_claude_cli_timeout() -> u32 { 30 }
 fn default_ollama_url() -> String { "http://192.168.31.27:11434".to_string() }
 fn default_ollama_model() -> String { "qwen2.5:3b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
+fn default_openrouter_model() -> String { "deepseek/deepseek-chat-v3-0324".to_string() }
 fn default_healer_interval() -> u32 { 120 }
 fn default_false() -> bool { false }
 fn default_email_recipient() -> String { "usingh@racingpoint.in".to_string() }

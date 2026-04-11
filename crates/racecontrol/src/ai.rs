@@ -1,7 +1,7 @@
 //! Central AI service for RaceControl.
 //!
 //! All AI calls (chat, crash analysis, pattern detection) route through this module.
-//! Priority: Claude CLI → Ollama (venue, with learned context) → Anthropic API.
+//! Priority: Claude CLI → OpenRouter (MMA-class cloud models) → Ollama (venue, with learned context) → Anthropic API.
 //! Automatically logs Claude CLI responses as training pairs for Ollama to learn from.
 
 use std::collections::HashSet;
@@ -100,6 +100,78 @@ pub async fn query_ollama(
     Ok(body.message.content)
 }
 
+// ─── OpenRouter Call ────────────────────────────────────────────────────────
+
+const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+
+/// Read OpenRouter API key from env or data file.
+fn read_openrouter_key() -> Option<String> {
+    if let Ok(k) = std::env::var("OPENROUTER_KEY") {
+        if !k.is_empty() {
+            return Some(k);
+        }
+    }
+    let path = std::path::Path::new("data/openrouter-mma-key.txt");
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Query OpenRouter API (MMA-class models for higher quality diagnostics).
+pub async fn query_openrouter(
+    model: &str,
+    messages: &[Value],
+) -> anyhow::Result<String> {
+    let api_key = read_openrouter_key()
+        .ok_or_else(|| anyhow::anyhow!("No OpenRouter key (OPENROUTER_KEY env or data/openrouter-mma-key.txt)"))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .unwrap_or_default();
+
+    let resp = client
+        .post(OPENROUTER_API_URL)
+        .bearer_auth(&api_key)
+        .header("HTTP-Referer", "https://racingpoint.in")
+        .header("X-Title", "RacingPoint Debug Diagnostics")
+        .json(&json!({
+            "model": model,
+            "messages": messages,
+            "max_tokens": 2048,
+            "temperature": 0.3,
+        }))
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("OpenRouter returned {} — {}", status, text);
+    }
+
+    #[derive(Deserialize)]
+    struct Choice {
+        message: ChoiceMessage,
+    }
+    #[derive(Deserialize)]
+    struct ChoiceMessage {
+        content: String,
+    }
+    #[derive(Deserialize)]
+    struct OpenRouterResponse {
+        choices: Vec<Choice>,
+    }
+
+    let body: OpenRouterResponse = resp.json().await?;
+    body.choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .ok_or_else(|| anyhow::anyhow!("OpenRouter returned empty choices"))
+}
+
 /// Query Anthropic Messages API.
 pub async fn query_anthropic(
     api_key: &str,
@@ -192,7 +264,29 @@ pub async fn query_ai(
         }
     }
 
-    // 2. Fallback: Ollama (venue-local, with learned context from training pairs)
+    // 2. OpenRouter (MMA-class cloud models — higher quality than Ollama)
+    if read_openrouter_key().is_some() {
+        match query_openrouter(&config.openrouter_model, messages).await {
+            Ok(reply) => {
+                if let Some(db) = db {
+                    log_training_pair(
+                        db,
+                        &user_query,
+                        &reply,
+                        source.unwrap_or("unknown"),
+                        &format!("openrouter/{}", config.openrouter_model),
+                    )
+                    .await;
+                }
+                return Ok((reply, format!("openrouter/{}", config.openrouter_model)));
+            }
+            Err(e) => {
+                tracing::warn!("OpenRouter failed: {}. Trying Ollama...", e);
+            }
+        }
+    }
+
+    // 3. Fallback: Ollama (venue-local, with learned context from training pairs)
     {
         let few_shot = if let Some(db) = db {
             find_similar_pairs(db, &user_query, 3).await
@@ -227,7 +321,7 @@ pub async fn query_ai(
         }
     }
 
-    // 3. Final fallback: Anthropic API
+    // 4. Final fallback: Anthropic API
     if let Some(api_key) = &config.anthropic_api_key {
         let reply = query_anthropic(api_key, &config.anthropic_model, messages).await?;
         if let Some(db) = db {
@@ -242,7 +336,7 @@ pub async fn query_ai(
         }
         Ok((reply, format!("anthropic/{}", config.anthropic_model)))
     } else {
-        anyhow::bail!("All AI providers failed (Claude CLI, Ollama, Anthropic API)")
+        anyhow::bail!("All AI providers failed (Claude CLI, OpenRouter, Ollama, Anthropic API)")
     }
 }
 
