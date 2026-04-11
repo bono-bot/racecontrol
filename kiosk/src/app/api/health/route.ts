@@ -70,6 +70,27 @@ function getAvailablePages(): string[] {
   return [...new Set(pages)].sort();
 }
 
+function readBuildId(): string {
+  for (const p of [
+    path.join(process.cwd(), '.next', 'BUILD_ID'),
+    path.join(process.cwd(), 'BUILD_ID'),
+  ]) {
+    try { return fs.readFileSync(p, 'utf8').trim(); } catch {}
+  }
+  return 'unknown';
+}
+
+function readGitCommit(): string {
+  for (const p of [
+    path.join(process.cwd(), 'public', 'git-commit.txt'),
+    path.join(process.cwd(), '.next', 'git-commit.txt'),
+    path.join(process.cwd(), 'git-commit.txt'),
+  ]) {
+    try { return fs.readFileSync(p, 'utf8').trim(); } catch {}
+  }
+  return 'unknown';
+}
+
 export async function GET() {
   const available = getAvailablePages();
   const missing = EXPECTED_PAGES.filter(p => !available.includes(p));
@@ -83,6 +104,8 @@ export async function GET() {
     status: healthy ? 'ok' : 'degraded',
     service: 'kiosk',
     version: '0.1.0',
+    build_id: readBuildId(),
+    git_commit: readGitCommit(),
     deploy: {
       pages_expected: EXPECTED_PAGES.length,
       pages_available: available.length,

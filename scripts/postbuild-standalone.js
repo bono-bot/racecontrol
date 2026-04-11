@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 function copyDirSync(src, dest) {
   if (!fs.existsSync(src)) return;
@@ -45,6 +46,15 @@ const publicDest = path.join(standaloneDir, 'public');
 if (fs.existsSync(publicSrc)) {
   copyDirSync(publicSrc, publicDest);
   console.log('postbuild: copied public/ -> standalone');
+}
+
+// Write git commit to standalone root for /api/health build_id reporting
+try {
+  const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
+  console.log(`postbuild: wrote git-commit.txt (${gitCommit})`);
+} catch (e) {
+  console.warn('postbuild: could not determine git commit:', e.message);
 }
 
 // Verify static chunks exist
