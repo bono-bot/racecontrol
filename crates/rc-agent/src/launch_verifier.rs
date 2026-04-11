@@ -516,4 +516,179 @@ mod tests {
         );
         assert_eq!(result, LaunchStage::ConfigVerified);
     }
+
+    // ─── Phase 367-05 (GLD-G-05): Per-adapter mismatch detection tests ───────
+
+    /// AC adapter: car_model mismatch detected when kiosk requests ferrari but AC loads lambo
+    #[test]
+    fn test_ac_adapter_car_mismatch_detected() {
+        let expected = ExpectedConfig {
+            num_cars: None,
+            session_type: None,
+            car_model: Some("ks_ferrari_laferrari".to_string()),
+            track_name: Some("monza".to_string()),
+            track_config: None,
+        };
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = verify_launch_config(
+            &expected,
+            || Some(SessionConfig {
+                num_cars: None,
+                session_type: None,
+                car_model: Some("ks_lamborghini_huracan_evo".to_string()),
+                track_name: Some("monza".to_string()),
+                track_config: None,
+                ai_level: None,
+            }),
+            |stage| { stages.lock().unwrap().push(stage); },
+        );
+        match result {
+            LaunchStage::ConfigMismatch { mismatches } => {
+                assert_eq!(mismatches.len(), 1, "Expected exactly 1 mismatch for AC car_model");
+                assert_eq!(mismatches[0].field, "car_model");
+                assert_eq!(mismatches[0].expected, "ks_ferrari_laferrari");
+                assert_eq!(mismatches[0].actual, "ks_lamborghini_huracan_evo");
+            }
+            other => panic!("Expected ConfigMismatch for AC adapter, got {:?}", other),
+        }
+    }
+
+    /// ACR (Assetto Corsa Evo) adapter: track_name mismatch
+    #[test]
+    fn test_acr_adapter_track_mismatch_detected() {
+        let expected = ExpectedConfig {
+            num_cars: None,
+            session_type: None,
+            car_model: None,
+            track_name: Some("nurburgring_gp".to_string()),
+            track_config: Some("gp".to_string()),
+        };
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = verify_launch_config(
+            &expected,
+            || Some(SessionConfig {
+                num_cars: None,
+                session_type: None,
+                car_model: None,
+                track_name: Some("spa_francorchamps".to_string()),
+                track_config: Some("gp".to_string()),
+                ai_level: None,
+            }),
+            |stage| { stages.lock().unwrap().push(stage); },
+        );
+        match result {
+            LaunchStage::ConfigMismatch { mismatches } => {
+                assert_eq!(mismatches.len(), 1, "Expected exactly 1 mismatch for ACR track_name");
+                assert_eq!(mismatches[0].field, "track_name");
+            }
+            other => panic!("Expected ConfigMismatch for ACR adapter, got {:?}", other),
+        }
+    }
+
+    /// F1 25 adapter: session_type mismatch (race vs practice)
+    #[test]
+    fn test_f1_25_adapter_session_type_mismatch_detected() {
+        let expected = ExpectedConfig {
+            num_cars: Some(20),
+            session_type: Some("race".to_string()),
+            car_model: None,
+            track_name: None,
+            track_config: None,
+        };
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = verify_launch_config(
+            &expected,
+            || Some(SessionConfig {
+                num_cars: Some(20),
+                session_type: Some("practice".to_string()),
+                car_model: None,
+                track_name: None,
+                track_config: None,
+                ai_level: None,
+            }),
+            |stage| { stages.lock().unwrap().push(stage); },
+        );
+        match result {
+            LaunchStage::ConfigMismatch { mismatches } => {
+                assert_eq!(mismatches.len(), 1, "Expected exactly 1 mismatch for F1 25 session_type");
+                assert_eq!(mismatches[0].field, "session_type");
+                assert_eq!(mismatches[0].expected, "race");
+                assert_eq!(mismatches[0].actual, "practice");
+            }
+            other => panic!("Expected ConfigMismatch for F1 25 adapter, got {:?}", other),
+        }
+    }
+
+    /// iRacing adapter: num_cars mismatch (expected full grid, got only player)
+    #[test]
+    fn test_iracing_adapter_num_cars_mismatch_detected() {
+        let expected = ExpectedConfig {
+            num_cars: Some(24),
+            session_type: Some("race".to_string()),
+            car_model: None,
+            track_name: None,
+            track_config: None,
+        };
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = verify_launch_config(
+            &expected,
+            || Some(SessionConfig {
+                num_cars: Some(1),
+                session_type: Some("race".to_string()),
+                car_model: None,
+                track_name: None,
+                track_config: None,
+                ai_level: None,
+            }),
+            |stage| { stages.lock().unwrap().push(stage); },
+        );
+        match result {
+            LaunchStage::ConfigMismatch { mismatches } => {
+                assert_eq!(mismatches.len(), 1, "Expected exactly 1 mismatch for iRacing num_cars");
+                assert_eq!(mismatches[0].field, "num_cars");
+                assert_eq!(mismatches[0].expected, "24");
+                assert_eq!(mismatches[0].actual, "1");
+            }
+            other => panic!("Expected ConfigMismatch for iRacing adapter, got {:?}", other),
+        }
+    }
+
+    /// LMU adapter: multiple mismatches (car_model + track_config)
+    #[test]
+    fn test_lmu_adapter_multi_field_mismatch_detected() {
+        let expected = ExpectedConfig {
+            num_cars: None,
+            session_type: None,
+            car_model: Some("lmu_hypercar_01".to_string()),
+            track_name: None,
+            track_config: Some("full".to_string()),
+        };
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = verify_launch_config(
+            &expected,
+            || Some(SessionConfig {
+                num_cars: None,
+                session_type: None,
+                car_model: Some("lmu_gt3_bmw".to_string()),
+                track_name: None,
+                track_config: Some("short".to_string()),
+                ai_level: None,
+            }),
+            |stage| { stages.lock().unwrap().push(stage); },
+        );
+        match result {
+            LaunchStage::ConfigMismatch { mismatches } => {
+                assert!(mismatches.len() >= 2, "Expected at least 2 mismatches for LMU multi-field, got {}", mismatches.len());
+                let fields: Vec<&str> = mismatches.iter().map(|m| m.field).collect();
+                assert!(fields.contains(&"car_model"), "Missing car_model mismatch");
+                assert!(fields.contains(&"track_config"), "Missing track_config mismatch");
+            }
+            other => panic!("Expected ConfigMismatch for LMU adapter, got {:?}", other),
+        }
+    }
 }

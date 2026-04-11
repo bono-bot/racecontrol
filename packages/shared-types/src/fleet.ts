@@ -31,3 +31,17 @@ export interface FleetHealthResponse {
   pods: PodFleetStatus[];
   timestamp: string;
 }
+
+/**
+ * Phase 362: Config mismatch detection WS event.
+ * Fired when a pod's running game config differs from the kiosk-requested config.
+ * Maps to Rust AgentMessage::ConfigMismatchDetected in rc-common/src/protocol.rs.
+ */
+export interface ConfigMismatchDetected {
+  type: 'ConfigMismatchDetected';
+  pod_id: string;
+  sim_type: string;
+  /** Array of [field_name, expected_value, actual_value] tuples */
+  mismatches: [string, string, string][];
+  timestamp: string;
+}
