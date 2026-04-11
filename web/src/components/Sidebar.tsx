@@ -53,7 +53,7 @@ const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/ac-lan", label: "AC LAN Race", Icon: Flag },
   { href: "/ac-sessions", label: "AC Results", Icon: Trophy },
   { href: "/sessions", label: "Sessions", Icon: Play },
-  { href: "/customers", label: "Customers", Icon: User },
+  { href: "/drivers", label: "Drivers", Icon: User },
   { href: "/leaderboards", label: "Leaderboards", Icon: Medal },
   { href: "/events", label: "Events", Icon: Swords },
   { href: "/billing", label: "Billing", Icon: CreditCard },
