@@ -8138,8 +8138,11 @@ async fn venue_register(
 
     let driver_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
     let customer_id = {
+        // Customer IDs use "RP###" format (e.g. RP001..RP999+).
+        // Parse the numeric suffix of existing RP-prefixed IDs to find the next available number.
+        // Legacy "000001"/"000002" IDs from pre-RP format are ignored by the LIKE 'RP%' filter.
         let max: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+            "SELECT MAX(CAST(SUBSTR(customer_id, 3) AS INTEGER)) FROM drivers WHERE customer_id LIKE 'RP%'",
         )
         .fetch_optional(&state.db)
         .await
@@ -8148,7 +8151,7 @@ async fn venue_register(
             .and_then(|m| m.0)
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0) + 1;
-        format!("{:06}", next_num)
+        format!("RP{:03}", next_num)
     };
 
     let result = sqlx::query(
