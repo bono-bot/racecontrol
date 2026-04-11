@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Milestone complete
-stopped_at: Completed 367-staff-tools-05-PLAN.md
-last_updated: "2026-04-11T03:29:54.417Z"
+stopped_at: Completed 367-staff-tools-04-PLAN.md
+last_updated: "2026-04-11T09:08:00.000Z"
 progress:
   total_phases: 4
   completed_phases: 4
