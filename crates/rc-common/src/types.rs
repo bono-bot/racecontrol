@@ -1405,6 +1405,7 @@ mod tests {
             launch_args: Some("{\"track\":\"rally_stage_1\"}".to_string()),
             force_clean: false,
             duration_minutes: None,
+            launch_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("assetto_corsa_rally"));
@@ -1422,6 +1423,7 @@ mod tests {
             launch_args: None,
             force_clean: false,
             duration_minutes: None,
+            launch_id: None,
         };
         let json2 = serde_json::to_string(&msg2).unwrap();
         assert!(json2.contains("forza_horizon_5"));

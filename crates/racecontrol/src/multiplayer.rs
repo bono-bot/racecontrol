@@ -1234,6 +1234,7 @@ async fn start_ac_lan_for_group(
                         launch_args: Some(launch_args),
                         force_clean: false,
                         duration_minutes: None,
+                        launch_id: None,
                     }))
                     .await;
             }

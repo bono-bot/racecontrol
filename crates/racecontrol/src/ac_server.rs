@@ -623,6 +623,7 @@ pub async fn start_ac_server(
             launch_args: Some(launch_json.to_string()),
             force_clean: false,
             duration_minutes: None,
+            launch_id: None,
         };
         let _ = sender.send(CoreMessage::wrap(cmd)).await;
         tracing::info!("Sent AC multiplayer join command to pod {} (JSON launch_args)", pod_id);
@@ -890,6 +891,7 @@ pub async fn retry_pod_join(
                 launch_args: Some(launch_json.to_string()),
                 force_clean: false,
                 duration_minutes: None,
+                launch_id: None,
             };
             let _ = sender.send(CoreMessage::wrap(cmd)).await;
             tracing::info!(

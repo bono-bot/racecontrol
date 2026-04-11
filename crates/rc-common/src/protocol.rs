@@ -80,6 +80,62 @@ pub struct ReputationPayload {
     pub updated_at: String,
 }
 
+// ─── Phase 368: Live Launch Status ──────────────────────────────────────────
+
+/// Five-state lifecycle of a single game launch attempt.
+/// JSON values use snake_case per `#[serde(rename_all = "snake_case")]`.
+/// Plan 04 kiosk TypeScript union MUST match these exact string values
+/// (enforced by launch_status_value_contract tests — Phase 62 pattern).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchState {
+    LaunchStarted,           // JSON: "launch_started"
+    AiAnalysisRequested,     // JSON: "ai_analysis_requested"
+    IssueBeingFixed,         // JSON: "issue_being_fixed"
+    IssueFixed,              // JSON: "issue_fixed"
+    NeedsManualIntervention, // JSON: "needs_manual_intervention"
+}
+
+/// Origin of a game launch request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchOrigin {
+    Customer,  // JSON: "customer"
+    Staff,     // JSON: "staff"
+    AutoToken, // JSON: "auto_token"
+    Retry,     // JSON: "retry"
+}
+
+/// Single launch card payload — carried by DashboardEvent::LaunchStatusChanged.
+/// All fields required except `detail`, `ai_tier`, `fix_action` (optional metadata).
+/// D-15: `detail` MUST NOT contain customer_id, driver name, balance, tier, or wallet state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchStatusCard {
+    pub launch_id: String,
+    pub pod_id: String,
+    pub sim_type: String,
+    pub state: LaunchState,
+    pub detail: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub origin: LaunchOrigin,
+    pub ai_tier: Option<u8>,
+    pub fix_action: Option<String>,
+}
+
+/// Staff note payload — carried by DashboardEvent::LaunchNoteAdded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchNoteEvent {
+    pub launch_id: String,
+    pub pod_id: String,
+    pub note_id: String,
+    pub staff_id: String,
+    pub staff_name: String,
+    pub body: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+// ─── End Phase 368 types ────────────────────────────────────────────────────
+
 /// Messages sent from Pod Agent → Core Server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -662,6 +718,17 @@ pub enum AgentMessage {
         timestamp: String,
     },
 
+    /// Phase 368: rc-agent reports a launch status transition to the server.
+    /// Server updates LaunchStateMachine and broadcasts DashboardEvent::LaunchStatusChanged.
+    LaunchStatusUpdate {
+        launch_id: String,
+        state: LaunchState,
+        detail: Option<String>,
+        ai_tier: Option<u8>,
+        fix_action: Option<String>,
+        origin: LaunchOrigin,
+    },
+
     /// Forward-compatibility: catch-all for message types added in newer server versions.
     /// Older agents silently ignore these instead of crashing on deserialization.
     #[serde(other)]
@@ -753,6 +820,11 @@ pub enum CoreToAgentMessage {
         /// None = no duration enforcement (server controls session via StopGame).
         #[serde(default)]
         duration_minutes: Option<u32>,
+        /// Phase 368 D-01: Server-minted launch_id UUID for launch card correlation.
+        /// Backward-compatible: old agents that don't know this field parse with None.
+        /// New agents store this as conn.current_launch_id instead of minting their own.
+        #[serde(default)]
+        launch_id: Option<String>,
     },
 
     /// Command to stop the currently running game
@@ -1434,6 +1506,17 @@ pub enum DashboardEvent {
         direction: String,
         timestamp: String,
     },
+
+    // ─── Phase 368: Live Launch Status ──────────────────────────────────────
+
+    /// Phase 368 D-04: A launch card state transitioned.
+    /// Emitted by: server on launch_started / issue_fixed / needs_manual_intervention (billing-reject).
+    /// Also relayed from rc-agent's AgentMessage::LaunchStatusUpdate for ai_analysis_requested /
+    /// issue_being_fixed / needs_manual_intervention (tier exhaustion).
+    LaunchStatusChanged(LaunchStatusCard),
+
+    /// Phase 368 D-04: Staff added an append-only note to a launch card.
+    LaunchNoteAdded(LaunchNoteEvent),
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)

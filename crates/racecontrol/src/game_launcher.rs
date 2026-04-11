@@ -121,7 +121,7 @@ impl GameLauncherImpl for AcLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
     }
 }
 
@@ -133,7 +133,7 @@ impl GameLauncherImpl for F1Launcher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
     }
 }
 
@@ -145,7 +145,7 @@ impl GameLauncherImpl for IRacingLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
     }
 }
 
@@ -157,7 +157,7 @@ impl GameLauncherImpl for DefaultLauncher {
         Ok(())
     }
     fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes }
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
     }
 }
 
@@ -719,6 +719,7 @@ pub async fn relaunch_game(
         launch_args,
         force_clean: true,
         duration_minutes: None,
+        launch_id: None,
     }))
     .await
     .map_err(|e| format!("Failed to send launch command: {}", e))?;
@@ -1228,6 +1229,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                     launch_args: updated_args,
                                     force_clean: true,
                                     duration_minutes: fresh_duration,
+                                    launch_id: None,
                                 }))
                                 .await;
                         }

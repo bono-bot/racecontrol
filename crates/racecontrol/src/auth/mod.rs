@@ -371,6 +371,7 @@ pub(crate) async fn launch_or_assist(
                     launch_args: Some(launch_args_json),
                     force_clean: false,
                     duration_minutes: None,
+                    launch_id: None,
                 }))
                 .await;
 
