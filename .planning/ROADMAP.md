@@ -944,6 +944,38 @@ Plans:
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.2: Deploy script must enforce target liveness before claiming complete (BACKLOG)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Motivation:** During the 2026-04-11 ecosystem CLD, Pod 1 was found running stale build `5f92578e` while Pods 2-8 run `b36e8a7b` (uniform). Root cause per LOGBOOK: Pod 1 was powered off during the v46.0 fleet deploy, so `deploy-all-pods.sh` skipped it silently and the deploy was reported "complete." No alert, no retry queue, no visible drift until a full fleet health probe ran hours later. This is a deploy-safety gap, not a pod-ops gap: the script's exit code said SUCCESS while one target was untouched. Every future fleet deploy has the same blind spot for any pod that happens to be off/unreachable at deploy time.
+
+**Scope** (in `scripts/deploy/`):
+1. **Pre-flight liveness check** — Before beginning any fleet deploy (`deploy-all-pods.sh`, `deploy-all.sh`, any script that loops over Pods 1-8 / POS / server), ping each target (rc-agent `/health` or TCP probe on :8090) and fail-fast if any target is unreachable. Exit non-zero with an explicit "Target X unreachable — aborting fleet deploy" message.
+2. **Post-deploy verification loop** — After the deploy step completes on each target, verify via `/health` that the new `build_id` matches the expected hash. If any target still reports the old hash, retry up to N times, then fail the overall deploy with a drift report.
+3. **Drift report artifact** — On any partial-deploy failure, write `deploy-staging/drift-report-<timestamp>.json` listing which targets succeeded, which failed, and the delta hashes. This becomes the resume input for a follow-on deploy.
+4. **Override flag** — `--allow-unreachable=<pod1,pod3>` so operator can explicitly acknowledge a known-offline target (e.g. pod being serviced) without bypassing the check globally.
+
+**Out of scope:**
+- Fixing Pod 1 itself (operational one-off — handle in next live deploy window, not this backlog).
+- Rewriting `deploy-all-pods.sh` architecture.
+- Cloud/Bono VPS deploy parallel (separate backlog if needed).
+
+**Permanence:** Source-code change to deploy scripts. Survives redeploy. No manual server-side state.
+
+**Evidence (CLD 2026-04-11):**
+- Pod 1 .89 `/health`: `build_id=5f92578e`, uptime 4537s
+- Pods 2-8 `/health`: `build_id=b36e8a7b` uniform, uptime ~15056s
+- LOGBOOK 2026-04-11 14:30 IST: "Pod 1 powered off during v46.0 deploy"
+- Current `deploy-all-pods.sh`: no pre-flight, no post-verify, exit 0 on silent skip
+
+**Priority:** Medium — not actively breaking prod (Pod 1 still runs a working older build), but every future deploy has the same blind spot. Should be done before the next major fleet rollout.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ---
 
 ## v47.0 Admin Dashboard Venue-Ready Hardening
