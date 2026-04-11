@@ -479,6 +479,35 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // ─── Phase 365: AI behavior samples (GLD-E-01) ──────────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ai_behavior_samples (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL DEFAULT 'assettocorsa',
+            car TEXT NOT NULL,
+            track TEXT NOT NULL,
+            ai_level INTEGER NOT NULL,
+            difficulty_tier TEXT NOT NULL,
+            lap_count INTEGER NOT NULL,
+            median_lap_ms INTEGER NOT NULL,
+            p25_lap_ms INTEGER,
+            p75_lap_ms INTEGER,
+            sampled_at TEXT NOT NULL DEFAULT (datetime('now')),
+            kb_batch_id TEXT
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_behavior_samples_combo ON ai_behavior_samples(car, track, difficulty_tier)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ai_behavior_samples_sampled ON ai_behavior_samples(sampled_at)")
+        .execute(pool)
+        .await?;
+
     // ─── Phase 283: Billing audit log (immutable, append-only) ─────────────
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS billing_audit_log (
@@ -4057,7 +4086,23 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
-    tracing::info!("Phase 363+364 schema migrated");
+    // Phase 365 kill switch — MMA batch (weekly KB generation)
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('phase365_mma_batch', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
+    // Phase 365 kill switch — anomaly detection at session end
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('phase365_anomaly_detection', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
+    tracing::info!("Phase 363+364+365 schema migrated");
 
     tracing::info!("Database migrations complete");
     Ok(())
@@ -4731,6 +4776,64 @@ mod phase363_migration_tests {
             Some(1),
             "phase364_quality_monitor flag missing or not enabled=1"
         );
+    }
+
+    /// Test 3c: phase365_mma_batch feature flag seeded with enabled=1.
+    #[tokio::test]
+    async fn test_phase365_mma_batch_flag_seeded() {
+        let (pool, path) = test_pool().await;
+        let enabled: Option<i64> = sqlx::query_scalar(
+            "SELECT enabled FROM feature_flags WHERE name = 'phase365_mma_batch'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            enabled,
+            Some(1),
+            "phase365_mma_batch flag missing or not enabled=1"
+        );
+    }
+
+    /// Test 3d: phase365_anomaly_detection feature flag seeded with enabled=1.
+    #[tokio::test]
+    async fn test_phase365_anomaly_detection_flag_seeded() {
+        let (pool, path) = test_pool().await;
+        let enabled: Option<i64> = sqlx::query_scalar(
+            "SELECT enabled FROM feature_flags WHERE name = 'phase365_anomaly_detection'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            enabled,
+            Some(1),
+            "phase365_anomaly_detection flag missing or not enabled=1"
+        );
+    }
+
+    /// Test 3e: ai_behavior_samples table exists with correct columns.
+    #[tokio::test]
+    async fn test_phase365_ai_behavior_samples_table() {
+        let (pool, path) = test_pool().await;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ai_behavior_samples'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        assert_eq!(count, 1, "ai_behavior_samples table not found");
+
+        let cols = column_names(&pool, "ai_behavior_samples").await;
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert!(cols.contains(&"median_lap_ms".to_string()), "Missing median_lap_ms column");
+        assert!(cols.contains(&"difficulty_tier".to_string()), "Missing difficulty_tier column");
+        assert!(cols.contains(&"kb_batch_id".to_string()), "Missing kb_batch_id column");
     }
 
     /// Test 4: migration is idempotent — running migrate() twice must not error.

@@ -1610,6 +1610,81 @@ pub async fn collect_results(
         group_session_id,
     );
 
+    // Phase 365 GLD-E-01: Collect AI behavior samples
+    {
+        let config_json: Option<String> = sqlx::query_scalar(
+            "SELECT config_json FROM sessions WHERE id = ?",
+        )
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let ai_level_for_session = config_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+            .and_then(|v| v.get("ai_level").and_then(|a| a.as_u64()))
+            .map(|v| v as u32);
+
+        if let Some(ai_lvl) = ai_level_for_session {
+            // Get car and track from the AC server instance config
+            let (config_car, config_track) = {
+                let instances = state.ac_server.instances.read().await;
+                instances.get(session_id).map(|inst| {
+                    let car = inst.config.cars.first().cloned().unwrap_or_default();
+                    let track = inst.config.track.clone();
+                    (car, track)
+                }).unwrap_or_default()
+            };
+
+            if !config_car.is_empty() && !config_track.is_empty() {
+                let flags_snapshot = {
+                    state.feature_flags.read().await.clone()
+                };
+                // Use first assigned pod_id from members, or group_session_id as fallback
+                let pod_id = members.first().map(|(_, p)| p.clone().unwrap_or_default()).unwrap_or_default();
+                crate::ai_behavior_batch::collect_ai_behavior_samples(
+                    &state.db,
+                    session_id,
+                    &pod_id,
+                    &config_car,
+                    &config_track,
+                    ai_lvl,
+                    &results,
+                    &flags_snapshot,
+                ).await;
+
+                // Phase 365 GLD-E-04: Check for AI behavior anomaly
+                let ai_laps: Vec<i64> = results
+                    .iter()
+                    .filter(|e| e.guid.is_empty() && e.best_lap_ms.unwrap_or(0) > 0 && e.laps_completed >= 3)
+                    .filter_map(|e| e.best_lap_ms)
+                    .collect();
+                if !ai_laps.is_empty() {
+                    let mut sorted = ai_laps.clone();
+                    sorted.sort_unstable();
+                    let mid = sorted.len() / 2;
+                    let median = if sorted.len() % 2 == 0 {
+                        (sorted[mid - 1] + sorted[mid]) / 2
+                    } else {
+                        sorted[mid]
+                    };
+                    crate::ai_behavior_batch::check_and_broadcast_anomaly(
+                        state,
+                        session_id,
+                        &pod_id,
+                        &config_car,
+                        &config_track,
+                        ai_lvl,
+                        median,
+                        ai_laps.len() as u32,
+                    ).await;
+                }
+            }
+        }
+    }
+
     Ok(results)
 }
 
