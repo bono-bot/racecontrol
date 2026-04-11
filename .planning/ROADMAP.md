@@ -1167,7 +1167,7 @@ Plans:
 5. `/settings/health` page tiles update live
 
 **Plans:**
-- [ ] 354-01-PLAN — Close remaining skeleton gaps (4), replace alert() with toast (15), empty states
+- [x] 354-01-PLAN — Close remaining skeleton gaps (4), replace alert() with toast (15), empty states
 
 ### Phase 355: Venue-Ready Readiness Review
 
@@ -1303,8 +1303,8 @@ Plans:
 4. Admin `/admin/content-drift` lists pods with inventory drift
 
 **Plans:**
-- [ ] 361-01-PLAN — Server inventory endpoint + validity gate
-- [ ] 361-02-PLAN — Kiosk filter + presetValidity surface
+2/3 plans executed
+- [x] 361-02-PLAN — Kiosk filter + presetValidity surface
 - [ ] 361-03-PLAN — Admin content-drift page + nyquist tests
 
 ### Phase 362: Post-Launch Config Verification (Layer 3) — SHIPPED 2026-04-09

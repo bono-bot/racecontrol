@@ -1,89 +1,922 @@
+warning: constant `IDEMPOTENCY_CLEANUP_THRESHOLD` is never used
+   --> crates\rc-common\src\safety.rs:362:7
+    |
+362 | const IDEMPOTENCY_CLEANUP_THRESHOLD: usize = 500;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
-running 722 tests
+warning: `rc-common` (lib) generated 1 warning
+warning: unused import: `SessionEnforcer`
+  --> crates\rc-agent\src\ws_handler.rs:20:47
+   |
+20 | use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
+   |                                               ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `AiDebuggerConfig as _RcCommonAiDebuggerConfig`, `default_core_url`, `default_sim`, `default_telemetry_ports`, `default_wheelbase_pid`, and `default_wheelbase_vid`
+  --> crates\rc-agent\src\config.rs:14:18
+   |
+14 |     AgentConfig, AiDebuggerConfig as _RcCommonAiDebuggerConfig, CoreConfig, GameExeConfig,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+17 |     default_auto_end_orphan_session_secs, default_core_url, default_sim, default_sim_ip,
+   |                                           ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+18 |     default_sim_port, default_telemetry_ports, default_wheelbase_pid, default_wheelbase_vid,
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+   --> crates\rc-agent\src\diagnostic_engine.rs:430:9
+    |
+430 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Pid`
+   --> crates\rc-agent\src\diagnostic_engine.rs:464:46
+    |
+464 |     use sysinfo::{System, ProcessesToUpdate, Pid};
+    |                                              ^^^
+
+warning: unused import: `Win32::Graphics::Dxgi::Common::*`
+  --> crates\rc-agent\src\dxgi_capture.rs:15:5
+   |
+15 |     Win32::Graphics::Dxgi::Common::*,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused attribute `allow`
+  --> crates\rc-agent\src\kb_hardening.rs:97:9
+   |
+97 |         #[allow(unreachable_code)]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `tracing::info`
+  --> crates\rc-agent\src\kb_hardening.rs:98:9
+   |
+98 |         tracing::info!(target: LOG_TARGET, "KB hardening promoter exiting");
+   |         ^^^^^^^^^^^^^
+   = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::knowledge_base::KB_PATH`
+  --> crates\rc-agent\src\kb_promotion_store.rs:18:5
+   |
+18 | use crate::knowledge_base::KB_PATH;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CreateSolidBrush` and `DeleteObject`
+   --> crates\rc-agent\src\native_lock\painter.rs:359:30
+    |
+359 |     use winapi::um::wingdi::{CreateSolidBrush, DeleteObject};
+    |                              ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `BitBlt`
+   --> crates\rc-agent\src\native_lock\painter.rs:894:9
+    |
+894 |         BitBlt, CreateCompatibleDC, DeleteDC, SelectObject, SetStretchBltMode, StretchBlt,
+    |         ^^^^^^
+
+warning: unused import: `font::LockGdiResources`
+  --> crates\rc-agent\src\native_lock\mod.rs:19:9
+   |
+19 | pub use font::LockGdiResources;
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `keyboard::PinInputState`
+  --> crates\rc-agent\src\native_lock\mod.rs:20:9
+   |
+20 | pub use keyboard::PinInputState;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::knowledge_base::KB_PATH`
+  --> crates\rc-agent\src\mma_cache.rs:15:5
+   |
+15 | use crate::knowledge_base::KB_PATH;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused attribute `allow`
+   --> crates\rc-agent\src\revenue_protection.rs:135:9
+    |
+135 |         #[allow(unreachable_code)]
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `tracing::error`
+   --> crates\rc-agent\src\revenue_protection.rs:136:9
+    |
+136 |         tracing::error!(target: LOG_TARGET, "Revenue protection monitor exited unexpectedly");
+    |         ^^^^^^^^^^^^^^
+
+warning: unused import: `winapi::shared::minwindef::*`
+   --> crates\rc-agent\src\off_track_blanking.rs:118:9
+    |
+118 |     use winapi::shared::minwindef::*;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable statement
+  --> crates\rc-agent\src\kb_hardening.rs:98:9
+   |
+88 | /         loop {
+89 | |             tokio::time::sleep(std::time::Duration::from_secs(CRON_INTERVAL_SECS)).await;
+90 | |
+91 | |             if let Err(e) = run_promotion_cycle(&fleet_tx, &node_id, &promo_store) {
+...  |
+94 | |         }
+   | |_________- any code following this expression is unreachable
+...
+98 |           tracing::info!(target: LOG_TARGET, "KB hardening promoter exiting");
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+   = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `tracing::info` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unreachable statement
+   --> crates\rc-agent\src\revenue_protection.rs:136:9
+    |
+ 50 | /         loop {
+ 51 | |             interval.tick().await;
+ 52 | |
+ 53 | |             let state = state_rx.borrow().clone();
+...   |
+132 | |         }
+    | |_________- any code following this expression is unreachable
+...
+136 |           tracing::error!(target: LOG_TARGET, "Revenue protection monitor exited unexpectedly");
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: this warning originates in the macro `$crate::event` which comes from the expansion of the macro `tracing::error` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+   --> crates\rc-agent\src\ac_launcher.rs:570:25
+    |
+570 |                     let mut lines: Vec<&str> = content.lines().collect();
+    |                         ----^^^^^
+    |                         |
+    |                         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `config`
+   --> crates\rc-agent\src\ai_debugger.rs:625:35
+    |
+625 | async fn check_audit_known_issues(config: &AiDebuggerConfig, error_context: &str) -> Option<String> {
+    |                                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base`
+   --> crates\rc-agent\src\ai_debugger.rs:573:9
+    |
+573 |     let base = config.ollama_url.replace("/api/chat", ""); // ollama_url is separate, use core URL pattern
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_base`
+
+warning: unused variable: `pod_id`
+   --> crates\rc-agent\src\content_scanner.rs:219:51
+    |
+219 | fn scan_single_steam_library(library_root: &Path, pod_id: &str) -> Vec<InstalledGame> {
+    |                                                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_pod_id`
+
+warning: unused variable: `pod_id`
+   --> crates\rc-agent\src\content_scanner.rs:361:29
+    |
+361 | pub fn scan_non_steam_games(pod_id: &str) -> Vec<InstalledGame> {
+    |                             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_pod_id`
+
+warning: unused variable: `ac_dir`
+   --> crates\rc-agent\src\game_doctor.rs:144:9
+    |
+144 |     let ac_dir = ac_dir.expect("checked above");
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_ac_dir`
+
+warning: unused variable: `pin_dots`
+   --> crates\rc-agent\src\native_lock\painter.rs:218:5
+    |
+218 |     pin_dots: &str,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pin_dots`
+
+warning: unused variable: `diag`
+   --> crates\rc-agent\src\mma_engine.rs:707:17
+    |
+707 |     if let Some(ref diag) = response.diagnosis {
+    |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_diag`
+
+warning: value assigned to `fleet_result_found` is never read
+    --> crates\rc-agent\src\tier_engine.rs:1542:25
+     |
+1542 |                         fleet_result_found = true;
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base`
+    --> crates\rc-agent\src\main.rs:1974:25
+     |
+1974 |                     let base = state.config.core.url.trim_end_matches('/');
+     |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_base`
+
+warning: function `connect_with_tls_config` is never used
+   --> crates\rc-agent\src\main.rs:336:10
+    |
+336 | async fn connect_with_tls_config(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `record_spend_with_tier` is never used
+   --> crates\rc-agent\src\budget_tracker.rs:250:12
+    |
+ 69 | impl BudgetTracker {
+    | ------------------ method in this implementation
+...
+250 |     pub fn record_spend_with_tier(&mut self, actual_cost: f64, tier: u8) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `pending_csv_lap_count` is never used
+  --> crates\rc-agent\src\csv_lap_fallback.rs:73:8
+   |
+73 | pub fn pending_csv_lap_count() -> usize {
+   |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `clear_csv_laps` is never used
+  --> crates\rc-agent\src\csv_lap_fallback.rs:85:8
+   |
+85 | pub fn clear_csv_laps() {
+   |        ^^^^^^^^^^^^^^
+
+warning: function `is_cache_populated` is never used
+  --> crates\rc-agent\src\content_scanner.rs:77:8
+   |
+77 | pub fn is_cache_populated() -> bool {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `make_install_dir` is never used
+    --> crates\rc-agent\src\ffb_controller.rs:1529:8
+     |
+1529 |     fn make_install_dir(base: &std::path::Path) {
+     |        ^^^^^^^^^^^^^^^^
+
+warning: function `make_runtime_dir` is never used
+    --> crates\rc-agent\src\ffb_controller.rs:1543:8
+     |
+1543 |     fn make_runtime_dir(base: &std::path::Path) -> std::path::PathBuf {
+     |        ^^^^^^^^^^^^^^^^
+
+warning: variants `RaceIniMissing`, `TrackConfigMissing`, `ContentManagerHung`, and `AcConfigDirMissing` are never constructed
+  --> crates\rc-agent\src\game_doctor.rs:58:5
+   |
+54 | pub enum GameFailureCause {
+   |          ---------------- variants in this enum
+...
+58 |     RaceIniMissing,
+   |     ^^^^^^^^^^^^^^
+...
+66 |     TrackConfigMissing { track_id: String, config: String },
+   |     ^^^^^^^^^^^^^^^^^^
+67 |     /// Content Manager stuck on error dialog (process alive, acs.exe not spawned)
+68 |     ContentManagerHung,
+   |     ^^^^^^^^^^^^^^^^^^
+...
+76 |     AcConfigDirMissing,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `GameFailureCause` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: constant `LOG_TARGET` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:17:7
+   |
+17 | const LOG_TARGET: &str = "game-launch-retry";
+   |       ^^^^^^^^^^
+
+warning: constant `MAX_RETRY_ATTEMPTS` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:18:7
+   |
+18 | const MAX_RETRY_ATTEMPTS: u32 = 2;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `BACKOFF_SECS` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:19:7
+   |
+19 | const BACKOFF_SECS: u64 = 5;
+   |       ^^^^^^^^^^^^
+
+warning: constant `TOTAL_TIMEOUT_SECS` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:20:7
+   |
+20 | const TOTAL_TIMEOUT_SECS: u64 = 60;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: enum `RetryResult` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:24:10
+   |
+24 | pub enum RetryResult {
+   |          ^^^^^^^^^^^
+
+warning: function `retry_game_launch` is never used
+  --> crates\rc-agent\src\game_launch_retry.rs:44:8
+   |
+44 | pub fn retry_game_launch() -> RetryResult {
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: function `is_shadow_mode` is never used
+   --> crates\rc-agent\src\kb_hardening.rs:383:8
+    |
+383 | pub fn is_shadow_mode(kb: &KnowledgeBase, problem_hash: &str) -> bool {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `is_canary_mode` is never used
+   --> crates\rc-agent\src\kb_hardening.rs:390:8
+    |
+390 | pub fn is_canary_mode(kb: &KnowledgeBase, problem_hash: &str) -> bool {
+    |        ^^^^^^^^^^^^^^
+
+warning: method `lookup_by_hash` is never used
+   --> crates\rc-agent\src\knowledge_base.rs:759:12
+    |
+ 72 | impl KnowledgeBase {
+    | ------------------ method in this implementation
+...
+759 |     pub fn lookup_by_hash(&self, problem_hash: &str) -> anyhow::Result<Option<Solution>> {
+    |            ^^^^^^^^^^^^^^
+
+warning: methods `get_promotion_status` and `record_node_outcome` are never used
+    --> crates\rc-agent\src\knowledge_base.rs:1080:12
+     |
+1010 | impl KnowledgeBase {
+     | ------------------ methods in this implementation
+...
+1080 |     pub fn get_promotion_status(&self, problem_hash: &str) -> Option<String> {
+     |            ^^^^^^^^^^^^^^^^^^^^
+...
+1101 |     pub fn record_node_outcome(&self, problem_hash: &str, node_id: &str, success: bool) -> anyhow::Result<()> {
+     |            ^^^^^^^^^^^^^^^^^^^
+
+warning: methods `destroy` and `request_show` are never used
+   --> crates\rc-agent\src\native_lock\mod.rs:100:12
+    |
+ 40 | impl NativeLockScreen {
+    | --------------------- methods in this implementation
+...
+100 |     pub fn destroy(&self) {
+    |            ^^^^^^^
+...
+144 |     pub fn request_show(&self) {
+    |            ^^^^^^^^^^^^
+
+warning: associated function `gate_g1_outcome_verification_with_evidence` is never used
+   --> crates\rc-agent\src\cognitive_gate.rs:238:12
+    |
+ 39 | impl CgpEngine {
+    | -------------- associated function in this implementation
+...
+238 |     pub fn gate_g1_outcome_verification_with_evidence(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `block_step` is never used
+   --> crates\rc-agent\src\diagnosis_planner.rs:113:12
+    |
+ 22 | impl DiagnosisPlanner {
+    | --------------------- associated function in this implementation
+...
+113 |     pub fn block_step(plan: &mut DiagnosisPlan, step_id: u8, reason: &str) {
+    |            ^^^^^^^^^^
+
+warning: function `tier3_diagnose` is never used
+   --> crates\rc-agent\src\openrouter.rs:659:14
+    |
+659 | pub async fn tier3_diagnose(client: &reqwest::Client, api_key: &str, symptoms: &str) -> ModelResponse {
+    |              ^^^^^^^^^^^^^^
+
+warning: constant `BAR_WIDTH` is never used
+  --> crates\rc-agent\src\overlay.rs:18:7
+   |
+18 | const BAR_WIDTH: i32 = 1920;
+   |       ^^^^^^^^^
+
+warning: constant `REPAINT_INTERVAL_MS` is never used
+  --> crates\rc-agent\src\overlay.rs:20:7
+   |
+20 | const REPAINT_INTERVAL_MS: u32 = 200;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `TIMER_ID` is never used
+  --> crates\rc-agent\src\overlay.rs:22:7
+   |
+22 | const TIMER_ID: usize = 1;
+   |       ^^^^^^^^
+
+warning: fields `sector1_ms`, `sector2_ms`, and `sector3_ms` are never read
+  --> crates\rc-agent\src\overlay.rs:30:5
+   |
+28 | struct LapRecord {
+   |        --------- fields in this struct
+29 |     lap_time_ms: u32,
+30 |     sector1_ms: Option<u32>,
+   |     ^^^^^^^^^^
+31 |     sector2_ms: Option<u32>,
+   |     ^^^^^^^^^^
+32 |     sector3_ms: Option<u32>,
+   |     ^^^^^^^^^^
+   |
+   = note: `LapRecord` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `allocated_seconds` is never read
+  --> crates\rc-agent\src\overlay.rs:44:5
+   |
+39 | struct OverlayData {
+   |        ----------- field in this struct
+...
+44 |     allocated_seconds: u32,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `OverlayData` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `GdiResources` is never constructed
+   --> crates\rc-agent\src\overlay.rs:142:8
+    |
+142 | struct GdiResources {
+    |        ^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\rc-agent\src\overlay.rs:161:15
+    |
+159 | impl GdiResources {
+    | ----------------- associated function in this implementation
+160 |     /// Create all cached GDI handles. Must be called from the window thread.
+161 |     unsafe fn new() -> Self {
+    |               ^^^
+
+warning: struct `TempBrush` is never constructed
+   --> crates\rc-agent\src\overlay.rs:211:8
+    |
+211 | struct TempBrush(winapi::shared::windef::HBRUSH);
+    |        ^^^^^^^^^
+
+warning: associated items `new` and `handle` are never used
+   --> crates\rc-agent\src\overlay.rs:215:8
+    |
+214 | impl TempBrush {
+    | -------------- associated items in this implementation
+215 |     fn new(color: u32) -> Self {
+    |        ^^^
+...
+218 |     fn handle(&self) -> winapi::shared::windef::HBRUSH {
+    |        ^^^^^^
+
+warning: trait `HudComponent` is never used
+   --> crates\rc-agent\src\overlay.rs:234:7
+    |
+234 | trait HudComponent {
+    |       ^^^^^^^^^^^^
+
+warning: struct `SessionTimerSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:246:8
+    |
+246 | struct SessionTimerSection;
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `CurrentLapSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:348:8
+    |
+348 | struct CurrentLapSection;
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: struct `GearSpeedSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:426:8
+    |
+426 | struct GearSpeedSection;
+    |        ^^^^^^^^^^^^^^^^
+
+warning: struct `PrevLapSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:469:8
+    |
+469 | struct PrevLapSection;
+    |        ^^^^^^^^^^^^^^
+
+warning: struct `BestLapSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:521:8
+    |
+521 | struct BestLapSection;
+    |        ^^^^^^^^^^^^^^
+
+warning: struct `LapCounterSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:564:8
+    |
+564 | struct LapCounterSection;
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: struct `RpmBarSection` is never constructed
+   --> crates\rc-agent\src\overlay.rs:615:8
+    |
+615 | struct RpmBarSection;
+    |        ^^^^^^^^^^^^^
+
+warning: method `paint` is never used
+   --> crates\rc-agent\src\overlay.rs:619:8
+    |
+618 | impl RpmBarSection {
+    | ------------------ method in this implementation
+619 |     fn paint(
+    |        ^^^^^
+
+warning: struct `HudRenderer` is never constructed
+   --> crates\rc-agent\src\overlay.rs:657:8
+    |
+657 | struct HudRenderer {
+    |        ^^^^^^^^^^^
+
+warning: associated items `new` and `paint_all` are never used
+   --> crates\rc-agent\src\overlay.rs:664:8
+    |
+663 | impl HudRenderer {
+    | ---------------- associated items in this implementation
+664 |     fn new() -> Self {
+    |        ^^^
+...
+679 |     unsafe fn paint_all(
+    |               ^^^^^^^^^
+
+warning: constant `GDI_CHECK_INTERVAL` is never used
+   --> crates\rc-agent\src\overlay.rs:761:7
+    |
+761 | const GDI_CHECK_INTERVAL: u32 = 300;
+    |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `GDI_DRIFT_THRESHOLD` is never used
+   --> crates\rc-agent\src\overlay.rs:764:7
+    |
+764 | const GDI_DRIFT_THRESHOLD: u32 = 5;
+    |       ^^^^^^^^^^^^^^^^^^^
+
+warning: function `gdi_handle_count` is never used
+   --> crates\rc-agent\src\overlay.rs:768:4
+    |
+768 | fn gdi_handle_count() -> u32 {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: struct `WindowState` is never constructed
+   --> crates\rc-agent\src\overlay.rs:780:8
+    |
+780 | struct WindowState {
+    |        ^^^^^^^^^^^
+
+warning: field `window_thread` is never read
+   --> crates\rc-agent\src\overlay.rs:796:5
+    |
+791 | pub struct OverlayManager {
+    |            -------------- field in this struct
+...
+796 |     window_thread: Option<std::thread::JoinHandle<()>>,
+    |     ^^^^^^^^^^^^^
+
+warning: methods `open_window` and `close_window` are never used
+    --> crates\rc-agent\src\overlay.rs:1028:8
+     |
+ 799 | impl OverlayManager {
+     | ------------------- methods in this implementation
+...
+1028 |     fn open_window(&mut self) {
+     |        ^^^^^^^^^^^
+...
+1042 |     fn close_window(&mut self) {
+     |        ^^^^^^^^^^^^
+
+warning: function `win32_window_loop` is never used
+    --> crates\rc-agent\src\overlay.rs:1067:4
+     |
+1067 | fn win32_window_loop(state: Arc<Mutex<OverlayData>>, hwnd_slot: Arc<Mutex<Option<isize>>>) {
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `wnd_proc` is never used
+    --> crates\rc-agent\src\overlay.rs:1179:27
+     |
+1179 | unsafe extern "system" fn wnd_proc(
+     |                           ^^^^^^^^
+
+warning: function `paint_hud` is never used
+    --> crates\rc-agent\src\overlay.rs:1269:11
+     |
+1269 | unsafe fn paint_hud(
+     |           ^^^^^^^^^
+
+warning: function `create_font` is never used
+    --> crates\rc-agent\src\overlay.rs:1316:11
+     |
+1316 | unsafe fn create_font(
+     |           ^^^^^^^^^^^
+
+warning: function `draw_text_at` is never used
+    --> crates\rc-agent\src\overlay.rs:1351:11
+     |
+1351 | unsafe fn draw_text_at(
+     |           ^^^^^^^^^^^^
+
+warning: function `GetGuiResources` is never used
+   --> crates\rc-agent\src\overlay.rs:771:12
+    |
+771 |         fn GetGuiResources(hProcess: winapi::shared::ntdef::HANDLE, uiFlags: u32) -> u32;
+    |            ^^^^^^^^^^^^^^^
+
+warning: constant `MAX_SAMPLES` is never used
+  --> crates\rc-agent\src\predictive_maintenance.rs:26:7
+   |
+26 | const MAX_SAMPLES: usize = 288;
+   |       ^^^^^^^^^^^
+
+warning: variants `StabilityDegrading` and `ErrorSpike` are never constructed
+  --> crates\rc-agent\src\predictive_maintenance.rs:67:5
+   |
+63 | pub enum PredAlertType {
+   |          ------------- variants in this enum
+...
+67 |     StabilityDegrading,
+   |     ^^^^^^^^^^^^^^^^^^
+68 |     DiskSpaceLow,
+69 |     ErrorSpike,
+   |     ^^^^^^^^^^
+   |
+   = note: `PredAlertType` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `start_checked_with_tls` is never used
+   --> crates\rc-agent\src\remote_ops.rs:422:8
+    |
+422 | pub fn start_checked_with_tls(
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `start_checked_tls_inner` is never used
+   --> crates\rc-agent\src\remote_ops.rs:435:4
+    |
+435 | fn start_checked_tls_inner(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `spawn_tasklist_fallback` is never used
+   --> crates\rc-agent\src\safe_mode.rs:220:8
+    |
+220 | pub fn spawn_tasklist_fallback() -> mpsc::Receiver<String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `CREATE_NO_WINDOW` is never used
+  --> crates\rc-agent\src\self_heal.rs:14:7
+   |
+14 | const CREATE_NO_WINDOW: u32 = 0x08000000;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: field `scan_failed` is never read
+  --> crates\rc-agent\src\process_guard.rs:51:9
+   |
+46 | pub struct ScanResult {
+   |            ---------- field in this struct
+...
+51 |     pub scan_failed: bool,
+   |         ^^^^^^^^^^^
+
+warning: function `get_all_model_stats` is never used
+  --> crates\rc-agent\src\mma_engine.rs:90:8
+   |
+90 | pub fn get_all_model_stats() -> Vec<(String, f64, u32)> {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Frontend` and `Hardware` are never constructed
+   --> crates\rc-agent\src\mma_engine.rs:185:5
+    |
+183 | pub enum IssueDomain {
+    |          ----------- variants in this enum
+184 |     RustBackend,
+185 |     Frontend,
+    |     ^^^^^^^^
+...
+189 |     Hardware,
+    |     ^^^^^^^^
+    |
+    = note: `IssueDomain` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `racecontrol_ok` is never read
+   --> crates\rc-agent\src\mma_engine.rs:625:5
+    |
+623 | struct PreFlightResult {
+    |        --------------- field in this struct
+624 |     openrouter_ok: bool,
+625 |     racecontrol_ok: bool,
+    |     ^^^^^^^^^^^^^^
+    |
+    = note: `PreFlightResult` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: function `is_safe_mode_active` is never used
+    --> crates\rc-agent\src\mma_engine.rs:1716:8
+     |
+1716 | pub fn is_safe_mode_active() -> bool {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+warning: field `updated_at` is never read
+   --> crates\rc-agent\src\budget_tracker_store.rs:124:9
+    |
+119 | pub struct BudgetStateRow {
+    |            -------------- field in this struct
+...
+124 |     pub updated_at: String,
+    |         ^^^^^^^^^^
+    |
+    = note: `BudgetStateRow` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `build_id` and `created_at` are never read
+  --> crates\rc-agent\src\mma_cache.rs:32:9
+   |
+29 | pub struct CacheEntry {
+   |            ---------- fields in this struct
+...
+32 |     pub build_id: String,
+   |         ^^^^^^^^
+33 |     pub created_at: String,
+   |         ^^^^^^^^^^
+   |
+   = note: `CacheEntry` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `incident_id` is never read
+  --> crates\rc-agent\src\tier_engine.rs:39:9
+   |
+37 | pub struct StaffDiagnosticRequest {
+   |            ---------------------- field in this struct
+38 |     pub correlation_id: String,
+39 |     pub incident_id: String,
+   |         ^^^^^^^^^^^
+
+warning: variant `Stub` is never constructed
+  --> crates\rc-agent\src\tier_engine.rs:94:5
+   |
+86 | pub enum TierResult {
+   |          ---------- variant in this enum
+...
+94 |     Stub { tier: u8, note: &'static str },
+   |     ^^^^
+   |
+   = note: `TierResult` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `MmaDiagnosis` is never constructed
+   --> crates\rc-agent\src\tier_engine.rs:126:12
+    |
+126 | pub struct MmaDiagnosis {
+    |            ^^^^^^^^^^^^
+
+warning: field `elapsed_secs` is never read
+   --> crates\rc-agent\src\tier_engine.rs:166:9
+    |
+152 | pub struct VerifyEvidence {
+    |            -------------- field in this struct
+...
+166 |     pub elapsed_secs: u64,
+    |         ^^^^^^^^^^^^
+    |
+    = note: `VerifyEvidence` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_model_open` is never used
+   --> crates\rc-agent\src\tier_engine.rs:494:8
+    |
+488 | impl ModelCircuitBreakers {
+    | ------------------------- method in this implementation
+...
+494 |     fn is_model_open(&self, model_id: &str) -> bool {
+    |        ^^^^^^^^^^^^^
+
+warning: function `tier3_single_model` is never used
+    --> crates\rc-agent\src\tier_engine.rs:2631:10
+     |
+2631 | async fn tier3_single_model(event: &DiagnosticEvent) -> TierResult {
+     |          ^^^^^^^^^^^^^^^^^^
+
+warning: function `tier4_multi_model` is never used
+    --> crates\rc-agent\src\tier_engine.rs:2720:10
+     |
+2720 | async fn tier4_multi_model(event: &DiagnosticEvent) -> TierResult {
+     |          ^^^^^^^^^^^^^^^^^
+
+warning: field `ai_level` is never read
+  --> crates\rc-agent\src\sims\mod.rs:25:9
+   |
+13 | pub struct SessionConfig {
+   |            ------------- field in this struct
+...
+25 |     pub ai_level: Option<u32>,
+   |         ^^^^^^^^
+   |
+   = note: `SessionConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_visible` is never used
+  --> crates\rc-agent\src\off_track_blanking.rs:97:12
+   |
+26 | impl OffTrackBlanking {
+   | --------------------- method in this implementation
+...
+97 |     pub fn is_visible(&self) -> bool {
+   |            ^^^^^^^^^^
+
+warning: method `is_overlay_active` is never used
+   --> crates\rc-agent\src\off_track_detector.rs:115:12
+    |
+ 34 | impl OffTrackDetector {
+    | --------------------- method in this implementation
+...
+115 |     pub fn is_overlay_active(&self) -> bool {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: comparison is useless due to type limits
+   --> crates\rc-agent\src\inactivity_monitor.rs:110:17
+    |
+110 |         assert!(result.unwrap() >= 0);
+    |                 ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: `rc-agent-crate` (bin "rc-agent" test) generated 104 warnings (run `cargo fix --bin "rc-agent" -p rc-agent-crate --tests` to apply 23 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running unittests src\main.rs (target\debug\deps\rc_agent-bd1a7e31f1834923.exe)
+
+running 771 tests
 test ac_launcher::tests::dialog_processes_contains_required ... ok
 test ac_launcher::tests::test_ai_car_slot_default_ai_level ... ok
 test ac_launcher::tests::test_ai_car_slot_deserialization ... ok
-test ac_launcher::tests::test_ac_launch_params_default_session_type ... ok
 test ac_launcher::tests::test_ac_launch_params_hotlap_empty_ai ... ok
+test ac_launcher::tests::test_ac_launch_params_default_session_type ... ok
 test ac_launcher::tests::test_ac_launch_params_all_new_fields ... ok
 test ac_launcher::tests::test_ai_driver_names_pool_size ... ok
 test ac_launcher::tests::test_backward_compat_no_ai_level_field ... ok
-test ac_launcher::tests::test_effective_ai_cars_inherits_session_ai_level ... ok
-test ac_launcher::tests::test_kiosk_contract_multiplayer ... ok
 test ac_launcher::tests::test_cm_timeout_is_30s ... ok
+test ac_launcher::tests::test_effective_ai_cars_inherits_session_ai_level ... ok
+test ac_launcher::tests::test_deny_unknown_fields_rejects_drift ... ok
+test ac_launcher::tests::test_kiosk_contract_multiplayer ... ok
 test ac_launcher::tests::test_kiosk_contract_single_practice ... ok
-test ac_launcher::tests::test_kiosk_contract_race_weekend ... ok
 test ac_launcher::tests::test_explicit_ai_cars_override_ai_count ... ok
 test ac_launcher::tests::test_kiosk_contract_string_port_rejected ... ok
 test ac_launcher::tests::test_ai_count_zero_means_solo ... ok
-test ac_launcher::tests::test_ai_count_race_mode ... ok
+test ac_launcher::tests::test_kiosk_current_payload_deserializes ... ok
+test ac_launcher::tests::test_kiosk_contract_race_weekend ... ok
 test ac_launcher::tests::test_ai_count_generates_opponents_for_practice ... ok
-test ac_launcher::tests::test_kiosk_contract_weekend_split_session_clamp ... ok
+test ac_launcher::tests::test_pod8_pitlane_session_type_rejected ... ok
 test ac_launcher::tests::test_pick_ai_names_exact_count ... ok
+test ac_launcher::tests::test_ai_count_race_mode ... ok
 test ac_launcher::tests::test_pick_ai_names_zero ... ok
 test ac_launcher::tests::test_polling_helpers_callable ... ok
-test ac_launcher::tests::test_kiosk_launch_args_deserialization ... ok
-test ac_launcher::tests::test_ai_count_capped_at_max ... ok
 test ac_launcher::tests::test_send_ctrl_key_buffer_format ... ok
+test ac_launcher::tests::test_kiosk_contract_weekend_split_session_clamp ... ok
 test ac_launcher::tests::test_send_ctrl_key_vk_codes ... ok
 test ac_launcher::tests::test_send_ctrl_shift_key_buffer_format ... ok
+test ac_launcher::tests::test_ai_count_capped_at_max ... ok
 test ac_launcher::tests::test_tier_all_ordering ... ok
+test ac_launcher::tests::test_kiosk_launch_args_deserialization ... ok
+test ac_launcher::tests::test_race_ini_uses_session_ai_level ... ok
+test ac_launcher::tests::test_session_type_enum_contract_with_kiosk ... ok
 test ac_launcher::tests::test_tier_boundaries ... ok
 test ac_launcher::tests::test_tier_display_names ... ok
-test ac_launcher::tests::test_race_ini_uses_session_ai_level ... ok
 test ac_launcher::tests::test_tier_for_level_zero ... ok
 test ac_launcher::tests::test_tier_midpoints ... ok
 test ac_launcher::tests::test_tier_ranges ... ok
-test ac_launcher::tests::test_trackday_default_ai_inherits_session_ai_level ... ok
 test ac_launcher::tests::test_verify_safety_settings_passes ... ok
-test ac_launcher::tests::test_trackday_ai_count_zero_means_solo ... ok
 test ac_launcher::tests::test_verify_safety_settings_rejects_damage ... ok
+test ac_launcher::tests::test_trackday_default_ai_inherits_session_ai_level ... ok
 test ac_launcher::tests::test_verify_safety_settings_rejects_grip ... ok
 test ac_launcher::tests::test_wait_for_ac_process_progress_logging ... ok
+test ac_launcher::tests::test_trackday_ai_count_zero_means_solo ... ok
 test ac_launcher::tests::test_wait_for_ac_ready_no_process ... ok
 test ac_launcher::tests::test_wait_for_acs_exit_no_process ... ok
 test ac_launcher::tests::test_write_assists_ini_damage_always_zero ... ok
-test ac_launcher::tests::test_trackday_no_ai_count_gets_default_traffic ... ok
-test ac_launcher::tests::test_write_race_ini_damage_always_zero ... ok
 test ac_launcher::tests::test_write_race_ini_damage_always_zero_visual ... ok
-test ac_launcher::tests::test_write_race_ini_default_is_practice ... ok
+test ac_launcher::tests::test_write_race_ini_damage_always_zero ... ok
 test ac_launcher::tests::test_write_race_ini_grip_always_100 ... ok
-test ac_launcher::tests::test_write_race_ini_has_all_required_sections ... ok
+test ac_launcher::tests::test_trackday_no_ai_count_gets_default_traffic ... ok
+test ac_launcher::tests::test_write_race_ini_default_is_practice ... ok
 test ac_launcher::tests::test_write_race_ini_hotlap ... ok
 test ac_launcher::tests::test_write_race_ini_multi_remote_active ... ok
-test ac_launcher::tests::test_write_race_ini_practice ... ok
-test ac_launcher::tests::test_write_race_ini_practice_with_aids ... ok
+test ac_launcher::tests::test_write_race_ini_has_all_required_sections ... ok
 test ac_launcher::tests::test_write_race_ini_race_0_ai_cars1 ... ok
 test ac_launcher::tests::test_write_race_ini_no_phantom_ai ... ok
+test ac_launcher::tests::test_write_race_ini_practice ... ok
+test ac_launcher::tests::test_write_race_ini_practice_with_aids ... ok
+test ac_launcher::tests::test_write_race_ini_race_ai_level ... ok
+test ac_launcher::tests::test_write_race_ini_race_laps_zero ... ok
+test ac_launcher::tests::test_write_race_ini_race_ai_skin_empty ... ok
+test ac_launcher::tests::test_write_race_ini_race_formation_lap ... ok
 test ac_launcher::tests::test_write_race_ini_race_ai_model_and_name ... ok
 test ac_launcher::tests::test_write_race_ini_race_5_ai ... ok
-test ac_launcher::tests::test_write_race_ini_race_ai_level ... ok
-test ac_launcher::tests::test_write_race_ini_race_formation_lap ... ok
-test ac_launcher::tests::test_write_race_ini_race_ai_skin_empty ... ok
 test ac_launcher::tests::test_write_race_ini_race_starting_position ... ok
-test ac_launcher::tests::test_write_race_ini_race_19_ai_max ... ok
-test ac_launcher::tests::test_write_race_ini_race_laps_zero ... ok
 test ac_launcher::tests::test_write_race_ini_race_type3 ... ok
 test ac_launcher::tests::test_write_race_ini_solo_cars_count ... ok
-test ac_launcher::tests::test_write_race_ini_race_25_ai_clamped_to_19 ... ok
 test ac_launcher::tests::test_write_race_ini_trackday_explicit_ai ... ok
-test ac_launcher::tests::test_write_race_ini_weekend_insufficient_time ... ok
 test ac_launcher::tests::test_write_race_ini_weekend_3_sessions ... ok
-test ac_launcher::tests::test_write_race_ini_weekend_race_starting_position ... ok
-test ac_launcher::tests::test_write_race_ini_trackday_mixed_models ... ok
-test ac_launcher::tests::test_write_race_ini_weekend_skip_practice ... ok
-test ac_launcher::tests::test_write_race_ini_weekend_time_allocation ... ok
-test ai_debugger::tests::test_auto_fix_conspit_link_ignored ... ok
+test ac_launcher::tests::test_write_race_ini_race_19_ai_max ... ok
+test ac_launcher::tests::test_write_race_ini_race_25_ai_clamped_to_19 ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_insufficient_time ... ok
 test ac_launcher::tests::test_write_race_ini_trackday_ai_all_have_ai1 ... ok
 test ac_launcher::tests::test_write_race_ini_weekend_types ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_skip_practice ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_race_starting_position ... ok
+test ai_debugger::tests::test_auto_fix_conspit_link_ignored ... ok
+test ac_launcher::tests::test_write_race_ini_weekend_time_allocation ... ok
 test ac_launcher::tests::test_write_race_ini_trackday_default_ai ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_type1 ... ok
 test ac_launcher::tests::test_write_race_ini_weekend_with_ai ... ok
-test ai_debugger::tests::test_fix_frozen_game_no_billing_no_fix ... ok
+test ac_launcher::tests::test_write_race_ini_trackday_mixed_models ... ok
 test ai_debugger::tests::test_auto_fix_no_match ... ok
 test ai_debugger::tests::test_default_model_is_racing_point_ops ... ok
-test ai_debugger::tests::test_build_prompt_includes_snapshot ... ok
-test ac_launcher::tests::test_write_race_ini_trackday_type1 ... ok
 test ai_debugger::tests::test_fix_frozen_game_billing_gate ... ok
+test ai_debugger::tests::test_build_prompt_includes_snapshot ... ok
+test ai_debugger::tests::test_fix_frozen_game_no_billing_no_fix ... ok
 test ai_debugger::tests::test_fix_pattern_connection_refused_keyword ... ok
 test ai_debugger::tests::test_fix_pattern_d3d_keyword ... ok
 test ai_debugger::tests::test_fix_pattern_directx_keyword ... ok
@@ -117,21 +950,21 @@ test ai_debugger::tests::test_protected_processes_list ... ok
 test ai_debugger::tests::test_record_and_instant_fix_round_trip ... ok
 test ai_debugger::tests::test_record_fix_increments_existing ... ok
 test billing_guard::tests::bill02_does_not_fire_before_threshold ... ok
-test billing_guard::tests::bill02_anomaly_fires_after_60s ... ok
 test billing_guard::tests::bill02_suppressed_when_recovery_in_progress ... ok
+test billing_guard::tests::bill02_anomaly_fires_after_60s ... ok
 test billing_guard::tests::bill02_suppressed_when_billing_paused ... ok
 test billing_guard::tests::default_orphan_threshold_is_300s ... ok
 test billing_guard::tests::idle_drift_condition_driving_inactive ... ok
 test billing_guard::tests::idle_drift_suppressed_when_recovery_in_progress ... ok
 test billing_guard::tests::idle_threshold_is_300s ... ok
 test billing_guard::tests::no_stuck_session_when_billing_inactive ... ok
-test billing_guard::tests::bill03_no_drift_when_driving_active ... ok
 test billing_guard::tests::no_stuck_session_when_game_running ... ok
 test billing_guard::tests::orphan_condition_requires_billing_and_no_pid_and_not_paused ... ok
-test billing_guard::tests::bill03_idle_drift_fires_after_300s ... ok
 test billing_guard::tests::orphan_suppressed_when_billing_paused ... ok
 test billing_guard::tests::orphan_suppressed_when_recovery_in_progress ... ok
 test billing_guard::tests::stuck_session_condition_requires_billing_and_no_pid ... ok
+test billing_guard::tests::bill03_no_drift_when_driving_active ... ok
+test billing_guard::tests::bill03_idle_drift_fires_after_300s ... ok
 test billing_guard::tests::stuck_threshold_is_60s ... ok
 test budget_tracker::tests::test_can_spend_ceiling_hit ... ok
 test budget_tracker::tests::test_can_spend_reserve_protection ... ok
@@ -143,143 +976,178 @@ test budget_tracker::tests::test_record_spend_tracks_cost ... ok
 test budget_tracker::tests::test_remaining ... ok
 test budget_tracker::tests::test_status_ceiling_hit_flag ... ok
 test budget_tracker::tests::test_status_format ... ok
+test budget_tracker_store::tests::test_load_empty_returns_none ... ok
+test budget_tracker_store::tests::test_save_and_load ... ok
 test cognitive_gate::tests::g0_generates_valid_problem_definition ... ok
+test budget_tracker_store::tests::test_save_overwrites_previous ... ok
 test cognitive_gate::tests::g5_generates_two_plus_hypotheses ... ok
 test cognitive_gate::tests::g7_selects_correct_model_for_tier ... ok
+test cognitive_gate::tests::game_launch_timeout_cgp_gate_produces_problem_definition ... ok
 test cognitive_gate::tests::phase_a_fails_on_empty_trigger ... ok
 test cognitive_gate::tests::phase_d_never_blocks ... ok
 test config::process_guard_config_tests::process_guard_config_defaults ... ok
-test config::server_config_persistence_tests::hot_and_cold_fields_are_disjoint ... ok
 test config::process_guard_config_tests::process_guard_config_deser_enabled_false ... ok
 test config::process_guard_config_tests::agent_config_no_process_guard_section_deserializes ... ok
+test config::server_config_persistence_tests::hot_and_cold_fields_are_disjoint ... ok
 test config::server_config_persistence_tests::agent_config_json_roundtrip ... ok
-test config::tests::lenient_future_schema_version_loads ... ok
 test config::server_config_persistence_tests::load_returns_none_when_no_file ... ok
+test budget_tracker_store::tests::test_open_in_memory_succeeds ... ok
+test config::tests::lenient_future_schema_version_loads ... ok
 test config::tests::lenient_minimal_toml_works ... ok
 test config::tests::lenient_type_mismatch_falls_back_to_default ... ok
+test config::tests::lenient_unknown_field_warns_not_errors ... ok
 test config::tests::load_config_returns_err_when_no_file_exists ... ok
 test config::tests::reexported_types_accessible ... ok
-test config::tests::lenient_unknown_field_warns_not_errors ... ok
 test config::tests::test_config_search_paths_includes_cwd_fallback ... ok
 test config::tests::test_config_search_paths_includes_exe_dir ... ok
+test config::tests::test_load_config_error_lists_all_searched_paths ... ok
 test config::tests::validate_config_accepts_pod_number_1_and_8 ... ok
+test config::server_config_persistence_tests::persist_produces_valid_json_with_expected_keys ... ok
 test config::tests::validate_config_accepts_pod_number_9_for_pos ... ok
 test config::tests::validate_config_accepts_valid_config ... ok
 test config::tests::validate_config_accepts_wss_url ... ok
+test config::server_config_persistence_tests::persist_and_load_round_trip ... ok
 test config::tests::validate_config_rejects_empty_pod_name ... ok
-test config::tests::test_load_config_error_lists_all_searched_paths ... ok
 test config::tests::validate_config_rejects_empty_url ... ok
 test config::tests::validate_config_rejects_http_url ... ok
 test config::tests::validate_config_rejects_pod_number_100 ... ok
 test config::tests::validate_config_rejects_pod_number_zero ... ok
+test content_scanner::tests::test_build_game_inventory_pos_returns_empty ... ok
+test content_scanner::tests::test_build_game_inventory_deduplicates_by_game_id ... ok
+test content_scanner::tests::test_build_game_inventory_includes_metadata ... ok
 test content_scanner::tests::test_content_scanner_has_ai_false_when_missing ... ok
 test content_scanner::tests::test_content_scanner_has_ai_false_when_empty_dir ... ok
-test content_scanner::tests::test_content_scanner_has_ai_true_when_files_present ... ok
 test content_scanner::tests::test_content_scanner_has_ai_named_config ... ok
-test config::server_config_persistence_tests::persist_produces_valid_json_with_expected_keys ... ok
-test config::server_config_persistence_tests::persist_and_load_round_trip ... ok
+test content_scanner::tests::test_content_scanner_has_ai_true_when_files_present ... ok
 test content_scanner::tests::test_content_scanner_pit_count_from_string ... ok
+test content_scanner::tests::test_content_scanner_pit_count_none_when_missing_file ... ok
 test content_scanner::tests::test_content_scanner_pit_count_named_config_path ... ok
 test content_scanner::tests::test_content_scanner_scan_cars_missing_dir_returns_empty ... ok
-test content_scanner::tests::test_content_scanner_pit_count_none_when_missing_file ... ok
 test content_scanner::tests::test_content_scanner_pit_count_none_when_no_pitboxes_field ... ok
-test content_scanner::tests::test_content_scanner_scan_cars_skips_non_dirs_and_hidden ... ok
 test content_scanner::tests::test_content_scanner_scan_cars_returns_correct_ids ... ok
-test content_scanner::tests::test_content_scanner_skips_non_config_subfolders ... ok
+test content_scanner::tests::test_content_scanner_scan_cars_skips_non_dirs_and_hidden ... ok
+test budget_tracker_store::tests::test_persistence_survives_reopen ... ok
 test content_scanner::tests::test_content_scanner_scan_default_layout_track ... ok
+test content_scanner::tests::test_content_scanner_skips_non_config_subfolders ... ok
+test content_scanner::tests::test_parse_vdf_nonexistent_file_returns_empty ... ok
+test content_scanner::tests::test_parse_vdf_ignores_non_path_keys ... ok
+test content_scanner::tests::test_content_scanner_scan_ac_content_at_combines ... ok
+test content_scanner::tests::test_scan_non_steam_games_no_known_paths_returns_empty ... ok
+test content_scanner::tests::test_parse_vdf_only_default_path ... ok
+test content_scanner::tests::test_content_scanner_scan_multi_config_track ... ok
+test content_scanner::tests::test_scan_non_steam_games_with_exe_present ... ok
+test content_scanner::tests::test_parse_vdf_two_library_paths ... ok
+test content_scanner::tests::test_scan_steam_library_no_steamapps_returns_empty ... ok
+test content_scanner::tests::test_scan_steam_library_ac_no_exe_not_launchable ... ok
+test content_scanner::tests::test_scan_steam_library_finds_ac_by_appmanifest ... ok
+test content_scanner::tests::test_scan_steam_library_non_default_path ... ok
+test content_scanner::tests::test_validate_ac_combo_all_present_returns_available ... ok
+test content_scanner::tests::test_validate_ac_combo_missing_track_returns_invalid ... ok
+test content_scanner::tests::test_validate_ac_combo_checked_paths_contains_tested_paths ... ok
+test content_scanner::tests::test_validate_ac_combo_empty_ai_returns_invalid ... ok
+test content_scanner::tests::test_validate_ac_combos_empty_presets_returns_empty ... ok
+test content_scanner::tests::test_validate_ac_combo_no_ac_base_returns_game_not_installed ... ok
+test content_scanner::tests::test_validate_ac_combo_no_car_no_track_returns_available ... ok
+test content_scanner::tests::test_validate_ac_combo_missing_car_returns_invalid ... ok
+test csv_lap_fallback::csv_fallback_tests::test_no_push_when_empty ... ok
+test csv_lap_fallback::csv_fallback_tests::test_no_push_when_missing ... ok
+test csv_lap_fallback::tests::test_csv_escape_comma ... ok
+test content_scanner::tests::test_validate_ac_combos_skips_non_ac_presets ... ok
+test csv_lap_fallback::tests::test_csv_escape_plain ... ok
+test csv_lap_fallback::tests::test_csv_escape_quote ... ok
 test diagnosis_planner::tests::dependency_blocking ... ok
 test diagnosis_planner::tests::step_completion_tracking ... ok
 test diagnosis_planner::tests::tier3_plan_has_3_to_5_steps ... ok
+test driving_detector::tests::hid_active_transitions_to_active ... ok
 test diagnosis_planner::tests::tier4_plan_has_8_to_12_steps ... ok
 test driving_detector::tests::hid_disconnect_without_udp_goes_to_no_device ... ok
-test driving_detector::tests::hid_active_transitions_to_active ... ok
 test driving_detector::tests::initial_state_is_no_device ... ok
 test driving_detector::tests::input_active_detection ... ok
 test driving_detector::tests::last_udp_packet_elapsed_secs_none_before_first_packet ... ok
 test driving_detector::tests::last_udp_packet_elapsed_secs_some_after_udp_active ... ok
 test driving_detector::tests::stays_active_within_idle_threshold ... ok
+test csv_lap_fallback::csv_fallback_tests::test_no_clear_on_failure ... ok
 test driving_detector::tests::steering_movement_detection ... ok
 test driving_detector::tests::udp_active_transitions_to_active ... ok
 test eval_rollup::tests::test_compute_rollup_accuracy ... ok
 test eval_rollup::tests::test_compute_rollup_empty_input ... ok
-test eval_rollup::tests::test_compute_rollup_two_models ... ok
 test eval_rollup::tests::test_cost_per_correct_divide_by_zero_safe ... ok
+test eval_rollup::tests::test_compute_rollup_two_models ... ok
+test csv_lap_fallback::csv_fallback_tests::test_push_on_session_end ... ok
 test event_loop::tests::crash_recovery_state_attempt_2_triggers_auto_end ... ok
 test event_loop::tests::crash_recovery_state_paused_waiting_relaunch_attempt_1 ... ok
 test event_loop::tests::crash_recovery_state_starts_idle ... ok
 test event_loop::tests::test_crash_recovery_state_auto_end_pending_allows_exit_grace ... ok
-test event_loop::tests::test_crash_recovery_state_idle_allows_exit_grace ... ok
-test content_scanner::tests::test_content_scanner_scan_multi_config_track ... ok
 test eval_rollup::tests::test_rollup_store_open_migrates_schema ... ok
 test event_loop::tests::test_crash_recovery_state_paused_prevents_exit_grace ... ok
 test event_loop::tests::test_execute_ai_action_clear_temp_safe_mode_true_allowed ... ok
+test event_loop::tests::test_crash_recovery_state_idle_allows_exit_grace ... ok
 test event_loop::tests::test_execute_ai_action_kill_edge_safe_mode_false_ok ... ok
 test event_loop::tests::test_execute_ai_action_kill_edge_safe_mode_true_blocked ... ok
 test event_loop::tests::test_execute_ai_action_kill_game_safe_mode_true_blocked ... ok
 test event_loop::tests::test_execute_ai_action_relaunch_lock_screen_safe_mode_true_allowed ... ok
-test event_loop::tests::test_execute_ai_action_restart_rcagent_safe_mode_true_blocked ... ok
 test event_loop::tests::test_shm_connect_allowed_after_5s ... ok
-test content_scanner::tests::test_content_scanner_scan_ac_content_at_combines ... ok
+test event_loop::tests::test_execute_ai_action_restart_rcagent_safe_mode_true_blocked ... ok
 test event_loop::tests::test_force_clean_deserialization ... ok
-test event_loop::tests::test_shm_connect_not_allowed_before_5s ... ok
 test event_loop::tests::test_shm_connect_not_allowed_no_game ... ok
+test event_loop::tests::test_shm_connect_not_allowed_before_5s ... ok
 test event_loop::tests::test_udp_connect_requires_running_state ... ok
 test experience_score::tests::test_critical_removal ... ok
 test experience_score::tests::test_low_launch_rate_flags_maintenance ... ok
 test experience_score::tests::test_multiple_failures_maintenance ... ok
-test experience_score::tests::test_perfect_score ... ok
-test experience_score::tests::test_weights_sum_to_100 ... ok
 test experience_score::tests::test_zero_activity_is_healthy ... ok
 test failure_monitor::tests::crash01_no_freeze_below_udp_threshold ... ok
 test failure_monitor::tests::crash01_no_freeze_without_game_pid ... ok
 test failure_monitor::tests::crash01_udp_silence_triggers_freeze_condition ... ok
+test experience_score::tests::test_perfect_score ... ok
+test experience_score::tests::test_weights_sum_to_100 ... ok
 test failure_monitor::tests::crash02_launch_timeout_fires_after_90s ... ok
 test failure_monitor::tests::crash02_no_timeout_before_90s ... ok
-test failure_monitor::tests::crash02_no_timeout_when_game_pid_present ... ok
-test failure_monitor::tests::telem_gap_does_not_fire_below_60s_threshold ... ok
 test failure_monitor::tests::telem_gap_does_not_fire_when_billing_inactive ... ok
 test failure_monitor::tests::telem_gap_does_not_fire_when_game_pid_none ... ok
+test failure_monitor::tests::crash02_no_timeout_when_game_pid_present ... ok
 test failure_monitor::tests::telem_gap_fired_flag_prevents_duplicate_sends ... ok
+test failure_monitor::tests::telem_gap_does_not_fire_below_60s_threshold ... ok
 test failure_monitor::tests::telem_gap_fires_when_billing_active_game_pid_and_60s_silence ... ok
 test failure_monitor::tests::telem_gap_flag_resets_when_udp_resumes ... ok
 test failure_monitor::tests::test_failure_monitor_state_default ... ok
 test failure_monitor::tests::test_freeze_detection_not_triggered_below_threshold ... ok
-test failure_monitor::tests::test_freeze_detection_udp_silence_threshold ... ok
 test failure_monitor::tests::test_launch_timeout_does_not_fire_if_game_pid_present ... ok
+test failure_monitor::tests::test_freeze_detection_udp_silence_threshold ... ok
 test failure_monitor::tests::test_launch_timeout_fires_when_no_game_pid_after_90s ... ok
 test failure_monitor::tests::test_recovery_in_progress_suppresses_all_checks ... ok
 test failure_monitor::tests::test_usb_reconnect_condition_fires_when_prev_false_curr_true_billing ... ok
 test failure_monitor::tests::test_usb_reconnect_does_not_fire_when_billing_inactive ... ok
 test ffb_controller::tests::ffb_fxm_reset_clears_effects ... ok
-test feature_flags::tests::apply_http_response_updates_flag_enabled ... ok
 test ffb_controller::tests::ffb_set_gain_sends_valid_percent ... ok
+test feature_flags::tests::apply_http_response_updates_flag_enabled ... ok
 test ffb_controller::tests::ffb_set_idle_spring_sends_value ... ok
 test ffb_controller::tests::ffb_zero_force_device_absent ... ok
 test ffb_controller::tests::ffb_zero_force_hid_error ... ok
 test ffb_controller::tests::ffb_zero_force_success ... ok
-test ffb_controller::tests::ffb_zero_force_with_retry_all_attempts_fail ... ok
 test ffb_controller::tests::ffb_zero_force_with_retry_succeeds_first_attempt ... ok
+test ffb_controller::tests::ffb_zero_force_with_retry_all_attempts_fail ... ok
 test feature_flags::tests::fetch_from_server_applies_flags_from_http_response ... ok
 test ffb_controller::tests::test_config_file_list_complete ... ok
 test ffb_controller::tests::test_crash_count_increment ... ok
 test ffb_controller::tests::test_crash_count_starts_at_zero ... ok
-test ffb_controller::tests::test_backup_skips_corrupt_source ... ok
 test ffb_controller::tests::test_backup_copies_valid_source ... ok
-test ffb_controller::tests::test_ensure_auto_switch_config_impl_places_and_restarts_on_change ... ok
-test ffb_controller::tests::test_estop_still_uses_ffbwheel_class ... ok
-test ffb_controller::tests::test_ffb_controller_is_clone ... ok
-test ffb_controller::tests::test_ensure_auto_switch_config_impl_no_restart_when_nothing_changed ... ok
-test ffb_controller::tests::test_force_preset_via_global_json_missing_file ... ok
+test ffb_controller::tests::test_backup_skips_corrupt_source ... ok
 test ffb_controller::tests::test_ensure_auto_switch_creates_runtime_dir_if_missing ... ok
+test ffb_controller::tests::test_estop_still_uses_ffbwheel_class ... ok
+test ffb_controller::tests::test_ensure_auto_switch_config_impl_no_restart_when_nothing_changed ... ok
+test ffb_controller::tests::test_ffb_controller_is_clone ... ok
+test ffb_controller::tests::test_force_preset_via_global_json_missing_file ... ok
+test ffb_controller::tests::test_ensure_auto_switch_config_impl_places_and_restarts_on_change ... ok
 test ffb_controller::tests::test_fxm_reset_buffer_format ... ok
+test ffb_controller::tests::test_force_preset_via_global_json_writes_correctly ... ok
 test ffb_controller::tests::test_idlespring_buffer_format ... ok
 test ffb_controller::tests::test_idlespring_ramp_values ... ok
 test ffb_controller::tests::test_place_global_json_atomic_write_uses_tmp ... ok
 test ffb_controller::tests::test_place_global_json_creates_target_when_missing ... ok
-test ffb_controller::tests::test_force_preset_via_global_json_writes_correctly ... ok
-test ffb_controller::tests::test_place_global_json_noop_when_already_correct ... ok
-test ffb_controller::tests::test_power_cap_80_percent ... ok
 test ffb_controller::tests::test_place_global_json_forces_open_when_source_has_close ... ok
+test ffb_controller::tests::test_power_cap_80_percent ... ok
+test ffb_controller::tests::test_place_global_json_noop_when_already_correct ... ok
 test ffb_controller::tests::test_pre_load_recognized_game_writes_last_used_preset ... ok
 test ffb_controller::tests::test_session_end_guard_flag ... ok
 test ffb_controller::tests::test_set_gain_buffer_format ... ok
@@ -293,7 +1161,7 @@ test ffb_controller::tests::test_verify_corrupt_no_backup_returns_false ... ok
 test ffb_controller::tests::test_verify_game_to_base_config_adds_missing_key ... ok
 test ffb_controller::tests::test_verify_game_to_base_config_returns_false_when_all_keys_present ... ok
 test ffb_controller::tests::test_verify_valid_json ... ok
-test ai_debugger::tests::test_auto_fix_error_dialogs ... ok
+test ai_debugger::tests::test_auto_fix_usb_reconnect_dispatches ... ok
 test firewall::tests::test_build_delete_args_contains_required_fields ... ok
 test firewall::tests::test_build_icmp_args_contains_required_fields ... ok
 test firewall::tests::test_build_tcp_args_contains_required_fields ... ok
@@ -312,121 +1180,119 @@ test game_launch_retry::tests::test_hint_for_config_issues ... ok
 test game_launch_retry::tests::test_hint_for_disk_space ... ok
 test game_launch_retry::tests::test_hint_for_orphan_acs ... ok
 test game_process::tests::test_all_game_process_names_superset ... ok
-test ai_debugger::tests::test_auto_fix_launch_timeout_dispatches ... ok
-test ai_debugger::tests::test_kill_error_dialogs_extended ... ok
+test game_process::tests::test_clean_state_reset_clears_pid ... ok
 test game_process::tests::test_game_exe_config_default_is_empty ... ok
 test game_process::tests::test_game_exe_config_f1_25_steam ... ok
 test game_process::tests::test_game_exe_config_steam_launch_requires_app_id ... ok
 test game_process::tests::test_pre_launch_checks_maintenance_mode ... ok
 test game_process::tests::test_pre_launch_checks_ota_deploying ... ok
+test game_process::tests::test_pre_launch_checks_pass_in_test_env ... ok
 test game_process::tests::test_process_names_ac_evo_primary ... ok
 test game_process::tests::test_process_names_ac_rally ... ok
 test game_process::tests::test_process_names_exhaustive ... ok
 test game_process::tests::test_process_names_f1_25 ... ok
-test game_process::tests::test_clean_state_reset_clears_pid ... ok
 test game_process::tests::test_process_names_forza_horizon_5 ... ok
 test game_process::tests::test_shell_quote_args_json_array ... ok
 test game_process::tests::test_shell_quote_args_json_array_with_spaces ... ok
 test game_process::tests::test_shell_quote_args_plain_string_not_split ... ok
-test ai_debugger::tests::test_fix_launch_timeout_kills_both_cm_names ... ok
+test inactivity_monitor::tests::test_alert_is_one_shot_second_tick_returns_none ... ok
+test inactivity_monitor::tests::test_alert_resets_after_record_input ... ok
 test inactivity_monitor::tests::test_new_creates_monitor_with_threshold ... ok
 test inactivity_monitor::tests::test_record_input_resets_timer_and_clears_alert ... ok
-test ai_debugger::tests::test_auto_fix_usb_reconnect_dispatches ... ok
+test inactivity_monitor::tests::test_reset_clears_alert_state_for_new_session ... ok
 test inactivity_monitor::tests::test_tick_returns_none_while_below_threshold ... ok
-test inactivity_monitor::tests::test_alert_is_one_shot_second_tick_returns_none ... ok
 test inactivity_monitor::tests::test_tick_returns_some_after_threshold_exceeded ... ok
+test ai_debugger::tests::test_auto_fix_clean_temp ... ok
 test iracing_checks::tests::test_iracing_exe_names_present ... ok
-test game_process::tests::test_pre_launch_checks_pass_in_test_env ... ok
 test iracing_checks::tests::test_iracing_install_paths_present ... ok
+test iracing_checks::tests::test_iracing_error_message_is_human_readable ... ok
 test iracing_checks::tests::test_wait_for_iracing_window_non_fatal ... ok
 test kb_hardening::cron_integration_tests::test_canary_gate_blocks_non_canary_pods ... ok
 test kb_hardening::cron_integration_tests::test_cron_interval_is_6_hours ... ok
 test kb_hardening::cron_integration_tests::test_is_canary_pod_detection ... ok
 test kb_hardening::cron_integration_tests::test_promote_observed_to_shadow_upserts_store ... ok
 test kb_hardening::cron_integration_tests::test_shadow_gate_returns_log_only_for_shadow_stage ... ok
-test inactivity_monitor::tests::test_alert_resets_after_record_input ... ok
 test kb_hardening::cron_integration_tests::test_shadow_min_applications_threshold ... ok
 test kb_promotion_store::tests::test_candidates_at_stage_filter ... ok
 test kb_promotion_store::tests::test_data_survives_across_store_usage ... ok
 test kb_promotion_store::tests::test_open_in_memory_succeeds ... ok
+test ai_debugger::tests::test_fix_usb_reconnect_ffb_zero ... ok
 test kb_promotion_store::tests::test_record_shadow_application_increments ... ok
 test kb_promotion_store::tests::test_shadow_application_count ... ok
+test kb_promotion_store::tests::test_upsert_inserts_and_updates ... ok
 test kb_promotion_store::tests::test_update_stage_changes_stage ... ok
 test knowledge_base::tests::test_compute_problem_hash ... ok
-test kb_promotion_store::tests::test_upsert_inserts_and_updates ... ok
-test inactivity_monitor::tests::test_reset_clears_alert_state_for_new_session ... ok
+test iracing_checks::tests::test_iracing_not_installed_returns_err ... ok
+test knowledge_base::tests::test_lookup_miss_no_row ... ok
 test knowledge_base::tests::test_normalize_all_trigger_variants ... ok
 test knowledge_base::tests::test_normalize_problem_key_stable ... ok
+test ai_debugger::tests::test_auto_fix_error_dialogs ... ok
 test knowledge_base::tests::test_lookup_miss_low_confidence ... ok
-test knowledge_base::tests::test_lookup_miss_no_row ... ok
 test knowledge_base::tests::test_open_creates_tables ... ok
+test knowledge_base::tests::test_record_experiment_and_get_open ... ok
 test knowledge_base::tests::test_record_experiment_idempotent ... ok
 test knowledge_base::tests::test_solution_count ... ok
-test knowledge_base::tests::test_record_experiment_and_get_open ... ok
+test knowledge_base::tests::test_store_and_lookup_hit ... ok
+test ai_debugger::tests::test_auto_fix_launch_timeout_dispatches ... ok
+test ai_debugger::tests::test_kill_error_dialogs_extended ... ok
+test ai_debugger::tests::test_fix_launch_timeout_kills_both_cm_names ... ok
+test ffb_controller::tests::test_ffb_controller_no_device_graceful ... ok
 test lock_screen::tests::health_degraded_for_config_error ... ok
 test lock_screen::tests::health_degraded_for_disconnected ... ok
 test lock_screen::tests::health_degraded_for_hidden ... ok
-test lock_screen::tests::all_states_have_centering_css ... ok
 test lock_screen::tests::health_degraded_for_maintenance_required ... ok
 test lock_screen::tests::health_degraded_for_startup_connecting ... ok
 test lock_screen::tests::health_ok_for_active_session ... ok
 test lock_screen::tests::health_ok_for_pin_entry ... ok
 test lock_screen::tests::health_ok_for_qr_display ... ok
 test lock_screen::tests::idle_pin_entry_health_ok ... ok
-test lock_screen::tests::idle_pin_entry_renders_ready_heading ... ok
 test lock_screen::tests::idle_pin_entry_state_has_empty_fields ... ok
 test lock_screen::tests::launch_splash_health_ok ... ok
-test lock_screen::tests::launch_splash_not_blanked ... ok
-test lock_screen::tests::launch_splash_not_idle_or_blanked ... ok
-test lock_screen::tests::logo_in_launch_splash ... ok
-test lock_screen::tests::launch_splash_renders_branded_html ... ok
-test lock_screen::tests::logo_in_page_shell ... ok
-test iracing_checks::tests::test_iracing_not_installed_returns_err ... ok
 test lock_screen::tests::maintenance_required_is_idle_or_blanked ... ok
-test lock_screen::tests::page_shell_has_centering_css ... ok
-test knowledge_base::tests::test_store_and_lookup_hit ... ok
-test lock_screen::tests::maintenance_required_renders_html ... ok
-test lock_screen::tests::pin_row_has_centering ... ok
-test iracing_checks::tests::test_iracing_error_message_is_human_readable ... ok
-test lock_screen::tests::session_summary_no_auto_reload ... ok
-test lock_screen::tests::session_summary_hides_top_speed_when_zero ... ok
-test lock_screen::tests::session_summary_shows_race_position ... ok
-test lock_screen::tests::session_summary_hides_position_when_none ... ok
 test lock_screen::tests::startup_connecting_is_idle_or_blanked ... ok
-test lock_screen::tests::session_summary_shows_top_speed ... ok
+test lock_screen::tests::state_names_complete ... ok
 test lock_screen::tests::test_close_browser_normal_mode ... ok
-test lock_screen::tests::startup_connecting_is_static_page ... ok
-test lock_screen::tests::test_close_browser_safe_mode_skips_taskkill ... ok
-test lock_screen::tests::startup_connecting_renders_branded_html ... ok
-test lock_screen::tests::test_count_edge_processes_returns_zero_in_test ... ok
-test lock_screen::tests::test_countdown_warning_none_returns_blank_page ... ok
-test lock_screen::tests::test_countdown_warning_red_renders_correct_color ... ok
+test lock_screen::tests::test_close_browser_safe_mode ... ok
 test lock_screen::tests::test_dismiss_countdown_warning_clears_state ... ok
-test lock_screen::tests::test_countdown_warning_yellow_renders_correct_color ... ok
-test lock_screen::tests::test_remove_json_key_missing ... ok
-test lock_screen::tests::test_remove_json_key_object_value ... ok
-test lock_screen::tests::test_remove_json_key_string_value ... ok
 test lock_screen::tests::test_show_countdown_warning_stores_state ... ok
-test lock_screen::tests::wallpaper_empty_uses_default_bg ... ok
-test lock_screen::tests::wallpaper_not_on_blank_page ... ok
-test mesh_gossip::tests::test_build_experiment_announce ... ok
-test lock_screen::tests::wallpaper_url_renders_in_css ... ok
-test mesh_gossip::tests::test_build_solution_announce ... ok
 test lock_screen::tests::wait_for_self_ready_succeeds_when_port_open ... ok
-test model_eval_store::tests::test_insert_and_query_by_model ... ok
+test ffb_controller::tests::test_set_gain_no_device_graceful ... ok
+test mesh_gossip::tests::test_build_experiment_announce ... ok
+test mesh_gossip::tests::test_build_heartbeat ... ok
+test mesh_gossip::tests::test_build_solution_announce ... ok
+test mesh_gossip::tests::test_should_skip_diagnosis_no_kb ... ok
+test mma_cache::tests::test_cache_miss_different_build ... ok
+test mma_cache::tests::test_cache_miss_nonexistent ... ok
+test mma_cache::tests::test_open_and_put_get ... ok
+test mma_cache::tests::test_put_overwrites ... ok
 test model_eval_store::tests::test_correct_bool_stored_correctly ... ok
+test model_eval_store::tests::test_insert_and_query_by_model ... ok
 test model_eval_store::tests::test_open_in_memory_succeeds ... ok
 test model_eval_store::tests::test_query_no_matching_rows_returns_empty ... ok
-test mesh_gossip::tests::test_should_skip_diagnosis_no_kb ... ok
 test model_eval_store::tests::test_query_range_filters ... ok
 test model_reputation_store::tests::test_load_into_memory_populates_reputation ... ok
 test model_reputation_store::tests::test_open_in_memory_succeeds ... ok
 test model_reputation_store::tests::test_promotion_overrides_demotion ... ok
 test model_reputation_store::tests::test_save_and_load_demotion ... ok
-test night_ops::tests::test_format_morning_report ... ok
 test model_reputation_store::tests::test_save_and_load_outcome ... ok
-test night_ops::tests::test_format_morning_report_not_ready ... ok
 test model_reputation_store::tests::test_save_and_load_promotion ... ok
+test native_lock::keyboard::tests::pin_input_auto_submit_detection ... ok
+test native_lock::keyboard::tests::pin_input_backspace ... ok
+test native_lock::keyboard::tests::pin_input_clear ... ok
+test native_lock::keyboard::tests::pin_input_display_dots ... ok
+test native_lock::keyboard::tests::pin_input_is_complete_at_4 ... ok
+test native_lock::keyboard::tests::pin_input_new_is_empty ... ok
+test native_lock::keyboard::tests::pin_input_overflow_at_6 ... ok
+test native_lock::keyboard::tests::pin_input_push_digits ... ok
+test native_lock::keyboard::tests::pin_input_rejects_non_digits ... ok
+test native_lock::keyboard::tests::pin_input_take_resets ... ok
+test night_ops::tests::test_format_morning_report ... ok
+test night_ops::tests::test_format_morning_report_not_ready ... ok
+test off_track_detector::tests::test_debounce_prevents_immediate_trigger ... ok
+test off_track_detector::tests::test_no_trigger_at_low_speed ... ok
+test off_track_detector::tests::test_no_trigger_in_pit ... ok
+test off_track_detector::tests::test_no_trigger_when_disabled ... ok
+test off_track_detector::tests::test_pit_hides_active_overlay ... ok
 test openrouter::tests::test_extract_diagnosis_direct_json ... ok
 test openrouter::tests::test_extract_diagnosis_no_json ... ok
 test openrouter::tests::test_extract_diagnosis_wrapped_in_markdown ... ok
@@ -436,8 +1302,8 @@ test openrouter::tests::test_find_consensus_single_high_confidence ... ok
 test openrouter::tests::test_find_consensus_single_low_confidence ... ok
 test openrouter::tests::test_format_symptoms ... ok
 test openrouter::tests::test_format_symptoms_includes_fleet_context ... ok
-test openrouter::tests::test_model_registry_has_5_models ... ok
 test openrouter::tests::test_get_api_key_missing ... ok
+test openrouter::tests::test_model_registry_has_5_models ... ok
 test openrouter::tests::test_total_cost ... ok
 test overlay::tests::test_30min_celebration_clears ... ok
 test overlay::tests::test_30min_celebration_trigger ... ok
@@ -455,13 +1321,15 @@ test overlay::tests::test_toast_replace_no_stacking ... ok
 test overlay::tests::test_toast_show_sets_fields ... ok
 test overlay::tests::test_update_billing_v2_paused ... ok
 test overlay::tests::test_update_billing_v2_sets_fields ... ok
-test pre_flight::tests::test_billing_stuck_pass ... ok
 test pre_flight::tests::test_billing_stuck_fail ... ok
+test pre_flight::tests::test_billing_stuck_pass ... ok
+test ffb_controller::tests::test_zero_force_with_retry_no_device ... ok
+test ffb_controller::tests::test_pre_load_unrecognized_game_does_not_write_global_json ... ok
 test pre_flight::tests::test_disk_space_pass ... ok
 test pre_flight::tests::test_hid_fail_error ... ok
 test pre_flight::tests::test_hid_fail_not_found ... ok
 test pre_flight::tests::test_hid_pass ... ok
-test mesh_gossip::tests::test_build_heartbeat ... ok
+test ai_debugger::tests::test_auto_fix_relaunch_game ... ok
 test pre_flight::tests::test_lock_screen_http_pass ... ok
 test pre_flight::tests::test_memory_pass ... ok
 test pre_flight::tests::test_orphan_game_billing_active ... ok
@@ -470,7 +1338,6 @@ test pre_flight::tests::test_orphan_game_no_process ... ok
 test pre_flight::tests::test_window_rect_non_windows ... ok
 test pre_flight::tests::test_ws_stability_flapping ... ok
 test pre_flight::tests::test_ws_stability_stable ... ok
-test ai_debugger::tests::test_auto_fix_clean_temp ... ok
 test predictive_maintenance::tests::test_conspit_reconnect_at_threshold ... ok
 test predictive_maintenance::tests::test_conspit_reconnect_below_threshold ... ok
 test predictive_maintenance::tests::test_edge_missing_alert_after_consecutive ... ok
@@ -479,9 +1346,580 @@ test predictive_maintenance::tests::test_edge_missing_resets_on_recovery ... ok
 test predictive_maintenance::tests::test_new_state ... ok
 test predictive_maintenance::tests::test_record_restart_below_threshold ... ok
 test predictive_maintenance::tests::test_record_restart_exceeds_threshold ... ok
+
+Active Connections
+
+  Proto  Local Address          Foreign Address        State
+  TCP    100.82.33.94:56011     100.70.177.44:8080     TIME_WAIT
+  TCP    100.82.33.94:56312     100.70.177.44:8080     TIME_WAIT
+  TCP    100.82.33.94:56322     100.70.177.44:8765     TIME_WAIT
+  TCP    100.82.33.94:56323     100.70.177.44:3200     TIME_WAIT
+  TCP    100.82.33.94:56324     100.70.177.44:3201     TIME_WAIT
+  TCP    100.82.33.94:56325     100.70.177.44:3300     TIME_WAIT
+  TCP    100.82.33.94:56326     100.70.177.44:3500     TIME_WAIT
+  TCP    100.82.33.94:64026     100.125.108.37:22      ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:56224        FIN_WAIT_2
+  TCP    127.0.0.1:8554         127.0.0.1:56266        FIN_WAIT_2
+  TCP    127.0.0.1:8554         127.0.0.1:56391        FIN_WAIT_1
+  TCP    127.0.0.1:8554         127.0.0.1:56436        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:56447        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:56461        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:56463        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:64950        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:64973        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:64994        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:64995        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65035        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65080        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65084        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65114        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65137        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65142        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65152        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65162        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65170        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65195        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65246        ESTABLISHED
+  TCP    127.0.0.1:8554         127.0.0.1:65288        ESTABLISHED
+  TCP    127.0.0.1:8766         127.0.0.1:65310        ESTABLISHED
+  TCP    127.0.0.1:45600        127.0.0.1:59783        ESTABLISHED
+  TCP    127.0.0.1:50067        127.0.0.1:58877        ESTABLISHED
+  TCP    127.0.0.1:55911        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:55973        127.0.0.1:11434        TIME_WAIT
+  TCP    127.0.0.1:55974        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:55975        127.0.0.1:8096         TIME_WAIT
+  TCP    127.0.0.1:56026        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:56092        127.0.0.1:56091        TIME_WAIT
+  TCP    127.0.0.1:56095        127.0.0.1:56094        TIME_WAIT
+  TCP    127.0.0.1:56096        127.0.0.1:56098        TIME_WAIT
+  TCP    127.0.0.1:56122        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:56172        127.0.0.1:56169        TIME_WAIT
+  TCP    127.0.0.1:56174        127.0.0.1:56173        TIME_WAIT
+  TCP    127.0.0.1:56175        127.0.0.1:56177        TIME_WAIT
+  TCP    127.0.0.1:56197        127.0.0.1:56198        TIME_WAIT
+  TCP    127.0.0.1:56224        127.0.0.1:8554         CLOSE_WAIT
+  TCP    127.0.0.1:56265        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:56266        127.0.0.1:8554         CLOSE_WAIT
+  TCP    127.0.0.1:56354        127.0.0.1:1984         TIME_WAIT
+  TCP    127.0.0.1:56357        127.0.0.1:11434        TIME_WAIT
+  TCP    127.0.0.1:56391        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:56414        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:56436        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:56447        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:56461        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:56463        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:58877        127.0.0.1:50067        ESTABLISHED
+  TCP    127.0.0.1:59783        127.0.0.1:45600        ESTABLISHED
+  TCP    127.0.0.1:59868        127.0.0.1:59869        ESTABLISHED
+  TCP    127.0.0.1:59869        127.0.0.1:59868        ESTABLISHED
+  TCP    127.0.0.1:64950        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:64973        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:64975        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:64994        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:64995        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65011        127.0.0.1:65009        TIME_WAIT
+  TCP    127.0.0.1:65014        127.0.0.1:65012        TIME_WAIT
+  TCP    127.0.0.1:65015        127.0.0.1:65016        TIME_WAIT
+  TCP    127.0.0.1:65035        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65039        127.0.0.1:65040        TIME_WAIT
+  TCP    127.0.0.1:65080        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65084        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65114        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65125        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:65137        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65142        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65152        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65162        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65170        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65195        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65223        127.0.0.1:8766         TIME_WAIT
+  TCP    127.0.0.1:65246        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65288        127.0.0.1:8554         ESTABLISHED
+  TCP    127.0.0.1:65310        127.0.0.1:8766         ESTABLISHED
+  TCP    127.0.0.1:65326        127.0.0.1:65324        TIME_WAIT
+  TCP    127.0.0.1:65327        127.0.0.1:65325        TIME_WAIT
+  TCP    127.0.0.1:65328        127.0.0.1:65330        TIME_WAIT
+  TCP    127.0.0.1:65335        127.0.0.1:18923        SYN_SENT
+  TCP    127.0.0.1:65336        127.0.0.1:18923        SYN_SENT
+  TCP    127.0.0.1:65337        127.0.0.1:18923        SYN_SENT
+  TCP    127.0.0.1:65338        127.0.0.1:18923        SYN_SENT
+  TCP    127.0.0.1:65341        127.0.0.1:19999        SYN_SENT
+  TCP    127.0.0.1:65348        127.0.0.1:18922        SYN_SENT
+  TCP    127.0.0.1:65351        127.0.0.1:65352        TIME_WAIT
+  TCP    192.168.31.27:7680     192.168.31.32:57725    TIME_WAIT
+  TCP    192.168.31.27:7680     192.168.31.84:57818    TIME_WAIT
+  TCP    192.168.31.27:49852    104.18.34.146:443      ESTABLISHED
+  TCP    192.168.31.27:50214    192.168.31.23:8080     ESTABLISHED
+  TCP    192.168.31.27:50598    34.149.66.137:443      CLOSE_WAIT
+  TCP    192.168.31.27:51861    160.79.104.10:443      CLOSE_WAIT
+  TCP    192.168.31.27:51903    160.79.104.10:443      ESTABLISHED
+  TCP    192.168.31.27:51911    160.79.104.10:443      ESTABLISHED
+  TCP    192.168.31.27:52247    18.97.36.66:443        ESTABLISHED
+  TCP    192.168.31.27:55875    34.149.66.137:443      ESTABLISHED
+  TCP    192.168.31.27:55927    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55928    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55929    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55930    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55931    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55937    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55939    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55940    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55941    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55944    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55948    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55949    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55950    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55952    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55958    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55960    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55961    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55962    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55965    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55970    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55971    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55978    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55979    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55980    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55981    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55986    192.168.31.23:8080     TIME_WAIT
+  TCP    192.168.31.27:55987    192.168.31.23:3300     TIME_WAIT
+  TCP    192.168.31.27:55988    192.168.31.23:3200     TIME_WAIT
+  TCP    192.168.31.27:55995    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:55999    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56002    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56004    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56005    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56006    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56012    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56013    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56014    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56015    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56016    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56017    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56025    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56027    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56028    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56030    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56042    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56048    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56050    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56051    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56052    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56060    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56071    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56072    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56073    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56075    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56077    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56078    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56079    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56081    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56082    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56083    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56084    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56085    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56086    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56101    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56103    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56108    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56109    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56110    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56111    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56112    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56113    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56116    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56120    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56126    34.149.66.137:443      ESTABLISHED
+  TCP    192.168.31.27:56127    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56128    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56129    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56130    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56131    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56133    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56136    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56137    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56138    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56139    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56140    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56141    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56143    160.79.104.10:443      ESTABLISHED
+  TCP    192.168.31.27:56148    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56149    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56150    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56151    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56152    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56154    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56157    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56158    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56159    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56160    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56161    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56162    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56165    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56166    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56167    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56178    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56179    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56180    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56181    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56182    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56183    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56202    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56203    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56204    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56205    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56206    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56207    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56228    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56229    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56230    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56231    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56232    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56233    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56235    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56246    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56247    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56248    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56249    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56250    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56251    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56254    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56260    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56261    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56262    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56267    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56268    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56269    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56271    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56272    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56273    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56274    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56277    192.168.31.23:8080     TIME_WAIT
+  TCP    192.168.31.27:56278    192.168.31.23:3200     TIME_WAIT
+  TCP    192.168.31.27:56280    192.168.31.23:3300     TIME_WAIT
+  TCP    192.168.31.27:56281    192.168.31.23:3201     TIME_WAIT
+  TCP    192.168.31.27:56282    192.168.31.23:8080     TIME_WAIT
+  TCP    192.168.31.27:56289    192.168.31.88:8090     TIME_WAIT
+  TCP    192.168.31.27:56292    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56293    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56294    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56296    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56297    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56298    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56299    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56301    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56313    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56314    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56315    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56316    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56317    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56318    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56319    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56328    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56329    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56331    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56332    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56333    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56335    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56339    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56340    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56341    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56343    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56344    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56345    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56346    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56348    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56356    192.168.31.23:8080     TIME_WAIT
+  TCP    192.168.31.27:56372    72.60.101.58:8080      TIME_WAIT
+  TCP    192.168.31.27:56373    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56374    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56376    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56377    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56378    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56380    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56382    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56383    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56384    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56385    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56387    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56393    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56394    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56395    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56397    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56398    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56400    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56401    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56402    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56403    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56405    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56406    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56407    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56408    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56409    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56410    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56415    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56416    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56417    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56418    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56419    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56420    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56427    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56428    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56429    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56430    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56431    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56437    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:56438    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56439    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56440    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56441    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56442    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56443    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56444    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56448    192.168.31.154:554     ESTABLISHED
+  TCP    192.168.31.27:56449    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56450    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56452    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56454    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56459    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56464    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:56466    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56468    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56469    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56470    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56471    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56474    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56480    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56483    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56484    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56486    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56487    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:56488    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:59286    160.79.104.10:443      ESTABLISHED
+  TCP    192.168.31.27:59788    43.134.152.115:443     ESTABLISHED
+  TCP    192.168.31.27:60253    72.60.101.58:8765      ESTABLISHED
+  TCP    192.168.31.27:60266    68.183.90.120:443      ESTABLISHED
+  TCP    192.168.31.27:60302    192.200.0.101:443      ESTABLISHED
+  TCP    192.168.31.27:60338    4.213.25.240:443       ESTABLISHED
+  TCP    192.168.31.27:60703    172.217.194.188:5228   ESTABLISHED
+  TCP    192.168.31.27:61132    199.165.136.100:443    ESTABLISHED
+  TCP    192.168.31.27:62428    160.79.104.10:443      ESTABLISHED
+  TCP    192.168.31.27:62616    51.132.193.104:443     ESTABLISHED
+  TCP    192.168.31.27:62767    34.149.66.137:443      CLOSE_WAIT
+  TCP    192.168.31.27:62839    52.123.253.126:443     TIME_WAIT
+  TCP    192.168.31.27:63670    34.160.81.0:443        ESTABLISHED
+  TCP    192.168.31.27:64187    160.79.104.10:443      CLOSE_WAIT
+  TCP    192.168.31.27:64652    192.168.31.86:7680     ESTABLISHED
+  TCP    192.168.31.27:64685    4.213.25.242:443       ESTABLISHED
+  TCP    192.168.31.27:64949    150.171.110.84:443     ESTABLISHED
+  TCP    192.168.31.27:64951    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64952    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64954    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64955    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64956    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64957    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64958    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64959    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64963    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64964    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64968    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64969    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64974    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:64978    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64980    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64981    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64982    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64984    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64985    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64986    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64987    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64988    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64989    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64990    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64991    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:64996    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:64998    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65000    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65001    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65002    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65003    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65004    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65005    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65018    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65019    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65020    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65045    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65047    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65049    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65065    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65066    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65067    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65068    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65069    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65070    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65081    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:65086    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65087    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65097    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65099    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65101    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65105    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65106    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65107    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65108    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65109    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65112    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65115    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:65116    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65117    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65118    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65119    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65120    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65121    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65128    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65129    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65130    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65131    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65132    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65133    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65138    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:65139    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65140    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65143    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65144    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65145    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65146    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65147    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65148    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65153    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65154    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65155    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65156    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65157    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65158    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65161    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65163    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65164    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65165    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65166    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65167    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65168    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65171    192.168.31.18:554      ESTABLISHED
+  TCP    192.168.31.27:65174    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65175    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65176    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65177    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65179    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65180    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65183    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65184    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65186    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65187    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65188    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65189    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65190    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65192    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65196    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65197    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65198    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65199    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65200    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65201    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65203    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65205    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65206    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65207    192.168.31.18:80       TIME_WAIT
+test ai_debugger::tests::test_auto_fix_close_wait ... ok
+  TCP    192.168.31.27:65208    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65209    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65210    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65214    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65215    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65216    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65217    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65218    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65219    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65222    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65224    192.168.31.18:80       TIME_WAIT
 test process_guard::tests::autostart_not_whitelisted ... ok
-test process_guard::tests::autostart_whitelisted_case_insensitive ... ok
-test process_guard::tests::critical_violation_racecontrol_exe ... ok
+  TCP    192.168.31.27:65225    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65227    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65229    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65230    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65231    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65232    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65234    192.168.31.18:80       TIME_WAIT
+test process_guard::tests::autostart_whitelisted_case_insensitive ...   TCP    192.168.31.27:65236    192.168.31.18:80       TIME_WAIT
+ok
+  TCP    192.168.31.27:65237    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65238    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65239    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65240    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65241    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65242    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65247    192.168.31.18:554      ESTABLISHED
+test process_guard::tests::critical_violation_racecontrol_exe ...   TCP    192.168.31.27:65248    192.168.31.18:80       TIME_WAIT
+ok
+  TCP    192.168.31.27:65249    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65250    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65251    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65252    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65253    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65257    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65258    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65259    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65260    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65261    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65262    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65266    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65267    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65269    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65270    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65271    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65272    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65273    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65274    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65275    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65276    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65278    192.168.31.200:7680    ESTABLISHED
+  TCP    192.168.31.27:65279    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65280    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65281    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65282    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65283    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65285    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65286    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65289    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65290    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65291    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65292    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65293    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65294    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65298    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65299    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65300    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65301    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65302    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65303    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65305    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65307    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65308    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65309    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65311    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65312    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65313    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65316    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65317    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65318    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65342    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65343    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65344    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65345    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65346    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65347    192.168.31.18:80       TIME_WAIT
+  TCP    192.168.31.27:65349    192.168.31.18:80       ESTABLISHED
+  TCP    192.168.31.27:65350    192.168.31.18:80       ESTABLISHED
+  TCP    192.168.31.27:65353    192.168.31.18:80       ESTABLISHED
 test process_guard::tests::log_rotation_truncates_at_512kb ... ok
 test process_guard::tests::not_critical_notepad ... ok
 test process_guard::tests::not_self_excluded_unrelated_process ... ok
@@ -504,28 +1942,32 @@ test process_guard::tests::self_excluded_by_name_rc_agent ... ok
 test process_guard::tests::self_excluded_by_own_pid ... ok
 test process_guard::tests::self_excluded_parent_pid_unused ... ok
 test process_guard::tests::whitelisted_exact_case_insensitive ... ok
+test process_guard::tests::whitelisted_wildcard_prefix ... ok
+test remote_ops::tests::content_dirs_ac_with_tempdir_enumerates_cars_and_tracks ... ok
+test remote_ops::tests::content_dirs_degrade_open_games_return_not_enumerable ... ok
+test remote_ops::tests::content_dirs_missing_ac_path_returns_empty_lists ... ok
 test remote_ops::tests::test_exec_429_error_message_format ... ok
-test remote_ops::tests::test_exec_invalid_command_returns_500 ... FAILED
-test remote_ops::tests::test_exec_nonzero_exit_returns_500 ... FAILED
+test remote_ops::tests::test_exec_invalid_command_returns_403_not_in_allowlist ... ok
+test remote_ops::tests::test_exec_nonzero_exit_returns_500 ... ok
+test predictive_maintenance::tests::test_run_predictive_scan_no_alerts ... ok
 test remote_ops::tests::test_exec_response_always_has_success_field ... ok
 test remote_ops::tests::test_exec_success_echo ... ok
 test remote_ops::tests::test_exec_timeout_returns_500 ... ok
 test remote_ops::tests::test_health_shows_exec_slots ... ok
 test remote_ops::tests::test_normal_exec_not_intercepted_by_sentinel ... ok
-test predictive_maintenance::tests::test_run_predictive_scan_no_alerts ... ok
-test ai_debugger::tests::test_fix_usb_reconnect_ffb_zero ... ok
 test remote_ops::tests::test_service_key_exec_correct_key_returns_200 ... ok
 test remote_ops::tests::test_service_key_exec_no_header_returns_401 ... ok
 test remote_ops::tests::test_service_key_exec_wrong_key_returns_401 ... ok
 test remote_ops::tests::test_service_key_health_no_key_returns_200 ... ok
 test remote_ops::tests::test_service_key_info_no_header_returns_401 ... ok
+test remote_ops::tests::test_service_key_permissive_mode_no_key_set ... ok
 test retrain_export::tests::test_build_entries_correct_eval_maps_correctly ... ok
+test remote_ops::tests::test_service_key_ping_no_key_returns_200 ... ok
 test retrain_export::tests::test_build_entries_from_evals_basic ... ok
 test retrain_export::tests::test_build_entries_from_solutions_basic ... ok
 test retrain_export::tests::test_build_entries_incorrect_eval_maps_correctly ... ok
 test retrain_export::tests::test_train_entry_serializes_all_required_fields ... ok
 test retrain_export::tests::test_write_jsonl_empty_entries_no_file_created ... ok
-test retrain_export::tests::test_write_jsonl_produces_valid_lines ... ok
 test safe_mode::tests::ac2_win64_maps_to_evo ... ok
 test safe_mode::tests::assetto_corsa_evo_exe_maps ... ok
 test safe_mode::tests::assetto_corsa_evo_is_protected ... ok
@@ -552,14 +1994,14 @@ test self_heal::tests::test_config_hash_missing_file ... ok
 test self_heal::tests::test_defender_repaired_field_exists ... ok
 test self_heal::tests::test_detect_pod_number_invalid ... ok
 test self_heal::tests::test_detect_pod_number_valid ... ok
-test remote_ops::tests::test_service_key_permissive_mode_no_key_set ... ok
-test remote_ops::tests::test_service_key_ping_no_key_returns_200 ... ok
-test self_heal::tests::test_repair_start_script_crlf ... ok
+test retrain_export::tests::test_write_jsonl_produces_valid_lines ... ok
 test self_heal::tests::test_repair_config_generates_valid_toml ... ok
+test self_heal::tests::test_repair_start_script_crlf ... ok
+test ai_debugger::tests::test_auto_fix_frozen_game_dispatches ... ok
 test self_heal::tests::test_self_heal_result_default ... ok
-test ffb_controller::tests::test_ffb_controller_no_device_graceful ... ok
+test ai_debugger::tests::test_auto_fix_game_frozen_keyword_specific ... ok
 test self_monitor::tests::check_sentry_alive_returns_true_when_listener_exists ... ok
-test ai_debugger::tests::test_auto_fix_relaunch_game ... ok
+test ai_debugger::tests::test_ffb_zero_before_kill_ordering ... ok
 test self_monitor::tests::close_wait_strike_limit_is_at_least_3_and_at_most_10 ... ok
 test self_monitor::tests::close_wait_threshold_is_reasonable ... ok
 test self_monitor::tests::last_switch_guard_allows_after_60s ... ok
@@ -598,6 +2040,9 @@ test session_enforcer::tests::test_tick_terminate_repeatedly ... ok
 test session_enforcer::tests::test_tick_warn_at_t_minus_60 ... ok
 test session_enforcer::tests::test_tick_warn_is_one_time ... ok
 test session_enforcer::tests::test_warn_remaining_secs_accurate ... ok
+test sims::adapter_parity_tests::test_all_shm_adapters_have_liveness_guard_in_read_telemetry ... ok
+test sims::adapter_parity_tests::test_f1_25_is_udp_not_shm ... ok
+test sims::adapter_parity_tests::test_iracing_var_offset_has_bounds_guard ... ok
 test sims::assetto_corsa::tests::test_ac_status_read_non_windows ... ok
 test sims::assetto_corsa::tests::test_assist_state_offsets ... ok
 test sims::assetto_corsa::tests::test_gear_conversion ... ok
@@ -645,32 +2090,33 @@ test sims::lmu::tests::test_sector_guard ... ok
 test sims::lmu::tests::test_session_transition_resets_lap ... ok
 test startup_cleanup::tests::test_cleanup_deprecated_binaries ... ok
 test startup_cleanup::tests::test_cleanup_installer_junk ... ok
-test ffb_controller::tests::test_set_gain_no_device_graceful ... ok
-test startup_cleanup::tests::test_cleanup_temp_ota_artifacts ... ok
 test startup_cleanup::tests::test_cleanup_stale_staged_binaries ... ok
+test startup_cleanup::tests::test_cleanup_temp_ota_artifacts ... ok
+test startup_cleanup::tests::test_periodic_marker ... ok
 test startup_log::tests::test_detect_crash_complete ... ok
 test startup_log::tests::test_detect_crash_incomplete ... ok
 test startup_log::tests::test_detect_crash_no_file ... ok
-test startup_cleanup::tests::test_periodic_marker ... ok
 test startup_log::tests::test_write_phase ... ok
 test startup_log::tests::test_write_phase_appends ... ok
 test startup_log::tests::test_write_phase_truncates_on_first_call ... ok
+test startup_log::tests::test_write_phase_with_details ... ok
 test steam_checks::tests::test_check_dlc_installed_ac_invalid_json_passes ... ok
 test steam_checks::tests::test_check_dlc_installed_ac_no_args ... ok
 test steam_checks::tests::test_check_dlc_installed_non_steam_no_app_id ... ok
 test steam_checks::tests::test_check_steam_ready_skips_ac ... ok
 test steam_checks::tests::test_check_steam_ready_skips_non_steam_games ... ok
-test startup_log::tests::test_write_phase_with_details ... ok
+test self_heal::tests::test_no_repair_when_exists_and_canonical ... ok
 test steam_checks::tests::test_game_exe_for_sim_all_end_in_exe ... ok
 test steam_checks::tests::test_game_exe_for_sim_f125_includes_both_names ... ok
 test steam_checks::tests::test_game_exe_for_sim_iracing_includes_ui ... ok
-test ffb_controller::tests::test_zero_force_with_retry_no_device ... ok
+test self_heal::tests::test_repairs_drifted_script ... ok
 test tests::crash_recovery_state_attempt_2_triggers_auto_end ... ok
 test tests::crash_recovery_state_paused_waiting_relaunch_attempt_1 ... ok
 test tests::crash_recovery_state_starts_idle ... ok
-test tests::test_reconnect_delay_cap ... FAILED
-test tests::test_reconnect_delay_exponential_backoff ... FAILED
-test tests::test_reconnect_delay_fast_retries ... FAILED
+test tests::test_all_process_exit_paths_are_accounted_for ... ok
+test tests::test_reconnect_delay_cap ... ok
+test tests::test_reconnect_delay_exponential_backoff ... ok
+test tests::test_reconnect_delay_fast_retries ... ok
 test tests::ws_grace_window_boundary_exactly_30s ... ok
 test tests::ws_grace_window_expired_after_30s ... ok
 test tests::ws_grace_window_is_30_seconds ... ok
@@ -707,73 +2153,23 @@ test ws_handler::tests::compute_config_hash_local_is_consistent ... ok
 test ws_handler::tests::force_relaunch_browser_variant_exists ... ok
 test ws_handler::tests::full_config_push_message_deserializes ... ok
 test ws_handler::tests::hot_and_cold_config_fields_are_disjoint ... ok
-test ai_debugger::tests::test_auto_fix_frozen_game_dispatches ... ok
-test ai_debugger::tests::test_auto_fix_game_frozen_keyword_specific ... ok
-test ffb_controller::tests::test_pre_load_unrecognized_game_does_not_write_global_json ... FAILED
-test ai_debugger::tests::test_auto_fix_close_wait ... ok
-test ai_debugger::tests::test_ffb_zero_before_kill_ordering ... ok
-test self_heal::tests::test_repairs_drifted_script ... ok
-test self_heal::tests::test_no_repair_when_exists_and_canonical ... ok
+test ws_handler::tests::test_launch_timeline_success_has_required_event_kinds ... ok
+test ws_handler::tests::test_launch_timeline_timeout_has_timeout_event ... ok
 test pre_flight::tests::test_concurrent_checks_returns_ten ... ok
 test pre_flight::tests::test_concurrent_checks_returns_ten_v2 ... ok
 test pre_flight::tests::test_lock_screen_http_fail ... ok
 test self_monitor::tests::check_sentry_alive_returns_false_when_no_listener ... ok
 test self_monitor::tests::check_sentry_alive_returns_within_5_seconds ... ok
+test launch_verifier::tests::test_full_chain_success ... ok
 test steam_checks::tests::test_wait_for_game_window_times_out_quickly ... ok
+test launch_verifier::tests::test_process_dies_during_shm_wait ... ok
+test launch_verifier::tests::test_config_verify_all_match ... ok
+test launch_verifier::tests::test_config_verify_mismatch_detected ... ok
+test launch_verifier::tests::test_config_verify_unchecked_fields_ignored ... ok
 test lock_screen::tests::wait_for_self_ready_timeout ... ok
 test steam_checks::tests::test_check_steam_ready_with_steam_app_id_requires_steam ... ok
+test launch_verifier::tests::test_config_verify_none_returns_gracefully ... ok
+test launch_verifier::tests::test_fails_when_no_process ... ok
 
-failures:
-
----- remote_ops::tests::test_exec_invalid_command_returns_500 stdout ----
-
-thread 'remote_ops::tests::test_exec_invalid_command_returns_500' (9644) panicked at crates\rc-agent\src\remote_ops.rs:1428:9:
-assertion `left == right` failed: Invalid command should return HTTP 500, got: Object {"exit_code": Null, "stderr": String("Command 'nonexistent_binary_xyz_12345.exe' not in allowlist. Allowed: [\"curl\", \"curl.exe\", \"tasklist\", \"tasklist.exe\", \"taskkill\", \"taskkill.exe\", \"ping\", \"ping.exe\", \"ipconfig\", \"ipconfig.exe\", \"netstat\", \"netstat.exe\", \"wmic\", \"wmic.exe\", \"schtasks\", \"schtasks.exe\", \"dir\", \"type\", \"echo\", \"hostname\", \"powercfg\", \"powercfg.exe\", \"reg\", \"reg.exe\", \"sc\", \"sc.exe\", \"net\", \"net.exe\", \"systeminfo\", \"systeminfo.exe\", \"del\", \"ren\", \"copy\", \"move\", \"mkdir\", \"shutdown\", \"shutdown.exe\", \"powershell\", \"powershell.exe\"]"), "stdout": String(""), "success": Bool(false)}
-  left: 403
- right: 500
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
----- remote_ops::tests::test_exec_nonzero_exit_returns_500 stdout ----
-
-thread 'remote_ops::tests::test_exec_nonzero_exit_returns_500' (33560) panicked at crates\rc-agent\src\remote_ops.rs:1414:9:
-assertion `left == right` failed: Non-zero exit should return HTTP 500, got: Object {"exit_code": Null, "stderr": String("Command 'cmd' not in allowlist. Allowed: [\"curl\", \"curl.exe\", \"tasklist\", \"tasklist.exe\", \"taskkill\", \"taskkill.exe\", \"ping\", \"ping.exe\", \"ipconfig\", \"ipconfig.exe\", \"netstat\", \"netstat.exe\", \"wmic\", \"wmic.exe\", \"schtasks\", \"schtasks.exe\", \"dir\", \"type\", \"echo\", \"hostname\", \"powercfg\", \"powercfg.exe\", \"reg\", \"reg.exe\", \"sc\", \"sc.exe\", \"net\", \"net.exe\", \"systeminfo\", \"systeminfo.exe\", \"del\", \"ren\", \"copy\", \"move\", \"mkdir\", \"shutdown\", \"shutdown.exe\", \"powershell\", \"powershell.exe\"]"), "stdout": String(""), "success": Bool(false)}
-  left: 403
- right: 500
-
----- tests::test_reconnect_delay_cap stdout ----
-
-thread 'tests::test_reconnect_delay_cap' (25728) panicked at crates\rc-agent\src\main.rs:2274:9:
-assertion `left == right` failed
-  left: 30.038s
- right: 30s
-
----- tests::test_reconnect_delay_exponential_backoff stdout ----
-
-thread 'tests::test_reconnect_delay_exponential_backoff' (8136) panicked at crates\rc-agent\src\main.rs:2266:9:
-assertion `left == right` failed
-  left: 2.037s
- right: 2s
-
----- tests::test_reconnect_delay_fast_retries stdout ----
-
-thread 'tests::test_reconnect_delay_fast_retries' (6672) panicked at crates\rc-agent\src\main.rs:2259:9:
-assertion `left == right` failed
-  left: 1.183s
- right: 1s
-
----- ffb_controller::tests::test_pre_load_unrecognized_game_does_not_write_global_json stdout ----
-
-thread 'ffb_controller::tests::test_pre_load_unrecognized_game_does_not_write_global_json' (25616) panicked at crates\rc-agent\src\ffb_controller.rs:1843:70:
-called `Result::unwrap()` on an `Err` value: Os { code: 3, kind: NotFound, message: "The system cannot find the path specified." }
-
-
-failures:
-    ffb_controller::tests::test_pre_load_unrecognized_game_does_not_write_global_json
-    remote_ops::tests::test_exec_invalid_command_returns_500
-    remote_ops::tests::test_exec_nonzero_exit_returns_500
-    tests::test_reconnect_delay_cap
-    tests::test_reconnect_delay_exponential_backoff
-    tests::test_reconnect_delay_fast_retries
-
-test result: FAILED. 716 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.96s
+test result: ok. 771 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.66s
 
