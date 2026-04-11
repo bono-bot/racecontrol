@@ -1073,14 +1073,25 @@ pub async fn handle_ws_message(
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json_str = serde_json::to_string(&msg)?;
                             let _ = ws_tx.send(Message::Text(json_str.into())).await;
+
+                            // LAUNCH-FIX-3: Hide lock screen when non-AC game starts (direct exe pid).
+                            // Mirrors LAUNCH-FIX-2 in the AC branch: the native Win32 TOPMOST window
+                            // must be hidden so the game can take foreground. Without this, show_launch_splash()
+                            // called above (line 1009) keeps the lock screen visible over the game.
+                            state.lock_screen.close_browser();
+                            tracing::info!(target: LOG_TARGET,
+                                "LAUNCH-FIX-3: Lock screen hidden — {:?} started (direct pid={})", launch_sim, pid);
                         } else if is_steam_url_launch {
                             // GAME-07: Steam URL launch — pid is None until Steam passes control to the game.
                             // Spawn a background task to wait for the game window to appear.
                             // On success: game is confirmed running. On timeout: report Error to server.
                             // Uses ws_exec_result_tx to route AgentMessage back to the event loop → WS send.
+                            // LAUNCH-FIX-3: Also signals lock_screen_hide_tx so event_loop hides the
+                            // native Win32 lock screen once the game window is confirmed.
                             let pod_id_clone = state.pod_id.clone();
                             let failure_tx = state.failure_monitor_tx.clone();
                             let ws_result_tx = state.ws_exec_result_tx.clone();
+                            let lock_screen_hide_tx = state.lock_screen_hide_tx.clone();
                             tracing::info!(
                                 target: LOG_TARGET,
                                 "GAME-07: Steam URL launch for {:?} — waiting for game window (60s timeout)",
@@ -1107,6 +1118,12 @@ pub async fn handle_ws_message(
                                             session_id: None,
                                         };
                                         let _ = ws_result_tx.send(AgentMessage::GameStateUpdate(info)).await;
+                                        // LAUNCH-FIX-3: Signal event_loop to hide the lock screen.
+                                        // The spawned task cannot access state.lock_screen directly,
+                                        // so it signals via channel; event_loop calls close_browser().
+                                        let _ = lock_screen_hide_tx.send(()).await;
+                                        tracing::info!(target: LOG_TARGET,
+                                            "LAUNCH-FIX-3: lock_screen_hide signal sent for {:?} (GAME-07 path, pid={})", launch_sim, pid);
                                     }
                                     Ok(Err(reason)) => {
                                         tracing::error!(

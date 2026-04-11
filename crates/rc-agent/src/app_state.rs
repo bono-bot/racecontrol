@@ -109,6 +109,11 @@ pub struct AppState {
     pub(crate) game_launch_mutex: Arc<Mutex<()>>,
     pub(crate) off_track_detector: OffTrackDetector,
     pub(crate) off_track_blanking: OffTrackBlanking,
+    /// LAUNCH-FIX-3: Signal from GAME-07 async task to hide lock screen when
+    /// Steam URL game window is confirmed. The tokio::spawn'd task cannot borrow
+    /// state directly, so it sends () here and event_loop calls close_browser().
+    pub(crate) lock_screen_hide_tx: mpsc::Sender<()>,
+    pub(crate) lock_screen_hide_rx: mpsc::Receiver<()>,
     /// Phase 306: JWT token received from server after PSK bootstrap.
     /// Used for subsequent WS reconnections. Cleared on 401 rejection.
     pub(crate) current_jwt: Option<String>,

@@ -2133,6 +2133,14 @@ pub async fn run(
                 }
             }
 
+            // LAUNCH-FIX-3: Hide lock screen when GAME-07 (Steam URL) game window confirmed.
+            // The spawned task sends () here; we call close_browser() with full state access.
+            Some(()) = state.lock_screen_hide_rx.recv() => {
+                state.lock_screen.close_browser();
+                tracing::info!(target: LOG_TARGET,
+                    "LAUNCH-FIX-3: Lock screen hidden via GAME-07 async signal (Steam URL game confirmed)");
+            }
+
             Some(msg) = state.guard_violation_rx.recv() => {
                 match serde_json::to_string(&msg) {
                     Ok(json) => {

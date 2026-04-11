@@ -1708,6 +1708,8 @@ async fn main() -> Result<()> {
     // ─── Bundle pre-loop state into AppState ────────────────────────────────
     let (guard_violation_tx, guard_violation_rx) = mpsc::channel::<rc_common::protocol::AgentMessage>(32);
     let guard_whitelist = std::sync::Arc::new(RwLock::new(fetched_whitelist));
+    // LAUNCH-FIX-3: Channel for GAME-07 spawned task to signal lock screen hide.
+    let (lock_screen_hide_tx, lock_screen_hide_rx) = mpsc::channel::<()>(4);
     let off_track_enabled = config.off_track_blanking_enabled;
     let mut state = AppState {
         pod_id,
@@ -1764,6 +1766,9 @@ async fn main() -> Result<()> {
         game_launch_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
         off_track_detector: off_track_detector::OffTrackDetector::new(off_track_enabled),
         off_track_blanking: off_track_blanking::OffTrackBlanking::new(),
+        // LAUNCH-FIX-3: Lock screen hide signal channel for GAME-07 async task.
+        lock_screen_hide_tx,
+        lock_screen_hide_rx,
         // Phase 306: JWT fields — start with no JWT (first connect uses PSK bootstrap)
         current_jwt: None,
         jwt_expires_at: None,
