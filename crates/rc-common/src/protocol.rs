@@ -228,6 +228,21 @@ pub enum AgentMessage {
         gap_seconds: u32,
     },
 
+    /// Phase 364 QUALITY-01: UDP gap > 500ms while billing active + game Running.
+    /// Advisory quality signal -- distinct from TelemetryGap (60s crash detection).
+    /// Fires once per silence window per pod (quality_gap_fired guard in failure_monitor).
+    TelemetryQualityGap {
+        pod_id: String,
+        gap_ms: u32,
+    },
+
+    /// Phase 364 STALL-01: 15s in-race telemetry silence while billing active + game Running.
+    /// Fires once per silence window per pod (stall_warn_fired guard in failure_monitor).
+    SessionStalled {
+        pod_id: String,
+        silence_seconds: u32,
+    },
+
     /// Agent detected billing anomaly (stuck session, idle drift, game dead + billing alive)
     BillingAnomaly {
         pod_id: String,
@@ -2785,6 +2800,40 @@ mod tests {
             assert_eq!(gap_seconds, 42u32);
         } else {
             panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_telemetry_quality_gap_roundtrip() {
+        let msg = AgentMessage::TelemetryQualityGap {
+            pod_id: "pod_1".to_string(),
+            gap_ms: 750,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("telemetry_quality_gap"), "Expected 'telemetry_quality_gap' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::TelemetryQualityGap { pod_id, gap_ms } = parsed {
+            assert_eq!(pod_id, "pod_1");
+            assert_eq!(gap_ms, 750);
+        } else {
+            panic!("Expected TelemetryQualityGap variant");
+        }
+    }
+
+    #[test]
+    fn test_session_stalled_roundtrip() {
+        let msg = AgentMessage::SessionStalled {
+            pod_id: "pod_2".to_string(),
+            silence_seconds: 17,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("session_stalled"), "Expected 'session_stalled' in JSON, got: {}", json);
+        let parsed: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::SessionStalled { pod_id, silence_seconds } = parsed {
+            assert_eq!(pod_id, "pod_2");
+            assert_eq!(silence_seconds, 17);
+        } else {
+            panic!("Expected SessionStalled variant");
         }
     }
 
