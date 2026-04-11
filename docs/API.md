@@ -721,6 +721,24 @@ pub fn api_routes(state: Arc<AppState>) -> Router {
 - Sentinel alert cooldown: 300s per type per pod
 - Auth failure lockout: 5 failures in 300s = 300s lockout
 
+### WS Events
+
+#### `ConfigMismatchDetected` (agent -> server -> admin dashboard)
+
+Fired when a pod's running game config differs from the kiosk-requested config. Phase 362.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `"ConfigMismatchDetected"` | Message discriminant |
+| `pod_id` | `string` | Pod that reported the mismatch |
+| `sim_type` | `string` | Sim adapter (AC, F1_25, iRacing, LMU, AssettoCorsaEvo) |
+| `mismatches` | `[string, string, string][]` | Array of `[field_name, expected, actual]` tuples |
+| `timestamp` | `string` | ISO 8601 timestamp from pod |
+
+**Alert behavior:** Server logs at WARN, fires WhatsApp alert to staff, broadcasts `DashboardEvent::ConfigMismatch` to admin dashboard, persists to `config_mismatches` table.
+
+**Test endpoint:** `POST /api/v1/internal/test/config-mismatch` (superadmin-only, Phase 367-05 GLD-G-05) fires a synthetic mismatch for E2E verification without a real pod.
+
 ---
 
 ## Next.js API Routes (Health Only)

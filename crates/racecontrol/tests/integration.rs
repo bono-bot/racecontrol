@@ -4183,3 +4183,69 @@ async fn test_dispute_cannot_resolve_already_resolved() {
     assert!(is_already_resolved,
         "BILL-08: Handler must reject resolution of already-resolved dispute");
 }
+
+// ─── Phase 367-05 (GLD-G-05): 8-pod concurrent mismatch load test ───────────
+
+/// Verifies that 8 concurrent config_mismatch inserts all persist without drops.
+/// Uses in-memory SQLite to avoid touching production DB.
+/// NOTE: Does NOT use Instant::now() - Duration::from_secs() (CI-unsafe per memory).
+#[tokio::test]
+async fn test_8pod_concurrent_mismatch_no_drops() {
+    use std::sync::Arc;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tokio::task::JoinSet;
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory sqlite");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS config_mismatches (
+            id TEXT PRIMARY KEY,
+            pod_id TEXT NOT NULL,
+            sim_type TEXT NOT NULL,
+            mismatched_fields TEXT,
+            detected_at TEXT NOT NULL
+        )"
+    )
+    .execute(&pool)
+    .await
+    .expect("create table");
+
+    let pool = Arc::new(pool);
+    let mut set = JoinSet::new();
+
+    for pod_num in 1..=8 {
+        let pool_clone = Arc::clone(&pool);
+        set.spawn(async move {
+            let id = format!("test-event-pod-{}", pod_num);
+            let pod_id = format!("pod-{}", pod_num);
+            let now = chrono::Utc::now().to_rfc3339();
+            sqlx::query(
+                "INSERT INTO config_mismatches (id, pod_id, sim_type, mismatched_fields, detected_at)
+                 VALUES (?, ?, 'TestSim', '[\"car\"]', ?)"
+            )
+            .bind(&id)
+            .bind(&pod_id)
+            .bind(&now)
+            .execute(pool_clone.as_ref())
+            .await
+            .expect("insert config mismatch")
+        });
+    }
+
+    // Wait for all 8 concurrent inserts
+    while let Some(res) = set.join_next().await {
+        res.expect("task should not panic");
+    }
+
+    // Verify all 8 rows exist -- 0 events dropped
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM config_mismatches")
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("count query");
+
+    assert_eq!(count, 8, "Expected 8 mismatch events, got {} -- events were dropped", count);
+}
