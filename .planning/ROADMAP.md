@@ -1358,8 +1358,8 @@ Plans:
 5. `ws_try_send_overflows_total` metric exposed
 
 **Plans:**
-1/3 plans executed
-- [ ] 364-02-PLAN — Lap consistency checker
+3/3 plans complete
+- [x] 364-02-PLAN — Lap consistency checker
 - [x] 364-03-PLAN — Silent-drop audit + overflow metrics
 
 ### Phase 365: AI Behavior Validation via MMA
