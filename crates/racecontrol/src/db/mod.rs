@@ -4051,6 +4051,16 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     tracing::info!("Phase 363 Data Recording Verification schema migrated");
 
+    // Phase 364 kill switch — default enabled; admin can toggle to false to bypass quality monitoring
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('phase364_quality_monitor', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
+    tracing::info!("Phase 364 Session Quality Monitor feature flag seeded");
+
     tracing::info!("Database migrations complete");
     Ok(())
 }
@@ -4703,6 +4713,25 @@ mod phase363_migration_tests {
             enabled,
             Some(1),
             "phase363_session_audit flag missing or not enabled=1"
+        );
+    }
+
+    /// Test 3b: phase364_quality_monitor feature flag seeded with enabled=1.
+    #[tokio::test]
+    async fn test_phase364_feature_flag_seeded() {
+        let (pool, path) = test_pool().await;
+        let enabled: Option<i64> = sqlx::query_scalar(
+            "SELECT enabled FROM feature_flags WHERE name = 'phase364_quality_monitor'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+        drop(pool);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            enabled,
+            Some(1),
+            "phase364_quality_monitor flag missing or not enabled=1"
         );
     }
 

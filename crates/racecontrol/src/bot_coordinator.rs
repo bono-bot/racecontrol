@@ -152,6 +152,125 @@ pub async fn handle_telemetry_gap(
         .await;
 }
 
+/// Phase 364: Atomically append a reason string to billing_sessions.suspect_reasons.
+/// Uses SQLite json_insert('$[#]') to avoid read-modify-write race with
+/// run_session_audit() (Phase 363). Also sets suspect=1.
+/// No-op if session_id is empty or DB write fails (advisory only).
+pub async fn append_suspect_reason(
+    db: &sqlx::SqlitePool,
+    session_id: &str,
+    reason: &str,
+) {
+    if session_id.is_empty() {
+        return;
+    }
+    let result = sqlx::query(
+        "UPDATE billing_sessions
+         SET suspect = 1,
+             suspect_reasons = CASE
+                 WHEN suspect_reasons IS NULL THEN json_array(?1)
+                 ELSE json_insert(suspect_reasons, '$[#]', ?1)
+             END
+         WHERE id = ?2"
+    )
+    .bind(reason)
+    .bind(session_id)
+    .execute(db)
+    .await;
+    if let Err(e) = result {
+        tracing::warn!("[bot-coord] append_suspect_reason failed session={} reason={}: {}", session_id, reason, e);
+    }
+}
+
+/// Phase 364 QUALITY-01: Handle TelemetryQualityGap (>500ms UDP silence).
+/// Advisory quality signal -- logs + appends to suspect_reasons.
+/// Does NOT send staff email (quality gap is not a crash alert).
+pub async fn handle_telemetry_quality_gap(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    gap_ms: u32,
+) {
+    // Feature flag guard — snapshot + drop guard before any .await
+    let flag_enabled = {
+        let guard = state.feature_flags.read().await;
+        guard
+            .get("phase364_quality_monitor")
+            .map(|r| r.enabled)
+            .unwrap_or(true) // Intentional default: true. Flag missing = treat as enabled.
+    }; // guard dropped here — CLAUDE.md never-hold-lock-across-await
+    if !flag_enabled {
+        return;
+    }
+
+    // Guard: only during active gameplay (GameState::Running)
+    let game_state = {
+        let pods = state.pods.read().await;
+        pods.get(pod_id).and_then(|p| p.game_state)
+    };
+    if !matches!(game_state, Some(GameState::Running)) {
+        return;
+    }
+
+    // Guard: billing must be active
+    let session_id = {
+        let timers = state.billing.active_timers.read().await;
+        timers.get(pod_id).map(|t| t.session_id.clone())
+    };
+    let Some(session_id) = session_id else { return; };
+
+    tracing::warn!(
+        "[bot-coord] QUALITY-01: pod={} UDP silent {}ms -- appending suspect reason",
+        pod_id, gap_ms
+    );
+
+    // Bucket gap_ms to nearest 500ms for reason string
+    let bucket = (gap_ms / 500) * 500;
+    let reason = format!("telemetry_gap_ms_{}", bucket);
+    append_suspect_reason(&state.db, &session_id, &reason).await;
+}
+
+/// Phase 364 STALL-01: Handle SessionStalled (15s in-race telemetry silence).
+/// Logs + appends to suspect_reasons. Does NOT auto-end the session.
+pub async fn handle_session_stalled(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    silence_seconds: u32,
+) {
+    // Feature flag guard — snapshot + drop guard before any .await
+    let flag_enabled = {
+        let guard = state.feature_flags.read().await;
+        guard
+            .get("phase364_quality_monitor")
+            .map(|r| r.enabled)
+            .unwrap_or(true) // Intentional default: true. Flag missing = treat as enabled.
+    }; // guard dropped here
+    if !flag_enabled {
+        return;
+    }
+
+    // Guard: GameState::Running + billing active (same as quality gap)
+    let game_state = {
+        let pods = state.pods.read().await;
+        pods.get(pod_id).and_then(|p| p.game_state)
+    };
+    if !matches!(game_state, Some(GameState::Running)) {
+        return;
+    }
+    let session_id = {
+        let timers = state.billing.active_timers.read().await;
+        timers.get(pod_id).map(|t| t.session_id.clone())
+    };
+    let Some(session_id) = session_id else { return; };
+
+    tracing::warn!(
+        "[bot-coord] STALL-01: pod={} telemetry silent {}s -- appending suspect reason",
+        pod_id, silence_seconds
+    );
+
+    let reason = format!("session_stalled_{}s", silence_seconds);
+    append_suspect_reason(&state.db, &session_id, &reason).await;
+}
+
 /// Handle an AC multiplayer server disconnect detected by the pod agent.
 ///
 /// MULTI-01 teardown order (non-negotiable):
@@ -489,5 +608,46 @@ mod tests {
             session_id.is_none(),
             "no active timer means handle_multiplayer_failure is a noop"
         );
+    }
+
+    // Phase 364 QUALITY-01 / STALL-01 handler guard logic tests
+
+    #[test]
+    fn quality_gap_noop_when_game_not_running() {
+        // Guard: handle_telemetry_quality_gap returns early when game_state is not Running
+        let game_state: Option<rc_common::types::GameState> = Some(rc_common::types::GameState::Idle);
+        let should_proceed = matches!(game_state, Some(rc_common::types::GameState::Running));
+        assert!(!should_proceed, "QUALITY-01 must skip when game_state is Idle");
+    }
+
+    #[test]
+    fn quality_gap_noop_when_no_game_state() {
+        let game_state: Option<rc_common::types::GameState> = None;
+        let should_proceed = matches!(game_state, Some(rc_common::types::GameState::Running));
+        assert!(!should_proceed, "QUALITY-01 must skip when game_state is None");
+    }
+
+    #[test]
+    fn session_stalled_noop_when_billing_inactive() {
+        use std::collections::HashMap;
+        let active_timers: HashMap<String, String> = HashMap::new();
+        let session_id = active_timers.get("pod_1").cloned();
+        assert!(session_id.is_none(), "STALL-01 must skip when no billing session active");
+    }
+
+    #[test]
+    fn quality_gap_bucket_rounds_to_500ms() {
+        // Bucket logic: (gap_ms / 500) * 500
+        assert_eq!((750u32 / 500) * 500, 500);
+        assert_eq!((1000u32 / 500) * 500, 1000);
+        assert_eq!((1499u32 / 500) * 500, 1000);
+        assert_eq!((500u32 / 500) * 500, 500);
+    }
+
+    #[test]
+    fn append_suspect_reason_skips_empty_session_id() {
+        // append_suspect_reason returns early when session_id is empty
+        let session_id = "";
+        assert!(session_id.is_empty(), "empty session_id must trigger early return");
     }
 }

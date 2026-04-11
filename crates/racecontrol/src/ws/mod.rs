@@ -1376,6 +1376,16 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                         AgentMessage::TelemetryGap { pod_id, sim_type: _, gap_seconds } => {
                             crate::bot_coordinator::handle_telemetry_gap(&state, &pod_id, *gap_seconds as u64).await;
                         }
+                        AgentMessage::TelemetryQualityGap { pod_id, gap_ms } => {
+                            crate::bot_coordinator::handle_telemetry_quality_gap(
+                                &state, pod_id, *gap_ms
+                            ).await;
+                        }
+                        AgentMessage::SessionStalled { pod_id, silence_seconds } => {
+                            crate::bot_coordinator::handle_session_stalled(
+                                &state, pod_id, *silence_seconds
+                            ).await;
+                        }
                         AgentMessage::BillingAnomaly { pod_id, billing_session_id, reason, detail } => {
                             crate::bot_coordinator::handle_billing_anomaly(&state, &pod_id, &billing_session_id, *reason, &detail).await;
                         }
