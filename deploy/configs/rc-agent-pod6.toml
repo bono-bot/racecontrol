@@ -45,6 +45,9 @@ openrouter_model = "openrouter/auto"
 
 [lock_screen]
 blanking_url = "http://192.168.31.23:3300/kiosk/blanking"
+# IDLE-01: false = animated blank screen at idle (Racing Point staff-initiated billing).
+# Set true only for venues where customers enter PINs to start their own sessions.
+customer_self_service_mode = false
 
 [games.le_mans_ultimate]
 exe_path = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Le Mans Ultimate\\Le Mans Ultimate.exe"

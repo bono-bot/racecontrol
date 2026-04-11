@@ -182,6 +182,10 @@ pub struct LockScreenManager {
     /// Used on POS/auxiliary devices where Edge kiosk shows the billing page —
     /// launching the lock screen window would overlay and hide the billing UI.
     browser_disabled: bool,
+    /// When false (default), the pod idles on the animated blank screen.
+    /// When true, the pod idles on an empty PIN pad for customer self-service entry.
+    /// Racing Point venue uses staff-initiated billing — leave false.
+    customer_self_service_mode: bool,
     /// BILL-02: Current countdown warning state. Served via /countdown-warning endpoint.
     /// None = no warning displayed. The HTTP server reads this on each request.
     pub(crate) countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
@@ -198,6 +202,7 @@ impl LockScreenManager {
             countdown_warning: Arc::new(Mutex::new(None)),
             safe_mode_active: Arc::new(AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
         }
     }
 
@@ -207,6 +212,32 @@ impl LockScreenManager {
         self.browser_disabled = disabled;
         if disabled {
             tracing::info!(target: LOG_TARGET, "Lock screen native window DISABLED (POS/auxiliary mode)");
+        }
+    }
+
+    /// Set whether this pod uses customer self-service PIN entry for idle state.
+    /// When false (default), `show_idle_state()` calls `show_blank_screen()`.
+    /// When true, `show_idle_state()` calls `show_idle_pin_entry()`.
+    /// Wire from AgentConfig.lock_screen.customer_self_service_mode in main.rs.
+    pub fn set_customer_self_service_mode(&mut self, enabled: bool) {
+        self.customer_self_service_mode = enabled;
+        tracing::info!(
+            target: LOG_TARGET,
+            enabled,
+            "customer_self_service_mode set — idle state will be {}",
+            if enabled { "PIN pad" } else { "blank screen" }
+        );
+    }
+
+    /// Show the correct idle state for this venue configuration.
+    /// - `customer_self_service_mode = false` (default): animated blank screen.
+    /// - `customer_self_service_mode = true`: empty PIN pad for customer self-service.
+    /// All idle transitions should call this instead of `show_idle_pin_entry()` directly.
+    pub fn show_idle_state(&mut self) {
+        if self.customer_self_service_mode {
+            self.show_idle_pin_entry();
+        } else {
+            self.show_blank_screen();
         }
     }
 
@@ -1038,6 +1069,7 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
 
@@ -1058,6 +1090,7 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
 
@@ -1078,6 +1111,7 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle");
@@ -1147,6 +1181,7 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle");
@@ -1187,6 +1222,7 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         // Should not panic — no native_window, this is a no-op
@@ -1204,9 +1240,45 @@ mod tests {
             native_window: None,
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
+            customer_self_service_mode: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         manager.close_browser();
+    }
+
+    // ─── IDLE-01: show_idle_state() routing tests ────────────────────────────
+
+    #[test]
+    fn idle_state_blank_screen_when_self_service_disabled() {
+        // Default config (customer_self_service_mode = false) → blank screen.
+        // Use browser_disabled=true so show_blank_screen() sets ScreenBlanked state
+        // even without a real native window (which doesn't exist in tests).
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager::new(tx);
+        manager.set_browser_disabled(true); // no native window in tests
+        // customer_self_service_mode defaults to false
+        manager.show_idle_state();
+        let state = manager.state.lock().unwrap();
+        assert!(
+            matches!(*state, LockScreenState::ScreenBlanked),
+            "show_idle_state with customer_self_service_mode=false must yield ScreenBlanked, got {:?}",
+            *state
+        );
+    }
+
+    #[test]
+    fn idle_state_pin_entry_when_self_service_enabled() {
+        // Opt-in config (customer_self_service_mode = true) → PIN pad
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager::new(tx);
+        manager.set_customer_self_service_mode(true);
+        manager.show_idle_state();
+        let state = manager.state.lock().unwrap();
+        assert!(
+            matches!(*state, LockScreenState::PinEntry { ref token_id, .. } if token_id.is_empty()),
+            "show_idle_state with customer_self_service_mode=true must yield empty PinEntry, got {:?}",
+            *state
+        );
     }
 
     // ─── State name tests ────────────────────────────────────────────────────

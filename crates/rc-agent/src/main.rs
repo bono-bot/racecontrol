@@ -1062,6 +1062,10 @@ async fn main() -> Result<()> {
     if !config.lock_screen.enabled {
         lock_screen.set_browser_disabled(true);
     }
+    // IDLE-01: Wire customer_self_service_mode from config.
+    // Default false → idle state shows animated blank screen (Racing Point venue).
+    // Set true in TOML only for venues that let customers enter PINs to start sessions.
+    lock_screen.set_customer_self_service_mode(config.lock_screen.customer_self_service_mode);
     // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
     let lock_screen_rx = lock_screen.start_server_checked();
 

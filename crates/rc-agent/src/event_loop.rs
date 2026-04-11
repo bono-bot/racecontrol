@@ -1100,7 +1100,7 @@ pub async fn run(
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                                 tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-                                state.lock_screen.show_idle_pin_entry();
+                                state.lock_screen.show_idle_state();
                             }
                         }
                     }
@@ -1340,7 +1340,7 @@ pub async fn run(
                             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-                            state.lock_screen.show_idle_pin_entry();
+                            state.lock_screen.show_idle_state();
                         }
                     }
                 }
@@ -1431,7 +1431,7 @@ pub async fn run(
                             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
                             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-                            state.lock_screen.show_idle_pin_entry();
+                            state.lock_screen.show_idle_state();
                         }
                     }
                 }
@@ -1685,7 +1685,7 @@ pub async fn run(
                         state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
                         // STAFF-04: Reset cooldown so next failure after recovery sends alert immediately
                         state.last_preflight_alert = None;
-                        state.lock_screen.show_idle_pin_entry();
+                        state.lock_screen.show_idle_state();
                         // Send PreFlightPassed to server
                         let pod_id = state.config.pod.number.to_string();
                         let msg = AgentMessage::PreFlightPassed {
@@ -2090,7 +2090,7 @@ pub async fn run(
                                 s.active_billing_session_id = None;
                             });
                             ffb_controller::safe_session_end(&state.ffb).await;
-                            state.lock_screen.show_idle_pin_entry();
+                            state.lock_screen.show_idle_state();
                             state.overlay.deactivate();
                             if let Some(ref mut game) = state.game_process {
                                 let _ = game.stop();

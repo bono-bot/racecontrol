@@ -1593,7 +1593,7 @@ pub async fn handle_ws_message(
             kiosk::KioskManager::approve_process(&process_name);
             if state.kiosk.is_locked_down() {
                 state.kiosk.exit_lockdown();
-                state.lock_screen.show_idle_pin_entry();
+                state.lock_screen.show_idle_state();
             }
         }
 
@@ -1701,7 +1701,7 @@ pub async fn handle_ws_message(
         CoreToAgentMessage::ClearMaintenance => {
             tracing::info!(target: LOG_TARGET, "ClearMaintenance received from server — clearing maintenance state");
             state.in_maintenance.store(false, std::sync::atomic::Ordering::Relaxed);
-            state.lock_screen.show_idle_pin_entry();
+            state.lock_screen.show_idle_state();
         }
 
         CoreToAgentMessage::UpdateProcessWhitelist { whitelist } => {

@@ -207,11 +207,20 @@ impl Default for KioskConfig {
 pub struct LockScreenConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// When false (default), the pod idles on the Racing Point animated blank screen.
+    /// When true, the pod idles on an empty PIN pad for customer self-service entry.
+    /// Racing Point venue uses staff-initiated billing — set this to false.
+    /// Only enable for venues that let customers scan/enter a PIN to start their own session.
+    #[serde(default)]
+    pub customer_self_service_mode: bool,
 }
 
 impl Default for LockScreenConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            customer_self_service_mode: false,
+        }
     }
 }
 
