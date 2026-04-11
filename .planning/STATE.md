@@ -105,7 +105,14 @@ Stopped at: Completed 364-03-PLAN.md
 - All 8 pods: rc-agent `4c6d53b2` — /debug/content-dirs live
 - Cloud (Bono VPS): racecontrol `f0e7089e` — inventory endpoint verified
 - NYQUIST: PASS (11/11 unit tests + live regression test)
-- v46.0 Phase A (361) Plan 01 DONE. Plans 02 (kiosk filtering) and 03 (drift detection) still pending.
+- v46.0 Phase A (361) Plan 01 DONE.
+
+**Phase 361-02 CODE-COMPLETE (2026-04-11):**
+
+- Commits: `6467a315` (types+api+banner), `3efc161e` (wizard wiring+Playwright), `4ba17b01` (podId parse fix)
+- 3 Playwright tests written (A: happy path, B: 422 stub, C: unreachable+retry)
+- canLaunch gate + InventoryStatusBanner + conditional aria-describedby + 30s auto-refresh
+- Deploy pending (Task 3 skipped per user directive). Plan 03 (drift detection) still pending.
 
 **Resume v47.0 decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
 
