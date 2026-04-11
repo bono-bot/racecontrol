@@ -1,16 +1,20 @@
 //! Pod inventory HTTP handler + on-disk TOML loader.
 //!
 //! Phase 361-01 (code-only session 2026-04-09).
+//! Phase 361-03 (proxy handler added 2026-04-11).
 //!
 //! Reads `{config_dir}/rc-agent-pod{id}.toml` from disk, parses the
 //! `[content.<game_key>]` sections, and returns a `PodInventory` payload.
 //! Sourced from the committed TOML (ground truth), NOT from rc-agent live
 //! disk. Drift detection is a separate `/debug/content-dirs` probe on rc-agent.
 //!
-//! Registered in `staff_routes` at `GET /api/v1/pods/{id}/inventory` — staff
-//! JWT required per CLAUDE.md "Pod HTTP endpoints default to protected"
-//! (inventory reveals fleet content posture, same info-disclosure class as
-//! `/events/recent`).
+//! Also provides `pod_content_dirs_proxy_handler` which proxies the rc-agent
+//! `/debug/content-dirs` endpoint, injecting the pod service key server-side
+//! so the admin browser never handles pod credentials.
+//!
+//! Registered in `staff_routes`:
+//!   GET /api/v1/pods/{id}/inventory       — TOML-sourced inventory
+//!   GET /api/v1/debug/pod-content-dirs/{id} — live disk proxy (staff JWT)
 
 use axum::{
     Json,
@@ -18,7 +22,7 @@ use axum::{
     http::StatusCode,
 };
 use rc_common::inventory_types::{
-    AiCountRange, GameInventory, PodInventory,
+    AiCountRange, ContentDirsResponse, GameInventory, PodInventory,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -178,6 +182,76 @@ pub async fn pod_inventory_handler(
     Ok(Json(inv))
 }
 
+/// axum handler for `GET /api/v1/debug/pod-content-dirs/{id}`.
+///
+/// **Auth:** registered in `staff_routes` — staff JWT required.
+/// **Security:** admin browser never sees the pod service key; this handler
+/// injects `X-Service-Key` server-side (same pattern as `/events/recent`
+/// proxy in v27.0 MMA).
+///
+/// Looks up the pod by numeric ID in the in-memory pod registry, then
+/// proxies the rc-agent `/debug/content-dirs` endpoint with a 3-second
+/// timeout. Returns:
+///   - 200 + ContentDirsResponse on success
+///   - 404 + message if pod not registered or unreachable/timeout
+///   - 503 + message if rc-agent returned a non-200 response
+pub async fn pod_content_dirs_proxy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<u32>,
+) -> Result<Json<ContentDirsResponse>, (StatusCode, String)> {
+    // Look up pod by number in the in-memory registry.
+    let pod_ip = {
+        let pods = state.pods.read().await;
+        pods.values()
+            .find(|p| p.number == id)
+            .map(|p| p.ip_address.clone())
+    };
+
+    let ip = match pod_ip {
+        Some(ip) => ip,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Pod {} not registered in fleet", id),
+            ));
+        }
+    };
+
+    let url = format!("http://{}:8090/debug/content-dirs", ip);
+
+    // Build request — inject pod service key server-side so admin never
+    // handles the credential. Uses sentry_service_key (same env var set on
+    // all pods as RCAGENT_SERVICE_KEY per racecontrol.toml [pods] section).
+    let mut req = state.http_client.get(&url).timeout(std::time::Duration::from_secs(3));
+    if let Some(key) = &state.config.pods.sentry_service_key {
+        req = req.header("X-Service-Key", key.as_str());
+    }
+
+    match req.send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<ContentDirsResponse>().await {
+                Ok(data) => Ok(Json(data)),
+                Err(e) => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to parse rc-agent response: {}", e),
+                )),
+            }
+        }
+        Ok(resp) => Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("rc-agent on pod {} returned {}", id, resp.status()),
+        )),
+        Err(e) if e.is_timeout() => Err((
+            StatusCode::NOT_FOUND,
+            format!("pod unreachable: timeout after 3s (pod {})", id),
+        )),
+        Err(e) => Err((
+            StatusCode::NOT_FOUND,
+            format!("pod unreachable: {} (pod {})", e, id),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +347,88 @@ exe_path = "C:/fake/acs.exe"
         write_toml(dir.path(), 3, "this is = not [valid toml [[[");
         let err = load_pod_inventory(3, dir.path()).unwrap_err();
         assert_eq!(err.0, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // ─── Phase 361-03: ContentDirsResponse proxy type tests ─────────────────
+
+    /// Verify that ContentDirsResponse deserializes from the rc-agent JSON wire
+    /// format. This confirms the cross-boundary field-name contract is intact:
+    /// if rc-agent changes field names, this test will fail before deploy.
+    #[test]
+    fn content_dirs_response_deserializes_from_wire_json() {
+        use rc_common::inventory_types::{ContentDirsResponse, GameDirs};
+
+        let wire_json = r#"{
+            "games": [
+                {
+                    "game_key": "assetto_corsa",
+                    "cars_dir": "C:/AC/content/cars",
+                    "tracks_dir": "C:/AC/content/tracks",
+                    "cars_on_disk": ["ferrari_458", "bmw_m3_gt2"],
+                    "tracks_on_disk": ["spa", "monza", "nurburgring"],
+                    "cars_enumerable": true,
+                    "tracks_enumerable": true
+                },
+                {
+                    "game_key": "forza_horizon_5",
+                    "cars_dir": "",
+                    "tracks_dir": "",
+                    "cars_on_disk": [],
+                    "tracks_on_disk": [],
+                    "cars_enumerable": false,
+                    "tracks_enumerable": false
+                }
+            ]
+        }"#;
+
+        let resp: ContentDirsResponse =
+            serde_json::from_str(wire_json).expect("ContentDirsResponse must deserialize from rc-agent wire JSON");
+
+        assert_eq!(resp.games.len(), 2);
+
+        let ac = resp.games.iter().find(|g| g.game_key == "assetto_corsa").expect("ac present");
+        assert_eq!(ac.cars_on_disk, vec!["ferrari_458", "bmw_m3_gt2"]);
+        assert_eq!(ac.tracks_on_disk, vec!["spa", "monza", "nurburgring"]);
+        assert!(ac.cars_enumerable, "AC cars should be enumerable");
+        assert!(ac.tracks_enumerable, "AC tracks should be enumerable");
+
+        let fh5 = resp.games.iter().find(|g| g.game_key == "forza_horizon_5").expect("fh5 present");
+        assert!(!fh5.cars_enumerable, "FH5 cars should NOT be enumerable (degrade-open)");
+        assert!(!fh5.tracks_enumerable, "FH5 tracks should NOT be enumerable (degrade-open)");
+
+        // Verify round-trip serialization preserves snake_case field names
+        // (Phase 62 cross-boundary rule — TS consumers read these exact names).
+        let serialized = serde_json::to_string(&resp).expect("serialize");
+        assert!(serialized.contains("\"game_key\""), "game_key must be snake_case on wire");
+        assert!(serialized.contains("\"cars_on_disk\""), "cars_on_disk must be snake_case on wire");
+        assert!(serialized.contains("\"tracks_on_disk\""), "tracks_on_disk must be snake_case on wire");
+        assert!(serialized.contains("\"cars_enumerable\""), "cars_enumerable must be snake_case on wire");
+        assert!(serialized.contains("\"tracks_enumerable\""), "tracks_enumerable must be snake_case on wire");
+    }
+
+    /// Verify that ContentDirsResponse serializes to JSON that the admin TS
+    /// types can consume. Specifically: no camelCase — everything snake_case.
+    #[test]
+    fn content_dirs_response_serializes_snake_case() {
+        use rc_common::inventory_types::{ContentDirsResponse, GameDirs};
+
+        let resp = ContentDirsResponse {
+            games: vec![GameDirs {
+                game_key: "assetto_corsa".to_string(),
+                cars_dir: "C:/AC/cars".to_string(),
+                tracks_dir: "C:/AC/tracks".to_string(),
+                cars_on_disk: vec!["lotus_exige_s".to_string()],
+                tracks_on_disk: vec!["brands_hatch".to_string()],
+                cars_enumerable: true,
+                tracks_enumerable: true,
+            }],
+        };
+
+        let json = serde_json::to_string(&resp).expect("serialize");
+        // Negative checks — must NOT have camelCase (which would break TS consumer)
+        assert!(!json.contains("gameKey"), "MUST NOT have camelCase gameKey");
+        assert!(!json.contains("carsOnDisk"), "MUST NOT have camelCase carsOnDisk");
+        assert!(!json.contains("tracksOnDisk"), "MUST NOT have camelCase tracksOnDisk");
+        assert!(!json.contains("carsEnumerable"), "MUST NOT have camelCase carsEnumerable");
     }
 }

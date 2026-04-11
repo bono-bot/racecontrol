@@ -346,6 +346,10 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // kiosk wizard filtering + admin drift detection. Staff JWT required
         // (info disclosure class — reveals fleet content posture).
         .route("/pods/{id}/inventory", get(crate::api::pods::pod_inventory_handler))
+        // Phase 361-03: proxy rc-agent /debug/content-dirs with server-injected
+        // pod service key. Admin browser never handles pod credentials.
+        // Returns ContentDirsResponse (live disk scan for drift detection).
+        .route("/debug/pod-content-dirs/{id}", get(crate::api::pods::pod_content_dirs_proxy_handler))
         .route("/pods/{id}/wake", post(wake_pod))
         .route("/pods/{id}/shutdown", post(shutdown_pod))
         .route("/pods/{id}/lockdown", post(lockdown_pod))
