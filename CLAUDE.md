@@ -633,6 +633,22 @@ curl -s -m 120 https://openrouter.ai/api/v1/chat/completions \
 
 ## Debugging Methodology
 
+### Closed-Loop Debug (CLD) v1.0 — PRIMARY METHOD
+
+**Full spec:** `docs/CLOSED-LOOP-DEBUG.md`
+
+Every investigation starts AND ends at the layer closest to the user. 5 steps:
+
+1. **OPEN** — Reproduce the specific symptom (screenshot for UI, curl for API, tasklist for process). NOT a health check — the EXACT behavior reported.
+2. **DESCEND** — Work through 6 layers until root cause found: Smoke → Function → Boundary → Infra → Data → Code.
+3. **FIX** — Apply smallest change at the layer where root cause lives.
+4. **CLOSE** — Re-run the EXACT same test from Step 1. Same format, same command. If Step 1 was a screenshot, Step 4 must be a screenshot.
+5. **SWEEP** — Verify ALL deploy targets (venue + cloud + pods). One machine fixed ≠ all machines fixed.
+
+**Rule:** If the loop isn't closed (Step 4 not done), you cannot claim done. CLD Step 4 produces the evidence CGP H3 requires. CLD Step 5 produces the enumeration CGP H4 requires.
+
+_Why: Built from 25 real incidents. Backtested: catches 22/25 bug classes. All 25 shared one root cause: investigator tested proxies (health endpoint, status code, file exists) instead of ground truth (screenshot, actual user flow, output config). 2026-04-11._
+
 ### Cause Elimination Process (MANDATORY for all non-trivial bugs)
 
 Before fixing any bug, follow this structured process. Do NOT jump from symptom to fix.
