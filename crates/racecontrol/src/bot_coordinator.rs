@@ -510,32 +510,8 @@ async fn alert_staff_idle_drift(state: &Arc<AppState>, pod_id: &str, detail: &st
         .await;
 }
 
-/// Phase 364: Atomically append a reason string to billing_sessions.suspect_reasons JSON array.
-/// Uses SQLite json_insert with '$[#]' path to append without read-modify-write race.
-/// Also sets suspect = 1 so the session shows up in admin suspect-sessions queries.
-pub async fn append_suspect_reason(db: &sqlx::SqlitePool, session_id: &str, reason: &str) {
-    let result = sqlx::query(
-        "UPDATE billing_sessions
-         SET suspect_reasons = CASE
-             WHEN suspect_reasons IS NULL THEN json_array(?1)
-             ELSE json_insert(suspect_reasons, '$[#]', ?1)
-         END,
-         suspect = 1
-         WHERE id = ?2",
-    )
-    .bind(reason)
-    .bind(session_id)
-    .execute(db)
-    .await;
-
-    if let Err(e) = result {
-        tracing::warn!(
-            target: "bot-coord",
-            "append_suspect_reason failed session={} reason={}: {}",
-            session_id, reason, e
-        );
-    }
-}
+// NOTE: append_suspect_reason is defined once at line ~159 (Phase 364).
+// A duplicate definition was removed here — see Phase 361-03 deviation log.
 
 #[cfg(test)]
 mod tests {
