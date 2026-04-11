@@ -24380,9 +24380,21 @@ async fn queue_leave_handler(
 /// Used by kiosk maintenance gate to prevent booking degraded/unavailable pods.
 async fn pod_availability_handler(
     State(state): State<Arc<AppState>>,
-    Path(pod_id): Path<i64>,
+    Path(pod_id): Path<String>,
 ) -> Json<Value> {
-    let pod_num = pod_id as u8;
+    // Accept both "pod_1" (canonical) and "1" (legacy integer). Strip "pod_" prefix if present.
+    // Other /pods/{id}/* endpoints use the string form, so this one is kept consistent.
+    let pod_num: u8 = pod_id
+        .strip_prefix("pod_")
+        .unwrap_or(&pod_id)
+        .parse()
+        .unwrap_or(0);
+
+    if pod_num == 0 {
+        return Json(json!({
+            "error": format!("Invalid pod_id: expected 'pod_N' or 'N', got '{}'", pod_id),
+        }));
+    }
 
     // Check in-memory availability map (updated by anomaly scanner → self-healing)
     {
@@ -24421,12 +24433,14 @@ async fn pod_availability_handler(
     }
 
     // DB fallback: check for unresolved Critical events in last hour
+    // maintenance_events.pod_id stores the canonical "pod_N" string — use that form.
+    let pod_id_canonical = format!("pod_{}", pod_num);
     let critical_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM maintenance_events \
          WHERE pod_id = ?1 AND severity = 'Critical' AND resolved_at IS NULL \
          AND detected_at > datetime('now', '-1 hour')"
     )
-    .bind(pod_id)
+    .bind(&pod_id_canonical)
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
