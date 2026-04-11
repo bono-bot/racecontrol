@@ -338,6 +338,24 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/debug/incidents/{id}/apply-fix", post(debug_apply_fix))
         .route("/debug/diagnose", post(debug_diagnose))
         .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
+        // Phase 368: Launch status cards REST API (staff-JWT-gated via .layer below)
+        .route(
+            "/debug/launches/active",
+            get(crate::api::debug_launches::debug_launches_active),
+        )
+        .route(
+            "/debug/launches/{launch_id}/notes",
+            get(crate::api::debug_launches::debug_launches_get_notes)
+                .post(crate::api::debug_launches::debug_launches_post_note),
+        )
+        .route(
+            "/debug/launches/{launch_id}/approve-fix",
+            post(crate::api::debug_launches::debug_launches_approve_fix),
+        )
+        .route(
+            "/debug/launches/{launch_id}/dismiss",
+            post(crate::api::debug_launches::debug_launches_dismiss),
+        )
         // Pods
         .route("/pods", get(list_pods).post(register_pod))
         .route("/pod-status-summary", get(pod_status_summary))

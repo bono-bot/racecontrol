@@ -1,3 +1,4 @@
+pub mod debug_launches;
 pub mod metrics;
 pub mod metrics_prometheus;
 pub mod metrics_query;
