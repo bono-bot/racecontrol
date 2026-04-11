@@ -1,0 +1,5 @@
+{
+  "pod_id": "pod-8",
+  "sim_type": "assetto_corsa",
+  "launch_args": "{\"game\":\"assetto_corsa\",\"game_mode\":\"single\",\"session_type\":\"practice\",\"difficulty\":\"medium\",\"transmission\":\"auto\",\"ffb\":\"medium\",\"aids\":{\"abs\":1,\"tc\":1,\"stability\":0,\"autoclutch\":1,\"ideal_line\":0},\"conditions\":{\"damage\":0},\"ai_enabled\":false,\"ai_count\":0}"
+}
