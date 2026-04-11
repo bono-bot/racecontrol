@@ -1397,11 +1397,30 @@ pub enum DashboardEvent {
 
     // ─── AC Session Phase (VMS-inspired Feature 1) ─────────────────────────
 
-    /// AC dedicated server transitioned to a new session phase (Practice → Quali → Race).
+    /// AC dedicated server transitioned to a new session phase (Practice -> Quali -> Race).
     AcSessionPhaseChanged {
         session_id: String,
         phase: AcSessionPhase,
         time_left_secs: u32,
+    },
+
+    // ─── Phase 365: AI Behavior Validation (GLD-E-04) ─────────────────────
+
+    /// Phase 365 GLD-E-04: AI behavior deviates from KB band for this (car, track, tier).
+    /// Fires when session-end AI median lap time is outside the expected p10-p90 band.
+    AiBehaviorAnomaly {
+        pod_id: String,
+        session_id: String,
+        car: String,
+        track: String,
+        difficulty_tier: String,
+        expected_p10_ms: i64,
+        expected_p90_ms: i64,
+        observed_median_ms: i64,
+        observed_lap_count: u32,
+        /// "too_slow" | "too_fast"
+        direction: String,
+        timestamp: String,
     },
 }
 
@@ -3479,6 +3498,34 @@ mod process_guard_protocol_tests {
                 assert_eq!(elapsed_secs, 95);
             }
             _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_ai_behavior_anomaly_roundtrip() {
+        let event = DashboardEvent::AiBehaviorAnomaly {
+            pod_id: "pod-1".into(),
+            session_id: "sess-abc".into(),
+            car: "tatuusfa1".into(),
+            track: "magione".into(),
+            difficulty_tier: "pro".into(),
+            expected_p10_ms: 85000,
+            expected_p90_ms: 97000,
+            observed_median_ms: 110000,
+            observed_lap_count: 5,
+            direction: "too_slow".into(),
+            timestamp: "2026-04-10T12:00:00Z".into(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        assert!(json.contains("ai_behavior_anomaly"), "Must contain event tag: {}", json);
+        assert!(json.contains("too_slow"), "Must contain direction: {}", json);
+        assert!(json.contains("85000"), "Must contain p10: {}", json);
+        let parsed: DashboardEvent = serde_json::from_str(&json).expect("deserialize");
+        if let DashboardEvent::AiBehaviorAnomaly { direction, expected_p10_ms, .. } = parsed {
+            assert_eq!(direction, "too_slow");
+            assert_eq!(expected_p10_ms, 85000);
+        } else {
+            panic!("Expected AiBehaviorAnomaly variant");
         }
     }
 }
