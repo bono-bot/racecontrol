@@ -674,6 +674,37 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Phase 368: Launch notes (append-only staff annotations per launch) ──
+    // D-02: append-only audit trail for post-mortems; replicated via cloud_sync.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS launch_notes (
+            id          TEXT PRIMARY KEY,
+            launch_id   TEXT NOT NULL,
+            pod_id      TEXT NOT NULL,
+            staff_id    TEXT,
+            staff_name  TEXT,
+            body        TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_launch_notes_launch_id ON launch_notes(launch_id)",
+    )
+    .execute(pool)
+    .await?;
+
+    // D-11: staff_dismissed_at marks NeedsManualIntervention cards as acknowledged.
+    // Idempotent: ignore error if column already exists (existing databases).
+    let _ = sqlx::query(
+        "ALTER TABLE launch_timeline_spans ADD COLUMN staff_dismissed_at TEXT",
+    )
+    .execute(pool)
+    .await;
+    // Intentional: ignore error if column already exists (idempotent migration pattern)
+
     // ─── AC LAN tables ──────────────────────────────────────────────────────
 
     sqlx::query(
@@ -4098,6 +4129,16 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     let _ = sqlx::query(
         "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
          VALUES ('phase365_anomaly_detection', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
+    // Phase 368 kill switch — kiosk launch cards (default disabled for shadow deploy)
+    // D-13 (P2-06): flag lives in the DB feature_flags table, NOT racecontrol.toml.
+    // Kiosk reads via GET /api/v1/flags + Phase 177+ spawn_periodic_refetch (5-min interval).
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('kiosk_launch_cards_enabled', 0, 0, '{}')",
     )
     .execute(pool)
     .await;
