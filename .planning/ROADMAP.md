@@ -976,6 +976,48 @@ Plans:
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.3: Port drift-proof deploy-audit walker to web/ and kiosk/ (BACKLOG)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Motivation:** Sibling to `racingpoint-admin` backlog 999.1 ("Drift-proof deploy-audit — auto-derive pages_expected from filesystem walker"). The admin walker is the reference implementation; web/ and kiosk/ in this repo have the same drift bug and need the same fix. The 2026-04-11 CLD measured the drift directly:
+
+| App | Repo | `/api/health` endpoint | pages_expected | pages_available | Delta |
+|---|---|---|---|---|---|
+| Admin | racingpoint-admin | http://192.168.31.23:3201/api/health | 32 | 52 | +20 |
+| **Web** | **racecontrol/web** | http://192.168.31.23:3200/api/health | **25** | **49** | **+22** |
+| **Kiosk** | **racecontrol/kiosk** | http://192.168.31.23:3300/kiosk/api/health | **9** | **16** | **+5** |
+
+Web and kiosk are both reporting `healthy: true` while their hardcoded `pages_expected` arrays are 47 entries short of reality (22 + 5 + the admin repo's 20, totalled across all three apps). The health check is cosmetic on all three Next.js apps.
+
+**Scope (in this repo only — admin walker lives in `racingpoint-admin` 999.1):**
+
+1. **Port the walker to `web/`** — Implement the same filesystem walker in `web/src/app/api/health/route.ts` (or equivalent). Walk `web/src/app/**/page.tsx` with App-Router rules (group routes `(...)`, dynamic segments `[id]`, catch-alls `[...slug]`, route handlers vs pages). Return `pages_expected_count` + `pages_expected_hash` + `pages_available`.
+2. **Port the walker to `kiosk/`** — Same pattern in `kiosk/src/app/api/health/route.ts`. Kiosk uses `basePath: /kiosk` so the health endpoint is at `/kiosk/api/health` — verify the walker runs against the correct source tree, not the deployed bundle.
+3. **Drift-as-error** — `pages_available != pages_expected_count` flips `healthy: false` with `drift_detected: true` reason. "More is fine" is not fine — adds should go through code review, not silent health-passes.
+4. **Consumer wiring in `scripts/deploy/deploy-audit.sh`** — Read `pages_expected_hash` + `pages_expected_count` from all three Next.js apps (admin .23:3201, web .23:3200, kiosk .23:3300) via `/api/health`, and fail the post-deploy gate if any app reports drift. This closes the Deploy Manifest Protocol loop for frontends per Standing Rule DMP-01.
+
+**Dependency:** `racingpoint-admin` 999.1 (reference implementation — should land first so web+kiosk can mirror the exact pattern, including the `pages_expected_hash` algorithm, output format, and error-flipping semantics).
+
+**Out of scope:**
+- Fixing the 47 missing entries by hand (band-aid, not the fix — the walker makes the list authoritative).
+- API route health (separate concern from page inventory).
+- PMP-01 cross-machine parity (that gate lives in comms-link backlog 999.1 and activates automatically once this lands).
+- Rust racecontrol `/api/v1/health` — that's Axum, different code path, separate concern.
+
+**Permanence:** Source-code change (Next.js API route + deploy script consumer). Survives redeploy. No manual state.
+
+**Priority:** Medium-High — paired with admin 999.1. Two of the three broken health checks live in this repo. Any DMP frontend-gate claim is false until this lands alongside the admin walker.
+
+**Cross-reference:**
+- Parent: `racingpoint-admin` .planning/phases/999.1-drift-proof-deploy-audit-walker/
+- Consumer: `comms-link` .planning/phases/999.1-page-manifest-parity-check/ (PMP-01 — activates once walkers ship)
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ---
 
 ## v47.0 Admin Dashboard Venue-Ready Hardening

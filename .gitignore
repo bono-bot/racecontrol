@@ -69,3 +69,43 @@ audit/results/auto-detect-cooldown.json
 # Page crawler auth cache
 tests/page-crawler/.auth/
 scripts/db-sync/db-sync.env
+
+# Added by Phase 999.3 follow-up (CLD 2026-04-11) — repo hygiene for debug scratch
+# deploy-staging: local build/test artifacts, not committable
+deploy-staging/tmp*
+deploy-staging/_*.json
+deploy-staging/*.tar
+deploy-staging/*.tar.gz
+deploy-staging/*.zip
+deploy-staging/swap-binary.bat
+deploy-staging/capture-screen.ps1
+deploy-staging/render-*.js
+deploy-staging/run-capture.json
+deploy-staging/trigger-*.json
+deploy-staging/verify-binary.json
+deploy-staging/pod*-screenshot.json
+
+# GSD worktrees
+.claude/worktrees/
+
+# Root-level temporary scratch from debug sessions
+/tmp-*.txt
+/tmp-*.json
+/tmp-*.js
+/tmp-*.sh
+/tmp-*.ps1
+/tmp-*.bat
+
+# Root-level debug screenshots from session captures
+/*.png
+/*.jpg
+!/docs/**/*.png
+!/docs/**/*.jpg
+
+# Racecontrol rolling JSONL logs
+logs/racecontrol-*.jsonl
+
+# Playwright POS runtime cache + screenshots
+tests/e2e/playwright/pos/.driver-cache.tmp
+tests/e2e/playwright/pos/.jwt-cache.tmp
+tests/e2e/playwright/pos/screenshots/
