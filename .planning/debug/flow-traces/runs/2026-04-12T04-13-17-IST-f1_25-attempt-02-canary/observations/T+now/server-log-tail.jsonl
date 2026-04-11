@@ -1,0 +1,500 @@
+{"timestamp":"2026-04-11T22:42:49.205311Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":272},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:49.600390Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":430},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:51.397205Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:51.399367Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":2},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:53.243732Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:42:54.176688Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:54.445615Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":268},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:57.584348Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:57.853409Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":268},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.308695Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:42:58.811715Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/activity"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.812406Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.813477Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/incidents"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.813965Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/playbooks"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.814421Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.814852Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.814980Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/activity"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.815905Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/incidents"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.816257Z","level":"WARN","fields":{"message":"debug_activity: billing query error: error returned from database: (code: 1) no such column: session_id"},"target":"debug"}
+{"timestamp":"2026-04-11T22:42:58.816772Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/playbooks"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.818223Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.818410Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":2},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:58.820297Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":5},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:59.189513Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:59.449096Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":259},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:42:59.847503Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:00.221281Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":373},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:01.985218Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:02.434305Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":448},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:02.472849Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:02.473350Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:02.473520Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:02.474026Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:03.242109Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:03.811816Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-3"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:03.812862Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:04.191703Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:04.452323Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":260},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:05.372153Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:05.629665Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":257},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:05.773773Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:05.775696Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:07.896061Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:08.158180Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":262},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:08.231269Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:09.203710Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:09.477699Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":274},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:11.275507Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_6 took 757ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:13.235231Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:14.212003Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:14.606169Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":393},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:15.878384Z","level":"INFO","fields":{"message":"Billing rate tiers refreshed from DB"},"target":"racecontrol_crate::billing"}
+{"timestamp":"2026-04-11T22:43:16.874416Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:16.933994Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_1 took 3283ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:17.149404Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":275},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:18.206504Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:18.240656Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:18.514356Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":308},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:19.225830Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:19.514229Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":289},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:22.631589Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_9 took 669ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:23.226763Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:24.225435Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:24.513767Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":288},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:26.137448Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_8 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause:**  \n`vsd craft.exe` appears to be an unauthorized or suspicious process consuming exce"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:43:26.803271Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:43:28.228811Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:28.543004Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.809250Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/activity"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.810081Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.810771Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/incidents"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.810936Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/playbooks"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.811184Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.811410Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.813492Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/activity"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.813973Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/playbooks"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.814315Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/incidents"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.814483Z","level":"WARN","fields":{"message":"debug_activity: billing query error: error returned from database: (code: 1) no such column: session_id"},"target":"debug"}
+{"timestamp":"2026-04-11T22:43:28.814704Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.814782Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.817232Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:28.885804Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":342},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:29.234339Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:29.624983Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":390},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:32.440673Z","level":"INFO","fields":{"message":"Cloud sync pull: upserted 3 records"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:43:32.451230Z","level":"INFO","fields":{"message":"Cloud sync push: 500 content_drift_events"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:43:32.455839Z","level":"INFO","fields":{"message":"Cloud sync push: 500 metrics_rollups"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:43:33.226951Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:34.233848Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:34.738486Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":504},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:37.691100Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:37.691452Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:37.691691Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:37.692484Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:38.238137Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:38.563982Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_5 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause Hypothesis:**  \nThe suspicious process `vsd craft.exe` appears to be an unauthorized or"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:43:38.814549Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:43:38.928502Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.012702Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-5"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.013623Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.248553Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.421284Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":493},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.534029Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":285},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:39.875724Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_5 took 637ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:40.589556Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:40.593550Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:40.639668Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:40.640425Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:41.753114Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/debug/pod-events/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:41.753312Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:41.754491Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/debug/pod-events/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:41.755578Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.232646Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:43.819507Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.820051Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.820945Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.821554Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.822380Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.822935Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:43.824201Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.074982Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":254},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.251279Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.326243Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_3 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause:**  \nNVIDIA overlay process (`nvidia overlay.exe`) running unnecessarily in an idle pod"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:43:44.494277Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/staff"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.498905Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":4},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.501966Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/staff"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.502331Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/staff"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.502803Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/staff"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.502889Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/staff"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.508327Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":6},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.508505Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":6},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.508685Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":5},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.508831Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":5},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.518134Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":266},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.535319Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:43:44.746423Z","level":"INFO","fields":{"message":"Dashboard client disconnected (remaining: 12)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:44.750891Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.751042Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.752006Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/ws/dashboard"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.752161Z","level":"INFO","fields":{"message":"request_completed","status":101,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.752299Z","level":"INFO","fields":{"message":"Dashboard client connected (total: 13)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:44.752590Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.753822Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.763975Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/shutdown"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.764086Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/debug"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.769112Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":5},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.769198Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":5},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.771241Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/shutdown"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.771438Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/kiosk/shutdown"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.774471Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:44.774546Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:45.780925Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/ws/dashboard"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:45.781636Z","level":"INFO","fields":{"message":"request_completed","status":101,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:45.782037Z","level":"INFO","fields":{"message":"Dashboard client connected (total: 14)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:46.374636Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/pods/4/inventory"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.374837Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375078Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/pricing"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375166Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/drivers"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375248Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375345Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375440Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/customer/ac/catalog"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.375555Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.376311Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/kiosk/experiences"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.376425Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.377274Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.377375Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.378684Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pods/4/inventory"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379263Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379468Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379565Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/drivers"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379677Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/customer/ac/catalog"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379801Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pricing"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.379896Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/kiosk/experiences"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.380001Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.380097Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.380332Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.380498Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.381970Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":2},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.891352Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/games"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.891437Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.891513Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pricing"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.891698Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.892306Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.893305Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.893498Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.893709Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.894459Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.895579Z","level":"INFO","fields":{"message":"request_completed","status":404,"latency_ms":4},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:46.895741Z","level":"INFO","fields":{"message":"request_completed","status":404,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:47.162039Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":267},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:48.298930Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:49.262239Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:49.456697Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:49.514059Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:49.532645Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":270},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:49.543494Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_4 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause**:  \nMemory compression (PID 3600) is a normal Windows process but may indicate insuffi"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:43:49.803150Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":346},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:50.068437Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":554},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:50.115086Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:50.392566Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":277},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:51.171950Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:43:52.505483Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.508559Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.664884Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.665019Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.665205Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/pricing/display"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.665323Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.666272Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.666438Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.666621Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pricing/display"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:52.667891Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:53.230414Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:54.274080Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:54.578047Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":304},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.055728Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/start"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.055986Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.057045Z","level":"INFO","fields":{"message":"request_started","method":"POST","route":"/api/v1/billing/start"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.070463Z","level":"WARN","fields":{"message":"Invoice generated with fallback GSTIN ƒ?" set venue.venue_gstin in racecontrol.toml"},"target":"racecontrol_crate::accounting"}
+{"timestamp":"2026-04-11T22:43:57.071039Z","level":"INFO","fields":{"message":"GST invoice generated","invoice_id":"be3f4af7-5bad-4c6d-91e5-08bdfc12b857","invoice_number":228,"session_id":"093ce36b-ffbc-4c4d-8020-70e681f8313d","total_paise":70000},"target":"racecontrol_crate::accounting"}
+{"timestamp":"2026-04-11T22:43:57.071159Z","level":"INFO","fields":{"message":"BILL-13: Billing deferred to WaitingForGame for pod pod_4 (kiosk staff path, session pre-committed)"},"target":"racecontrol_crate::billing"}
+{"timestamp":"2026-04-11T22:43:57.078236Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":21},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.079870Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/games/launch"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.079952Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.080452Z","level":"INFO","fields":{"message":"request_started","method":"POST","route":"/api/v1/games/launch"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:57.081908Z","level":"INFO","fields":{"message":"dynamic timeout: using default 90s for F1 25/None/None (insufficient history: 0 samples)"},"target":"racecontrol_crate::metrics"}
+{"timestamp":"2026-04-11T22:43:57.082782Z","level":"INFO","fields":{"message":"CommandAck from pod Some(\"pod_4\"): cmd=88b73070-4d22-4d3d-9afd-e13a50c7371f success=true err=None"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:57.082872Z","level":"INFO","fields":{"message":"Launch ACK received for pod pod_4 (command_id=88b73070-4d22-4d3d-9afd-e13a50c7371f)"},"target":"racecontrol_crate::game_launcher"}
+{"timestamp":"2026-04-11T22:43:57.432096Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_1 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause Hypothesis:**  \nMemory compression (normal Windows process) and PowerShell running idle"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:43:57.658751Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:43:58.234756Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:43:59.286954Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:59.580704Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":293},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:43:59.842488Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:00.115399Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":273},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:00.156804Z","level":"INFO","fields":{"message":"Pod pod_4 game state: Launching (F125)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:02.946084Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_2 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause**:  \nUnnecessary NVIDIA overlay and VSD Craft processes running in background, consumin"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:44:03.225368Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:04.288208Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:04.556366Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":267},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:08.234113Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:08.968552Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:08.969143Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:08.969654Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:08.970391Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:09.293977Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:09.568859Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":274},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:10.158502Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:10.322239Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-6"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:10.322487Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:10.418678Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":260},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:11.257816Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_6 took 742ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:14.308147Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:14.746639Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":438},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:14.751865Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:14.752409Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:14.753980Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:14.757145Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":2},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:15.881451Z","level":"INFO","fields":{"message":"Billing rate tiers refreshed from DB"},"target":"racecontrol_crate::billing"}
+{"timestamp":"2026-04-11T22:44:16.378246Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/pods/4/inventory"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.378580Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.378987Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.379466Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.382619Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pods/4/inventory"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.383057Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.383322Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.384403Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:16.857907Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_1 took 3207ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:16.858547Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:16.873473Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:17.136291Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":262},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:17.508364Z","level":"WARN","fields":{"message":"CLOSED-LOOP: Game launch NOT verified on pod pod_4 after 20.4s ƒ?" process may not have started"},"target":"racecontrol_crate::game_launcher"}
+{"timestamp":"2026-04-11T22:44:17.514530Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":20433},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:18.228322Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:18.247570Z","level":"INFO","fields":{"message":"Pod pod_4 game state: Running (F125)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:18.247989Z","level":"INFO","fields":{"message":"Phase 282: pod pod_4 ready_delay_ms=21165 (launchƒ+'playable)"},"target":"racecontrol_crate::game_launcher"}
+{"timestamp":"2026-04-11T22:44:19.004259Z","level":"INFO","fields":{"message":"Pod pod_4 game state: Loading (F125)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:19.015499Z","level":"INFO","fields":{"message":"Pod pod_4 game state: Running (F125)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:19.321414Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:19.589014Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":267},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:20.456411Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:20.726387Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":270},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:22.752943Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_9 took 791ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:23.235719Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:23.998923Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'nvngx_update.exe' (path: c:\\windows\\system32\\driverstore\\filerepository\\nv_dispi.inf_amd64_7840b4313191ae17\\nvngx_update.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:24.043665Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:24.173005Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:24.173321Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:24.173861Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:24.174204Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:24.327980Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:24.588055Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":260},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:28.229378Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:29.037798Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'nvngx_update.exe' (path: c:\\windows\\system32\\driverstore\\filerepository\\nv_dispi.inf_amd64_7840b4313191ae17\\nvngx_update.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:29.330477Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:29.589903Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":259},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:30.779149Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:31.039484Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":260},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:32.429780Z","level":"INFO","fields":{"message":"Cloud sync pull: upserted 3 records"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.432100Z","level":"INFO","fields":{"message":"Cloud sync push: 1 billing sessions"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.432814Z","level":"INFO","fields":{"message":"Cloud sync push: 1 wallets"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.433179Z","level":"INFO","fields":{"message":"Cloud sync push: 1 wallet transactions"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.433506Z","level":"INFO","fields":{"message":"Cloud sync push: 2 billing events"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.436950Z","level":"INFO","fields":{"message":"Cloud sync push: 500 content_drift_events"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:32.440958Z","level":"INFO","fields":{"message":"Cloud sync push: 500 metrics_rollups"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:44:33.223429Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:34.338466Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:34.598018Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":259},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:38.222834Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:39.037001Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:39.339808Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:39.596094Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:39.618094Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":278},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:39.858639Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":262},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:39.924458Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_5 took 700ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:41.085454Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:41.470190Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":384},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.229285Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:43.829544Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.829924Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.830190Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.830676Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.832326Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.832433Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:43.833223Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.005472Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.005856Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.006588Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.007107Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.098622Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":268},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.348481Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.758647Z","level":"WARN","fields":{"message":"Dashboard WS client pong timeout (45s) ƒ?" dropping"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:44.759213Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.759824Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.761654Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.763179Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:44.790403Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":442},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:45.389163Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-7"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:45.390155Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:45.798000Z","level":"WARN","fields":{"message":"Dashboard WS client pong timeout (45s) ƒ?" dropping"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:46.391947Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:46.392279Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:46.393868Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:46.394898Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:46.874055Z","level":"INFO","fields":{"message":"Pod healer: checking 9 pods"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:44:47.087814Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:44:48.222605Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:49.351203Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:49.608036Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":257},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:50.373270Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_4 took 1382ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:51.505695Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:51.952985Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":447},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:52.815980Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_8 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause Hypothesis:**  \nThe suspicious process `vsd craft.exe` is likely malware or an unauthor"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:44:53.295960Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:53.524292Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:44:54.039614Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:54.355140Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:54.509104Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:54.627216Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":271},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:54.868110Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":358},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:54.915460Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:55.178631Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":263},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:57.344464Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:57.348013Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:58.224650Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:44:59.358226Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:44:59.713773Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":356},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:01.987070Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:02.002111Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:02.359732Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":372},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:02.593712Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":591},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:03.223903Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:03.937714Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_5 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause Hypothesis:**  \n`vsd craft.exe` appears to be an unauthorized or suspicious process, po"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:45:04.194080Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:45:04.358805Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:04.711298Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":352},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:05.358606Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:05.844992Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":486},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:05.972920Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:05.976837Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:08.225389Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:09.025992Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:09.078048Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_3 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause**:  \nNVIDIA overlay process running unnecessarily in an idle pod, consuming resources. "},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:45:09.328515Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:45:09.357743Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:09.612447Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":254},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:11.259640Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_6 took 730ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:12.147755Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:12.147928Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:12.152830Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:12.154719Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:12.638115Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:13.049285Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":411},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:13.522181Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-1"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:13.522805Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.035847Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_2 took 1229ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:14.366914Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.750676Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":383},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.751712Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.752357Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.754683Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:14.758100Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:15.868468Z","level":"INFO","fields":{"message":"Billing rate tiers refreshed from DB"},"target":"racecontrol_crate::billing"}
+{"timestamp":"2026-04-11T22:45:16.326417Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.327058Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.327603Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.327923Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.376658Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.376763Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.379083Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.379501Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.404791Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_4 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause:**  \nMemory pressure from F1 2025 (f1_25.exe) consuming excessive RAM (7GB), compounded"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:45:16.407019Z","level":"INFO","fields":{"message":"Email alert rate-limited, skipping send","pod_id":"pod_4"},"target":"racecontrol_crate::email_alerts"}
+{"timestamp":"2026-04-11T22:45:16.877734Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.879109Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.884513Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":6},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.885262Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/games"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.886439Z","level":"INFO","fields":{"message":"request_completed","status":404,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.886668Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.887269Z","level":"INFO","fields":{"message":"request_completed","status":404,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.887443Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/pricing"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.887534Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:16.970186Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_1 took 3319ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:16.971618Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:17.150434Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":273},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:17.663355Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-8"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:17.664729Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:18.210453Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:45:18.228284Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:19.377716Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:19.643349Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":265},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:20.340968Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:20.342757Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:20.343771Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:20.889226Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":548},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:22.759342Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_9 took 801ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:23.100129Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:23.234444Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:23.480907Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":381},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:23.647261Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_1 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause**: Memory compression (a Windows system process) consuming excessive RAM suggests eithe"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:45:23.846066Z","level":"WARN","fields":{"message":"Claude CLI failed: Claude CLI not found or failed to spawn: program not found. Trying Ollama..."},"target":"racecontrol_crate::ai"}
+{"timestamp":"2026-04-11T22:45:24.031154Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:24.389281Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:24.660918Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":271},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:28.232800Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:28.277066Z","level":"INFO","fields":{"message":"Pod healer AI suggestion for pod_2 (via openrouter/deepseek/deepseek-chat-v3-0324): **Root Cause**:  \nUnnecessary NVIDIA overlay and VSD Craft processes running idle, consuming resourc"},"target":"racecontrol_crate::pod_healer"}
+{"timestamp":"2026-04-11T22:45:29.394562Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:29.659435Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":264},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:32.435079Z","level":"INFO","fields":{"message":"Cloud sync pull: upserted 3 records"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:45:32.441752Z","level":"INFO","fields":{"message":"Cloud sync push: 500 content_drift_events"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:45:32.444922Z","level":"INFO","fields":{"message":"Cloud sync push: 500 metrics_rollups"},"target":"racecontrol_crate::cloud_sync"}
+{"timestamp":"2026-04-11T22:45:33.233159Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:33.529580Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:33.904201Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":374},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:34.395672Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:34.675685Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":279},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:38.295293Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:38.995169Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:39.403442Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:39.723949Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":320},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:39.919758Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_5 took 681ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:43.217068Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:43.823398Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.824833Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.825259Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.825644Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.827279Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.828016Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.829708Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:43.934555Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.085915Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":260},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.326582Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":392},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.414807Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.588007Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":173},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.751480Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.751950Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.753849Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/billing/sessions"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:44.756857Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":3},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:46.383239Z","level":"INFO","fields":{"message":"request_started","method":"OPTIONS","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:46.383378Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:46.386247Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/pod-inventory/pod_4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:46.387015Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:47.958336Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/flags"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:47.958875Z","level":"INFO","fields":{"message":"request_completed","status":401,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:47.964776Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/config/kiosk-allowlist"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:47.965468Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":1},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:48.225135Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:48.974009Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/guard/whitelist/pod-4"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:48.975052Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":0},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:49.423170Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:49.732062Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":309},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:50.197791Z","level":"WARN","fields":{"message":"WS round-trip slow: pod_4 took 1196ms (threshold 600ms)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:53.220980Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:54.032519Z","level":"WARN","fields":{"message":"[kiosk] Pod pod_4 requesting approval for 'eaanticheat.gameservice.exe' (path: c:\\program files\\ea\\ac\\eaanticheat.gameservice.exe, seen 3 times)"},"target":"racecontrol_crate::ws"}
+{"timestamp":"2026-04-11T22:45:54.359140Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:54.424505Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:54.698242Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":339},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:54.968980Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":544},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:57.850436Z","level":"INFO","fields":{"message":"request_started","method":"GET","route":"/api/v1/fleet/health"},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:57.854328Z","level":"INFO","fields":{"message":"request_completed","status":200,"latency_ms":4},"target":"admin_api"}
+{"timestamp":"2026-04-11T22:45:58.224782Z","level":"WARN","fields":{"message":"RESIL-08: Clock drift 7s on pod pod_1 (server - agent)"},"target":"racecontrol_crate::ws"}
