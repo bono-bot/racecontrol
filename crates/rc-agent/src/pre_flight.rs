@@ -788,11 +788,32 @@ async fn check_popup_windows() -> CheckResult {
                     detail: "No popup-overlay processes detected".into(),
                 }
             } else {
+                // Demoted from Fail to Warn (2026-04-11):
+                //
+                // The blocklist includes AMD Radeon Software background services
+                // (amdrsserv.exe, amdrssrcext.exe) which are NOT visible window
+                // overlays — they're SCM-managed Windows services that auto-restart
+                // on kill via their failure actions, and often require admin rights
+                // to stop. fix_popup_windows() calls taskkill /F /PID but the
+                // taskkill fails or the service respawns instantly, so the re-check
+                // reports the same offenders and pre_flight returns MaintenanceRequired.
+                //
+                // This trapped pods 1/2/3/7 on 2026-04-11 the moment any billing
+                // attempt fired (discovered during canary rollout of the ConspitLink/
+                // native-window/HID fixes). Separate root cause from those three;
+                // same class of bug: pre-flight blocking billing on a condition
+                // that doesn't actually affect customer experience.
+                //
+                // Warn keeps the auto-fix best-effort (amdow + nvidia overlay CAN
+                // produce visible windows and killing them when possible is still
+                // useful) while no longer trapping the pod. Follow-up: either prune
+                // the service-level entries from POPUP_BLOCKLIST, or disable the
+                // Radeon Software services fleet-wide via sc config.
                 CheckResult {
                     name: "popup_windows",
-                    status: CheckStatus::Fail,
+                    status: CheckStatus::Warn,
                     detail: format!(
-                        "Popup-overlay processes running: {}",
+                        "Popup-overlay processes running (non-blocking): {}",
                         offenders.join(", ")
                     ),
                 }
