@@ -143,6 +143,35 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 - `POST http://192.168.31.23:8080/api/v1/fleet/exec` — remote exec via rc-agent :8090
 - Cloud sync: pull/push every 30s. Cloud authoritative: drivers, pricing. Local authoritative: billing, laps, game state.
 
+## Fleet Intelligence (Phase 366)
+
+### New Endpoint
+GET /api/v1/fleet/intelligence (staff JWT required)
+- Returns composite health score (0-100) per pod + time-of-day failure patterns
+- Score is null when fewer than 3 completed sessions in 7-day window (insufficient_data: true)
+- Components: session_success_rate (40pts), telemetry_completeness (30pts),
+  config_mismatch_rate (20pts, defaults to 0), crashes_last_hour (10pts)
+- time_patterns: per-pod flagged hours with failure_rate >= 30% and sample_count >= 3 (30-day window)
+- METRIC_POD_HEALTH_SCORE in TSDB now emits 0-100 composite (was binary 0/1)
+
+### New Background Task: Content Drift Detector
+- Polls each pod's GET :8090/debug/content-dirs every 60 minutes
+- Compares live disk content vs pod TOML (ground truth)
+- On drift: inserts to content_drift_events table, broadcasts ContentDriftDetected WS event
+- WhatsApp alert fires for game_removed delta type only (P2-10 class severity)
+- Offline pods skipped silently
+
+### Concurrent Session Guard (HTTP 409 upgrade)
+POST /billing/start: returns HTTP 409 {error:"pod_already_active", active_session_id, pod_id}
+  when pod already has active billing (upgraded from HTTP 200 + error body)
+POST /games/launch: returns HTTP 409 {error:"game_already_active", pod_id}
+  when pod already has a game Launching/Running/Stopping (upgraded from HTTP 200 + error body)
+
+### New DB Table
+content_drift_events: id, pod_id, detected_at, game_key, delta_type, item, resolved_at, resolution_note
+- delta_type values: game_added, game_removed, car_added, car_removed, track_added, track_removed
+- Replicates via Phase 301 cloud_data_sync_v2
+
 ---
 
 ## Standing Rules
