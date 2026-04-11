@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: verifying
-stopped_at: Completed 361-03-PLAN.md
-last_updated: "2026-04-11T02:08:00.901Z"
-last_activity: 2026-04-11
+stopped_at: Completed 363-data-recording-verification-03-PLAN.md
+last_updated: "2026-04-09T21:25:26.258Z"
+last_activity: 2026-04-09
 progress:
   total_phases: 4
   completed_phases: 4
@@ -39,7 +39,7 @@ v47.0 stopped at: Phase 346-01 complete; cutover (346-02) and phases 347-355 pen
 Phase: 363 (data-recording-verification) — EXECUTING
 Plan: 3 of 3 (363-02 complete; 363-03 is next)
 Status: Phase complete — ready for verification
-Last activity: 2026-04-11
+Last activity: 2026-04-09
 
 Progress: [█░░░░░░░░░] 14% (v46.0 — 1 of 7 phases shipped, Phase 362 a9b5eaa3)
 
@@ -79,26 +79,11 @@ v46.0 was opened retroactively on 2026-04-09 after Phase 362 (Layer 3 post-launc
 
 ### Phase wave plan
 
-<<<<<<< Updated upstream
-Last session: 2026-04-11T02:08:00.897Z
-Stopped at: Completed 361-03-PLAN.md
-
-**Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
-
-- Server .23: build `4c6d53b2` — inventory endpoint + validity gate live
-- All 8 pods: rc-agent `4c6d53b2` — /debug/content-dirs live
-- Cloud (Bono VPS): racecontrol `f0e7089e` — inventory endpoint verified
-- NYQUIST: PASS (11/11 unit tests + live regression test)
-- v46.0 Phase A (361) Plan 01 DONE. Plans 02 (kiosk filtering) and 03 (drift detection) still pending.
-
-=======
 **Wave 1 — Foundation (no dependencies):**
 
 - Phase 361: Kiosk preset filtering + server gate (closes 2 silent-loss points)
 - Phase 363: Data recording verification (closes 3 P0s)
 - Phase 364: Session quality monitor (closes 4 P1s)
-
->>>>>>> Stashed changes
 
 **Wave 2 — Depends on Wave 1 data pipeline:**
 

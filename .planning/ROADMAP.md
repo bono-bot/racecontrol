@@ -1303,9 +1303,9 @@ Plans:
 4. Admin `/admin/content-drift` lists pods with inventory drift
 
 **Plans:**
-3/3 plans complete
-- [x] 361-02-PLAN — Kiosk filter + presetValidity surface
-- [x] 361-03-PLAN — Admin content-drift page + nyquist tests
+1/3 plans executed
+- [ ] 361-02-PLAN — Kiosk filter + presetValidity surface
+- [ ] 361-03-PLAN — Admin content-drift page + nyquist tests
 
 ### Phase 362: Post-Launch Config Verification (Layer 3) — SHIPPED 2026-04-09
 
@@ -1358,9 +1358,9 @@ Plans:
 5. `ws_try_send_overflows_total` metric exposed
 
 **Plans:**
-1/3 plans executed
+- [ ] 364-01-PLAN — Telemetry gap + stall detectors
 - [ ] 364-02-PLAN — Lap consistency checker
-- [x] 364-03-PLAN — Silent-drop audit + overflow metrics
+- [ ] 364-03-PLAN — Silent-drop audit + overflow metrics
 
 ### Phase 365: AI Behavior Validation via MMA
 
