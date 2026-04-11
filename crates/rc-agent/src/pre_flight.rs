@@ -156,28 +156,54 @@ async fn run_concurrent_checks(
 
 // ─── Individual Check Functions ───────────────────────────────────────────────
 
-/// HID check: verify the wheelbase is connected.
+/// HID check: verify the OpenFFBoard vendor interface on the wheelbase.
 ///
-/// Uses FfbBackend::zero_force() — a quick HID write, no spawn_blocking needed.
-/// Ok(true) = device found (Pass)
-/// Ok(false) = device not found (Fail)
-/// Err(e) = HID write failed (Fail)
+/// Uses FfbBackend::zero_force() — a quick HID write to the OpenFFBoard vendor
+/// interface (VID:0x1209 PID:0xFFB0, usage page 0xFF00). This interface provides
+/// the out-of-band emergency-stop command used by rc-agent to zero wheel torque
+/// on game crash or session end.
+///
+/// Status semantics (2026-04-11 — was Fail, demoted to Warn):
+///   Ok(true)  = vendor interface responding → Pass
+///   Ok(false) = vendor interface not detected → Warn (was Fail)
+///   Err(e)    = HID write failed → Warn (was Fail)
+///
+/// Rationale for Warn instead of Fail:
+///
+/// Conspit Link 2.0 auto-updates periodically remove or rebind the OpenFFBoard
+/// vendor interface (observed 2026-04-11: VID_1209 absent from PnP enumeration
+/// fleet-wide while ConspitLink2.0.exe running with 3 multiplied instances).
+/// The wheel itself continues to work normally via the standard HID/DirectInput
+/// path — customers can race, FFB effects work, pedals respond. Only the
+/// rc-agent-side emergency stop path is lost, and rc-agent already degrades
+/// gracefully on that path (zero_force returns Ok(false) → no-op, not an error).
+///
+/// Making this a Fail caused every pod to trap itself in MaintenanceRequired on
+/// the first billing attempt after a Conspit update, blocking customers until
+/// a staff member either reflashed firmware or restarted rc-agent. That is NOT
+/// a proportionate response to "out-of-band safety path unavailable."
+///
+/// Warn surfaces the condition in logs and the health response without blocking
+/// billing. A follow-up should add a WhatsApp operator alert on Warn so staff
+/// know to investigate Conspit's state when this fires.
 async fn check_hid(ffb: &dyn FfbBackend) -> CheckResult {
     match ffb.zero_force() {
         Ok(true) => CheckResult {
             name: "hid",
             status: CheckStatus::Pass,
-            detail: "Wheelbase HID connected".into(),
+            detail: "Wheelbase OpenFFBoard vendor interface responding".into(),
         },
         Ok(false) => CheckResult {
             name: "hid",
-            status: CheckStatus::Fail,
-            detail: "Wheelbase HID not detected (VID:0x1209 PID:0xFFB0)".into(),
+            status: CheckStatus::Warn,
+            detail: "OpenFFBoard vendor interface (VID:0x1209 PID:0xFFB0) not detected — \
+                     rc-agent emergency stop unavailable. Wheel still works via standard HID. \
+                     Conspit Link auto-updates may have removed this interface.".into(),
         },
         Err(e) => CheckResult {
             name: "hid",
-            status: CheckStatus::Fail,
-            detail: format!("Wheelbase HID error: {}", e),
+            status: CheckStatus::Warn,
+            detail: format!("Wheelbase OpenFFBoard HID API error (non-blocking): {}", e),
         },
     }
 }
