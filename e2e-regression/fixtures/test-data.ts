@@ -7,7 +7,7 @@ export const API_BASE = `http://${SERVER_IP}:8080/api/v1`;
 export const POS_BASE = `http://${SERVER_IP}:3200`;
 export const KIOSK_BASE = `http://${SERVER_IP}:3300`;
 
-export const STAFF_PIN = '0009'; // Chavan Vishal
+export const STAFF_PIN = '7080'; // TEST_ONLY_E2E (dedicated test staff — won't change when real PINs rotate)
 export const ADMIN_PIN = '261121'; // Master admin PIN
 
 // Pod IPs — for rc-agent :8090 screen capture

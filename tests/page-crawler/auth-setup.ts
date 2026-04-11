@@ -55,10 +55,13 @@ export async function ensureAuth(baseUrl: string): Promise<string> {
   const context = await browser.newContext();
 
   try {
+    // Auth goes to racecontrol API (:8080), not the frontend app
+    const rcUrl = process.env.RC_API_URL ?? 'http://192.168.31.23:8080';
+    const staffPin = process.env.STAFF_PIN ?? '7080'; // TEST_ONLY_E2E
     const response = await context.request.post(
-      `${baseUrl}/api/auth/validate-pin`,
+      `${rcUrl}/api/v1/staff/validate-pin`,
       {
-        data: { pin: '1234' },
+        data: { pin: staffPin },
         headers: { 'Content-Type': 'application/json' },
       },
     );

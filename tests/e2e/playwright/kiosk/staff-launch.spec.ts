@@ -21,8 +21,8 @@ async function staffLogin(page: Page) {
     await signIn.click();
     await page.waitForTimeout(500);
 
-    // Enter PIN 0009 (Chavan Vishal)
-    for (const digit of ['0', '0', '0', '9']) {
+    // Enter PIN 7080 (TEST_ONLY_E2E — dedicated test staff, won't change on PIN rotation)
+    for (const digit of ['7', '0', '8', '0']) {
       await page.locator(`button:has-text("${digit}")`).first().click();
       await page.waitForTimeout(150);
     }

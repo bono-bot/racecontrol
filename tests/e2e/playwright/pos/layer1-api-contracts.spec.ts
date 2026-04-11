@@ -14,7 +14,7 @@ import fs from 'fs';
 
 const API = process.env.API_URL ?? 'http://192.168.31.23:8080/api/v1';
 // Cloud uses different PINs (staff_members table vs local staff table)
-const STAFF_PIN = process.env.STAFF_PIN ?? '0009';
+const STAFF_PIN = process.env.STAFF_PIN ?? '7080'; // TEST_ONLY_E2E
 const IS_CLOUD = API.includes('100.70.177.44') || API.includes('srv1422716');
 
 let jwt = '';

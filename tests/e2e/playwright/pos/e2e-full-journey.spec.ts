@@ -16,7 +16,7 @@ import fs from 'fs';
 const WEB_URL = process.env.WEB_URL ?? 'http://192.168.31.23:3200';
 const KIOSK_URL = process.env.KIOSK_URL ?? 'http://192.168.31.23:3300';
 const API_URL = process.env.API_URL ?? 'http://192.168.31.23:8080/api/v1';
-const STAFF_PIN = process.env.STAFF_PIN ?? '0009';
+const STAFF_PIN = process.env.STAFF_PIN ?? '7080'; // TEST_ONLY_E2E
 const TEST_POD = process.env.TEST_POD ?? 'pod_3';
 const TEST_POD_IP = process.env.TEST_POD_IP ?? '192.168.31.28';
 const SCREENSHOTS_DIR = path.join(__dirname, 'screenshots', 'e2e-journey');

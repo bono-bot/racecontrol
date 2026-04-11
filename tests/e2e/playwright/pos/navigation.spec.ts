@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
  */
 
 const API = process.env.API_BASE_URL ?? 'http://192.168.31.23:8080/api/v1';
-const STAFF_PIN = process.env.STAFF_PIN ?? '0009';
+const STAFF_PIN = process.env.STAFF_PIN ?? '7080'; // TEST_ONLY_E2E
 
 let staffToken = '';
 
