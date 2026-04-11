@@ -3513,6 +3513,50 @@ pub async fn restore_coupon_on_cancel(
 async fn start_billing(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    // Phase 366 GLD-F-04: Pre-check concurrent session guard — returns HTTP 409.
+    let pod_id_check = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
+    if !pod_id_check.is_empty() {
+        let pod_id = normalize_pod_id(pod_id_check).unwrap_or_else(|_| pod_id_check.to_string());
+        {
+            let timers = state.billing.active_timers.read().await;
+            if let Some(timer) = timers.get(pod_id.as_str()) {
+                let active_session_id = timer.session_id.clone();
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "pod_already_active",
+                        "active_session_id": active_session_id,
+                        "pod_id": pod_id
+                    })),
+                ).into_response();
+            }
+        }
+        {
+            let waiting = state.billing.waiting_for_game.read().await;
+            if waiting.contains_key(pod_id.as_str()) {
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "pod_already_active",
+                        "active_session_id": null,
+                        "pod_id": pod_id,
+                        "detail": "pod has a billing session waiting for game start"
+                    })),
+                ).into_response();
+            }
+        }
+    }
+
+    start_billing_inner(State(state), Json(body)).await.into_response()
+}
+
+/// Inner billing start — returns Json<Value>. Phase 366 wrapper handles 409.
+async fn start_billing_inner(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
 ) -> Json<Value> {
     let pod_id_raw = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
     let driver_id = body.get("driver_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -5625,7 +5669,8 @@ async fn daily_billing_report(
 async fn launch_game(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
-) -> Json<Value> {
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
     let pod_id = body.get("pod_id").and_then(|v| v.as_str()).unwrap_or("");
     let sim_type_str = body.get("sim_type").and_then(|v| v.as_str()).unwrap_or("");
     let launch_args_raw = body
@@ -5634,7 +5679,7 @@ async fn launch_game(
         .map(|s| s.to_string());
 
     if pod_id.is_empty() || sim_type_str.is_empty() {
-        return Json(json!({ "error": "pod_id and sim_type are required" }));
+        return Json(json!({ "error": "pod_id and sim_type are required" })).into_response();
     }
 
     // Act 2: Trial sessions are AC-only — reject game launches for other sims during trials
@@ -5653,7 +5698,7 @@ async fn launch_game(
     .unwrap_or(false);
 
     if is_trial_session && sim_type_str != "assetto_corsa" {
-        return Json(json!({ "error": "Free trial sessions are limited to Assetto Corsa only" }));
+        return Json(json!({ "error": "Free trial sessions are limited to Assetto Corsa only" })).into_response();
     }
 
     // Inject duration_minutes from active billing session into launch_args.
@@ -5686,7 +5731,7 @@ async fn launch_game(
         // SEC-01: Validate launch_args fields for INI injection chars BEFORE WS send.
         // Reject at the server boundary — 400 returned immediately, nothing reaches the agent.
         if let Err(e) = crate::api::security::validate_launch_args(&parsed) {
-            return Json(json!({ "error": format!("Invalid launch_args: {}", e) }));
+            return Json(json!({ "error": format!("Invalid launch_args: {}", e) })).into_response();
         }
 
         // SEC-02: Sanitize FFB GAIN — cap to 100 (physical motor safety).
@@ -5704,7 +5749,7 @@ async fn launch_game(
         sim_type_str.to_string(),
     )) {
         Ok(st) => st,
-        Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type_str) })),
+        Err(_) => return Json(json!({ "error": format!("Unknown sim_type: {}", sim_type_str) })).into_response(),
     };
 
     // Phase 361-01: Server-side validity gate.
@@ -5772,7 +5817,7 @@ async fn launch_game(
                             "suggestion": err.suggestion,
                             "code": err.code,
                             "status": 422,
-                        }));
+                        })).into_response();
                     }
                 }
                 Err((code, msg)) if code == axum::http::StatusCode::NOT_FOUND => {
@@ -5847,13 +5892,24 @@ async fn launch_game(
             if let Some(w) = reliability_warning {
                 resp["warning"] = json!(w);
             }
-            Json(resp)
+            Json(resp).into_response()
         }
         Err(e) if e.contains("No agent connected") => {
             // No local pod — try relaying to venue via Tailscale bono_relay
-            relay_game_launch_to_venue(&state, pod_id, sim_type_str, &body).await
+            relay_game_launch_to_venue(&state, pod_id, sim_type_str, &body).await.into_response()
         }
-        Err(e) => Json(json!({ "ok": false, "error": e })),
+        // Phase 366 GLD-F-04: Return HTTP 409 for concurrent game launch
+        Err(e) if e.contains("already has a game active") || e.contains("game still stopping") => {
+            (
+                axum::http::StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "game_already_active",
+                    "pod_id": pod_id,
+                    "detail": e
+                })),
+            ).into_response()
+        }
+        Err(e) => Json(json!({ "ok": false, "error": e })).into_response(),
     }
 }
 
