@@ -1038,6 +1038,56 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                                 .dashboard_tx
                                 .send(DashboardEvent::AiDebugSuggestion(suggestion.clone()));
                         }
+                        // Phase 368 Plan 02 — P1-01 live launch status relay
+                        // Receives LaunchStatusUpdate from rc-agent (game_launch_retry.rs hook
+                        // points) and forwards to the LaunchStateMachine + dashboard broadcast.
+                        AgentMessage::LaunchStatusUpdate {
+                            launch_id,
+                            state: new_state,
+                            detail,
+                            ai_tier,
+                            fix_action,
+                            origin: _,
+                        } => {
+                            // D-01 split-deploy detection: rc-agent mints local UUID when
+                            // the server is on an older build lacking launch_id in LaunchGame.
+                            if launch_id.starts_with("rcagent-local-") {
+                                tracing::error!(
+                                    launch_id = %launch_id,
+                                    ?new_state,
+                                    "split-deploy launch_id received — REQUIRES FLEET UPDATE. \
+                                     rc-agent minted this id because the server was on an older build \
+                                     when the pod booted. Upgrade rc-agent to build_id >= 368-02 to \
+                                     restore D-01 canonical server-minted launch_id."
+                                );
+                            }
+
+                            let maybe_card = state
+                                .launch_state_machine
+                                .transition(&launch_id, *new_state, detail.clone(), *ai_tier, fix_action.clone())
+                                .await;
+
+                            match maybe_card {
+                                Some(card) => {
+                                    // No lock held across .await (CLAUDE.md standing rule).
+                                    if let Err(e) = state.dashboard_tx.send(
+                                        DashboardEvent::LaunchStatusChanged(card)
+                                    ) {
+                                        tracing::debug!(
+                                            error = %e,
+                                            "dashboard_tx has no subscribers for LaunchStatusChanged"
+                                        );
+                                    }
+                                }
+                                None => {
+                                    tracing::warn!(
+                                        launch_id = %launch_id,
+                                        ?new_state,
+                                        "LaunchStatusUpdate for unknown or terminal launch_id — dropping"
+                                    );
+                                }
+                            }
+                        }
                         AgentMessage::PinEntered { pod_id, pin } => {
                             tracing::info!("PIN entered on pod {}", pod_id);
                             log_pod_activity(&state, pod_id, "auth", "PIN Entered", "", "agent", None);
