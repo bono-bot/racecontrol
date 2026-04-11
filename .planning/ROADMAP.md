@@ -1375,9 +1375,10 @@ Plans:
 4. Admin dashboard surfaces per-car-track AI performance trend
 
 **Plans:**
-- [ ] 365-01-PLAN — ai_behavior_samples schema + collector
-- [ ] 365-02-PLAN — Weekly MMA batch + KB format
-- [ ] 365-03-PLAN — Live anomaly detector
+3/3 plans complete
+- [x] 365-01-PLAN — ai_behavior_samples schema + collector (773fff93)
+- [x] 365-02-PLAN — Weekly MMA batch + KB format (ced70634)
+- [x] 365-03-PLAN — Live anomaly detector (39674046)
 
 ### Phase 366: Fleet Intelligence
 
@@ -1392,10 +1393,10 @@ Plans:
 4. Second session attempt on active pod returns HTTP 409
 
 **Plans:**
-- [ ] 366-01-PLAN — Per-pod health score aggregator
-- [ ] 366-02-PLAN — Time-of-day pattern analysis
-- [ ] 366-03-PLAN — Content drift detector
-- [ ] 366-04-PLAN — Concurrent session guard
+4/4 plans complete
+- [x] 366-02-PLAN — Content drift detector + background task (47a22520)
+- [x] 366-03-PLAN — Concurrent session guard — HTTP 409 upgrade (546d00d8)
+- [x] 366-04-PLAN — Integration gate + documentation (e3659ba6)
 
 ### Phase 367: Staff Tools
 

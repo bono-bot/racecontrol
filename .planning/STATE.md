@@ -96,8 +96,18 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T02:41:02.215Z
-Stopped at: Completed 364-session-quality-monitor-02-PLAN.md
+Last session: 2026-04-11T08:30:00.000Z
+Stopped at: Completed 366-fleet-intelligence-04-PLAN.md (Phase 366 all 4 SUMMARYs written)
+
+**Phase 366 CODE-COMPLETE (2026-04-11):**
+
+- fleet_intelligence.rs: composite 0-100 health score per pod, /fleet/intelligence endpoint, TSDB upgrade
+- content_drift.rs: 60-min background task, ContentDriftDetected WS event, WhatsApp for game_removed
+- content_drift_events table migration in db/mod.rs (Phase 366 block)
+- HTTP 409 for billing start (pod_already_active) and game launch (game_already_active)
+- 959 tests pass, 0 regressions
+- Commits: c1b647e5 (plan 01), 47a22520 (plan 02), 92bdc00b+546d00d8 (plan 03), e3659ba6 (plan 04)
+- Deploy pending: racecontrol binary rebuild + server .23 + cloud (Bono VPS)
 
 **Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
 
@@ -120,6 +130,14 @@ Stopped at: Completed 364-session-quality-monitor-02-PLAN.md
 - 6/6 pods tests pass, tsc clean, eslint clean
 - Deploy pending (Task 3 deferred)
 - GLD-A-04 requirement satisfied at code level
+
+**Phase 365 ALL 3 PLANS DOCUMENTED (2026-04-11):**
+
+- 365-01 SUMMARY written: ai_behavior_samples schema + collector (commit `773fff93`)
+- 365-02 SUMMARY written: MMA batch + KB format (commit `ced70634`)
+- 365-03 SUMMARY written: live anomaly detector + AiBehaviorAnomaly WS event (commit `39674046`)
+- ROADMAP.md Phase 365 plan checkboxes updated to [x] with commit hashes
+- Phase 365 code is git-complete, deploy required for server .23 and cloud (Bono VPS)
 
 **Resume v47.0 decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
 
