@@ -1358,9 +1358,9 @@ Plans:
 5. `ws_try_send_overflows_total` metric exposed
 
 **Plans:**
-- [ ] 364-01-PLAN — Telemetry gap + stall detectors
+1/3 plans executed
 - [ ] 364-02-PLAN — Lap consistency checker
-- [ ] 364-03-PLAN — Silent-drop audit + overflow metrics
+- [x] 364-03-PLAN — Silent-drop audit + overflow metrics
 
 ### Phase 365: AI Behavior Validation via MMA
 
