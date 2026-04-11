@@ -103,7 +103,9 @@ pub trait GameLauncherImpl: Send + Sync {
     /// Validate sim-specific launch args. Called before billing gate.
     fn validate_args(&self, args: Option<&str>) -> Result<(), String>;
     /// Return the CoreToAgentMessage to send for this game.
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage;
+    /// Phase 368 D-01: launch_id is threaded from the server-minted UUID so rc-agent receives
+    /// the same launch_id that is registered in LaunchStateMachine.
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>, launch_id: String) -> CoreToAgentMessage;
     /// Optional cleanup on launch failure. Default: no-op.
     fn cleanup_on_failure(&self, _pod_id: &str) {}
 }
@@ -120,8 +122,8 @@ impl GameLauncherImpl for AcLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>, launch_id: String) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: Some(launch_id) }
     }
 }
 
@@ -132,8 +134,8 @@ impl GameLauncherImpl for F1Launcher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>, launch_id: String) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: Some(launch_id) }
     }
 }
 
@@ -144,8 +146,8 @@ impl GameLauncherImpl for IRacingLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>, launch_id: String) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: Some(launch_id) }
     }
 }
 
@@ -156,8 +158,8 @@ impl GameLauncherImpl for DefaultLauncher {
             .map_err(|e| format!("Invalid launch_args JSON: {}", e))?;
         Ok(())
     }
-    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>) -> CoreToAgentMessage {
-        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: None }
+    fn make_launch_message(&self, sim_type: SimType, launch_args: Option<String>, duration_minutes: Option<u32>, launch_id: String) -> CoreToAgentMessage {
+        CoreToAgentMessage::LaunchGame { sim_type, launch_args, force_clean: false, duration_minutes, launch_id: Some(launch_id) }
     }
 }
 
@@ -311,29 +313,63 @@ async fn launch_game(
         }
     }
 
+    // Phase 368 D-01: Mint launch_id HERE — before any error-return path.
+    // This guarantees a launch_id exists for billing-rejection cards AND the success path.
+    // Must be above the billing gate so rejection paths can emit NeedsManualIntervention cards.
+    let launch_id = uuid::Uuid::new_v4().to_string();
+
     // LAUNCH-02/03/04 / FSM-03: Billing gate — check active_timers + waiting_for_game, reject paused.
     // FSM-03: Free gaming guard — LaunchGame is rejected if no active billing session exists.
     // TODO: FSM-03 exception for free trials (no trial concept exists yet)
-    {
+    //
+    // Phase 368: Billing-reject paths emit NeedsManualIntervention card (D-15 hard constraint).
+    // Lock-and-drop: capture rejection reason under the read lock, then drop locks BEFORE
+    // any async card emission (.await). CLAUDE.md: never hold lock across .await.
+    let billing_rejection: Option<String> = {
         let timers = state.billing.active_timers.read().await;
         let waiting = state.billing.waiting_for_game.read().await;
         let has_active = timers.contains_key(pod_id);
         let has_deferred = waiting.contains_key(pod_id);
         if !has_active && !has_deferred {
-            tracing::warn!("FREE GAMING GUARD: Rejected LaunchGame for pod {} — no active billing session", pod_id);
-            return Err(format!("FSM-03: Pod {} has no active billing session (free gaming guard)", pod_id));
-        }
-        // LAUNCH-03: Reject paused sessions
-        if let Some(timer) = timers.get(pod_id) {
+            Some(format!("FSM-03: Pod {} has no active billing session (free gaming guard)", pod_id))
+        } else if let Some(timer) = timers.get(pod_id) {
+            // LAUNCH-03: Reject paused sessions
             if matches!(timer.status,
                 BillingSessionStatus::PausedManual
                 | BillingSessionStatus::PausedDisconnect
                 | BillingSessionStatus::PausedGamePause
             ) {
-                tracing::warn!("Launch rejected for pod {}: billing session is paused ({:?})", pod_id, timer.status);
-                return Err(format!("Pod {} billing session is paused", pod_id));
+                Some(format!("Pod {} billing session is paused", pod_id))
+            } else {
+                None
             }
+        } else {
+            None
         }
+        // Guards dropped here — safe to .await below
+    };
+    if let Some(err_msg) = billing_rejection {
+        tracing::warn!("Launch rejected for pod {}: {}", pod_id, err_msg);
+        // D-15 hard constraint: NeedsManualIntervention card with sanitized detail.
+        // NEVER include customer_id, driver name, balance, tier, wallet state in this string.
+        let _billing_card = state.launch_state_machine.start_launch(
+            launch_id.clone(),
+            pod_id.to_string(),
+            sim_type.to_string(),
+            rc_common::protocol::LaunchOrigin::Customer,
+        ).await;
+        if let Some(card) = state.launch_state_machine.transition(
+            &launch_id,
+            rc_common::protocol::LaunchState::NeedsManualIntervention,
+            Some("Launch blocked — billing not ready".to_string()),
+            None,
+            None,
+        ).await {
+            let _ = state.dashboard_tx.send(
+                rc_common::protocol::DashboardEvent::LaunchStatusChanged(card)
+            );
+        }
+        return Err(err_msg);
     }
 
     // FSM-08: DB-before-launch guard for split sessions.
@@ -424,6 +460,21 @@ async fn launch_game(
         _ => 2,
     };
 
+    // Phase 368 Step B: Emit LaunchStarted card BEFORE acquiring the tracker write lock.
+    // CLAUDE.md rule: no lock held across .await — start_launch uses its own internal lock-and-drop.
+    // Derive origin: initial impl defaults to Customer; Plan 04 / follow-up plumbs per-caller origin.
+    // Per D-04 LaunchOrigin enum.
+    let launch_origin = rc_common::protocol::LaunchOrigin::Customer; // TODO(368-follow-up): plumb from caller
+    let launch_card = state.launch_state_machine.start_launch(
+        launch_id.clone(),
+        pod_id.to_string(),
+        sim_type.to_string(),
+        launch_origin,
+    ).await;
+    let _ = state.dashboard_tx.send(
+        rc_common::protocol::DashboardEvent::LaunchStatusChanged(launch_card)
+    );
+
     // Create tracker + insert with TOCTOU re-check (LAUNCH-04)
     let info = {
         let mut games = state.game_launcher.active_games.write().await;
@@ -435,6 +486,19 @@ async fn launch_game(
             drop(timers);
             drop(games);
             tracing::warn!("Launch rejected for pod {}: billing session expired (TOCTOU)", pod_id);
+            // D-15: Emit NeedsManualIntervention for TOCTOU billing expiry.
+            // launch_started was already emitted above; transition it to terminal state.
+            if let Some(card) = state.launch_state_machine.transition(
+                &launch_id,
+                rc_common::protocol::LaunchState::NeedsManualIntervention,
+                Some("Launch blocked — billing not ready".to_string()),
+                None,
+                None,
+            ).await {
+                let _ = state.dashboard_tx.send(
+                    rc_common::protocol::DashboardEvent::LaunchStatusChanged(card)
+                );
+            }
             return Err(format!("Pod {} billing session expired during launch", pod_id));
         }
         let billing_session_id = timers.get(pod_id).map(|t| t.session_id.clone());
@@ -457,7 +521,7 @@ async fn launch_game(
             playable_at: None,
             ready_delay_ms: None,
             billing_session_id,
-            launch_id: uuid::Uuid::new_v4().to_string(),
+            launch_id: launch_id.clone(),
         };
         let info = tracker.to_info();
         games.insert(pod_id.to_string(), tracker);
@@ -475,7 +539,7 @@ async fn launch_game(
         let timers = state.billing.active_timers.read().await;
         timers.get(pod_id).map(|t| (t.remaining_seconds() / 60).max(1) as u32)
     };
-    let launch_inner = launcher.make_launch_message(sim_type, launch_args, duration_minutes);
+    let launch_inner = launcher.make_launch_message(sim_type, launch_args, duration_minutes, launch_id.clone());
     let launch_msg = CoreMessage::wrap(launch_inner);
     let command_id = launch_msg.command_id.clone().unwrap_or_default();
 
@@ -901,6 +965,10 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     let pod_id_normalized = normalize_pod_id(&info.pod_id).unwrap_or_else(|_| info.pod_id.clone());
     let pod_id = &pod_id_normalized;
 
+    // Phase 368: Declare outside lock block so IssueFixed emission can happen after lock drops.
+    // CLAUDE.md: never hold a lock across .await — launch_id captured inside lock, emitted outside.
+    let mut playable_launch_id: Option<String> = None;
+
     // Update in-memory tracker
     {
         let mut games = state.game_launcher.active_games.write().await;
@@ -918,6 +986,9 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                         tracker.launched_at = Some(Utc::now());
                     }
                     // Phase 282: Record playable_at and ready_delay_ms when game becomes Running
+                    // Phase 368: Capture launch_id for IssueFixed emission AFTER lock drops.
+                    // lock-and-drop pattern: games guard released at end of this {} block,
+                    // BEFORE any .await on launch_state_machine.transition.
                     if info.game_state == GameState::Running && tracker.playable_at.is_none() {
                         let now = Utc::now();
                         tracker.playable_at = Some(now);
@@ -929,6 +1000,9 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                 tracker.pod_id, delay
                             );
                         }
+                        // Capture launch_id now — games lock will drop at end of outer { } block
+                        // before the IssueFixed emission .await below.
+                        playable_launch_id = Some(tracker.launch_id.clone());
                     }
                 } else {
                     // Agent reported state for a game we don't have tracked — create tracker
@@ -955,6 +1029,31 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                     );
                 }
             }
+        }
+    }
+    // games lock dropped here — safe to .await
+
+    // Phase 368 Step E: Emit IssueFixed at playable_at transition (LLS-03).
+    // Only fires if this is the first Running event (playable_at was None before the block above).
+    // Terminal-state guard in transition() makes this idempotent (P2-05 race safety).
+    if let Some(ref lid) = playable_launch_id {
+        if let Some(card) = state.launch_state_machine.transition(
+            lid,
+            rc_common::protocol::LaunchState::IssueFixed,
+            None,
+            None,
+            None,
+        ).await {
+            let _ = state.dashboard_tx.send(
+                rc_common::protocol::DashboardEvent::LaunchStatusChanged(card)
+            );
+            // D-11: Schedule 5-min auto-dismiss
+            let sm = state.launch_state_machine.clone();
+            let lid_owned = lid.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                sm.dismiss(&lid_owned).await;
+            });
         }
     }
 
