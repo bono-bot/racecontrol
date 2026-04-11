@@ -26,6 +26,12 @@ static REGISTER_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
 
 const REGISTER_COOLDOWN_SECS: u64 = 2;
 
+/// Phase 364 GLD-D-05: Counter for try_send overflow events on hot-path WS channels.
+/// Incremented when try_send returns TrySendError::Full (channel full, message dropped).
+/// Read by metrics_producers.rs every 30s and flushed to metrics_samples table.
+pub static WS_TRY_SEND_OVERFLOWS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// MI Phase 1: Count of currently connected dashboard WebSocket clients.
 /// Incremented on WS connect, decremented on disconnect.
 /// Used by detect_fleet_anomalies() to detect "kiosk healthy but no WS clients" (DASHBOARD_ORPHAN).
@@ -2731,7 +2737,9 @@ async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
                             reason: "Invalid secret".to_string(),
                         };
                         if let Ok(json) = serde_json::to_string(&fail) {
-                            let _ = ws_sender.send(Message::Text(json.into())).await;
+                            if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                                tracing::warn!("[ws] AI channel: failed to send AuthFailed response: {}", e);
+                            }
                         }
                         tracing::warn!("AI channel: auth failed for {}", identity);
                         return;

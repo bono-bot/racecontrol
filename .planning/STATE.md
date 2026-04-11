@@ -3,7 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Milestone complete
-last_updated: "2026-04-11T00:09:32.535Z"
+stopped_at: Completed 364-03-PLAN.md
+last_updated: "2026-04-11T01:09:04.499Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -95,10 +96,11 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T05:30 IST (Phase 361-01 deploy session)
-Stopped at: Completed 361-kiosk-preset-filtering-server-gate-01-PLAN.md
+Last session: 2026-04-11T01:09:04.493Z
+Stopped at: Completed 364-03-PLAN.md
 
 **Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
+
 - Server .23: build `4c6d53b2` — inventory endpoint + validity gate live
 - All 8 pods: rc-agent `4c6d53b2` — /debug/content-dirs live
 - Cloud (Bono VPS): racecontrol `f0e7089e` — inventory endpoint verified
