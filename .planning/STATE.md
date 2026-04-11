@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Ready to execute
-last_updated: "2026-04-11T13:07:33.524Z"
+last_updated: "2026-04-11T13:39:18.726Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -32,11 +32,17 @@ Resume v46.0 via: `cp .planning/milestones/v46.0-STATE-snapshot.md .planning/STA
 
 ## Current Position
 
-Phase: 368 (live-launch-status-with-autonomous-debug) — EXECUTING
-Plan: 2 of 4
+Phase: 368 (live-launch-status-with-autonomous-debug) — COMPLETE
+Plan: 4 of 4 (all plans done)
 **Milestone:** v47.0 Admin Dashboard Venue-Ready Hardening
 **Progress:** [██████████] 100%
 **Next unblocked phases (no deploy/infra dependencies):** 348, 352
+
+### Phase 368 Key Decisions
+
+- **sqlx::query() dynamic over sqlx::query!() macro:** Codebase has no DATABASE_URL or .sqlx offline cache; macro breaks compilation. Used dynamic queries with explicit type annotation.
+- **StaffClaims.sub as staff_id and staff_name:** StaffClaims struct has no name field; sub is the staff identifier. Both fields use claims.sub until a future phase adds name to JWT claims.
+- **Tier 2+ approve-fix wires to LaunchStateMachine only:** Full tier_engine wiring deferred per plan spec as TODO(368-follow-up). Approval transitions card to IssueBeingFixed and broadcasts LaunchStatusChanged.
 
 ### Shipped to git (from 2026-04-09 session per SESSION-HANDOFF.md)
 
@@ -49,6 +55,9 @@ Plan: 2 of 4
 | 343 Staff PIN Hardening | Cloud-authority 409 guard + post-write verify + delayed sync verify + E2E spec | `b31c38e0`, `6c870f99`, `4074bb0d` | — | git — **NOT live-deployed** |
 | 354-01 Nav Cleanup | Hide /memberships + /wallet-transactions from sidebar | — | `79d2649` | git — **NOT live-deployed** |
 | 354-02 Skeleton Loading | Replace 13 "Loading..." text states with SkeletonTable across 11 pages | — | `4c24bad` | git — **NOT live-deployed** |
+| 368-01 State Machine | LaunchStateMachine + 4-state model + DashboardEvent + LaunchNoteEvent + protocol types | `368-01 commits` | — | git — code-complete |
+| 368-02 WS Push | rc-agent→server LaunchStatusUpdate fanout, ws_handler hydration, retry boundary emissions | `368-02 commits` | — | git — code-complete |
+| 368-03 DB + REST | launch_notes table + staff_dismissed_at ALTER + kiosk_launch_cards_enabled flag + 5 REST endpoints | `74c06377`, `9c91f102` | — | git — code-complete |
 
 ### Phase status
 
@@ -100,10 +109,10 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T13:07:33.519Z
-This session (2026-04-10): Pivoted back to v47.0 to execute next unblocked phase while v46.0 Phase 363 awaits deploy window.
+Last session: 2026-04-11T20:25:00Z (IST ~01:55)
+Stopped at: Completed 368-03-PLAN.md — Phase 368 Plan 03 (DB Migration + REST Endpoints + Feature Flag + Cloud Sync)
 
-**Resume decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
+Phase 368 Plans 01-03 complete. Plan 04 (kiosk TypeScript LaunchCard component) is the final plan in Phase 368.
 
 ## Next Action
 
