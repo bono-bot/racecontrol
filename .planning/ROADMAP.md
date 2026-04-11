@@ -1167,7 +1167,7 @@ Plans:
 5. `/settings/health` page tiles update live
 
 **Plans:**
-- [x] 354-01-PLAN — Close remaining skeleton gaps (4), replace alert() with toast (15), empty states
+- [ ] 354-01-PLAN — Close remaining skeleton gaps (4), replace alert() with toast (15), empty states
 
 ### Phase 355: Venue-Ready Readiness Review
 
@@ -1303,9 +1303,9 @@ Plans:
 4. Admin `/admin/content-drift` lists pods with inventory drift
 
 **Plans:**
-1/3 plans executed
+- [x] 361-01-PLAN — Server inventory endpoint + validity gate
 - [x] 361-02-PLAN — Kiosk filter + presetValidity surface
-- [x] 361-03-PLAN — Admin content-drift page + nyquist tests
+- [ ] 361-03-PLAN — Admin content-drift page + nyquist tests
 
 ### Phase 362: Post-Launch Config Verification (Layer 3) — SHIPPED 2026-04-09
 
@@ -1358,9 +1358,9 @@ Plans:
 5. `ws_try_send_overflows_total` metric exposed
 
 **Plans:**
-- [ ] 364-01-PLAN — Telemetry gap + stall detectors
+1/3 plans executed
 - [ ] 364-02-PLAN — Lap consistency checker
-- [ ] 364-03-PLAN — Silent-drop audit + overflow metrics
+- [x] 364-03-PLAN — Silent-drop audit + overflow metrics
 
 ### Phase 365: AI Behavior Validation via MMA
 
@@ -1392,10 +1392,10 @@ Plans:
 4. Second session attempt on active pod returns HTTP 409
 
 **Plans:**
-- [x] 366-01-PLAN — Per-pod health score aggregator + /fleet/intelligence endpoint
-- [x] 366-02-PLAN — Content drift detector + background task
-- [x] 366-03-PLAN — Concurrent session guard (HTTP 409 upgrade)
-- [x] 366-04-PLAN — Integration gate + documentation
+- [ ] 366-01-PLAN — Per-pod health score aggregator
+- [ ] 366-02-PLAN — Time-of-day pattern analysis
+- [ ] 366-03-PLAN — Content drift detector
+- [ ] 366-04-PLAN — Concurrent session guard
 
 ### Phase 367: Staff Tools
 
