@@ -96,8 +96,8 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T01:09:04.493Z
-Stopped at: Completed 364-03-PLAN.md
+Last session: 2026-04-11T01:57:00Z
+Stopped at: Completed 361-03-PLAN.md (code-only, deploy deferred)
 
 **Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
 
@@ -108,11 +108,16 @@ Stopped at: Completed 364-03-PLAN.md
 - v46.0 Phase A (361) Plan 01 DONE.
 
 **Phase 361-02 CODE-COMPLETE (2026-04-11):**
+- Kiosk wizard inventory filtering committed (`3efc161e`, `4ba17b01`).
+- Deploy pending.
 
-- Commits: `6467a315` (types+api+banner), `3efc161e` (wizard wiring+Playwright), `4ba17b01` (podId parse fix)
-- 3 Playwright tests written (A: happy path, B: 422 stub, C: unreachable+retry)
-- canLaunch gate + InventoryStatusBanner + conditional aria-describedby + 30s auto-refresh
-- Deploy pending (Task 3 skipped per user directive). Plan 03 (drift detection) still pending.
+**Phase 361-03 CODE-COMPLETE (2026-04-11):**
+- Admin Content Drift page + server proxy committed:
+  - racecontrol: `e180f3c2` (proxy handler), `6e250706` (OpenAPI + compile fix)
+  - racingpoint-admin: `c4f244f` (API/types/nav), `b4d4112` (page)
+- 6/6 pods tests pass, tsc clean, eslint clean
+- Deploy pending (Task 3 deferred)
+- GLD-A-04 requirement satisfied at code level
 
 **Resume v47.0 decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
 

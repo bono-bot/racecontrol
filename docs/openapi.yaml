@@ -205,6 +205,52 @@ components:
             - AI_COUNT_OUT_OF_RANGE
             - POD_NOT_FOUND
 
+    # Phase 361-03: live disk scan response (proxied from rc-agent)
+    ContentDirsResponse:
+      type: object
+      required: [games]
+      description: |
+        Live disk scan response from rc-agent `/debug/content-dirs`.
+        Lists what files are actually on disk right now per game.
+        Must match `rc_common::inventory_types::ContentDirsResponse`.
+      properties:
+        games:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameDirs'
+
+    GameDirs:
+      type: object
+      required: [game_key, cars_dir, tracks_dir, cars_on_disk, tracks_on_disk, cars_enumerable, tracks_enumerable]
+      properties:
+        game_key:
+          type: string
+          description: Canonical game key matching GameInventory.key.
+        cars_dir:
+          type: string
+          description: Filesystem path to the cars directory.
+        tracks_dir:
+          type: string
+          description: Filesystem path to the tracks directory.
+        cars_on_disk:
+          type: array
+          description: Car folder names found via readdir.
+          items:
+            type: string
+        tracks_on_disk:
+          type: array
+          description: Track folder names found via readdir.
+          items:
+            type: string
+        cars_enumerable:
+          type: boolean
+          description: |
+            False = degrade-open (MS Store / non-enumerable title).
+            When false, skip drift computation for cars.
+        tracks_enumerable:
+          type: boolean
+          description: False = degrade-open for tracks.
+
     Pod:
       type: object
       required: [id, number, name, ip_address, sim_type, status]
@@ -1042,6 +1088,45 @@ paths:
           description: Unauthorized (no staff JWT)
         '404':
           description: Pod TOML not found in config_dir
+
+  # Phase 361-03: proxy rc-agent live disk scan for drift detection
+  /debug/pod-content-dirs/{id}:
+    get:
+      tags: [debug, pods]
+      summary: Proxy live disk scan from rc-agent (content drift detection)
+      description: |
+        Proxies the rc-agent `/debug/content-dirs` endpoint on the target pod,
+        injecting the pod service key server-side so the admin browser never
+        handles pod credentials. Returns what files are actually on disk right
+        now, used by the admin Content Drift page (361-03) to compare against
+        the canonical TOML inventory.
+
+        3-second timeout. Returns 404 if pod is unreachable or not registered.
+        Returns 503 if rc-agent returns a non-200 response.
+      operationId: getPodContentDirs
+      security:
+        - staffJWT: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Pod number (integer, e.g. 1-8)
+          schema:
+            type: integer
+            format: uint32
+      responses:
+        '200':
+          description: Live disk scan from pod
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentDirsResponse'
+        '401':
+          description: Unauthorized (no staff JWT)
+        '404':
+          description: Pod not registered or unreachable (timeout)
+        '503':
+          description: rc-agent returned non-200
 
   /pods/{id}/wake:
     post:

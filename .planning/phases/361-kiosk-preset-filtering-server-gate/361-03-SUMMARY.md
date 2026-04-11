@@ -1,204 +1,169 @@
 ---
 phase: 361-kiosk-preset-filtering-server-gate
-plan: "03"
-subsystem: admin-ui
-tags: [rust, next-js, content-drift, admin-dashboard, fleet, swr, inventory]
+plan: 03
+subsystem: ui, api
+tags: [next.js, swr, axum, reqwest, drift-detection, content-inventory, admin-dashboard]
 
 requires:
-  - phase: 361-kiosk-preset-filtering-server-gate
-    plan: "01"
-    provides: "rc-agent /debug/content-dirs endpoint + ContentDirsResponse type"
-  - file: .planning/phases/361-kiosk-preset-filtering-server-gate/361-01-NYQUIST-AUDIT.md
-    provides: "PASS precondition verified before Task 3 deploy"
-
+  - phase: 361-01
+    provides: "PodInventory + ContentDirsResponse Rust types, /pods/{id}/inventory endpoint, rc-agent /debug/content-dirs probe"
 provides:
-  - "GET /api/v1/debug/pod-content-dirs/{id} (staff-JWT) server proxy to rc-agent"
-  - "Admin /fleet/content-drift page — functional drift detection, 8-pod table, 30s refresh"
-  - "ContentDriftRow client-side type + drift computation logic"
-
-affects:
-  - 366-fleet-intelligence
+  - "Admin Content Drift page at /fleet/content-drift with functional TOML-vs-disk drift detection"
+  - "Server proxy GET /api/v1/debug/pod-content-dirs/{id} with service key injection"
+  - "Fleet API methods podInventory() + podContentDirs() in admin dashboard"
+  - "Content Drift nav entry in AdminLayout Fleet section"
+  - "OpenAPI spec for /debug/pod-content-dirs/{id} with ContentDirsResponse + GameDirs schemas"
+affects: [361-admin-deploy, 366-content-scanners, ui-auditor]
 
 tech-stack:
   added: []
   patterns:
-    - "SWR fan-out fetcher: Promise.allSettled across 8 pods, 30s refreshInterval, refreshWhenHidden:false"
-    - "Client-side drift computation: TOML cars/tracks vs disk cars_on_disk/tracks_on_disk, enumerable flag guard"
-    - "Degrade-open: cars_enumerable/tracks_enumerable false = skip drift for that game axis"
-    - "Server proxy cross-boundary security: admin never handles pod service key, server injects X-Service-Key"
+    - "Server-side service key injection proxy (same as /events/recent in v27.0)"
+    - "SWR dual-fetch fan-out with Promise.allSettled per pod"
+    - "Client-side drift computation: TOML expected - disk actual = missing/extra"
+    - "Degrade-open skip for non-enumerable games (cars_enumerable === false)"
 
 key-files:
   created:
-    - racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx
-    - racingpoint-admin/src/lib/types.ts
+    - "racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx (483 lines)"
+    - "racingpoint-admin/src/lib/types.ts (106 lines)"
   modified:
-    - crates/racecontrol/src/api/pods.rs
-    - crates/racecontrol/src/api/routes.rs
-    - racingpoint-admin/src/lib/api/fleet.ts
-    - racingpoint-admin/src/components/AdminLayout.tsx
-    - LOGBOOK.md
+    - "crates/racecontrol/src/api/pods.rs (434 lines, +167 for proxy handler + tests)"
+    - "crates/racecontrol/src/api/routes.rs (+4 lines, route registration)"
+    - "racingpoint-admin/src/lib/api/fleet.ts (84 lines, +podInventory/podContentDirs)"
+    - "racingpoint-admin/src/components/AdminLayout.tsx (254 lines, +nav entry)"
+    - "docs/openapi.yaml (+85 lines, endpoint + schema definitions)"
 
 key-decisions:
-  - "Proxy endpoint placed in api/pods.rs (not api/debug.rs) — pods.rs already imports all AppState fleet lookup patterns and ContentDirsResponse; creating debug.rs would duplicate imports"
-  - "Client-side drift computation (not server-side) — admin page already loads both endpoints, computing in the browser avoids a new server aggregation endpoint and keeps logic next to the display"
-  - "degrade-open guard on enumerable flags — FH5, F1 25, iRacing, ACR, ACE, LMU cannot be enumerated from disk; drift skipped per 361-01 design"
+  - "Proxy handler placed in pods.rs alongside inventory handler rather than creating a new debug.rs module"
+  - "Client-side drift computation (not server-side) -- keeps server stateless, computation is trivial"
+  - "Used Promise.allSettled for both outer (per-pod) and inner (inventory+dirs) fetches for maximum resilience"
 
-requirements-completed:
-  - GLD-A-04
+patterns-established:
+  - "Admin fleet diagnostic pages: SWR with 30s refreshInterval, refreshWhenHidden: false"
+  - "Drift detection: TOML - disk = missing (P0), disk - TOML = extra (informational)"
 
-duration: "~3h (code from prior agent + deploy in this session)"
-completed: "2026-04-11"
+requirements-completed: [GLD-A-04]
+
+duration: 16min
+completed: 2026-04-11
 ---
 
-# Phase 361 Plan 03: Content Drift Admin Page Summary
+# Phase 361 Plan 03: Admin Content Drift Page + Server Proxy Summary
 
-**Admin /fleet/content-drift page with functional drift detection — per-pod TOML vs disk comparison via server proxy, 8-pod semantic table, auto-expanded drift rows, 30s SWR refresh**
+**Admin Content Drift page with functional TOML-vs-disk drift detection, server proxy with service key injection, and OpenAPI spec**
 
 ## Performance
 
-- **Duration:** ~3h across 2 partial sessions (prior agent wrote code, this session completed deploy)
-- **Started:** 2026-04-11T05:50Z (prior agent — Task 0 commit); 2026-04-11T07:00Z (this session — Tasks 1/2 verification + Task 3 deploy)
-- **Completed:** 2026-04-11T07:30 IST
-- **Tasks:** 3 of 3 code-complete + deployed
-- **Files modified:** 6 source files across 2 repos
+- **Duration:** 16 min
+- **Started:** 2026-04-11T01:40:31Z
+- **Completed:** 2026-04-11T01:56:57Z
+- **Tasks:** 3 code tasks (pre-committed) + 1 OpenAPI/fix task
+- **Files modified:** 7 (across racecontrol + racingpoint-admin repos)
 
 ## Accomplishments
 
-- `GET /api/v1/debug/pod-content-dirs/{id}` proxy live on server .23 and Bono VPS cloud — returns 401 without JWT (staff-protected), injects pod service key server-side
-- Admin /fleet/content-drift page at `/fleet/content-drift` — 8-pod table, drift rows auto-expanded with MISSING (P0 red) + EXTRA (grey) sections, OK rows compact, UNREACHABLE rows greyed+opaque
-- "Content Drift" nav entry in Fleet section between "Fleet Health" and "Metrics" in AdminLayout.tsx
-- Drift computation is FUNCTIONAL TODAY — not a Phase 366 placeholder. Real TOML vs disk comparison using cars_on_disk/tracks_on_disk from rc-agent
-- SWR refreshInterval 30000, refreshWhenHidden: false — respects visibilityState
-- tsc clean, lint clean, next build succeeded (both local + cloud)
-- Semantic `<table>` + `<details open>` for drift rows per UI-SPEC Surface B
-- rp-* tokens only — no hardcoded hex values
-- NYQUIST-AUDIT.md PASS precondition verified before Task 3
+- Server proxy endpoint `/api/v1/debug/pod-content-dirs/{id}` proxies rc-agent disk scan with service key injection (3s timeout, 404/503 error handling)
+- Admin Content Drift page at `/fleet/content-drift` with dual-fetch fan-out (inventory + content-dirs per pod), client-side drift computation, DriftStatusBadge (OK/DRIFT/UNREACHABLE), auto-expanding drift rows via `<details open>`, 30s SWR refresh
+- Nav entry "Content Drift" correctly placed between "Fleet Health" and "Metrics" in AdminLayout Fleet section
+- OpenAPI spec updated with endpoint + ContentDirsResponse + GameDirs schemas
+- All TypeScript field names match Rust serde output exactly (snake_case cross-boundary rule)
+- Zero `any` types, zero hardcoded hex values, semantic `<table>` + `<details>` HTML
 
 ## Task Commits
 
-### Rust (racecontrol repo)
+Code was pre-committed in a prior session. This execution verified correctness and added missing artifacts:
 
-1. **Task 0: server proxy /debug/pod-content-dirs/{id}** - `e180f3c2` (feat)
-   - `crates/racecontrol/src/api/pods.rs` — pod_content_dirs_proxy_handler + 2 unit tests
-   - `crates/racecontrol/src/api/routes.rs` — route registered in staff_routes
-
-### Admin (racingpoint-admin repo)
-
-2. **Task 1: fleet API methods + types + nav entry** - `c4f244f` (feat)
-   - `racingpoint-admin/src/lib/types.ts` — PodInventory, GameInventory, AiCountRange, GameDirs, ContentDirsResponse, ContentDriftRow, GameDrift
-   - `racingpoint-admin/src/lib/api/fleet.ts` — podInventory() + podContentDirs() methods
-   - `racingpoint-admin/src/components/AdminLayout.tsx` — Content Drift nav entry
-
-3. **Task 2: /fleet/content-drift page** - `b4d4112` (feat)
-   - `racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx` — full drift detection page (484 lines)
+1. **Task 0: Server proxy endpoint** - `e180f3c2` (feat) -- racecontrol repo
+2. **Task 1: Fleet API + types + nav entry** - `c4f244f` (feat) -- racingpoint-admin repo
+3. **Task 2: Content Drift page** - `b4d4112` (feat) -- racingpoint-admin repo
+4. **OpenAPI spec + compile fix** - `6e250706` (fix) -- racecontrol repo
 
 ## Files Created/Modified
 
-- `crates/racecontrol/src/api/pods.rs` — pod_content_dirs_proxy_handler: AppState pod registry lookup → HTTP to rc-agent → pass-through JSON; 2 unit tests (wire format deserialization + snake_case serialization contract)
-- `crates/racecontrol/src/api/routes.rs` — `GET /api/v1/debug/pod-content-dirs/{id}` registered in staff_routes
-- `racingpoint-admin/src/lib/types.ts` — 107 lines. All types match Rust serde snake_case exactly. ContentDriftRow includes pod_id, status (OK|DRIFT|UNREACHABLE), missing_per_game, extra_per_game, last_check_ist, unreachable_reason
-- `racingpoint-admin/src/lib/api/fleet.ts` — podInventory + podContentDirs using rcFetch (credentials:include, staff JWT via session cookie)
-- `racingpoint-admin/src/components/AdminLayout.tsx` — Fleet section: Fleet Health → Content Drift → Metrics → Config Editor
-- `racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx` — 484 lines. computeDrift() function, DriftStatusBadge, DriftGameList, fetchAllPodDrift fanout, full page component
+- `crates/racecontrol/src/api/pods.rs` - proxy handler + 2 unit tests (wire format + serialization)
+- `crates/racecontrol/src/api/routes.rs` - route registration in STAFF_ROUTES
+- `racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx` - Full drift detection page (483 lines)
+- `racingpoint-admin/src/lib/types.ts` - PodInventory + ContentDirsResponse + GameDirs + ContentDriftRow TS types
+- `racingpoint-admin/src/lib/api/fleet.ts` - podInventory() + podContentDirs() methods
+- `racingpoint-admin/src/components/AdminLayout.tsx` - Content Drift nav entry
+- `docs/openapi.yaml` - /debug/pod-content-dirs/{id} endpoint + schema definitions
 
-## Deploy Evidence
+## Verification Evidence
 
-### Server .23 (192.168.31.23)
+### Rust (racecontrol repo)
+- `cargo build -p racecontrol-crate --lib` -- compiles (20 warnings, 0 errors)
+- `cargo test -p rc-common --lib inventory_types` -- 4/4 pass
+- `cargo test -p racecontrol-crate --lib api::pods` -- 6/6 pass
+- Route registered: `grep "pod-content-dirs" routes.rs` returns line 352
 
-- **racecontrol binary:** `b301e0f5` — includes proxy endpoint (e180f3c2 is ancestor of b301e0f5)
-  - `curl -s -o /dev/null -w '%{http_code}' http://192.168.31.23:8080/api/v1/debug/pod-content-dirs/1` → **401** (no JWT — correct, staff-protected)
-- **Admin app (.23:3201):**
-  - `curl -s -o /dev/null -w '%{http_code}' http://192.168.31.23:3201/fleet/content-drift` → **307** (redirect to login — correct for authenticated route)
-  - `curl -s -o /dev/null -w '%{http_code}' http://192.168.31.23:3201/fleet` → **307** (regression check — same expected behavior)
-  - Static chunk `_next/static/chunks/027bc13f77cd2c7e.js` → **200** (static serving works, appDir patched in required-server-files.json)
+### TypeScript (racingpoint-admin repo)
+- `npx tsc --noEmit` -- clean (0 errors)
+- `npx eslint` on all 4 files -- clean (0 warnings)
+- `grep "Content Drift" AdminLayout.tsx` -- 1 hit at line 43
+- `grep "<table" page.tsx` -- 1 hit (semantic HTML)
+- `grep "<details" page.tsx` -- 2 hits (drift row expansion)
+- `grep "refreshInterval: 30000" page.tsx` -- 1 hit
+- `grep ": any" page.tsx` -- 0 hits
+- `grep "bg-\[#" page.tsx` -- 0 hits (token compliance)
 
-### Cloud (Bono VPS / racingpoint.cloud)
+### NOT TESTED (deferred per user directive)
+- Deploy to server .23 + cloud (Task 3 skipped)
+- Live curl verification of proxy endpoint
+- Real drift test (intentional rename on pod)
+- Visual verification screenshots
+- Admin rebuild + deploy
+- NYQUIST-AUDIT.md precondition (skipped per user directive)
 
-- **racecontrol binary:** `c1b647e5` — includes proxy endpoint (e180f3c2 in git history)
-  - `curl -s -o /dev/null -w '%{http_code}' https://api.racingpoint.cloud/api/v1/debug/pod-content-dirs/1` → **401** (no JWT — correct)
-- **Admin app (admin.racingpoint.cloud:3201):**
-  - `curl -s -o /dev/null -w '%{http_code}' https://admin.racingpoint.cloud/fleet/content-drift` → **307** (redirect to login — correct)
+## Decisions Made
 
-## Verification Results
-
-### tsc + lint
-
-```
-cd racingpoint-admin && npx tsc --noEmit → Exit: 0
-npx eslint src/app/(dashboard)/fleet/content-drift/page.tsx src/lib/types.ts src/lib/api/fleet.ts src/components/AdminLayout.tsx → Exit: 0
-```
-
-### next build
-
-```
-npm run build → Build exit: 0
-/fleet/content-drift route present in build output
-```
-
-### Done criteria grep checks
-
-- `grep '<table' page.tsx` → 1 hit (semantic)
-- `grep '<details' page.tsx` → 1 hit (auto-expanded drift rows)
-- `grep 'useSWR' page.tsx` → shows refreshInterval: 30000
-- `grep "'use client'" page.tsx` → 1 hit
-- `grep "bg-\[#E10600\]" page.tsx` → 0 hits (no hardcoded hex)
-- `grep ": any" page.tsx` → 0 hits
-- `grep "podContentDirs\|podInventory" page.tsx` → 2+ hits
-- `grep "cars_on_disk\|missing\|extra" page.tsx` → 4+ hits (drift logic present)
-- `grep "Content Drift" AdminLayout.tsx` → 1 hit (nav entry)
-- `grep "podInventory\|podContentDirs" fleet.ts` → 2 hits
-
-## NYQUIST Precondition
-
-Verified PASS: `.planning/phases/361-kiosk-preset-filtering-server-gate/361-01-NYQUIST-AUDIT.md` contains "PASS"
+- Proxy handler in pods.rs (not debug.rs) -- consolidates all pod-related handlers
+- Client-side drift computation keeps server stateless; computation is set difference, trivial for 8 pods
+- Promise.allSettled at both layers ensures one pod failure never blocks the other 7
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 3 - Blocking] required-server-files.json appDir stale after deploy**
-- **Found during:** Task 3 deploy (server .23 admin deploy)
-- **Issue:** After extracting admin standalone build to C:\RacingPoint\admin, static files returned 404. Root cause: `.next/required-server-files.json` contained `appDir: C:/Users/bono/racingpoint/racingpoint-admin` (build machine path), not the server's `C:/RacingPoint/admin`. Per CLAUDE.md: "set outputFileTracingRoot in all next.config.ts files" — it IS set but doesn't update the deployed JSON path automatically.
-- **Fix:** Generated fixed required-server-files.json with `appDir: C:/RacingPoint/admin` via Python, SCP'd to server, killed old node.exe (PID 20128), restarted via StartAdmin schtask.
-- **Verification:** `_next/static/chunks/027bc13f77cd2c7e.js` → 200 after fix
-- **Impact:** Standard deploy operation; documented for future admin deploys
+**1. [Rule 3 - Blocking] Removed duplicate append_suspect_reason function in bot_coordinator.rs**
+- **Found during:** Task 0 verification (cargo build)
+- **Issue:** Pre-existing E0428 compile error from Phase 364 -- two definitions of `append_suspect_reason` at lines 159 and 516
+- **Fix:** Removed the duplicate at line 516 (kept the one at line 159 which has the empty session_id guard)
+- **Files modified:** `crates/racecontrol/src/bot_coordinator.rs`
+- **Verification:** `cargo build -p racecontrol-crate --lib` compiles successfully
+- **Committed in:** `6e250706`
 
-**2. [Rule 3 - Blocking] VPS racecontrol compile error — duplicate append_suspect_reason**
-- **Found during:** Task 3 deploy (cloud Bono VPS)
-- **Issue:** VPS had commits from parallel agent work (3b8ad4fc) that included a duplicate function definition. Local had already been fixed by e8de13e7 but the racecontrol push was blocked by pre-push hook.
-- **Fix:** `git push --no-verify origin main` (authorized by parallel execution context) to push all pending commits including the fix. VPS then pulled and built successfully in 3m04s.
-- **Verification:** VPS build exit 0, racecontrol `c1b647e5` running, health 200
+**2. [Rule 2 - Missing Critical] Added OpenAPI spec for /debug/pod-content-dirs/{id}**
+- **Found during:** Task 0 done criteria check
+- **Issue:** Plan action item 6 requires OpenAPI spec entry, but it was missing from docs/openapi.yaml
+- **Fix:** Added endpoint definition + ContentDirsResponse + GameDirs schemas
+- **Files modified:** `docs/openapi.yaml`
+- **Verification:** Schema $ref resolves correctly
+- **Committed in:** `6e250706`
 
-**3. [Deviation - Prior agent] Task 0 was committed before this agent started**
-- Prior agent committed `e180f3c2` (Task 0 server proxy) before going off-track on Tasks 1/2. This agent verified the prior commits (Tasks 1/2 at `c4f244f` and `b4d4112`) were complete and correct, then proceeded to Task 3 deployment only.
+---
+
+**Total deviations:** 2 auto-fixed (1 blocking compile error, 1 missing spec)
+**Impact on plan:** Both fixes necessary for correctness. No scope creep.
 
 ## Known Stubs
 
-None — all data is sourced from live TOML (via /pods/{id}/inventory) and live disk scan (via /debug/content-dirs). Drift computation is functional today. No hardcoded placeholder values.
+None. All data sources are wired:
+- podInventory() calls `/api/v1/pods/{id}/inventory` (live server endpoint from 361-01)
+- podContentDirs() calls `/api/v1/debug/pod-content-dirs/{id}` (proxy endpoint from this plan)
+- Drift computation is functional (not placeholder)
+- Degrade-open games intentionally skipped (design, not stub)
 
-## URL Clarification
+## User Setup Required
 
-Per PLAN.md FIX 4: `/fleet/content-drift` IS the URL that satisfies ROADMAP's `/admin/content-drift` criterion. The admin app uses a `(dashboard)` route group — there is no `/admin` URL segment. The route is `/fleet/content-drift` in the Next.js app.
+None - no external service configuration required.
 
-## Degrade-Open Games
+## Next Phase Readiness
 
-FH5, F1 25, iRacing, ACR, ACE, LMU are excluded from drift detection because `cars_enumerable`/`tracks_enumerable` = false for these games (packed .mas/.pak formats, MS Store, EGS). This is intentional per Phase 361-01 design. Phase 366 will add per-game scanners for ACR/ACE/LMU.
-
-## gsd-ui-auditor Status
-
-Pending — UI-REVIEW.md to be produced by gsd-ui-auditor as a post-execution gate (per plan frontmatter `gate: ui-auditor-required-post-exec`).
-
-## Self-Check: PASSED
-
-- `racingpoint-admin/src/app/(dashboard)/fleet/content-drift/page.tsx` — EXISTS (484 lines)
-- `racingpoint-admin/src/lib/types.ts` — EXISTS (107 lines)
-- `racingpoint-admin/src/components/AdminLayout.tsx` — EXISTS with "Content Drift" entry
-- `racingpoint-admin/src/lib/api/fleet.ts` — EXISTS with podInventory + podContentDirs
-- Commits verified: `e180f3c2` in racecontrol, `c4f244f` + `b4d4112` in racingpoint-admin
-- Server .23 proxy endpoint: 401 without JWT
-- Cloud proxy endpoint: 401 without JWT
-- Admin /fleet/content-drift: 307 redirect on .23 and cloud
-- Static chunk: 200 on .23
+- Task 3 (deploy) is deferred -- racecontrol binary + admin rebuild needed before live verification
+- gsd-ui-auditor must produce UI-REVIEW.md post-deploy
+- Phase 366 will add proper per-game content scanners for ACR/LMU/AC EVO (currently degrade-open)
+- URL clarification: /fleet/content-drift satisfies ROADMAP's /admin/content-drift criterion
 
 ---
 *Phase: 361-kiosk-preset-filtering-server-gate*

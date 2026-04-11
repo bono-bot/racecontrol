@@ -1305,7 +1305,7 @@ Plans:
 **Plans:**
 - [x] 361-01-PLAN — Server inventory endpoint + validity gate
 - [x] 361-02-PLAN — Kiosk filter + presetValidity surface
-- [ ] 361-03-PLAN — Admin content-drift page + nyquist tests
+- [x] 361-03-PLAN — Admin content-drift page + server proxy (code-complete, deploy pending)
 
 ### Phase 362: Post-Launch Config Verification (Layer 3) — SHIPPED 2026-04-09
 
