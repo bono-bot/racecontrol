@@ -20,8 +20,13 @@ use chrono::Utc;
 use rc_common::protocol::{LaunchStatusCard, LaunchState, LaunchOrigin};
 
 const MAX_ACTIVE_LAUNCHES: usize = 100;
-/// Cards older than this (in seconds) in a terminal state are pruned.
+/// Cards older than this (in seconds) in any state are dropped by `prune()`.
+/// Acts as a safety net for stuck/abandoned launches across all states.
 const STALE_AFTER_SECS: i64 = 600; // 10 minutes
+/// Phase 368 D-11 "Card lifetime": IssueFixed cards auto-dismiss this many
+/// seconds after reaching the terminal state. NeedsManualIntervention cards
+/// are NEVER auto-dismissed — staff must click dismiss explicitly.
+const AUTO_DISMISS_ISSUE_FIXED_SECS: i64 = 300; // 5 minutes
 
 /// In-memory store for active launch status cards.
 ///
@@ -172,10 +177,22 @@ impl LaunchStateMachine {
         let now = Utc::now();
         let mut guard = self.states.write().await;
 
-        // Age-based eviction
+        // Age-based eviction with D-11 "card lifetime" rules:
+        //   - IssueFixed cards: auto-dismiss 5 min after reaching terminal state
+        //   - NeedsManualIntervention: kept forever (staff must dismiss manually)
+        //   - All others (stuck launches): hard cutoff at STALE_AFTER_SECS (10 min)
         guard.retain(|_, card| {
             let age_secs = (now - card.timestamp).num_seconds();
-            age_secs < STALE_AFTER_SECS
+            match card.state {
+                // D-11: NeedsManualIntervention stays until staff explicitly dismisses.
+                LaunchState::NeedsManualIntervention => true,
+                // D-11: IssueFixed auto-dismisses 5 min after reaching terminal state.
+                LaunchState::IssueFixed => age_secs < AUTO_DISMISS_ISSUE_FIXED_SECS,
+                // Safety net: non-terminal states (LaunchStarted, AiAnalysisRequested,
+                // IssueBeingFixed) hard-expire after STALE_AFTER_SECS to prevent
+                // stuck cards from rc-agent crashes mid-launch.
+                _ => age_secs < STALE_AFTER_SECS,
+            }
         });
 
         // Count-based cap: drop oldest entries first
@@ -190,6 +207,25 @@ impl LaunchStateMachine {
             for (k, _) in entries.into_iter().take(drop_count) {
                 guard.remove(&k);
             }
+        }
+    }
+
+    /// Test-only: force a card's timestamp to a specific value.
+    /// Used to exercise age-based pruning without waiting in real time.
+    /// Hidden from rustdoc; public only so integration tests in `tests/` can
+    /// reach it. Not intended for production callers.
+    #[doc(hidden)]
+    pub async fn set_timestamp_for_test(
+        &self,
+        launch_id: &str,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        let mut guard = self.states.write().await;
+        if let Some(card) = guard.get_mut(launch_id) {
+            card.timestamp = timestamp;
+            true
+        } else {
+            false
         }
     }
 }

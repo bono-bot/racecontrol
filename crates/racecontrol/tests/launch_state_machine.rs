@@ -10,6 +10,7 @@
 //   7. prune cap (MAX_ACTIVE_LAUNCHES = 100)
 //   8. test_issue_fixed_is_idempotent_when_rc_agent_emits_first (P2-05)
 
+use chrono::Utc;
 use racecontrol_crate::launch_state::LaunchStateMachine;
 use rc_common::protocol::{LaunchOrigin, LaunchState};
 use std::sync::Arc;
@@ -263,4 +264,93 @@ async fn test_issue_fixed_is_idempotent_when_rc_agent_emits_first() {
     // emits. This is the formal proof of the "exactly one broadcast per terminal state"
     // guarantee — enforced by transition() returning None.
     // (The caller in game_launcher.rs wraps the send in `if let Some(card) = transition(...).await`)
+}
+
+/// Test 9 (Phase 368 F-02 / D-11): prune() honors the card-lifetime rules.
+///
+/// D-11 "Card lifetime":
+///   - `issue_fixed` cards auto-dismiss 5 minutes (300s) after reaching terminal state
+///   - `needs_manual_intervention` cards stay FOREVER until staff explicitly dismisses
+///   - Non-terminal stuck cards (LaunchStarted / AiAnalysisRequested / IssueBeingFixed)
+///     hard-expire at 10 minutes (STALE_AFTER_SECS) as a safety net against rc-agent crashes.
+///
+/// This test exercises all five buckets via the test-only `set_timestamp_for_test` helper
+/// to avoid a 10-minute real-time wait.
+#[tokio::test]
+async fn launch_state_machine_prune_card_lifetime_d11() {
+    let sm = make_machine();
+
+    // Seed cards in every relevant state with controllable launch_ids.
+    for id in ["fixed-expired", "fixed-fresh", "manual-ancient", "stuck-expired", "stuck-fresh"] {
+        sm.start_launch(
+            id.to_string(),
+            "pod_1".to_string(),
+            "assetto_corsa".to_string(),
+            LaunchOrigin::Customer,
+        )
+        .await;
+    }
+
+    // Transition the two "fixed-*" cards into IssueFixed.
+    // LaunchStarted -> IssueFixed is a legal happy-path skip (see is_valid_transition).
+    sm.transition("fixed-expired", LaunchState::IssueFixed, None, None, None).await.unwrap();
+    sm.transition("fixed-fresh", LaunchState::IssueFixed, None, None, None).await.unwrap();
+
+    // Transition "manual-ancient" into NeedsManualIntervention.
+    sm.transition("manual-ancient", LaunchState::NeedsManualIntervention, None, None, None)
+        .await
+        .unwrap();
+
+    // "stuck-expired" and "stuck-fresh" stay in LaunchStarted (never transitioned).
+
+    // Force timestamps using the test helper.
+    let now = Utc::now();
+    // 301s ago -> over the 5-min auto-dismiss threshold for IssueFixed
+    sm.set_timestamp_for_test("fixed-expired", now - chrono::Duration::seconds(301)).await;
+    // 299s ago -> under the threshold, must be retained
+    sm.set_timestamp_for_test("fixed-fresh", now - chrono::Duration::seconds(299)).await;
+    // 1 hour ago -> but NeedsManualIntervention is staff-dismiss-only, must stay
+    sm.set_timestamp_for_test("manual-ancient", now - chrono::Duration::seconds(3600)).await;
+    // 601s ago -> over the 10-min safety net for stuck launches
+    sm.set_timestamp_for_test("stuck-expired", now - chrono::Duration::seconds(601)).await;
+    // 599s ago -> under the safety net, must be retained
+    sm.set_timestamp_for_test("stuck-fresh", now - chrono::Duration::seconds(599)).await;
+
+    // Sanity: all 5 cards present before prune
+    assert_eq!(sm.get_active().await.len(), 5, "Setup: expect 5 cards before prune");
+
+    // Execute prune — the behavior under test.
+    sm.prune().await;
+
+    let after: Vec<String> = sm
+        .get_active()
+        .await
+        .into_iter()
+        .map(|c| c.launch_id)
+        .collect();
+
+    // Assertions (D-11 contract):
+    assert!(
+        !after.contains(&"fixed-expired".to_string()),
+        "IssueFixed aged >300s must be auto-dismissed"
+    );
+    assert!(
+        after.contains(&"fixed-fresh".to_string()),
+        "IssueFixed aged <300s must be retained"
+    );
+    assert!(
+        after.contains(&"manual-ancient".to_string()),
+        "NeedsManualIntervention must NEVER be auto-pruned regardless of age"
+    );
+    assert!(
+        !after.contains(&"stuck-expired".to_string()),
+        "LaunchStarted aged >600s must be pruned by safety net"
+    );
+    assert!(
+        after.contains(&"stuck-fresh".to_string()),
+        "LaunchStarted aged <600s must be retained"
+    );
+
+    // Final count: 3 survivors (fixed-fresh, manual-ancient, stuck-fresh).
+    assert_eq!(after.len(), 3, "Expected 3 survivors after prune, got {:?}", after);
 }

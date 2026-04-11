@@ -952,6 +952,22 @@ async fn main() -> anyhow::Result<()> {
     // FATM-08: Spawn coupon TTL expiry task (every 60s, 120s initial delay)
     billing::spawn_coupon_ttl_expiry_job(state.clone());
 
+    // Phase 368 F-01: LaunchStateMachine prune task (every 60s).
+    // Without this, prune() is never called and stale launch cards accumulate
+    // until the 100-card LRU cap forces eviction; the STALE_AFTER_SECS window
+    // becomes dead code. See crates/racecontrol/src/launch_state.rs:171.
+    {
+        let prune_state = state.clone();
+        tokio::spawn(async move {
+            tracing::info!("launch-state-prune task started (60s interval)");
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                prune_state.launch_state_machine.prune().await;
+            }
+        });
+    }
+
     // Spawn data retention background task (LEGAL-08: daily, 1-hour initial delay)
     // Anonymizes drivers inactive for > pii_inactive_months (default 24 months).
     // Financial records are never touched (Income Tax Act: 8-year retention).
