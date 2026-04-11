@@ -503,6 +503,24 @@ impl SimAdapter for F125Adapter {
             return Ok(None);
         }
 
+        // F1 25 LAUNCH-PLAYABLE-SPLIT (2026-04-12, James):
+        // Always signal UdpReachable on every successfully parsed CarTelemetry packet.
+        // This proves the F1 25 game process is alive and the UDP socket is wired up,
+        // which the launch verifier needs to confirm a successful launch (transition out
+        // of LaunchState::WaitingForLive — see event_loop.rs). UdpReachable does NOT
+        // start billing — only UdpActive (below, gated on speed > 0) does that.
+        //
+        // Before this split, F1 25 only fired UdpActive when speed > 0, and the launch
+        // verifier waited up to 180s (default_launch_timeout_per_attempt) for that single
+        // signal. Customers cannot reach speed > 0 within 180s on F1 25 (EA SPORTS splash
+        // → main menu → quick race → loading → grid → countdown takes longer), so EVERY
+        // F1 25 launch was being cancelled by BILL-13 cancelled_no_playable while the
+        // game was actually running. Trace evidence:
+        // .planning/debug/flow-traces/runs/2026-04-12T03-15-59-IST-f1_25-attempt-01/
+        if let Some(ref tx) = self.signal_tx {
+            let _ = tx.try_send(DetectorSignal::UdpReachable);
+        }
+
         // Only signal UdpActive when we have valid on-track telemetry (speed > 0).
         // F1 25 sends button-event packets in pre-race menus (tyre strategy, formation
         // lap setup) that pass parse_header but contain no motion data. Firing UdpActive

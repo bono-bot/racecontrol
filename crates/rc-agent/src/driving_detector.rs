@@ -44,8 +44,14 @@ pub enum DetectorSignal {
     HidIdle,
     /// HID device disconnected or not found
     HidDisconnected,
-    /// UDP telemetry packet received on a monitored port
+    /// UDP telemetry packet received with on-track motion (e.g. F1 25: speed > 0).
+    /// Drives the Active driving state and is the billing trigger.
     UdpActive,
+    /// UDP telemetry socket is reachable — game process is alive and emitting packets,
+    /// but not necessarily playing yet (e.g. F1 25 main menu / formation lap setup).
+    /// Used by the launch verifier to confirm the game launched, separately from billing.
+    /// Does NOT mark the detector as Active and does NOT start billing.
+    UdpReachable,
     /// No UDP packets received recently
     UdpIdle,
 }
@@ -98,6 +104,13 @@ impl DrivingDetector {
                 self.udp_active = true;
                 self.last_udp_packet = Some(Instant::now());
                 self.last_active_input = Some(Instant::now());
+            }
+            DetectorSignal::UdpReachable => {
+                // Game is alive and emitting telemetry but not on-track (e.g. F1 25 menus).
+                // Track last_udp_packet so launch verifier (event_loop.rs) sees the game
+                // is running, but do NOT set udp_active or last_active_input — those gate
+                // billing-Active state and would start charging the customer in menus.
+                self.last_udp_packet = Some(Instant::now());
             }
             DetectorSignal::UdpIdle => {
                 self.udp_active = false;
@@ -302,5 +315,49 @@ mod tests {
         let elapsed = d.last_udp_packet_elapsed_secs();
         assert!(elapsed.is_some(), "After UdpActive, elapsed secs should be Some");
         assert!(elapsed.unwrap() <= 1, "Elapsed should be 0s immediately after signal");
+    }
+
+    // ─── LAUNCH-PLAYABLE-SPLIT (2026-04-12) ─────────────────────────────────
+    // UdpReachable proves the game is alive and emitting telemetry but does NOT
+    // mark the detector as Active (which would start billing). It DOES update
+    // last_udp_packet so the launch verifier sees the game launched.
+
+    #[test]
+    fn udp_reachable_does_not_transition_to_active() {
+        let mut d = make_detector();
+        let (state, changed) = d.process_signal(DetectorSignal::UdpReachable);
+        // Without HID and without on-track motion, F1 25 in menus should NOT
+        // be classified as Active. The state goes from NoDevice → Idle (because
+        // a UDP source now exists), but never to Active.
+        assert_ne!(state, DrivingState::Active,
+            "UdpReachable must not start the Active driving state (would trigger billing)");
+        assert_eq!(state, DrivingState::Idle,
+            "UdpReachable should transition NoDevice → Idle (source present, not driving)");
+        assert!(changed, "NoDevice → Idle is a state change");
+    }
+
+    #[test]
+    fn udp_reachable_then_udp_active_transitions_to_active() {
+        let mut d = make_detector();
+        // Game launches, menu packets arrive (UdpReachable)
+        d.process_signal(DetectorSignal::UdpReachable);
+        assert_eq!(d.state(), DrivingState::Idle, "Menu packets keep state Idle");
+        // Player crosses the green flag, speed > 0, UdpActive fires
+        let (state, changed) = d.process_signal(DetectorSignal::UdpActive);
+        assert_eq!(state, DrivingState::Active, "UdpActive transitions to Active");
+        assert!(changed, "Idle → Active is a state change");
+    }
+
+    #[test]
+    fn udp_reachable_updates_last_udp_packet_for_launch_verifier() {
+        let mut d = make_detector();
+        assert!(d.last_udp_packet_elapsed_secs().is_none(),
+            "No packets yet — last_udp_packet_elapsed_secs should be None");
+        d.process_signal(DetectorSignal::UdpReachable);
+        let elapsed = d.last_udp_packet_elapsed_secs();
+        assert!(elapsed.is_some(),
+            "UdpReachable must update last_udp_packet — launch verifier reads this");
+        assert!(elapsed.unwrap() <= 1,
+            "Elapsed should be ~0s immediately after UdpReachable");
     }
 }

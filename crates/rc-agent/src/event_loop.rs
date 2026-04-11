@@ -784,8 +784,15 @@ pub async fn run(
             }
 
             Some(signal) = state.signal_rx.recv() => {
-                // F1 25 PlayableSignal: UdpActive on port 20777 is the billing trigger
-                if matches!(signal, crate::driving_detector::DetectorSignal::UdpActive) {
+                // F1 25 launch verification (LAUNCH-PLAYABLE-SPLIT 2026-04-12, James):
+                // UdpReachable confirms the game process is alive and emitting telemetry,
+                // even when speed = 0 (menus, grid, formation lap). UdpActive (below,
+                // routed through the driving detector) is the BILLING trigger, gated on
+                // speed > 0. Before this split, both purposes used UdpActive, which meant
+                // F1 25 launches were never verified before the 180s timeout because
+                // customers can't reach speed > 0 in time. See:
+                // .planning/debug/flow-traces/runs/2026-04-12T03-15-59-IST-f1_25-attempt-01/
+                if matches!(signal, crate::driving_detector::DetectorSignal::UdpReachable) {
                     if matches!(conn.current_sim_type, Some(rc_common::types::SimType::F125))
                         && matches!(conn.launch_state, LaunchState::WaitingForLive { .. })
                     {
