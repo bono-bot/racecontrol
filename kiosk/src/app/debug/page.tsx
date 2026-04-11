@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { KioskHeader } from "@/components/KioskHeader";
+import LaunchCard from "@/components/LaunchCard";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import type {
   PodHealth,
@@ -53,7 +54,7 @@ function getPodLabel(podNumber: number, podId: string, nodeType?: string, name?:
 
 export default function DebugPage() {
   const router = useRouter();
-  const { connected, pods, activityLog } = useKioskSocket();
+  const { connected, pods, activityLog, launches, launchNotes, removeLaunch } = useKioskSocket();
 
   const [staffName, setStaffName] = useState<string | null>(null);
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
@@ -98,6 +99,24 @@ export default function DebugPage() {
     }
   }, [router]);
 
+  // Phase 368: feature flag — kiosk_launch_cards_enabled
+  const [launchCardsEnabled, setLaunchCardsEnabled] = useState(false);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const flags = await api.listFlags();
+        const flag = flags.find((f) => f.name === "kiosk_launch_cards_enabled");
+        setLaunchCardsEnabled(flag?.enabled ?? false);
+      } catch (e) {
+        console.warn("[debug] failed to load feature flags", e);
+        setLaunchCardsEnabled(false);
+      }
+    };
+    void load();
+    const i = setInterval(load, 60000); // 60s re-fetch per Phase 177+ boot-resilience pattern
+    return () => clearInterval(i);
+  }, []);
+
   // Load debug data (incidents, playbooks, pod health)
   const loadData = useCallback(async () => {
     try {
@@ -117,11 +136,14 @@ export default function DebugPage() {
     }
   }, []);
 
+  // D-14: Remove 30s poll only when flag=true AND WS connected. Retain as fallback otherwise.
+  const shouldPoll = !launchCardsEnabled || !connected;
   useEffect(() => {
     loadData();
+    if (!shouldPoll) return;
     const interval = setInterval(loadData, 30000); // refresh incidents less often
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadData, shouldPoll]);
 
   // v27.0: Load pod diagnostic events when a pod is selected
   useEffect(() => {
@@ -404,76 +426,129 @@ export default function DebugPage() {
             </div>
           </div>
 
-          {/* Activity Feed — shrinks to make room for diagnostics */}
-          <div className="flex-1 min-h-[100px] bg-rp-card border border-rp-border rounded-xl overflow-y-auto">
-            {filteredActivity.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
-                No activity yet — events will appear in real-time
-              </div>
+          {/* Activity Feed / LaunchCard panel — conditional on kiosk_launch_cards_enabled flag */}
+          <div className="flex-1 min-h-[100px] bg-rp-card border border-rp-border rounded-xl overflow-y-auto p-2">
+            {launchCardsEnabled ? (
+              launches.size === 0 ? (
+                // D-12 empty state
+                <div
+                  className="flex items-center gap-2 p-4"
+                  data-testid="launches-empty-state"
+                >
+                  <div
+                    className={`h-2 w-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-red-500"}`}
+                    data-testid="ws-connection-dot"
+                  />
+                  <span className="text-sm text-rp-grey">
+                    No active launches — waiting for next game start
+                  </span>
+                </div>
+              ) : (
+                // Newest-first, grouped visually by pod_id per D-10
+                Array.from(launches.values())
+                  .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+                  .map((card) => (
+                    <LaunchCard
+                      key={card.launch_id}
+                      card={card}
+                      notes={launchNotes.get(card.launch_id) ?? []}
+                      onAddNote={async (body) => {
+                        try {
+                          await api.postLaunchNote(card.launch_id, body);
+                          // Note arrives via WS launch_note_added — no local state mutation needed
+                        } catch (e) {
+                          console.error("[debug] postLaunchNote failed", e);
+                        }
+                      }}
+                      onApproveFix={async () => {
+                        try {
+                          await api.approveLaunchFix(card.launch_id);
+                        } catch (e) {
+                          console.error("[debug] approveLaunchFix failed", e);
+                        }
+                      }}
+                      onDismiss={async () => {
+                        try {
+                          await api.dismissLaunch(card.launch_id);
+                          removeLaunch(card.launch_id);
+                        } catch (e) {
+                          console.error("[debug] dismissLaunch failed", e);
+                        }
+                      }}
+                    />
+                  ))
+              )
             ) : (
-              <div className="flex flex-col">
-                {filteredActivity.map((entry) => {
-                  const isRaceEngineer = entry.source === "race_engineer" || entry.category === "race_engineer";
-                  return (
-                    <div
-                      key={entry.id}
-                      className={`flex items-start gap-3 px-4 py-2 border-b border-rp-border/30 last:border-0 border-l-2 ${
-                        isRaceEngineer
-                          ? "border-l-amber-500 bg-amber-500/5"
-                          : "border-l-transparent"
-                      }`}
-                    >
-                      {/* Time */}
-                      <span className="text-xs text-zinc-500 font-mono w-16 flex-shrink-0 pt-0.5">
-                        {formatTime(entry.timestamp)}
-                      </span>
-
-                      {/* Category dot */}
-                      <span
-                        className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
-                          CATEGORY_DOT[entry.category] || "bg-zinc-500"
+              // Existing flat activity feed — preserved as-is when flag=false (D-14 fallback)
+              filteredActivity.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                  No activity yet — events will appear in real-time
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  {filteredActivity.map((entry) => {
+                    const isRaceEngineer = entry.source === "race_engineer" || entry.category === "race_engineer";
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`flex items-start gap-3 px-4 py-2 border-b border-rp-border/30 last:border-0 border-l-2 ${
+                          isRaceEngineer
+                            ? "border-l-amber-500 bg-amber-500/5"
+                            : "border-l-transparent"
                         }`}
-                      />
+                      >
+                        {/* Time */}
+                        <span className="text-xs text-zinc-500 font-mono w-16 flex-shrink-0 pt-0.5">
+                          {formatTime(entry.timestamp)}
+                        </span>
 
-                      {/* Pod label */}
-                      {!selectedPodId && entry.pod_number > 0 && (
-                        <button
-                          onClick={() => setSelectedPodId(entry.pod_id)}
-                          className="text-xs text-zinc-400 hover:text-white w-12 flex-shrink-0 pt-0.5 text-left"
-                        >
-                          {podHealth.find(p => p.pod_id === entry.pod_id)?.node_type === 'pos' ? 'POS' : `Pod ${entry.pod_number}`}
-                        </button>
-                      )}
+                        {/* Category dot */}
+                        <span
+                          className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
+                            CATEGORY_DOT[entry.category] || "bg-zinc-500"
+                          }`}
+                        />
 
-                      {/* Action + Details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          {isRaceEngineer && (
-                            <span className="text-amber-500 text-xs font-semibold flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                              </svg>
-                              Race Engineer
-                            </span>
-                          )}
-                          <span
-                            className={`text-sm font-medium ${
-                              isRaceEngineer ? "text-amber-400" : "text-white"
-                            }`}
+                        {/* Pod label */}
+                        {!selectedPodId && entry.pod_number > 0 && (
+                          <button
+                            onClick={() => setSelectedPodId(entry.pod_id)}
+                            className="text-xs text-zinc-400 hover:text-white w-12 flex-shrink-0 pt-0.5 text-left"
                           >
-                            {entry.action}
-                          </span>
-                        </div>
-                        {entry.details && (
-                          <p className="text-xs text-zinc-500 mt-0.5 truncate">
-                            {entry.details}
-                          </p>
+                            {podHealth.find(p => p.pod_id === entry.pod_id)?.node_type === 'pos' ? 'POS' : `Pod ${entry.pod_number}`}
+                          </button>
                         )}
+
+                        {/* Action + Details */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {isRaceEngineer && (
+                              <span className="text-amber-500 text-xs font-semibold flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                                </svg>
+                                Race Engineer
+                              </span>
+                            )}
+                            <span
+                              className={`text-sm font-medium ${
+                                isRaceEngineer ? "text-amber-400" : "text-white"
+                              }`}
+                            >
+                              {entry.action}
+                            </span>
+                          </div>
+                          {entry.details && (
+                            <p className="text-xs text-zinc-500 mt-0.5 truncate">
+                              {entry.details}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           </div>
 
