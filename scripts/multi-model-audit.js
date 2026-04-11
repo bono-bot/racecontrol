@@ -845,7 +845,16 @@ async function runAudit() {
 
   const auditedCommit = checkCodebaseFreshness();
 
-  const rawBatches = prepareBatches();
+  let rawBatches = prepareBatches();
+
+  // BATCH_FILTER env var: run only batches whose name starts with any comma-separated prefix.
+  // Example: BATCH_FILTER=07,08 → only standing-rules-crosssystem + frontend-nextjs
+  const BATCH_FILTER = (process.env.BATCH_FILTER || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (BATCH_FILTER.length) {
+    const before = rawBatches.length;
+    rawBatches = rawBatches.filter(b => BATCH_FILTER.some(f => b.name.startsWith(f)));
+    console.log(`BATCH_FILTER active: [${BATCH_FILTER.join(',')}] → ${rawBatches.length}/${before} batches\n`);
+  }
 
   // Auto-split batches that exceed the smallest model's context
   const minCtx = isConsensus
