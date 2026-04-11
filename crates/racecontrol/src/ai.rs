@@ -104,18 +104,25 @@ pub async fn query_ollama(
 
 const OPENROUTER_API_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
-/// Read OpenRouter API key from env or data file.
+/// Read OpenRouter API key: data file first (fresh), then env var (may be stale from session).
 fn read_openrouter_key() -> Option<String> {
+    // File first — always fresh, not subject to Windows session env caching issues.
+    // On Windows, setx /M writes to registry but running processes keep the old value
+    // until a full logoff/reboot. The file is always current.
+    let path = std::path::Path::new("data/openrouter-mma-key.txt");
+    if let Ok(contents) = std::fs::read_to_string(path) {
+        let k = contents.trim().to_string();
+        if !k.is_empty() {
+            return Some(k);
+        }
+    }
+    // Fallback: env var
     if let Ok(k) = std::env::var("OPENROUTER_KEY") {
         if !k.is_empty() {
             return Some(k);
         }
     }
-    let path = std::path::Path::new("data/openrouter-mma-key.txt");
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    None
 }
 
 /// Query OpenRouter API (MMA-class models for higher quality diagnostics).
