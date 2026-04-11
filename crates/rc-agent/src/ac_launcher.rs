@@ -2194,8 +2194,19 @@ pub fn minimize_background_windows() {
             [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
         '
         # Processes whose windows we must NOT minimize
+        # BUG-B-FIX 2026-04-12 (James): fleet games added — previously only AC was
+        # protected, so every F1 25 / iRacing / LMU / ACE launch was minimized ~1-30s
+        # after launch by the periodic event_loop kiosk-enforcement tick. Canary trace
+        # `runs/2026-04-12T04-13-17-IST-f1_25-attempt-02-canary/BUG-B-MINIMIZE-FINDINGS.md`.
+        # Game list mirrors `enforce_safe_state` game_processes — keep in sync.
         $allowList = @(
-            'acs', 'AssettoCorsa',                          # Game
+            'acs', 'AssettoCorsa',                          # Assetto Corsa
+            'AssettoCorsaEVO', 'AssettoCorsa2', 'AC2-Win64-Shipping',  # ACE (Assetto Corsa Evo)
+            'acr',                                           # Assetto Corsa Rally (ACR)
+            'F1_25',                                         # F1 25 (EA / Codemasters)
+            'iRacingSim64DX11', 'iRacingService',            # iRacing
+            'LMU', 'Le Mans Ultimate',                       # Le Mans Ultimate (LMU)
+            'ForzaMotorsport', 'ForzaHorizon5',              # Forza
             'msedge', 'msedgewebview2',                     # Overlay / Kiosk (Edge)
             'explorer',                                      # Shell (taskbar/desktop)
             'TextInputHost', 'ShellExperienceHost',          # System UI
