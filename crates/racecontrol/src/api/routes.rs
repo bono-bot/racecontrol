@@ -971,6 +971,7 @@ async fn register_pod(
         ffb_preset: None,
         freedom_mode: None,
         agent_timestamp: None, // Intentional default: server-side pod creation has no agent clock
+        recent_lap_times: std::collections::VecDeque::new(),
     };
 
     state.pods.write().await.insert(id.clone(), pod.clone());
@@ -1014,6 +1015,7 @@ async fn seed_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
             ffb_preset: None,
             freedom_mode: None,
             agent_timestamp: None, // Intentional default: server-side pod seeding has no agent clock
+            recent_lap_times: std::collections::VecDeque::new(),
         };
         state.pods.write().await.insert(id.to_string(), pod.clone());
         let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
@@ -2114,6 +2116,7 @@ mod pod_status_summary_tests {
                     ffb_preset: None,
                     freedom_mode: None,
                     agent_timestamp: None,
+                    recent_lap_times: std::collections::VecDeque::new(),
                 });
             }
         }
@@ -2138,7 +2141,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Idle,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None, recent_lap_times: std::collections::VecDeque::new(),
             });
             pods.insert("pod-2".into(), PodInfo {
                 id: "pod-2".into(), number: 2, name: "Pod 2".into(),
@@ -2146,7 +2149,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Offline,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None, recent_lap_times: std::collections::VecDeque::new(),
             });
             pods.insert("pod-3".into(), PodInfo {
                 id: "pod-3".into(), number: 3, name: "Pod 3".into(),
@@ -2154,7 +2157,7 @@ mod pod_status_summary_tests {
                 sim_type: SimType::AssettoCorsa, status: PodStatus::Error,
                 current_driver: None, current_session_id: None,
                 last_seen: None, driving_state: None, billing_session_id: None,
-                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None,
+                game_state: None, current_game: None, installed_games: Vec::new(), screen_blanked: None, ffb_preset: None, freedom_mode: None, agent_timestamp: None, recent_lap_times: std::collections::VecDeque::new(),
             });
         }
 
@@ -11919,6 +11922,7 @@ async fn sync_push(
                 ffb_preset: None,
                 freedom_mode: None,
                 agent_timestamp: None, // Intentional default: cloud sync path has no agent clock
+                recent_lap_times: std::collections::VecDeque::new(),
             };
             state.pods.write().await.insert(id.to_string(), pod_info.clone());
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod_info));

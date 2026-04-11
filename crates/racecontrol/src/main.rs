@@ -77,6 +77,7 @@ async fn seed_pods_on_startup(state: &Arc<AppState>) {
                 ffb_preset: None,
                 freedom_mode: None,
                 agent_timestamp: None, // Intentional default: server-side pod seeding has no agent clock
+                recent_lap_times: std::collections::VecDeque::new(),
             };
             pods.insert(id.to_string(), pod.clone());
             seeded.push(pod);

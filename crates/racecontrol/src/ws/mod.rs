@@ -902,6 +902,11 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                             // Persist to DB and update leaderboards
                             crate::lap_tracker::persist_lap(&state, &lap).await;
 
+                            // Phase 364 CONSIST-01: in-flight lap consistency check
+                            if lap.valid {
+                                crate::lap_consistency::check_lap_consistency(&state, &lap).await;
+                            }
+
                             let _ = state
                                 .dashboard_tx
                                 .send(DashboardEvent::LapCompleted(lap));

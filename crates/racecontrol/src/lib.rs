@@ -87,6 +87,7 @@ pub mod remote_terminal;
 pub mod scheduler;
 pub mod self_healing;
 pub mod server_ops;
+pub mod lap_consistency;
 pub mod session_audit;
 pub mod state;
 pub mod telemetry_store;

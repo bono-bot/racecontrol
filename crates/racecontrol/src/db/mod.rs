@@ -4049,6 +4049,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // Phase 364 kill switch — default enabled; gates lap consistency checker + quality gap detectors
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO feature_flags (name, enabled, default_value, overrides)
+         VALUES ('phase364_quality_monitor', 1, 1, '{}')",
+    )
+    .execute(pool)
+    .await;
+
     tracing::info!("Phase 363 Data Recording Verification schema migrated");
 
     tracing::info!("Database migrations complete");

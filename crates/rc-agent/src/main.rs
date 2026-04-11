@@ -894,6 +894,7 @@ async fn main() -> Result<()> {
         ffb_preset: None,
         freedom_mode: None,
         agent_timestamp: None, // Populated per-heartbeat in event_loop.rs
+        recent_lap_times: std::collections::VecDeque::new(),
     };
 
     // Firewall auto-config — ensure ICMP + TCP 8090 rules exist (FW-01, FW-02, FW-03)

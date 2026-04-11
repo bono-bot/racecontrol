@@ -4364,12 +4364,14 @@ async fn end_billing_session(
                 let state_clone = state.clone();
                 let session_id_clone = session_id.to_string();
                 let driver_id_clone = info.driver_id.clone();
+                let pod_id_clone = pod_id.clone();
                 tokio::spawn(async move {
                     post_session_hooks(
                         &state_clone,
                         &session_id_clone,
                         &driver_id_clone,
                         seconds_covered_at_end,
+                        &pod_id_clone,
                     )
                     .await;
                 });
@@ -4721,7 +4723,13 @@ async fn post_session_hooks(
     session_id: &str,
     driver_id: &str,
     seconds_covered: u32,
+    pod_id: &str,
 ) {
+    // Phase 364 CONSIST-01: clear rolling lap history to prevent stale data leaking to next session
+    if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
+        pod.recent_lap_times.clear();
+    }
+
     // 1. Credit referral reward if this is the referee's first completed session
     let pending_referral: Option<(String, String)> = sqlx::query_as(
         "SELECT r.id, r.referrer_id FROM referrals r

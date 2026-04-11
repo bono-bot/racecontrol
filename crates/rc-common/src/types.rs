@@ -115,6 +115,13 @@ pub struct PodInfo {
     /// Server compares against Utc::now() to detect clock drift > 5s.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_timestamp: Option<String>,
+
+    /// Phase 364 CONSIST-01: Rolling lap time history for 3-sigma consistency checking.
+    /// VecDeque capped at 50 entries. Populated by lap_consistency::check_lap_consistency().
+    /// Cleared on session end in post_session_hooks (billing.rs).
+    /// Default: empty VecDeque. Server-side only -- not serialized over the wire.
+    #[serde(skip)]
+    pub recent_lap_times: std::collections::VecDeque<u32>,
 }
 
 // ─── Driver ──────────────────────────────────────────────────────────────────
