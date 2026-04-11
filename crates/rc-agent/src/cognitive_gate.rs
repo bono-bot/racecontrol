@@ -672,6 +672,7 @@ mod tests {
             pod_state: FailureMonitorState::default(),
             timestamp: "2026-04-01T10:00:00+05:30".to_string(),
             build_id: "test1234",
+            launch_id: None,
         }
     }
 

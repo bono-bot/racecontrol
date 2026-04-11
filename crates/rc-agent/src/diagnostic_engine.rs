@@ -58,6 +58,10 @@ pub struct DiagnosticEvent {
     pub timestamp: String,
     /// Current rc-agent build ID (from compile-time GIT_HASH)
     pub build_id: &'static str,
+    /// Phase 368: server-minted launch_id associated with this event, if available.
+    /// Set by ws_handler when emitting GameLaunchFail via external emit path (future).
+    /// None means the tier engine will use a fallback rcagent-local-<uuid> (split-deploy shim).
+    pub launch_id: Option<String>,
 }
 
 /// Emit a diagnostic event from an external source (e.g. pre-flight checks).
@@ -322,6 +326,7 @@ fn make_event(trigger: DiagnosticTrigger, pod_state: &FailureMonitorState) -> Di
         pod_state: pod_state.clone(),
         timestamp: now_ist.format("%Y-%m-%dT%H:%M:%S%:z").to_string(),
         build_id: crate::BUILD_ID,
+        launch_id: None,
     }
 }
 

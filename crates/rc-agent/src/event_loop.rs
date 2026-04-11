@@ -2407,6 +2407,7 @@ mod tests {
             launch_args: None,
             force_clean: true,
             duration_minutes: None,
+            launch_id: None,
         };
         let json_with = serde_json::to_string(&msg_with).expect("serialize LaunchGame with force_clean");
         let parsed_with: CoreToAgentMessage = serde_json::from_str(&json_with)

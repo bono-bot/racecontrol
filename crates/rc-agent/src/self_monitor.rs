@@ -448,6 +448,7 @@ fn make_diagnostic_event(trigger: DiagnosticTrigger, pod_state: FailureMonitorSt
         pod_state,
         timestamp: now_ist.format("%Y-%m-%dT%H:%M:%S%:z").to_string(),
         build_id: crate::BUILD_ID,
+        launch_id: None,
     }
 }
 
