@@ -8139,9 +8139,9 @@ async fn venue_register(
     let driver_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
     let customer_id = {
         // Customer IDs use "RP###" format (e.g. RP001..RP999+).
-        // Parse the numeric suffix of existing RP-prefixed IDs to find the next available number.
+        // CAST returns INTEGER from SQLite — decode as Option<i64>, not String.
         // Legacy "000001"/"000002" IDs from pre-RP format are ignored by the LIKE 'RP%' filter.
-        let max: Option<(Option<String>,)> = sqlx::query_as(
+        let max: Option<(Option<i64>,)> = sqlx::query_as(
             "SELECT MAX(CAST(SUBSTR(customer_id, 3) AS INTEGER)) FROM drivers WHERE customer_id LIKE 'RP%'",
         )
         .fetch_optional(&state.db)
@@ -8149,7 +8149,7 @@ async fn venue_register(
         .unwrap_or(None);
         let next_num = max
             .and_then(|m| m.0)
-            .and_then(|s| s.parse::<u64>().ok())
+            .map(|n| n as u64)
             .unwrap_or(0) + 1;
         format!("RP{:03}", next_num)
     };
@@ -8267,7 +8267,7 @@ async fn customer_add_racer(
     let racer_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
     let customer_id = {
         // Same RP### format as venue_register — see that function for details.
-        let max: Option<(Option<String>,)> = sqlx::query_as(
+        let max: Option<(Option<i64>,)> = sqlx::query_as(
             "SELECT MAX(CAST(SUBSTR(customer_id, 3) AS INTEGER)) FROM drivers WHERE customer_id LIKE 'RP%'",
         )
         .fetch_optional(&state.db)
@@ -8275,7 +8275,7 @@ async fn customer_add_racer(
         .unwrap_or(None);
         let next_num = max
             .and_then(|m| m.0)
-            .and_then(|s| s.parse::<u64>().ok())
+            .map(|n| n as u64)
             .unwrap_or(0) + 1;
         format!("RP{:03}", next_num)
     };
