@@ -52,6 +52,11 @@ case "$SERVICE" in
     else
       echo "WARNING: No staged binary in deploy-staging/. Rebuilding from source..."
       cd "$(dirname "${SCRIPT_DIR}")/racecontrol" 2>/dev/null || cd /c/Users/bono/racingpoint/racecontrol
+      # Inject the current git HEAD as GIT_HASH_FORCE so build.rs captures the
+      # deploy-time hash, not whatever cargo cached from the previous build.
+      # See build.rs comment about "build before commit" pitfall.
+      export GIT_HASH_FORCE="$(git rev-parse --short HEAD)"
+      echo "GIT_HASH_FORCE=${GIT_HASH_FORCE}"
       cargo build --release --bin racecontrol
       cp target/release/racecontrol.exe "${SCRIPT_DIR}/racecontrol.exe"
     fi
