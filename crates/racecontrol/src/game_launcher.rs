@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use tokio::sync::RwLock;
@@ -76,6 +77,15 @@ pub struct GameManager {
     /// Prevents port starvation (16 ports / 4 = 4 ports per launch for retry headroom)
     /// and reduces server load during peak launch storms (8 pods all launching at once).
     pub launch_semaphore: tokio::sync::Semaphore,
+    /// STOP-GUARD (2026-04-12): Timestamp of the most recent StopGame dispatch per pod.
+    /// Used by handle_game_state_update to reject zombie non-Idle updates that arrive
+    /// from rc-agent's 100ms sim polling loop after a stop has been issued but before
+    /// the agent has processed it. Without this guard, a late Running update spawns a
+    /// phantom externally_tracked tracker, which causes /fleet/health to report
+    /// game_state: "running" for minutes after the game has actually stopped (root
+    /// cause of the Issue 4 cache desync observed in the 2026-04-11 E2E test).
+    /// Entries are opportunistically pruned (>30s) on each handle_game_state_update.
+    pub recent_stops: RwLock<HashMap<String, Instant>>,
 }
 
 /// Result of a game launch with closed-loop verification.
@@ -86,14 +96,48 @@ pub struct LaunchResult {
     pub verify_time_secs: f64,
 }
 
+/// LAUNCH-TIMELINE-STOPPED (2026-04-12): Snapshot captured from the GameTracker at
+/// stop_game entry, used to persist a launch_timeline_spans row for launches that
+/// the agent will not otherwise report. The agent emits LaunchTimelineReport only
+/// on BillingStarted (success) or LaunchTimedOut (timeout) — launches that never
+/// reached `AcStatus::Live` (e.g. staff aborted a pre-playable launch, or an AC
+/// launch where nobody drove) are currently invisible in /launch-timeline/recent.
+/// This is the Issue 5 gap from the 2026-04-11 E2E test. INSERT OR IGNORE is used
+/// so the agent's authoritative success row always wins if it arrives.
+struct LaunchSpanSnapshot {
+    launch_id: String,
+    pod_id: String,
+    sim_type: String,
+    billing_session_id: Option<String>,
+    launched_at: Option<DateTime<Utc>>,
+    playable_at: Option<DateTime<Utc>>,
+    outcome: String,
+}
+
 impl GameManager {
     pub fn new() -> Self {
         Self {
             active_games: RwLock::new(HashMap::new()),
             last_launch_verified: std::sync::atomic::AtomicBool::new(false),
             launch_semaphore: tokio::sync::Semaphore::new(4),
+            recent_stops: RwLock::new(HashMap::new()),
         }
     }
+}
+
+/// STOP-GUARD helper: returns true if a StopGame was dispatched for this pod
+/// within the last `window_secs` seconds. Used to reject zombie GameStateUpdate
+/// messages from rc-agent's sim polling loop that arrive after a stop.
+/// Also opportunistically prunes entries older than 30s.
+pub async fn is_stop_guarded(state: &Arc<AppState>, pod_id: &str, window_secs: u64) -> bool {
+    let now = Instant::now();
+    let mut guard = state.game_launcher.recent_stops.write().await;
+    // Opportunistic cleanup of stale entries (>30s)
+    guard.retain(|_, t| now.duration_since(*t) < std::time::Duration::from_secs(30));
+    guard
+        .get(pod_id)
+        .map(|t| now.duration_since(*t) < std::time::Duration::from_secs(window_secs))
+        .unwrap_or(false)
 }
 
 // ─── GameLauncherImpl trait + per-game implementations ──────────────────────
@@ -836,14 +880,44 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
     let pod_id_owned = normalize_pod_id(pod_id).unwrap_or_else(|_| pod_id.to_string());
     let pod_id = pod_id_owned.as_str();
 
-    // Update tracker to Stopping
-    let info = {
+    // STOP-GUARD (2026-04-12): Record stop timestamp BEFORE dispatching the command,
+    // so any zombie GameStateUpdate from rc-agent's sim polling loop that arrives
+    // after this point gets suppressed in handle_game_state_update. See Issue 4 RCA.
+    state
+        .game_launcher
+        .recent_stops
+        .write()
+        .await
+        .insert(pod_id.to_string(), Instant::now());
+
+    // Update tracker to Stopping — and snapshot it for the launch_timeline_spans record.
+    // Capturing here (not inside the ACK block) guarantees we have the full tracker
+    // context (launch_id, sim_type, launched_at, playable_at) even if the ACK times out
+    // and the tracker is later auto-transitioned to Error by the STATE-01 30s watcher.
+    let (info, span_snapshot) = {
         let mut games = state.game_launcher.active_games.write().await;
         if let Some(tracker) = games.get_mut(pod_id) {
             tracker.game_state = GameState::Stopping;
-            Some(tracker.to_info())
+            let snap = LaunchSpanSnapshot {
+                launch_id: tracker.launch_id.clone(),
+                pod_id: tracker.pod_id.clone(),
+                sim_type: tracker.sim_type.to_string(),
+                billing_session_id: tracker.billing_session_id.clone(),
+                launched_at: tracker.launched_at,
+                playable_at: tracker.playable_at,
+                // Determine outcome: if game had reached playable state, the user
+                // got value from the launch (stopped_after_playable). If not, it
+                // was a pre-playable cancel (e.g. staff aborted a stuck launch).
+                outcome: if tracker.playable_at.is_some() {
+                    "stopped_after_playable"
+                } else {
+                    "stopped_pre_playable"
+                }
+                .to_string(),
+            };
+            (Some(tracker.to_info()), Some(snap))
         } else {
-            None
+            (None, None)
         }
     };
 
@@ -890,6 +964,108 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                             pod.game_state = Some(GameState::Idle);
                             pod.current_game = None;
                         }
+                    }
+                    // STOP-GUARD (2026-04-12): Re-insert the stop timestamp AFTER tracker
+                    // cleanup. The initial insert at function entry covers the window
+                    // during the 5-second ACK wait; this re-insert restarts the 10s
+                    // phantom-prevention window from the ACK point, which is when any
+                    // in-flight zombie updates from the agent are MOST likely to arrive
+                    // (agent's polling loop had 5+s to queue one up while waiting).
+                    state
+                        .game_launcher
+                        .recent_stops
+                        .write()
+                        .await
+                        .insert(pod_id_owned.to_string(), Instant::now());
+                    // LAUNCH-TIMELINE-STOPPED (2026-04-12): Persist a launch_timeline_spans
+                    // row for this stopped launch. Uses INSERT OR IGNORE so that if the
+                    // agent later sends a LaunchTimelineReport with the same launch_id
+                    // (e.g. stop arrived after BillingStarted fired), the agent's row
+                    // — which is authoritative, with full event details — is preserved.
+                    // This closes the Issue 5 gap where staff-initiated stops of pre-
+                    // playable launches were invisible in /launch-timeline/recent.
+                    if let Some(ref snap) = span_snapshot {
+                        let db = state.db.clone();
+                        let snap_clone = LaunchSpanSnapshot {
+                            launch_id: snap.launch_id.clone(),
+                            pod_id: snap.pod_id.clone(),
+                            sim_type: snap.sim_type.clone(),
+                            billing_session_id: snap.billing_session_id.clone(),
+                            launched_at: snap.launched_at,
+                            playable_at: snap.playable_at,
+                            outcome: snap.outcome.clone(),
+                        };
+                        tokio::spawn(async move {
+                            // Compute total_duration_ms from launched_at (or 0 if never launched).
+                            let started_at_str = snap_clone
+                                .launched_at
+                                .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+                                .unwrap_or_else(|| {
+                                    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+                                });
+                            let total_duration_ms: i64 = snap_clone
+                                .launched_at
+                                .map(|start| {
+                                    Utc::now().signed_duration_since(start).num_milliseconds()
+                                })
+                                .unwrap_or(0)
+                                .max(0);
+                            // Minimal event trail — a single "stopped" marker with the
+                            // playable_at delta (if any) so dashboards can distinguish
+                            // pre- vs post-playable stops at a glance.
+                            let events_json = {
+                                let playable_delta_ms = snap_clone
+                                    .playable_at
+                                    .and_then(|p| {
+                                        snap_clone.launched_at.map(|l| {
+                                            p.signed_duration_since(l).num_milliseconds()
+                                        })
+                                    })
+                                    .unwrap_or(-1);
+                                format!(
+                                    r#"[{{"kind":"stopped","elapsed_ms":{},"playable_delta_ms":{},"timestamp":"{}"}}]"#,
+                                    total_duration_ms,
+                                    playable_delta_ms,
+                                    Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                                )
+                            };
+                            let created_at = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                            let result = sqlx::query(
+                                "INSERT OR IGNORE INTO launch_timeline_spans
+                                 (launch_id, pod_id, sim_type, preset_id, billing_session_id,
+                                  outcome, total_duration_ms, started_at, events_json, created_at)
+                                 VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
+                            )
+                            .bind(&snap_clone.launch_id)
+                            .bind(&snap_clone.pod_id)
+                            .bind(&snap_clone.sim_type)
+                            .bind(&snap_clone.billing_session_id)
+                            .bind(&snap_clone.outcome)
+                            .bind(total_duration_ms)
+                            .bind(&started_at_str)
+                            .bind(&events_json)
+                            .bind(&created_at)
+                            .execute(&db)
+                            .await;
+                            match result {
+                                Ok(r) if r.rows_affected() > 0 => tracing::info!(
+                                    "LAUNCH-TIMELINE-STOPPED: Persisted span for {} (pod={}, outcome={}, duration={}ms)",
+                                    snap_clone.launch_id,
+                                    snap_clone.pod_id,
+                                    snap_clone.outcome,
+                                    total_duration_ms
+                                ),
+                                Ok(_) => tracing::debug!(
+                                    "LAUNCH-TIMELINE-STOPPED: {} already recorded by agent — skipped",
+                                    snap_clone.launch_id
+                                ),
+                                Err(e) => tracing::error!(
+                                    "LAUNCH-TIMELINE-STOPPED: Failed to persist span for {}: {}",
+                                    snap_clone.launch_id,
+                                    e
+                                ),
+                            }
+                        });
                     }
                 } else {
                     tracing::warn!("Agent ACK failure for stop on pod {}: {:?}", pod_id, result.error);
@@ -964,6 +1140,25 @@ async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
 pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInfo) {
     let pod_id_normalized = normalize_pod_id(&info.pod_id).unwrap_or_else(|_| info.pod_id.clone());
     let pod_id = &pod_id_normalized;
+
+    // STOP-GUARD (2026-04-12): Suppress zombie non-Idle updates that arrive within
+    // 10 seconds of a StopGame dispatch. The rc-agent sim polling loop (100ms) can
+    // have an in-flight Running update queued just before it processes the stop;
+    // without this guard, that message flows into the non-Idle branch below and
+    // spawns a phantom externally_tracked tracker at line ~1007, then line ~1064
+    // writes pod.game_state = Running, making /fleet/health report the game as
+    // still running for minutes. Issue 4 RCA — see the 2026-04-11 E2E test report.
+    // Idle updates pass through (they're exactly what we want after a stop).
+    if info.game_state != GameState::Idle
+        && is_stop_guarded(state, pod_id.as_str(), 10).await
+    {
+        tracing::info!(
+            "STOP-GUARD: dropped zombie {:?} update for pod {} (stop dispatched within last 10s)",
+            info.game_state,
+            pod_id
+        );
+        return;
+    }
 
     // Phase 368: Declare outside lock block so IssueFixed emission can happen after lock drops.
     // CLAUDE.md: never hold a lock across .await — launch_id captured inside lock, emitted outside.
@@ -3144,5 +3339,186 @@ mod tests {
             count, 0,
             "MAINTENANCE_MODE must not appear as a quoted string literal in game_launcher.rs (count={})", count
         );
+    }
+
+    // ── STOP-GUARD regression tests (2026-04-12, Issue 4 fix) ────────────────
+
+    /// Issue 4 root cause: after a StopGame dispatch, rc-agent's 100ms sim polling
+    /// loop can emit a zombie GameStateUpdate(Running) that races the stop cleanup.
+    /// Without the stop-guard, this zombie update spawns a phantom externally_tracked
+    /// tracker and flips pod.game_state back to Running in /fleet/health for minutes.
+    ///
+    /// This regression test exercises the exact sequence observed in the 2026-04-11
+    /// E2E test and asserts that is_stop_guarded returns true for 10 seconds, then
+    /// a non-Idle update for a stop-guarded pod is dropped before any tracker or
+    /// PodInfo mutation happens.
+    #[tokio::test]
+    async fn test_stop_guard_rejects_zombie_running_update() {
+        let state = make_state().await;
+
+        // Precondition: recent_stops map is empty, no tracker.
+        assert!(!is_stop_guarded(&state, "pod_6", 10).await);
+        assert!(!state.game_launcher.active_games.read().await.contains_key("pod_6"));
+
+        // Simulate StopGame having been dispatched — the stop_game() function
+        // inserts this entry before sending the command to the agent.
+        state
+            .game_launcher
+            .recent_stops
+            .write()
+            .await
+            .insert("pod_6".to_string(), std::time::Instant::now());
+
+        // The guard window (10s) must now be active.
+        assert!(
+            is_stop_guarded(&state, "pod_6", 10).await,
+            "STOP-GUARD must be active immediately after insert"
+        );
+
+        // Now simulate the zombie Running update that the sim polling loop queued
+        // just before it processed the stop. The same message shape as the 2026-04-11
+        // E2E observation: pid=13000, game_state=Running.
+        let zombie = GameLaunchInfo {
+            pod_id: "pod_6".to_string(),
+            sim_type: SimType::AssettoCorsa,
+            game_state: GameState::Running,
+            pid: Some(13000),
+            launched_at: Some(Utc::now()),
+            error_message: None,
+            diagnostics: None,
+            exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
+            session_id: None,
+            launch_stage: None,
+        };
+        handle_game_state_update(&state, zombie).await;
+
+        // Critical invariants: NO phantom tracker was created, PodInfo was NOT
+        // mutated to Running. Before the fix, both of these assertions would fail.
+        let games = state.game_launcher.active_games.read().await;
+        assert!(
+            !games.contains_key("pod_6"),
+            "zombie Running update must NOT spawn a phantom tracker under stop-guard"
+        );
+    }
+
+    /// Idle updates must pass through the stop-guard — after all, Idle is exactly
+    /// what we expect to see after a stop, and suppressing it would strand the
+    /// PodInfo in the pre-stop state forever.
+    #[tokio::test]
+    async fn test_stop_guard_does_not_block_idle_update() {
+        let state = make_state().await;
+
+        // Pre-insert a tracker (as if a launch was in progress)
+        {
+            state.game_launcher.active_games.write().await.insert(
+                "pod_3".to_string(),
+                GameTracker {
+                    pod_id: "pod_3".to_string(),
+                    sim_type: SimType::AssettoCorsa,
+                    game_state: GameState::Running,
+                    pid: Some(1234),
+                    launched_at: Some(Utc::now()),
+                    error_message: None,
+                    launch_args: None,
+                    auto_relaunch_count: 0,
+                    externally_tracked: false,
+                    dynamic_timeout_secs: None,
+                    exit_codes: Vec::new(),
+                    max_auto_relaunch: 2,
+                    playable_at: None,
+                    ready_delay_ms: None,
+                    billing_session_id: None,
+                    launch_id: "test-idle-bypass".to_string(),
+                },
+            );
+        }
+
+        // Mark pod_3 as stop-guarded
+        state
+            .game_launcher
+            .recent_stops
+            .write()
+            .await
+            .insert("pod_3".to_string(), std::time::Instant::now());
+
+        // Send an Idle update — this is legitimate post-stop state confirmation
+        let idle = GameLaunchInfo {
+            pod_id: "pod_3".to_string(),
+            sim_type: SimType::AssettoCorsa,
+            game_state: GameState::Idle,
+            pid: None,
+            launched_at: None,
+            error_message: None,
+            diagnostics: None,
+            exit_code: None,
+            playable_at: None,
+            ready_delay_ms: None,
+            session_id: None,
+            launch_stage: None,
+        };
+        handle_game_state_update(&state, idle).await;
+
+        // Tracker must be removed — the Idle branch runs as normal
+        let games = state.game_launcher.active_games.read().await;
+        assert!(
+            !games.contains_key("pod_3"),
+            "Idle update must NOT be blocked by stop-guard (tracker should be cleared)"
+        );
+    }
+
+    /// The stop-guard is supposed to expire after 10 seconds so that legitimate
+    /// new launches on the same pod are not perpetually blocked. This is critical —
+    /// without expiry, a single stop would poison the pod until server restart.
+    #[tokio::test]
+    async fn test_stop_guard_expires_after_window() {
+        let state = make_state().await;
+
+        // Insert a stop timestamp that is 11 seconds old (older than the 10s window)
+        state.game_launcher.recent_stops.write().await.insert(
+            "pod_2".to_string(),
+            std::time::Instant::now() - std::time::Duration::from_secs(11),
+        );
+
+        // 10s window must now classify this as NOT guarded.
+        assert!(
+            !is_stop_guarded(&state, "pod_2", 10).await,
+            "STOP-GUARD must expire after the configured window_secs"
+        );
+    }
+
+    /// The opportunistic cleanup in is_stop_guarded must prune entries older than
+    /// 30 seconds so the map cannot grow unbounded over server uptime. This is
+    /// the memory-permanence guarantee of the fix.
+    #[tokio::test]
+    async fn test_stop_guard_prunes_stale_entries() {
+        let state = make_state().await;
+
+        // Seed three entries: two stale (>30s), one fresh
+        {
+            let mut map = state.game_launcher.recent_stops.write().await;
+            map.insert(
+                "pod_stale_1".to_string(),
+                std::time::Instant::now() - std::time::Duration::from_secs(45),
+            );
+            map.insert(
+                "pod_stale_2".to_string(),
+                std::time::Instant::now() - std::time::Duration::from_secs(60),
+            );
+            map.insert(
+                "pod_fresh".to_string(),
+                std::time::Instant::now(),
+            );
+        }
+
+        // Trigger the cleanup path by calling is_stop_guarded (for any pod)
+        let _ = is_stop_guarded(&state, "pod_fresh", 10).await;
+
+        // Only the fresh entry must remain
+        let map = state.game_launcher.recent_stops.read().await;
+        assert!(!map.contains_key("pod_stale_1"), "stale entry (>30s) must be pruned");
+        assert!(!map.contains_key("pod_stale_2"), "stale entry (>30s) must be pruned");
+        assert!(map.contains_key("pod_fresh"), "fresh entry must survive pruning");
     }
 }
