@@ -198,6 +198,45 @@ export interface PodInventoryResponse {
   preset_validity: Record<string, "valid" | "invalid">;  // preset_id → valid/invalid
 }
 
+// ─── Pod Inventory v2 (Phase 361-01 — server inventory endpoint) ─────────────
+// Field names match Rust serde output (snake_case) from rc-common inventory_types.rs
+
+export interface AiCountRange {
+  min: number;
+  max: number;
+}
+
+export interface GameInventory {
+  key: string;
+  display_name: string;
+  installed: boolean;
+  cars: string[];    // non-empty for enumerable games (AC at minimum) post-361-01
+  tracks: string[];  // non-empty for enumerable games post-361-01
+}
+
+export interface PodInventory {
+  pod_number: number;
+  pod_name: string;
+  sim: string;
+  games: GameInventory[];
+  ai_count_range: AiCountRange;
+  fetched_at: string;  // "HH:MM IST" format
+}
+
+// ValidityError — 422 body shape from /api/v1/games/launch
+export type ValidityErrorCode =
+  | "GAME_NOT_INSTALLED"
+  | "CAR_NOT_AVAILABLE"
+  | "TRACK_NOT_AVAILABLE"
+  | "AI_COUNT_OUT_OF_RANGE"
+  | "POD_NOT_FOUND";
+
+export interface ValidityError {
+  reason: string;
+  suggestion: string;
+  code: ValidityErrorCode;
+}
+
 // ─── Kiosk Experiences ────────────────────────────────────────────────────
 
 export interface KioskExperience {

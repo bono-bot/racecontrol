@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -569,4 +569,10 @@ export const api = {
   // Pod Inventory (Phase 320 — INV-03, COMBO-05)
   podInventory: (podId: string) =>
     fetchApi<PodInventoryResponse>(`/fleet/pod-inventory/${encodeURIComponent(podId)}`),
+
+  // Pod Inventory v2 (Phase 361-01 — staff-JWT inventory endpoint with per-pod game/car/track data)
+  // Hits GET /api/v1/pods/{id}/inventory — staff-only route, staff JWT attached by fetchApi automatically
+  // from sessionStorage("kiosk_staff_token"). Returns full PodInventory with cars/tracks for filtering.
+  podInventoryFull: (podId: number): Promise<PodInventory> =>
+    fetchApi<PodInventory>(`/pods/${podId}/inventory`),
 };
