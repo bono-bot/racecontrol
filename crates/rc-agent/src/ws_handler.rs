@@ -446,7 +446,11 @@ pub async fn handle_ws_message(
             }
         }
 
-        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes } => {
+        CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes, launch_id: _ } => {
+            // Phase 368 stub (2026-04-11): launch_id field added to protocol in
+            // commit 367b949c but this pattern was never updated → build broken.
+            // Minimal fix: ignore the field. The Phase 368 owner should wire this
+            // through CommandAck/GameStateUpdate for tracking launch lineage.
             // BREADCRUMB: Write to file before any game launch logic runs
             let _ = std::fs::write(r"C:\RacingPoint\launch-breadcrumb.txt",
                 format!("LaunchGame received: sim={:?} force_clean={} ts={:?}\n", launch_sim, force_clean, std::time::SystemTime::now()));
