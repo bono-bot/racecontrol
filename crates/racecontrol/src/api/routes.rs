@@ -8266,8 +8266,9 @@ async fn customer_add_racer(
 
     let racer_id = format!("drv_{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
     let customer_id = {
+        // Same RP### format as venue_register — see that function for details.
         let max: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT MAX(customer_id) FROM drivers WHERE customer_id IS NOT NULL",
+            "SELECT MAX(CAST(SUBSTR(customer_id, 3) AS INTEGER)) FROM drivers WHERE customer_id LIKE 'RP%'",
         )
         .fetch_optional(&state.db)
         .await
@@ -8276,7 +8277,7 @@ async fn customer_add_racer(
             .and_then(|m| m.0)
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0) + 1;
-        format!("{:06}", next_num)
+        format!("RP{:03}", next_num)
     };
 
     let result = sqlx::query(
