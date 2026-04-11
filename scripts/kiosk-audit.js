@@ -30,7 +30,7 @@ const KIOSK_ROOT = path.join(REPO_ROOT, 'kiosk');
 const MODEL_CONFIG = {
   // Round 1 — General
   'deepseek/deepseek-chat-v3-0324': { short: 'deepseek-v3', ctx: 163840, priceIn: 0.20, priceOut: 0.77, timeout: 180000, maxOut: 16000 },
-  'google/gemini-2.5-pro-preview-03-25': { short: 'gemini-2.5', ctx: 1000000, priceIn: 1.25, priceOut: 10.0, timeout: 180000, maxOut: 16000 },
+  'google/gemini-2.5-flash':             { short: 'gemini-flash', ctx: 1000000, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
   // Round 2 — Code-specialized
   'x-ai/grok-code-fast-1':              { short: 'grok-code', ctx: 256000, priceIn: 0.20, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
   'openai/gpt-5.1-codex-mini':          { short: 'codex-mini', ctx: 400000, priceIn: 0.25, priceOut: 2.00, timeout: 300000, maxOut: 16000 },

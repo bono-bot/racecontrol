@@ -265,7 +265,7 @@ fn get_model_pool(domain: IssueDomain, step: u8) -> Vec<RosterModel> {
         IssueDomain::Frontend => vec![
             rm("x-ai/grok-4.1-fast", "JS/TS Specialist", ModelRole::CodeExpert, 0),
             rm("openai/gpt-5-mini", "Framework Expert", ModelRole::CodeExpert, 0),
-            rm("google/gemini-2.5-pro-preview", "Architect", ModelRole::Reasoner, 0),
+            rm("google/gemini-2.5-flash", "Architect", ModelRole::Reasoner, 0),
             rm("mistralai/mistral-large-2512", "Web Dev", ModelRole::Generalist, 0),
             rm("qwen/qwen3-235b-a22b-2507", "Async Debug", ModelRole::Reasoner, 0),
             rm("deepseek/deepseek-v3.1", "Full-Stack", ModelRole::CodeExpert, 1),
@@ -299,7 +299,7 @@ fn get_model_pool(domain: IssueDomain, step: u8) -> Vec<RosterModel> {
             rm("openai/gpt-5-mini", "Broad", ModelRole::Generalist, 1),
         ],
         IssueDomain::Security => vec![
-            rm("google/gemini-2.5-pro-preview", "Credential Scanner", ModelRole::DomainSpecialist, 0),
+            rm("google/gemini-2.5-flash", "Credential Scanner", ModelRole::DomainSpecialist, 0),
             rm("openai/gpt-5.4-nano", "Threat Modeling", ModelRole::Reasoner, 0),
             rm("deepseek/deepseek-r1-0528", "Adversarial Reasoning", ModelRole::Reasoner, 0),
             rm("xiaomi/mimo-v2-pro", "Vuln Detection", ModelRole::Sre, 0),
@@ -311,7 +311,7 @@ fn get_model_pool(domain: IssueDomain, step: u8) -> Vec<RosterModel> {
             rm("qwen/qwen3-235b-a22b-2507", "Volume Scan", ModelRole::Generalist, 1),
         ],
         IssueDomain::Hardware => vec![
-            rm("google/gemini-2.5-pro-preview", "Sensor Analysis", ModelRole::DomainSpecialist, 0),
+            rm("google/gemini-2.5-flash", "Sensor Analysis", ModelRole::DomainSpecialist, 0),
             rm("deepseek/deepseek-v3.2", "Driver Knowledge", ModelRole::CodeExpert, 0),
             rm("qwen/qwen3-235b-a22b-2507", "Broad Hardware", ModelRole::Generalist, 0),
             rm("nvidia/nemotron-3-super-120b-a12b", "Enterprise HW", ModelRole::Sre, 0),

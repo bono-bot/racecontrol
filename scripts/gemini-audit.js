@@ -15,7 +15,7 @@ let OPENROUTER_KEY = process.env.OPENROUTER_KEY || loadSavedKey();
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const COMMS_ROOT = path.resolve(REPO_ROOT, '..', 'comms-link');
-const MODEL = 'google/gemini-2.5-pro-preview-03-25';
+const MODEL = 'google/gemini-2.5-flash';
 const MAX_RETRIES = 2;
 
 // Output directory

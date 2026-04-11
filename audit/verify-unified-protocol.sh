@@ -46,7 +46,7 @@ for l in "M:advisory" "M:mechanical" "M:targeted" "M:gate" "M:post-incident" "M:
   n=$(grep -c "\[$l\]" "$FILE")
   check 9 3 "  [$l] ($n)" "$([ $n -ge 2 ] && echo PASS || echo FAIL)"
 done
-for m in "qwen3-235b" "deepseek-chat-v3" "mimo-v2-pro" "deepseek-r1" "gemini-2.5-pro"; do
+for m in "qwen3-235b" "deepseek-chat-v3" "mimo-v2-pro" "deepseek-r1" "gemini-flash"; do
   n=$(grep -c "$m" "$FILE")
   check 10 3 "  $m ($n)" "$([ $n -ge 3 ] && echo PASS || echo WARN)"
 done

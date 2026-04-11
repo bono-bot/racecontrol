@@ -55,7 +55,7 @@ recover_openrouter_key() {
 select_evaluator() {
   case "$DIAGNOSTICIAN" in
     *deepseek*r1*|*deepseek*reasoner*)
-      echo "google/gemini-2.5-pro-preview-03-25" ;;
+      echo "google/gemini-2.5-flash" ;;
     *gemini*)
       echo "deepseek/deepseek-r1-0528" ;;
     *qwen*)

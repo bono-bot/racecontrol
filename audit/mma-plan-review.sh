@@ -29,10 +29,10 @@ MODELS=(
   "qwen/qwen3-235b-a22b-2507"
   "deepseek/deepseek-chat-v3-0324"
   "deepseek/deepseek-r1-0528"
-  "google/gemini-2.5-pro-preview-03-25"
+  "google/gemini-2.5-flash"
 )
 
-SHORTS=("qwen3" "deepseek-v3" "deepseek-r1" "gemini-2.5")
+SHORTS=("qwen3" "deepseek-v3" "deepseek-r1" "gemini-flash")
 
 SYSTEM_PROMPT="You are a senior software architect reviewing a milestone plan for a racing esports venue management system. The system: Rust/Axum server + SQLite + Next.js frontend, 8 gaming pods with rc-agent, 1 server (racecontrol), 3 leaderboard display machines on Tailscale. Each pod runs games (Assetto Corsa, F1 25, iRacing, LMU, Forza) and sends UDP telemetry to rc-agent which forwards via WebSocket to the server.\n\nREVIEW THE PLAN FOR:\n1. Architecture bugs — missing data flows, dead ends, incorrect assumptions\n2. Performance traps — SQLite bottlenecks, memory issues, disk I/O\n3. Security gaps — auth, PII leaks, injection\n4. Correctness bugs — edge cases, formula errors, race conditions\n5. Missing requirements — what a customer or operator would expect but isn't listed\n6. Deployment risks — what could go wrong in production\n7. Integration gaps — how these phases interact with existing code\n\nReturn ONLY a JSON array of findings. Each finding: {\"id\": \"F-XX\", \"severity\": \"P1|P2|P3\", \"category\": \"architecture|performance|security|correctness|missing|deployment|integration\", \"phase\": \"251|252|253|254|255|general\", \"description\": \"...\", \"recommendation\": \"...\"}\n\nBe specific. Reference actual technical details. P1 = will cause data loss, security breach, or system failure. P2 = will cause degraded experience or operational burden. P3 = improvement opportunity."
 

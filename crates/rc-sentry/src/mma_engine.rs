@@ -343,7 +343,7 @@ fn get_primary_models() -> Vec<ModelConfig> {
             system_prompt: "You are a code-level debugger specializing in Rust/Axum on Windows for Racing Point pods. Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}" },
         ModelConfig { id: "xiaomi/mimo-v2-pro", role: "SRE",
             system_prompt: "You are an SRE-focused diagnostician for Racing Point's 8-pod sim racing fleet. Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}" },
-        ModelConfig { id: "google/gemini-2.5-pro-preview-03-25", role: "Security",
+        ModelConfig { id: "google/gemini-2.5-flash", role: "Security",
             system_prompt: "You are a security auditor for Racing Point's sim racing pod fleet. Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}" },
     ]
 }

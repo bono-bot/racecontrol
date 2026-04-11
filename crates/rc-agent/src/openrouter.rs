@@ -174,11 +174,11 @@ pub const MODELS: [ModelConfig; 5] = [
             Output ONLY valid JSON: {\"root_cause\": \"...\", \"confidence\": 0.0-1.0, \
             \"fix_action\": \"...\", \"risk_level\": \"safe|caution|dangerous\"}",
     },
-    // ── Security: Gemini 2.5 Pro — credential scanning, auth checklists ──
-    // MMA proven: 84 findings at $1.65. Best for: security checklists, credential scanning,
+    // ── Security: Gemini 2.5 Flash — credential scanning, auth checklists ──
+    // Switched from Pro ($10/M out) to Flash ($0.60/M out) 2026-04-11. Same vendor, 94% cheaper.
     // auth gaps on endpoints, config errors. Weaknesses: stale training data (may flag valid Rust 2024 edition).
     ModelConfig {
-        id: "google/gemini-2.5-pro-preview-03-25",
+        id: "google/gemini-2.5-flash",
         role: "Security",
         system_prompt: "You are a security auditor for Racing Point's sim racing pod fleet. \
             Your method: SECURITY CHECKLIST + CONFIG VALIDATION. \

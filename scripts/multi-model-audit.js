@@ -63,7 +63,7 @@ const MODEL_REGISTRY = {
   'nvidia/nemotron-3-super-120b-a12b':       { short: 'nemotron-super', vendor: 'nvidia',    roles: ['sre'],         ctx: 262144,  priceIn: 0.10, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
   // Generalists
   'qwen/qwen3-235b-a22b-2507':              { short: 'qwen3-235b',     vendor: 'qwen',      roles: ['generalist'],  ctx: 262144,  priceIn: 0.07, priceOut: 0.10, timeout: 180000, maxOut: 16000 },
-  'google/gemini-2.5-pro-preview-03-25':     { short: 'gemini-2.5',     vendor: 'google',    roles: ['generalist'],  ctx: 1000000, priceIn: 1.25, priceOut: 10.0, timeout: 120000, maxOut: 16000 },
+  'google/gemini-2.5-flash':                 { short: 'gemini-flash',   vendor: 'google',    roles: ['generalist'],  ctx: 1000000, priceIn: 0.15, priceOut: 0.60, timeout: 120000, maxOut: 16000 },
   'mistralai/mistral-small-2603':            { short: 'mistral-sm4',    vendor: 'mistral',   roles: ['generalist'],  ctx: 262144,  priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
   // Additional pool
   'openai/gpt-5-mini':                       { short: 'gpt5-mini',      vendor: 'openai',    roles: ['generalist'],  ctx: 400000,  priceIn: 0.25, priceOut: 2.00, timeout: 180000, maxOut: 16000 },
@@ -86,7 +86,7 @@ const DOMAIN_ROSTER = {
     'moonshotai/kimi-k2.5', 'qwen/qwen3-235b-a22b-2507',
   ],
   nodejs_frontend: [
-    'x-ai/grok-4.1-fast', 'openai/gpt-5-mini', 'google/gemini-2.5-pro-preview-03-25',
+    'x-ai/grok-4.1-fast', 'openai/gpt-5-mini', 'google/gemini-2.5-flash',
     'mistralai/mistral-small-2603', 'qwen/qwen3-235b-a22b-2507',
     'deepseek/deepseek-chat-v3-0324', 'bytedance-seed/seed-2.0-mini', 'moonshotai/kimi-k2.5',
     'meta-llama/llama-4-maverick', 'xiaomi/mimo-v2-pro',
@@ -98,7 +98,7 @@ const DOMAIN_ROSTER = {
     'openai/gpt-5-mini', 'deepseek/deepseek-chat-v3-0324',
   ],
   security: [
-    'google/gemini-2.5-pro-preview-03-25', 'deepseek/deepseek-r1-0528',
+    'google/gemini-2.5-flash', 'deepseek/deepseek-r1-0528',
     'xiaomi/mimo-v2-pro', 'moonshotai/kimi-k2.5', 'qwen/qwen3-235b-a22b-2507',
     'x-ai/grok-4.1-fast', 'nvidia/nemotron-3-super-120b-a12b', 'mistralai/mistral-small-2603',
     'openai/gpt-5-mini', 'z-ai/glm-5',
@@ -110,7 +110,7 @@ const DOMAIN_ROSTER = {
     'meta-llama/llama-4-maverick', 'openai/gpt-5-mini',
   ],
   cross_system: [
-    'deepseek/deepseek-r1-0528', 'qwen/qwen3-235b-a22b-2507', 'google/gemini-2.5-pro-preview-03-25',
+    'deepseek/deepseek-r1-0528', 'qwen/qwen3-235b-a22b-2507', 'google/gemini-2.5-flash',
     'xiaomi/mimo-v2-pro', 'moonshotai/kimi-k2.5',
     'deepseek/deepseek-chat-v3-0324', 'nvidia/nemotron-3-super-120b-a12b', 'x-ai/grok-4.1-fast',
     'mistralai/mistral-small-2603', 'openai/gpt-5-mini',

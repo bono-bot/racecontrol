@@ -34,7 +34,7 @@ const MODELS = [
   { id: 'qwen/qwen3-235b-a22b-2507', short: 'qwen3', timeout: 180000 },
   { id: 'deepseek/deepseek-chat-v3-0324', short: 'deepseek-v3', timeout: 180000 },
   { id: 'deepseek/deepseek-r1-0528', short: 'deepseek-r1', timeout: 300000 },
-  { id: 'google/gemini-2.5-pro-preview-03-25', short: 'gemini-2.5', timeout: 180000 },
+  { id: 'google/gemini-2.5-flash', short: 'gemini-flash', timeout: 180000 },
 ];
 
 const SYSTEM_PROMPT = `You are a senior Rust/TypeScript code reviewer auditing actual code changes for a racing esports venue management system.
