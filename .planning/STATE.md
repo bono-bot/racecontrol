@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: Milestone complete
-last_updated: "2026-04-11T00:02:50.929Z"
+last_updated: "2026-04-11T00:09:32.535Z"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -95,10 +95,17 @@ Expanded 2026-04-09 (commit `f1c741e2`) from 12 → 17 phases after SSOT gap aud
 
 ### Session Continuity
 
-Last session: 2026-04-11T00:02:50.925Z
-This session (2026-04-10): Pivoted back to v47.0 to execute next unblocked phase while v46.0 Phase 363 awaits deploy window.
+Last session: 2026-04-11T05:30 IST (Phase 361-01 deploy session)
+Stopped at: Completed 361-kiosk-preset-filtering-server-gate-01-PLAN.md
 
-**Resume decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
+**Phase 361-01 COMPLETE AND DEPLOYED (2026-04-11):**
+- Server .23: build `4c6d53b2` — inventory endpoint + validity gate live
+- All 8 pods: rc-agent `4c6d53b2` — /debug/content-dirs live
+- Cloud (Bono VPS): racecontrol `f0e7089e` — inventory endpoint verified
+- NYQUIST: PASS (11/11 unit tests + live regression test)
+- v46.0 Phase A (361) Plan 01 DONE. Plans 02 (kiosk filtering) and 03 (drift detection) still pending.
+
+**Resume v47.0 decision point:** User must pick Phase 348 / 352 / 354 before autonomous work begins. See "Next action" below.
 
 ## Next Action
 
