@@ -371,16 +371,25 @@ fn check_db_sync_lag_sync(db_path: &str) -> SubsystemStatus {
 
 /// Probe 4: Cloud Sync — check last sync time from sync_state table.
 /// Degraded if oldest sync is > 120 seconds old.
+/// Only checks tables in SYNC_TABLES — orphan rows from removed tables are ignored.
 async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
     let start = Instant::now();
     let threshold_secs: i64 = 120;
 
-    // Check if sync_state table exists and has data
-    let row: Result<Option<(Option<String>,)>, _> = sqlx::query_as(
-        "SELECT MIN(last_synced_at) FROM sync_state WHERE table_name != '_push'",
-    )
-    .fetch_optional(db)
-    .await;
+    // Build an IN clause from the active SYNC_TABLES list to avoid orphan rows
+    // (e.g., metrics_rollups was removed from SYNC_TABLES but its row persisted in sync_state)
+    let active_tables: Vec<&str> = crate::cloud_sync::SYNC_TABLES.split(',').collect();
+    let placeholders: String = active_tables.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT MIN(last_synced_at) FROM sync_state WHERE table_name IN ({})",
+        placeholders
+    );
+
+    let mut q = sqlx::query_as::<_, (Option<String>,)>(&query);
+    for table in &active_tables {
+        q = q.bind(*table);
+    }
+    let row: Result<Option<(Option<String>,)>, _> = q.fetch_optional(db).await;
 
     match row {
         Ok(Some((Some(ts),))) => {
@@ -443,7 +452,12 @@ async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
 
 /// Parse a sync timestamp and return age in seconds.
 fn parse_sync_age_secs(ts: &str) -> Option<i64> {
-    // Try ISO 8601 with fractional seconds
+    // Try RFC 3339 (handles both Z and +00:00 timezone offsets)
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+        let age = (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_seconds();
+        return Some(age);
+    }
+    // Try ISO 8601 with fractional seconds (Z suffix)
     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%dT%H:%M:%S%.fZ") {
         let age = (chrono::Utc::now().naive_utc() - dt).num_seconds();
         return Some(age);

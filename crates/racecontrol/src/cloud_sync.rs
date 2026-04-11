@@ -28,7 +28,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 // SYNC-FIX-2: metrics_rollups removed from pull — cloud build 540c22b6 returns empty body
 // when this table is in the list (handler crash). Metrics are push-only (venue→cloud).
-const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members,driver_ratings,fleet_solutions,model_evaluations";
+pub const SYNC_TABLES: &str = "drivers,wallets,pricing_tiers,pricing_rules,billing_rates,kiosk_experiences,kiosk_settings,auth_tokens,reservations,debit_intents,staff_members,driver_ratings,fleet_solutions,model_evaluations";
 
 /// Relay sync interval in seconds (fast — localhost only).
 const RELAY_INTERVAL_SECS: u64 = 30;
