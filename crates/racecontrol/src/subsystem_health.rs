@@ -246,20 +246,24 @@ fn check_disk_free_sync() -> SubsystemStatus {
         .unwrap_or_else(|_| std::path::PathBuf::from("C:\\"));
 
     // Find the disk with the longest matching mount point
+    // Windows paths are case-insensitive and mount points may use different slash styles
     let mut best_disk: Option<&sysinfo::Disk> = None;
     let mut best_mount_len = 0;
+    let canon_lower = canonical.to_string_lossy().to_lowercase().replace('/', "\\");
 
     for disk in disks.list() {
         let mount = disk.mount_point();
-        let mount_str = mount.to_string_lossy();
-        let canon_str = canonical.to_string_lossy();
-        if canon_str.starts_with(mount_str.as_ref()) && mount_str.len() > best_mount_len {
+        let mount_lower = mount.to_string_lossy().to_lowercase().replace('/', "\\");
+        if canon_lower.starts_with(&mount_lower) && mount_lower.len() > best_mount_len {
             best_disk = Some(disk);
-            best_mount_len = mount_str.len();
+            best_mount_len = mount_lower.len();
         }
     }
 
-    match best_disk {
+    // Fallback: if no mount matched, try the first disk (usually C: on Windows)
+    let disk = best_disk.or_else(|| disks.list().first());
+
+    match disk {
         Some(disk) => {
             let available_bytes = disk.available_space();
             let available_gb = available_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
