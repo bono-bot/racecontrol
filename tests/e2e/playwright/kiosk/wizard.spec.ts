@@ -52,8 +52,9 @@ async function enterWizard(page: import('@playwright/test').Page) {
     await signInBtn.click();
     await page.waitForTimeout(1000);
 
-    // Step 2: Enter staff PIN via keypad (mock accepts any 4-digit PIN)
-    for (const digit of ['0', '0', '0', '9']) {
+    // Step 2: Enter staff PIN via keypad
+    const pin = (process.env.STAFF_PIN ?? '7080').split('');
+    for (const digit of pin) {
       await page.locator(`button:has-text("${digit}")`).first().click();
       await page.waitForTimeout(150);
     }

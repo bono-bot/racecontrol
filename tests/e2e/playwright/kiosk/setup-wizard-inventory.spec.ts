@@ -187,7 +187,8 @@ async function loginAndOpenWizard(page: import('@playwright/test').Page) {
   if (await signInBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
     await signInBtn.click();
     await page.waitForTimeout(500);
-    for (const digit of ['0', '0', '0', '9']) {
+    const pin = (process.env.STAFF_PIN ?? '7080').split('');
+    for (const digit of pin) {
       await page.locator(`button:has-text("${digit}")`).first().click();
       await page.waitForTimeout(100);
     }

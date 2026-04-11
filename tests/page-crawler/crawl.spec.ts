@@ -124,10 +124,16 @@ for (const entry of appEntries) {
         try {
           // Navigate
           const url = `${baseUrl}${route.path}`;
+          // Use domcontentloaded instead of networkidle — authenticated
+          // dashboard pages have persistent WebSocket connections that
+          // prevent networkidle from ever firing.
           const response = await page.goto(url, {
-            waitUntil: 'networkidle',
+            waitUntil: 'domcontentloaded',
             timeout: 30_000,
           });
+
+          // Wait for client-side rendering (React hydration + data fetch)
+          await page.waitForTimeout(3_000);
 
           // Log non-OK responses but continue — the error page is useful evidence
           if (response) {

@@ -81,24 +81,51 @@ export async function ensureAuth(baseUrl: string): Promise<string> {
       );
     }
 
-    // Parse the URL to derive cookie domain/properties
     const url = new URL(baseUrl);
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    const isKiosk = port === '3300';
 
-    // Build a storageState JSON with the JWT as a cookie
-    const storageState = {
-      cookies: [
+    // Build storageState matching what each frontend actually reads:
+    // - Web (:3200) and Admin (:3201): localStorage key "rp_staff_jwt"
+    // - Kiosk (:3300): cookie "kiosk_staff_jwt" + localStorage "kiosk_staff_token"
+    const storageState: {
+      cookies: Array<{
+        name: string;
+        value: string;
+        domain: string;
+        path: string;
+        expires: number;
+        httpOnly: boolean;
+        secure: boolean;
+        sameSite: 'Lax' | 'Strict' | 'None';
+      }>;
+      origins: Array<{
+        origin: string;
+        localStorage: Array<{ name: string; value: string }>;
+      }>;
+    } = {
+      cookies: isKiosk
+        ? [
+            {
+              name: 'kiosk_staff_jwt',
+              value: token,
+              domain: url.hostname,
+              path: '/',
+              expires: Math.floor(Date.now() / 1000) + 1800,
+              httpOnly: false,
+              secure: false,
+              sameSite: 'Strict' as const,
+            },
+          ]
+        : [],
+      origins: [
         {
-          name: 'token',
-          value: token,
-          domain: url.hostname,
-          path: '/',
-          expires: -1, // session cookie
-          httpOnly: true,
-          secure: false,
-          sameSite: 'Lax' as const,
+          origin: `${url.protocol}//${url.host}`,
+          localStorage: isKiosk
+            ? [{ name: 'kiosk_staff_token', value: token }]
+            : [{ name: 'rp_staff_jwt', value: token }],
         },
       ],
-      origins: [],
     };
 
     fs.writeFileSync(filePath, JSON.stringify(storageState, null, 2));
