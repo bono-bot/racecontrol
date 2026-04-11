@@ -319,6 +319,11 @@ pub struct AppState {
     /// Phase 335: Track outline cache for spectator circuit viewer.
     /// Parsed from AC fast_lane.ai files, normalized to 0-1 range.
     pub track_outlines: crate::track_outline::TrackOutlineCache,
+    /// Phase 368: In-memory launch status card store.
+    /// Tracks the lifecycle of every game launch from /games/launch entry to "playable".
+    /// State machine transitions emit DashboardEvent::LaunchStatusChanged to kiosk subscribers.
+    /// No DB persistence for active state — durable history is in launch_timeline_spans.events_json.
+    pub launch_state_machine: std::sync::Arc<crate::launch_state::LaunchStateMachine>,
 }
 
 impl AppState {
@@ -414,6 +419,7 @@ impl AppState {
             track_outlines: crate::track_outline::TrackOutlineCache::new(
                 std::path::PathBuf::from("data/track_outlines")
             ),
+            launch_state_machine: std::sync::Arc::new(crate::launch_state::LaunchStateMachine::new()),
         }
     }
 

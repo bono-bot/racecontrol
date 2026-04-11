@@ -56,6 +56,7 @@ pub mod promotion;
 pub mod server_diagnostics;
 pub mod friends;
 pub mod game_launcher;
+pub mod launch_state;
 pub mod input_validation;
 pub mod business_forecast;
 pub mod dynamic_pricing;
