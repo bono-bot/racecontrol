@@ -60,19 +60,26 @@ pub fn spawn_metric_producers(state: Arc<AppState>, metrics_tx: MetricsSender) {
                 metrics_tx.try_send(sample).ok();
             }
 
-            // 3. Pod health scores (1.0 = http_reachable, 0.0 = not reachable)
+            // 3. Pod health scores — composite 0-100 (Phase 366 GLD-F-01)
+            // Previously binary 0.0/1.0; upgraded to weighted composite.
             {
-                let snapshot: Vec<(String, bool)> = {
+                let pod_ids: Vec<(String, Option<crate::fleet_health::FleetHealthStore>)> = {
                     let guard = state.pod_fleet_health.read().await;
                     guard.iter()
-                        .map(|(pod_id, store)| (pod_id.clone(), store.http_reachable))
+                        .map(|(pod_id, store)| (pod_id.clone(), Some(store.clone())))
                         .collect()
                 };
-                for (pod_id, reachable) in snapshot {
+                for (pod_id, fleet_store) in pod_ids {
+                    let intel = crate::fleet_intelligence::compute_pod_health_score(
+                        &state.db,
+                        &pod_id,
+                        fleet_store.as_ref(),
+                    ).await;
+                    let value = intel.score.unwrap_or(0.0); // 0.0 for insufficient_data pods
                     let sample = MetricSample {
                         metric_name: METRIC_POD_HEALTH_SCORE.to_string(),
                         pod_id: Some(pod_id),
-                        value: if reachable { 1.0 } else { 0.0 },
+                        value,
                         recorded_at: now.clone(),
                     };
                     metrics_tx.try_send(sample).ok();
