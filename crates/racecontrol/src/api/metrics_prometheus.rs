@@ -25,6 +25,7 @@ fn metric_help(name: &str) -> &'static str {
         "ws_connections" => "WebSocket connections",
         "pod_health_score" => "Pod health score 0-100",
         "game_session_count" => "Active game sessions",
+        "ws_try_send_overflows_total" => "WS try_send channel overflow events (Phase 364)",
         _ => "Metric value",
     }
 }
@@ -54,7 +55,9 @@ pub fn format_prometheus(entries: &[SnapshotEntry]) -> String {
 
         let full_name = format!("racecontrol_{}", name);
         let _ = writeln!(buf, "# HELP {} {}", full_name, metric_help(name));
-        let _ = writeln!(buf, "# TYPE {} gauge", full_name);
+        // Phase 364: metrics ending in _total are Prometheus counters, not gauges
+        let prom_type = if name.ends_with("_total") { "counter" } else { "gauge" };
+        let _ = writeln!(buf, "# TYPE {} {}", full_name, prom_type);
 
         for entry in entries {
             if let Some(pod) = entry.pod {
@@ -170,5 +173,21 @@ mod tests {
     #[test]
     fn test_unknown_metric_gets_default_help() {
         assert_eq!(metric_help("some_random_metric"), "Metric value");
+    }
+
+    /// Phase 364 GLD-D-05: Verify ws_try_send_overflows_total is exposed correctly.
+    #[test]
+    fn test_prometheus_formats_total_counter() {
+        let entries = vec![SnapshotEntry {
+            pod: None,
+            name: "ws_try_send_overflows_total".to_string(),
+            value: 42.0,
+            updated_at: 0,
+        }];
+        let output = format_prometheus(&entries);
+        assert!(output.contains("ws_try_send_overflows_total"), "metric name must appear in output");
+        assert!(output.contains("42"), "metric value must appear in output");
+        assert!(output.contains("# TYPE racecontrol_ws_try_send_overflows_total counter"),
+            "metrics ending in _total must be typed as counter, got: {}", output);
     }
 }

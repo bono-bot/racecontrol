@@ -15,6 +15,8 @@ pub const METRIC_BILLING_REVENUE: &str = "billing_revenue";
 pub const METRIC_WS_CONNECTIONS: &str = "ws_connections";
 pub const METRIC_POD_HEALTH_SCORE: &str = "pod_health_score";
 pub const METRIC_GAME_SESSION_COUNT: &str = "game_session_count";
+/// Phase 364 GLD-D-05: Counter for try_send overflow events on hot-path WS channels.
+pub const METRIC_WS_TRY_SEND_OVERFLOWS: &str = "ws_try_send_overflows_total";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricSample {

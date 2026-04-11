@@ -321,7 +321,9 @@ pub async fn handle_ws_message(
                 vec![],
                 Some(billing_session_id.clone()),
             ) {
-                let _ = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline));
+                if let Err(e) = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline)) {
+                    tracing::warn!("[ws-handler] try_send failed (channel full or closed): {}", e);
+                }
             }
         }
 
@@ -1516,13 +1518,15 @@ pub async fn handle_ws_message(
                     "GUARD_CONFIRMED",
                     "Operator confirmed allowlist — process guard escalated to kill_and_report",
                 );
-                let _ = state.ws_exec_result_tx.send(AgentMessage::ExecResult {
+                if let Err(e) = state.ws_exec_result_tx.send(AgentMessage::ExecResult {
                     request_id,
                     success: true,
                     exit_code: Some(0),
                     stdout: "Process guard confirmed — kill_and_report mode activated".to_string(),
                     stderr: String::new(),
-                }).await;
+                }).await {
+                    tracing::warn!("[ws-handler] send failed (channel closed): {}", e);
+                }
             } else {
                 tracing::info!(target: LOG_TARGET, "WS command request {}: {}", request_id, cmd);
                 let result_tx = state.ws_exec_result_tx.clone();
@@ -1554,7 +1558,9 @@ pub async fn handle_ws_message(
             let lockdown_msg = AgentMessage::KioskLockdown {
                 pod_id: state.pod_id.clone(), reason,
             };
-            let _ = state.ws_exec_result_tx.try_send(lockdown_msg);
+            if let Err(e) = state.ws_exec_result_tx.try_send(lockdown_msg) {
+                tracing::warn!("[ws-handler] try_send failed (channel full or closed): {}", e);
+            }
         }
 
         CoreToAgentMessage::RunSelfTest { request_id } => {
@@ -1958,7 +1964,9 @@ pub async fn handle_ws_message(
             state.current_jwt = Some(token.clone());
             state.jwt_expires_at = Some(expires_at);
             // Ack receipt — best-effort (non-critical if channel is full)
-            let _ = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() });
+            if let Err(e) = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() }) {
+                tracing::warn!("[ws-handler] try_send failed (channel full or closed): {}", e);
+            }
         }
 
         CoreToAgentMessage::RefreshJwt { token, expires_at } => {
@@ -1970,7 +1978,9 @@ pub async fn handle_ws_message(
             state.current_jwt = Some(token.clone());
             state.jwt_expires_at = Some(expires_at);
             // Ack the refresh
-            let _ = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() });
+            if let Err(e) = state.ws_exec_result_tx.try_send(AgentMessage::JwtAck { pod_id: state.pod_id.clone() }) {
+                tracing::warn!("[ws-handler] try_send failed (channel full or closed): {}", e);
+            }
         }
 
         // Phase 318 (LAUNCH-01): Server detected game launch timeout on this pod.
@@ -2002,7 +2012,9 @@ pub async fn handle_ws_message(
                 }],
                 None,
             ) {
-                let _ = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline));
+                if let Err(e) = state.ws_exec_result_tx.try_send(AgentMessage::LaunchTimelineReport(timeline)) {
+                    tracing::warn!("[ws-handler] try_send failed (channel full or closed): {}", e);
+                }
             }
         }
 
