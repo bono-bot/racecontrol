@@ -130,17 +130,70 @@ Prevents the next 1,397 debug commits. Enables future growth.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| LNCH-01 | Phase 369 | Pending |
+| LNCH-02 | Phase 370 | Pending |
+| LNCH-03 | Phase 370 | Pending |
+| LNCH-04 | Phase 370 | Pending |
+| LNCH-05 | Phase 369 | Pending |
+| LNCH-06 | Phase 370 | Pending |
+| LNCH-07 | Phase 369 | Pending |
+| LAPS-01 | Phase 371 | Pending |
+| LAPS-02 | Phase 371 | Pending |
+| LAPS-03 | Phase 371 | Pending |
+| LAPS-04 | Phase 371 | Pending |
+| LAPS-05 | Phase 371 | Pending |
+| LAPS-06 | Phase 371 | Pending |
+| BILL-01 | Phase 372 | Pending |
+| BILL-02 | Phase 372 | Pending |
+| BILL-03 | Phase 372 | Pending |
+| BILL-04 | Phase 372 | Pending |
+| BILL-05 | Phase 372 | Pending |
+| MULT-01 | Phase 373 | Pending |
+| MULT-02 | Phase 373 | Pending |
+| MULT-03 | Phase 373 | Pending |
+| MULT-04 | Phase 373 | Pending |
+| PWAL-01 | Phase 374 | Pending |
+| PWAL-02 | Phase 374 | Pending |
+| PWAL-03 | Phase 374 | Pending |
+| WLLT-01 | Phase 375 | Pending |
+| WLLT-02 | Phase 375 | Pending |
+| WLLT-03 | Phase 375 | Pending |
+| CAFE-01 | Phase 376 | Pending |
+| CAFE-02 | Phase 376 | Pending |
+| CUST-01 | Phase 377 | Pending |
+| CUST-02 | Phase 377 | Pending |
+| CUST-03 | Phase 377 | Pending |
+| MKTG-01 | Phase 378 | Pending |
+| MKTG-02 | Phase 378 | Pending |
+| MKTG-03 | Phase 378 | Pending |
+| EVNT-01 | Phase 379 | Pending |
+| EVNT-02 | Phase 379 | Pending |
+| EVNT-03 | Phase 379 | Pending |
+| EVNT-04 | Phase 379 | Pending |
+| EVNT-05 | Phase 379 | Pending |
+| DCMP-01 | Phase 380 | Pending |
+| DCMP-02 | Phase 380 | Pending |
+| DCMP-03 | Phase 380 | Pending |
+| DCMP-04 | Phase 380 | Pending |
+| DCMP-05 | Phase 380 | Pending |
+| FTOL-01 | Phase 381 | Pending |
+| FTOL-02 | Phase 381 | Pending |
+| FTOL-03 | Phase 381 | Pending |
+| FNDN-01 | Phase 382 | Pending |
+| FNDN-02 | Phase 382 | Pending |
+| FNDN-03 | Phase 382 | Pending |
+| FNDN-04 | Phase 382 | Pending |
+| FNDN-05 | Phase 382 | Pending |
 
 **Coverage:**
-- P0 requirements: 17 (game launch, laps, billing, multiplayer)
-- P1 requirements: 12 (PWA launch, wallet, cafe, customer, marketing)
-- P2 requirements: 15 (events, decomposition, fix tooling, foundation)
-- Total: 44 requirements
-- Unmapped: 44 (awaiting roadmap)
+- P0 requirements: 22 (LNCH-01..07, LAPS-01..06, BILL-01..05, MULT-01..04)
+- P1 requirements: 14 (PWAL-01..03, WLLT-01..03, CAFE-01..02, CUST-01..03, MKTG-01..03)
+- P2 requirements: 18 (EVNT-01..05, DCMP-01..05, FTOL-01..03, FNDN-01..05)
+- Total: 54 requirements mapped
+- Unmapped: 0
 
 **Priority rule:** No P1 phase starts until ALL P0 requirements are verified working. No P2 phase starts until ALL P1 requirements are verified working. Exception: P2 decomposition work that directly unblocks a P0 requirement (e.g., splitting ac_launcher.rs to enable LNCH-05) can run in parallel.
 
 ---
 *Requirements defined: 2026-04-13*
-*Last updated: 2026-04-13 after milestone definition*
+*Last updated: 2026-04-13 — Roadmap created, all 54 requirements mapped to phases 369-382*

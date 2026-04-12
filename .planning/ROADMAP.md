@@ -21,6 +21,7 @@
 - [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
 - [ ] **v46.0 Game Launch Diagnostics** — Phases 361-367 (Phase 362 shipped 2026-04-09 `a9b5eaa3`; Phase 363 code-complete + tested 2026-04-10, deploy+MMA deferred)
 - [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-360 (17 phases, expanded 2026-04-09 after SSOT gap audit)
+- [ ] **v48.0 Codebase Architecture — Department-Driven Event Mesh** — Phases 369-382 (14 phases, defined 2026-04-13)
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -1505,3 +1506,204 @@ Plans:
 - [x] 367-03-PLAN — Session replay player (GLD-G-03)
 - [x] 367-04-PLAN — Batch export (GLD-G-04)
 - [x] 367-05-PLAN — Phase 362 retro-validation (GLD-G-05)
+
+---
+
+## v48.0 Codebase Architecture — Department-Driven Event Mesh
+
+**Goal:** Rewrite the AC launch path to VMS parity, fix core product reliability (launch, laps, billing, multiplayer), add P1 business model features (PWA PIN launch, wallet types, cafe, marketing), then decompose the 419K-line codebase into department-aligned modules with an event bus. Priority order: P0 first, P1 second, P2 third.
+
+**Phases:** 14  |  **Coverage:** 54/54 requirements mapped
+
+**Priority rule:** No P1 phase starts until ALL P0 requirements verified. No P2 until ALL P1 verified.
+Exception: P2 decomposition directly unblocking a P0 req may run in parallel.
+
+**Phases:**
+
+- [ ] **Phase 369: AC Launch Rewrite (P0)** — Rewrite AC launch to VMS-parity, separate staff/PWA code paths
+- [ ] **Phase 370: Multi-Game Launch (P0)** — F1 25, iRacing, LMU launchers; SimLauncher trait
+- [ ] **Phase 371: Lap Recording (P0)** — All 4 games record laps end-to-end; leaderboard within 10s
+- [ ] **Phase 372: Billing — Arcade Model (P0)** — Coin-first, per-minute, crash-pause, tier options
+- [ ] **Phase 373: Multiplayer (P0)** — Simultaneous launch, atomic billing, continuous lap recording
+- [ ] **Phase 374: PWA Self-Service Launch (P1)** — PIN generation, pin-grid on pod, independent code path
+- [ ] **Phase 375: Wallet Types (P1)** — Cash vs promotional credits, refund enforcement, unified debit
+- [ ] **Phase 376: Cafe Integration (P1)** — Cafe wallet debit, combo deals with racing
+- [ ] **Phase 377: Customer Experience (P1)** — Multi-game stats/PBs, unified leaderboard, <15s launch time
+- [ ] **Phase 378: Marketing Engine (P1)** — Low-utilization detection, WhatsApp deal push, combo promos
+- [ ] **Phase 379: Event Bus Foundation (P2)** — DomainEvent enum, mesh broadcast, correlation IDs
+- [ ] **Phase 380: Codebase Decomposition (P2)** — routes.rs, billing.rs, db, all 141 files, lock screen split
+- [ ] **Phase 381: Fix Tooling (P2)** — blast-radius tool, insertion:deletion ratio hook, band-aid audit
+- [ ] **Phase 382: Foundation & CI (P2)** — feature registry, dead code removal, CI gate, CODEOWNERS
+
+## Phase Details
+
+### Phase 369: AC Launch Rewrite
+**Goal**: Staff can launch Assetto Corsa from the kiosk reliably in under 5 seconds, via a clean VMS-parity launcher under 500 lines, with staff and PWA launch as completely separate code paths
+**Depends on**: Nothing (first phase in v48.0)
+**Requirements**: LNCH-01, LNCH-05, LNCH-07
+**Success Criteria** (what must be TRUE):
+  1. Staff clicks launch on kiosk — AC starts on the pod within 5 seconds, every time, no failures
+  2. The AC launch code path is under 500 lines (replacing the current 19,597-line path)
+  3. Staff Launch (kiosk) and PWA Launch (PIN) share no code except "validate funds -> debit -> launch"
+  4. A test launch from kiosk produces a correct race.ini on the pod that can be read back and verified
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 370: Multi-Game Launch
+**Goal**: Staff can launch F1 25, iRacing, and LMU from the kiosk — each with its own SimLauncher implementation under 500 lines, no shared copy-paste from AC
+**Depends on**: Phase 369
+**Requirements**: LNCH-02, LNCH-03, LNCH-04, LNCH-06
+**Success Criteria** (what must be TRUE):
+  1. Staff launches F1 25 from kiosk — game starts on pod, no pin-grid block, no stuck browser
+  2. Staff launches iRacing from kiosk — game starts on pod
+  3. Staff launches LMU from kiosk — game starts on pod
+  4. Each of the 4 games has a distinct SimLauncher trait implementation under 500 lines with no copy-paste from other launchers
+**Plans**: TBD
+
+### Phase 371: Lap Recording
+**Goal**: Laps recorded for every supported game appear on the leaderboard within 10 seconds of completion, with full telemetry captured
+**Depends on**: Phase 370
+**Requirements**: LAPS-01, LAPS-02, LAPS-03, LAPS-04, LAPS-05, LAPS-06
+**Success Criteria** (what must be TRUE):
+  1. A lap driven in AC is stored in the database and visible on the PWA leaderboard within 10 seconds
+  2. A lap driven in F1 25 is stored in the database and visible on the PWA leaderboard within 10 seconds
+  3. iRacing and LMU laps are also recorded to the database
+  4. Speed, gear, throttle, and brake telemetry are captured for all 4 games during a session
+**Plans**: TBD
+
+### Phase 372: Billing — Arcade Model
+**Goal**: The billing system behaves like an arcade machine — customer puts in credits before playing, per-minute charges run while the game is active, game stops when credits run out
+**Depends on**: Phase 371
+**Requirements**: BILL-01, BILL-02, BILL-03, BILL-04, BILL-05
+**Success Criteria** (what must be TRUE):
+  1. A customer with zero wallet balance cannot start a game session — the launch is blocked at the kiosk
+  2. Wallet is debited at game start, not at session creation; the debit is visible immediately
+  3. Per-minute billing runs only while the game process is active — pauses automatically on game crash
+  4. A customer can select 30-minute (₹700) or 1-hour (₹900) tiers and both calculate and charge correctly
+  5. If the game crashes, billing pauses; when staff relaunches the game, billing resumes from where it stopped
+**Plans**: TBD
+
+### Phase 373: Multiplayer
+**Goal**: Two or more customers can launch a multiplayer session simultaneously, have their laps recorded, and be billed atomically — either all participants are charged or none are
+**Depends on**: Phase 372
+**Requirements**: MULT-01, MULT-02, MULT-03, MULT-04
+**Success Criteria** (what must be TRUE):
+  1. Staff launches an AC multiplayer session — games start on 2+ pods at the same time
+  2. All participants' laps appear on the leaderboard during and after the multiplayer session
+  3. No participant is dropped or orphaned mid-race due to session disconnection
+  4. If any participant's wallet debit fails at session start, no participants are charged and the session does not launch
+**Plans**: TBD
+
+### Phase 374: PWA Self-Service Launch
+**Goal**: A customer can pick a game on their phone, receive a 4-digit PIN, enter it on the pod, and the game starts — entirely without staff involvement, via a code path completely independent from the staff kiosk path
+**Depends on**: Phase 373 (all P0 verified)
+**Requirements**: PWAL-01, PWAL-02, PWAL-03
+**Success Criteria** (what must be TRUE):
+  1. Customer selects a game and preset in the PWA and receives a 4-digit numeric PIN
+  2. Customer enters the PIN on the pod's 4-digit PIN grid — game launches without staff touching anything
+  3. The PWA launch path shares no code with the staff kiosk path except "validate funds -> debit -> launch"
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 375: Wallet Types
+**Goal**: The wallet distinguishes cash credits (refundable) from promotional credits (spend-only), enforces refund limits, and accepts a single debit call for both games and cafe
+**Depends on**: Phase 374
+**Requirements**: WLLT-01, WLLT-02, WLLT-03
+**Success Criteria** (what must be TRUE):
+  1. When a customer top-up creates credits, those credits are tagged as "cash" and are refundable
+  2. When a promotion grants credits, those credits are tagged as "promotional" and cannot be refunded
+  3. A refund request can never exceed the total cash credits deposited — promotional credits are never refunded
+  4. A single wallet debit call works for both game sessions and cafe orders
+**Plans**: TBD
+
+### Phase 376: Cafe Integration
+**Goal**: Cafe orders charge from the same customer wallet as games, and staff can offer combo deals that bundle a cafe item with a game session at a discount
+**Depends on**: Phase 375
+**Requirements**: CAFE-01, CAFE-02
+**Success Criteria** (what must be TRUE):
+  1. A cafe order placed for a customer deducts credits from their wallet — the same wallet used for racing
+  2. A combo deal exists in the system and applies a discount when a customer books both a game session and a cafe item
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 377: Customer Experience
+**Goal**: The PWA shows a customer their stats and personal bests for every game they've played, the leaderboard covers all four games, and the time from staff clicking launch to customer driving is under 15 seconds
+**Depends on**: Phase 376
+**Requirements**: CUST-01, CUST-02, CUST-03
+**Success Criteria** (what must be TRUE):
+  1. Customer opens the PWA and sees session stats, personal bests, and telemetry for sessions in AC, F1 25, iRacing, and LMU
+  2. The public leaderboard shows fastest laps across all four supported games, not just AC
+  3. From the moment staff clicks "Launch" to the moment the customer is in the game is under 15 seconds
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 378: Marketing Engine
+**Goal**: The system detects when bookings are low and automatically pushes targeted deals to customers via WhatsApp, including cafe+racing combo promotions
+**Depends on**: Phase 377
+**Requirements**: MKTG-01, MKTG-02, MKTG-03
+**Success Criteria** (what must be TRUE):
+  1. The system detects a low-utilization period (e.g., weekday afternoon with under 2 active pods) and generates a deal automatically
+  2. Generated deals are sent via WhatsApp to registered customers without staff intervention
+  3. A "cafe + racing" combo promotion type exists and can be configured and sent as a deal
+**Plans**: TBD
+
+### Phase 379: Event Bus Foundation
+**Goal**: Every department communicates through typed events on the comms-link mesh — no direct shared mutable state, every customer action traceable by a single correlation ID
+**Depends on**: Phase 378 (all P1 verified)
+**Requirements**: EVNT-01, EVNT-02, EVNT-03, EVNT-04, EVNT-05
+**Success Criteria** (what must be TRUE):
+  1. rc-common contains a DomainEvent enum with typed events for all departments — it compiles without warnings
+  2. A game launch produces GameStarted, GameCrashed, and GameEnded events visible to any subscribed device on the mesh
+  3. The billing module subscribes to game events and updates billing state in response — no polling loop
+  4. A correlation ID from a single customer booking can be traced through game launch, billing debit, and lap recording logs
+**Plans**: TBD
+
+### Phase 380: Codebase Decomposition
+**Goal**: The monolithic files that accumulated 1,397 debug commits are split into department-aligned modules — routes.rs, billing.rs, db/mod.rs, and the 141 oversized files — with lock screen logic fully separated from game launch
+**Depends on**: Phase 379
+**Requirements**: DCMP-01, DCMP-02, DCMP-03, DCMP-04, DCMP-05
+**Success Criteria** (what must be TRUE):
+  1. routes.rs no longer exists as a single file — route handlers are organized in department-aligned modules (billing/, games/, auth/, etc.)
+  2. billing.rs is split into at least wallet.rs, session_lifecycle.rs, pricing.rs, and post_session.rs
+  3. The lock screen and screen blanking logic is in its own module with no imports from game launch modules
+  4. Every source file in the codebase is under 500 lines
+**Plans**: TBD
+
+### Phase 381: Fix Tooling
+**Goal**: Developers have a static blast-radius tool, a pre-commit ratio hook that warns on bloated fix commits, and all 36K lines of accumulated band-aid code have been reviewed and replaced with root fixes
+**Depends on**: Phase 380
+**Requirements**: FTOL-01, FTOL-02, FTOL-03
+**Success Criteria** (what must be TRUE):
+  1. Running the fix-scope tool against any function name outputs its callers, shared state dependencies, and cross-crate dependents
+  2. A pre-commit hook warns when a commit has an insertion-to-deletion ratio above 2:1 and is labeled a fix commit
+  3. The 36K lines of net fix bloat have been audited — band-aids with a known root fix are replaced; remaining justified fixes are labeled with comments
+**Plans**: TBD
+
+### Phase 382: Foundation & CI
+**Goal**: Every feature in the codebase is classified, dead code is removed, a CI gate enforces test and lint quality on every merge, and ownership is assigned to prevent future ownership ambiguity
+**Depends on**: Phase 381
+**Requirements**: FNDN-01, FNDN-02, FNDN-03, FNDN-04, FNDN-05
+**Success Criteria** (what must be TRUE):
+  1. A machine-readable Feature Registry exists classifying every feature as complete, dead, orphaned, or incomplete
+  2. Running cargo build on the codebase after dead code removal produces a binary that is 10-20% smaller than before
+  3. A CI gate runs cargo test and cargo clippy on every pull request — a failing gate blocks merge
+  4. A CODEOWNERS file assigns each source directory to either Bono or James — no unowned directories remain
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 369. AC Launch Rewrite (P0) | 0/TBD | Not started | - |
+| 370. Multi-Game Launch (P0) | 0/TBD | Not started | - |
+| 371. Lap Recording (P0) | 0/TBD | Not started | - |
+| 372. Billing — Arcade Model (P0) | 0/TBD | Not started | - |
+| 373. Multiplayer (P0) | 0/TBD | Not started | - |
+| 374. PWA Self-Service Launch (P1) | 0/TBD | Not started | - |
+| 375. Wallet Types (P1) | 0/TBD | Not started | - |
+| 376. Cafe Integration (P1) | 0/TBD | Not started | - |
+| 377. Customer Experience (P1) | 0/TBD | Not started | - |
+| 378. Marketing Engine (P1) | 0/TBD | Not started | - |
+| 379. Event Bus Foundation (P2) | 0/TBD | Not started | - |
+| 380. Codebase Decomposition (P2) | 0/TBD | Not started | - |
+| 381. Fix Tooling (P2) | 0/TBD | Not started | - |
+| 382. Foundation & CI (P2) | 0/TBD | Not started | - |
