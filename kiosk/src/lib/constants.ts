@@ -57,6 +57,26 @@ export const CLASS_COLORS: Record<string, string> = {
   D: "bg-green-500 text-white",
 };
 
+// Game logo SVG paths (kiosk basePath-prefixed, assets in kiosk/public/game-logos/)
+export const GAME_LOGO_MAP: Record<string, string> = {
+  assetto_corsa: "/kiosk/game-logos/assetto-corsa.svg",
+  assetto_corsa_evo: "/kiosk/game-logos/assetto-corsa-evo.svg",
+  assetto_corsa_rally: "/kiosk/game-logos/assetto-corsa-rally.svg",
+  f1_25: "/kiosk/game-logos/f1-25.svg",
+  iracing: "/kiosk/game-logos/iracing.svg",
+  le_mans_ultimate: "/kiosk/game-logos/le-mans-ultimate.svg",
+  forza_horizon_5: "/kiosk/game-logos/forza-horizon-5.svg",
+  ea_wrc: "/kiosk/game-logos/ea-wrc.svg",
+};
+
+// Session type icon glyphs for kiosk card grid
+export const SESSION_ICONS: Record<string, string> = {
+  trackday: "🏁",
+  race: "🏆",
+  hotlap: "⚡",
+  practice: "🔄",
+};
+
 export const DIFFICULTY_PRESETS: Record<
   string,
   { label: string; desc: string; aids: Record<string, number> }

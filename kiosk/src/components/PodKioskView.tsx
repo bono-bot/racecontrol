@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { LiveTelemetry } from "./LiveTelemetry";
 import { F1Speedometer } from "./F1Speedometer";
 import { SessionTimer } from "./SessionTimer";
+import { RacingHUD } from "./RacingHUD";
+import { ExperienceCard, GameTab } from "./ExperienceCard";
 import type {
   Pod,
   BillingSession,
@@ -12,6 +14,7 @@ import type {
   AuthTokenInfo,
   KioskExperience,
   BillingWarning,
+  Lap,
 } from "@/lib/types";
 import { GAME_LABELS, CLASS_COLORS } from "@/lib/constants";
 
@@ -60,6 +63,8 @@ interface PodKioskViewProps {
   onEndSession?: () => void;
   onRelaunchGame?: () => void;
   warning?: BillingWarning;
+  /** Recent laps for this pod's current driver — enables Racing HUD sector delta rendering. Standalone mode only. */
+  recentLaps?: Lap[];
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -76,6 +81,7 @@ export function PodKioskView({
   onEndSession,
   onRelaunchGame,
   warning,
+  recentLaps = [],
 }: PodKioskViewProps) {
   const state = deriveKioskState(pod, billing, gameInfo, authToken);
   const isStandalone = mode === "standalone";
@@ -112,6 +118,7 @@ export function PodKioskView({
           onEndSession={onEndSession}
           onRelaunchGame={onRelaunchGame}
           warning={warning}
+          recentLaps={recentLaps}
         />
       )}
       {state === "complete" && (
@@ -181,26 +188,89 @@ function IdleView({
     return aOk - bOk || a.sort_order - b.sort_order;
   });
 
+  // ── Standalone: VMS-inspired card grid (Racing HUD redesign) ─────────────
+  if (isStandalone) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-8 py-5">
+          <div className="flex items-center gap-4">
+            <div className="w-1 h-8 bg-rp-red rounded-full" />
+            <div>
+              <h1
+                className="text-2xl font-bold text-white tracking-wide"
+                style={{
+                  fontFamily: "var(--font-display, 'Orbitron'), sans-serif",
+                }}
+              >
+                Select Experience
+              </h1>
+              <p className="text-sm text-zinc-500">Choose your race, track, and car</p>
+            </div>
+          </div>
+
+          {/* Racing Point branding */}
+          <div className="text-right">
+            <p className="text-xs text-zinc-600 font-mono uppercase tracking-[0.3em]">
+              Racing Point
+            </p>
+            <p className="text-xs text-zinc-700 font-mono">eSports &amp; Cafe</p>
+          </div>
+        </div>
+
+        {/* Red accent line */}
+        <div className="h-[2px] bg-gradient-to-r from-rp-red/60 via-rp-red/20 to-transparent mx-8" />
+
+        {/* Game filter tabs — hide if only one game */}
+        {gameTabs.length > 2 && (
+          <div className="flex gap-2 flex-wrap px-8 py-4">
+            {gameTabs.map((game) => (
+              <GameTab
+                key={game}
+                game={game}
+                active={gameFilter === game}
+                onClick={() => setGameFilter(game)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Experience cards grid */}
+        <div className="flex-1 overflow-y-auto px-8 pb-8">
+          {sorted.length === 0 ? (
+            <p className="text-rp-grey text-lg">No experiences available</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-4">
+              {sorted.map((exp) => (
+                <ExperienceCard
+                  key={exp.id}
+                  exp={exp}
+                  available={isAvailable(exp)}
+                  onSelect={() => onSelectExperience?.(exp.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Control mode: compact flat list (unchanged) ──────────────────────────
   return (
-    <div className={`flex-1 flex flex-col ${isStandalone ? "p-8" : "p-2"} overflow-hidden`}>
-      <h2
-        className={`font-bold text-white uppercase tracking-wide ${
-          isStandalone ? "text-2xl mb-6" : "text-xs mb-2"
-        }`}
-      >
+    <div className="flex-1 flex flex-col p-2 overflow-hidden">
+      <h2 className="font-bold text-white uppercase tracking-wide text-xs mb-2">
         Select Experience
       </h2>
 
       {/* Game filter tabs */}
       {gameTabs.length > 2 && (
-        <div className={`flex gap-1 flex-wrap ${isStandalone ? "mb-4" : "mb-1.5"}`}>
+        <div className="flex gap-1 flex-wrap mb-1.5">
           {gameTabs.map((game) => (
             <button
               key={game}
               onClick={() => setGameFilter(game)}
-              className={`rounded-full border transition-colors ${
-                isStandalone ? "px-4 py-1.5 text-xs" : "px-2 py-0.5 text-[9px]"
-              } ${
+              className={`rounded-full border transition-colors px-2 py-0.5 text-[9px] ${
                 gameFilter === game
                   ? "border-rp-red text-rp-red bg-rp-red/10"
                   : "border-rp-border text-rp-grey hover:text-white"
@@ -212,11 +282,9 @@ function IdleView({
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto ${isStandalone ? "space-y-3" : "space-y-1"}`}>
+      <div className="flex-1 overflow-y-auto space-y-1">
         {sorted.length === 0 ? (
-          <p className={`text-rp-grey ${isStandalone ? "text-lg" : "text-[10px]"}`}>
-            No experiences available
-          </p>
+          <p className="text-rp-grey text-[10px]">No experiences available</p>
         ) : (
           sorted.map((exp) => {
             const available = isAvailable(exp);
@@ -225,9 +293,7 @@ function IdleView({
                 key={exp.id}
                 onClick={() => available && onSelectExperience?.(exp.id)}
                 disabled={!available}
-                className={`w-full flex items-center gap-2 border rounded transition-colors text-left ${
-                  isStandalone ? "px-5 py-4 gap-4" : "px-2 py-1.5"
-                } ${
+                className={`w-full flex items-center gap-2 border rounded transition-colors text-left px-2 py-1.5 ${
                   available
                     ? "border-rp-border hover:border-rp-red/50 bg-rp-surface cursor-pointer"
                     : "border-rp-border/30 bg-rp-surface/30 cursor-not-allowed opacity-40"
@@ -235,27 +301,27 @@ function IdleView({
               >
                 {exp.car_class && (
                   <span
-                    className={`flex items-center justify-center rounded font-bold ${
+                    className={`flex items-center justify-center rounded font-bold w-5 h-5 text-[9px] ${
                       available
                         ? CLASS_COLORS[exp.car_class] || "bg-zinc-600 text-white"
                         : "bg-zinc-800 text-zinc-500"
-                    } ${isStandalone ? "w-10 h-10 text-sm" : "w-5 h-5 text-[9px]"}`}
+                    }`}
                   >
                     {exp.car_class}
                   </span>
                 )}
                 <div className="flex-1 min-w-0">
                   <p
-                    className={`font-semibold truncate ${
+                    className={`font-semibold truncate text-[11px] ${
                       available ? "text-white" : "text-zinc-600"
-                    } ${isStandalone ? "text-lg" : "text-[11px]"}`}
+                    }`}
                   >
                     {exp.name}
                   </p>
                   <p
-                    className={`truncate ${
+                    className={`truncate text-[9px] ${
                       available ? "text-rp-grey" : "text-zinc-700"
-                    } ${isStandalone ? "text-sm" : "text-[9px]"}`}
+                    }`}
                   >
                     {exp.track} &middot; {exp.car}
                   </p>
@@ -263,17 +329,15 @@ function IdleView({
                 <div className="text-right shrink-0">
                   {available ? (
                     <>
-                      <p className={`text-rp-grey ${isStandalone ? "text-sm" : "text-[9px]"}`}>
+                      <p className="text-rp-grey text-[9px]">
                         {exp.duration_minutes}min
                       </p>
-                      <p className={`text-rp-grey capitalize ${isStandalone ? "text-xs" : "text-[8px]"}`}>
+                      <p className="text-rp-grey capitalize text-[8px]">
                         {exp.start_type}
                       </p>
                     </>
                   ) : (
-                    <p className={`text-zinc-600 italic ${isStandalone ? "text-xs" : "text-[8px]"}`}>
-                      Not installed
-                    </p>
+                    <p className="text-zinc-600 italic text-[8px]">Not installed</p>
                   )}
                 </div>
               </button>
@@ -402,6 +466,7 @@ function InSessionView({
   onEndSession,
   onRelaunchGame,
   warning,
+  recentLaps,
 }: {
   billing: BillingSession;
   telemetry?: TelemetryFrame;
@@ -410,10 +475,47 @@ function InSessionView({
   onEndSession?: () => void;
   onRelaunchGame?: () => void;
   warning?: BillingWarning;
+  recentLaps: Lap[];
 }) {
   const trackName = telemetry?.track || "";
   const carName = telemetry?.car || "";
   const hasWarning = !!warning;
+
+  // Standalone + telemetry available → Racing HUD top bar over empty game area
+  const hasCrashBanner =
+    billing.status === "paused_game_pause" ||
+    billing.status === "paused_disconnect" ||
+    gameInfo?.game_state === "error";
+
+  if (isStandalone && telemetry && !hasCrashBanner) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Racing HUD — thin top bar overlay */}
+        <RacingHUD telemetry={telemetry} billing={billing} recentLaps={recentLaps} />
+
+        {/* Game renders below (offscreen in production kiosk). Show driver + track + warning */}
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+          {(trackName || carName) && (
+            <p className="text-xl text-white font-semibold text-center">
+              {trackName}
+              {trackName && carName ? " — " : ""}
+              {carName}
+            </p>
+          )}
+          <p className="text-sm text-rp-grey text-center">
+            {billing.driver_name} &middot; {billing.pricing_tier_name}
+          </p>
+          {hasWarning && (
+            <div className="mt-4 px-5 py-3 rounded-xl border border-amber-600/50 bg-amber-900/30">
+              <p className="text-amber-300 text-sm font-semibold">
+                Session warning — check time remaining
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex-1 flex flex-col ${isStandalone ? "p-6" : "p-2"} overflow-hidden`}>

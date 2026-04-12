@@ -20,6 +20,7 @@ export default function PodKioskPage() {
     billingWarnings,
     gameStates,
     pendingAuthTokens,
+    recentLaps,
   } = useKioskSocket();
 
   useEffect(() => {
@@ -56,6 +57,10 @@ export default function PodKioskPage() {
   const gameInfo = gameStates.get(pod.id);
   const authToken = pendingAuthTokens.get(pod.id);
   const warning = billingWarnings.find((w) => w.podId === pod.id);
+  // Filter recent laps to this pod's current driver (HUD shows sector deltas)
+  const podLaps = recentLaps.filter(
+    (lap) => billing && lap.driver_id === billing.driver_id
+  );
 
   const handleSelectExperience = async (experienceId: string) => {
     try {
@@ -85,6 +90,7 @@ export default function PodKioskPage() {
       onSelectExperience={handleSelectExperience}
       onRelaunchGame={handleRelaunchGame}
       warning={warning}
+      recentLaps={podLaps}
     />
   );
 }
