@@ -726,6 +726,25 @@ pub async fn run(
                     }
                 }
 
+                // ADAPTER-SWAP-04 (2026-04-12, James): this AC-specific launch
+                // timeout block (60s retry, 120s cancel) must ONLY run for AC.
+                // Before this gate, F1 25 launches hit the 60s AC timeout and got
+                // killed even though the F125-specific PlayableSignal path at
+                // line ~1127 would have fired within ~22s. Non-AC sims have their
+                // own timeout logic in the per-sim PlayableSignal dispatch section:
+                //   F125:     UdpReachable → f1_udp_playable_received (no timeout — live signal)
+                //   iRacing:  IsOnTrack SHM (no timeout — live signal)
+                //   LMU:      IsOnTrack rF2 SHM (no timeout — live signal)
+                //   Others:   GENERIC_LAUNCH_TIMEOUT_SECS (180s process fallback)
+                // The game_dead check (line below) is duplicated in the per-sim
+                // GAME-08 ProcessMonitor section, so dead-game detection still
+                // works for non-AC sims.
+                // Log evidence from canary 106df13d (Pod 4, 2026-04-12 06:22 UTC):
+                //   06:22:32 Adapter connect recovered for F125 (SO_REUSEADDR bind OK)
+                //   06:23:17 AC launch timeout 61s (attempt 1), game_alive=true, retrying...
+                //   06:23:19 Non-AC game F125 exited (code: 1) — killed by AC timeout
+                if matches!(conn.current_sim_type, Some(rc_common::types::SimType::AssettoCorsa) | None)
+                {
                 if let LaunchState::WaitingForLive { launched_at, attempt } = &conn.launch_state {
                     let launched_at = *launched_at;
                     let attempt = *attempt;
@@ -825,6 +844,7 @@ pub async fn run(
                         }
                     }
                 }
+                } // end ADAPTER-SWAP-04 AC-only gate
             }
 
             Some(signal) = state.signal_rx.recv() => {
