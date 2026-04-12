@@ -45,6 +45,12 @@ pub struct AppState {
     pub(crate) lock_screen: LockScreenManager,
     pub(crate) overlay: OverlayManager,
     pub(crate) signal_rx: mpsc::Receiver<DetectorSignal>,
+    /// ADAPTER-SWAP-01 (2026-04-12, James): Kept as a Sender so ws_handler can
+    /// clone it into a rebuilt sim adapter on every LaunchGame (per-launch
+    /// adapter rebuild — see sims::build_sim_adapter). Before this field
+    /// existed, signal_tx was consumed at startup and non-AC launches had no
+    /// way to receive a freshly-cloned channel on adapter rebuild.
+    pub(crate) signal_tx: mpsc::Sender<DetectorSignal>,
     pub(crate) lock_event_rx: mpsc::Receiver<LockScreenEvent>,
     pub(crate) heartbeat_event_rx: mpsc::Receiver<udp_heartbeat::HeartbeatEvent>,
     pub(crate) ai_result_rx: mpsc::Receiver<AiDebugSuggestion>,

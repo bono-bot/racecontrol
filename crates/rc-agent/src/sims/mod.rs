@@ -77,6 +77,64 @@ pub trait SimAdapter: Send + Sync {
     fn read_session_config(&self) -> Option<SessionConfig> { None }
 }
 
+/// Build a sim adapter for the given SimType.
+///
+/// Called from two places:
+/// 1. `main.rs` — initial adapter construction at rc-agent startup (matches
+///    `config.pod.sim`, typically AC).
+/// 2. `ws_handler.rs` — per-launch rebuild on LaunchGame when sim_type changes.
+///
+/// Returns `None` when:
+/// - The sim type has no adapter implemented (Forza, FH5)
+/// - The sim type is gated by a feature flag that is disabled (AC EVO when
+///   `ac_evo_telemetry_enabled = false`)
+///
+/// ADAPTER-SWAP-01 (2026-04-12, James): before this factory existed, rc-agent
+/// was sim-locked to the adapter chosen at startup from `config.pod.sim`. All
+/// 8 pods have `sim = "assetto_corsa"`, so non-AC launches (F1 25, iRacing,
+/// LMU, ACE, ACR) had no UDP/SHM listener. F1 25's UDP packets went into the
+/// void, `UdpReachable` never fired, `launch_state` stayed `WaitingForLive`,
+/// `AcStatus::Live` was never sent, and the server's 180s `check_launch_timeouts`
+/// retry killed every non-AC launch via the pre_launch_checks cleanup cascade.
+/// Full trace: `.planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/`
+pub(crate) fn build_sim_adapter(
+    sim_type: SimType,
+    pod_id: &str,
+    config: &rc_common::config_schema::AgentConfig,
+    signal_tx: &tokio::sync::mpsc::Sender<crate::driving_detector::DetectorSignal>,
+) -> Option<Box<dyn SimAdapter>> {
+    match sim_type {
+        SimType::AssettoCorsa => Some(Box::new(assetto_corsa::AssettoCorsaAdapter::new(
+            pod_id.to_string(),
+            config.pod.sim_ip.clone(),
+            config.pod.sim_port,
+        ))),
+        SimType::F125 => Some(Box::new(f1_25::F125Adapter::new(
+            pod_id.to_string(),
+            Some(signal_tx.clone()),
+        ))),
+        SimType::IRacing => Some(Box::new(iracing::IracingAdapter::new(
+            pod_id.to_string(),
+        ))),
+        SimType::LeMansUltimate => Some(Box::new(lmu::LmuAdapter::new(
+            pod_id.to_string(),
+        ))),
+        SimType::AssettoCorsaEvo => {
+            if config.ac_evo_telemetry_enabled {
+                Some(Box::new(assetto_corsa_evo::AssettoCorsaEvoAdapter::new(
+                    pod_id.to_string(),
+                )))
+            } else {
+                None
+            }
+        }
+        SimType::AssettoCorsaRally => Some(Box::new(
+            assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.to_string()),
+        )),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod adapter_parity_tests {
     /// REGRESSION: Every shared-memory sim adapter must have a liveness guard

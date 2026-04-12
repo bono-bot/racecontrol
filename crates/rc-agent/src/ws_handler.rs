@@ -531,6 +531,66 @@ pub async fn handle_ws_message(
             conn.current_sim_type = Some(launch_sim);
             conn.loading_emitted = false;
             conn.f1_udp_playable_received = false;
+
+            // ─── ADAPTER-SWAP-01 (2026-04-12, James) ─────────────────────────
+            // Rebuild the sim adapter if the launched sim type differs from the
+            // one currently held in state.adapter. rc-agent is sim-locked at
+            // startup via config.pod.sim; without this swap, launching a non-AC
+            // sim has no UDP/SHM listener, UdpReachable / IsOnTrack never fires,
+            // AcStatus::Live is never emitted to the server, and the server's
+            // 180s check_launch_timeouts kills the game via pre_launch_checks
+            // retry cascade at T+180. All 8 pods have sim = "assetto_corsa", so
+            // EVERY non-AC launch (F1 25, iRacing, LMU, ACE, ACR) was broken
+            // before this fix. Full trace:
+            // .planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/
+            //
+            // HARD-04 (F1 25 UDP socket bind-when-running) is unaffected:
+            // build_sim_adapter() constructs the adapter without binding its
+            // socket. event_loop.rs:358-366 still gates connect() on
+            // state.game_process.state == GameState::Running.
+            let current_adapter_sim = state.adapter.as_ref().map(|a| a.sim_type());
+            if current_adapter_sim != Some(launch_sim) {
+                if let Some(ref mut old) = state.adapter {
+                    let old_sim = old.sim_type();
+                    old.disconnect();
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "ADAPTER-SWAP: disconnected {:?} adapter for {:?} launch",
+                        old_sim, launch_sim
+                    );
+                }
+                let rebuilt = crate::sims::build_sim_adapter(
+                    launch_sim,
+                    &state.pod_id,
+                    &state.config,
+                    &state.signal_tx,
+                );
+                match rebuilt {
+                    Some(a) => {
+                        tracing::info!(
+                            target: LOG_TARGET,
+                            "ADAPTER-SWAP: built fresh {:?} adapter for launch",
+                            launch_sim
+                        );
+                        state.adapter = Some(a);
+                    }
+                    None => {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            "ADAPTER-SWAP: no adapter available for {:?} — launch will run in telemetry-free mode (launch verifier may timeout)",
+                            launch_sim
+                        );
+                        state.adapter = None;
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    "ADAPTER-SWAP: current adapter already matches {:?} — no rebuild",
+                    launch_sim
+                );
+            }
+            // ─── end ADAPTER-SWAP-01 ─────────────────────────────────────────
             // LAUNCH-05: Record launch start time and generate launch_id for timeline tracing.
             // elapsed_ms = 0 represents the agent receiving the LaunchGame command.
             conn.launch_start = Some(std::time::Instant::now());

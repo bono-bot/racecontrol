@@ -92,10 +92,10 @@ use ffb_controller::FfbController;
 use rc_common::protocol::AgentMessage;
 use rc_common::types::*;
 use sims::SimAdapter;
-use sims::assetto_corsa::AssettoCorsaAdapter;
-use sims::f1_25::F125Adapter;
-use sims::iracing::IracingAdapter;
-use sims::lmu::LmuAdapter;
+// ADAPTER-SWAP-01: direct adapter imports removed — main.rs now builds the
+// initial adapter via sims::build_sim_adapter(), which owns the construction
+// match for all sim types. Per-launch rebuild is done in ws_handler on
+// LaunchGame. See .planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/
 use kiosk::KioskManager;
 use lock_screen::{LockScreenEvent, LockScreenManager};
 use overlay::OverlayManager;
@@ -959,47 +959,29 @@ async fn main() -> Result<()> {
     // Channel for detector signals from HID/UDP tasks
     let (signal_tx, signal_rx) = mpsc::channel::<DetectorSignal>(256);
 
-    // Create sim adapter — POS has no sim
+    // Create sim adapter via shared factory (sims::build_sim_adapter).
+    // POS has no sim. The initial adapter matches `config.pod.sim`, but is
+    // rebuilt on every LaunchGame in ws_handler when sim_type changes —
+    // see ADAPTER-SWAP-01 in ws_handler.rs and sims/mod.rs.
     let mut adapter: Option<Box<dyn SimAdapter>> = if is_pos {
         None
     } else {
-        match sim_type {
-            SimType::AssettoCorsa => Some(Box::new(AssettoCorsaAdapter::new(
-                pod_id.clone(),
-                config.pod.sim_ip.clone(),
-                config.pod.sim_port,
-            ))),
-            SimType::F125 => Some(Box::new(F125Adapter::new(
-                pod_id.clone(),
-                Some(signal_tx.clone()),
-            ))),
-            SimType::IRacing => Some(Box::new(IracingAdapter::new(
-                pod_id.clone(),
-            ))),
-            SimType::LeMansUltimate => Some(Box::new(LmuAdapter::new(
-                pod_id.clone(),
-            ))),
-            SimType::AssettoCorsaEvo => {
-                if config.ac_evo_telemetry_enabled {
-                    Some(Box::new(
-                        sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new(pod_id.clone()),
-                    ))
-                } else {
-                    tracing::info!(
-                        target: LOG_TARGET,
-                        "AC EVO telemetry disabled by feature flag (ac_evo_telemetry_enabled=false)"
-                    );
-                    None
-                }
-            }
-            SimType::AssettoCorsaRally => Some(Box::new(
-                sims::assetto_corsa_evo::AssettoCorsaEvoAdapter::new_rally(pod_id.clone()),
-            )),
-            _ => {
-                tracing::warn!(target: LOG_TARGET, "Sim adapter not yet implemented for {:?}, running in heartbeat-only mode", sim_type);
-                None
+        let built = sims::build_sim_adapter(sim_type, &pod_id, &config, &signal_tx);
+        if built.is_none() {
+            if matches!(sim_type, SimType::AssettoCorsaEvo) && !config.ac_evo_telemetry_enabled {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "AC EVO telemetry disabled by feature flag (ac_evo_telemetry_enabled=false)"
+                );
+            } else {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Sim adapter not yet implemented for {:?}, running in heartbeat-only mode",
+                    sim_type
+                );
             }
         }
+        built
     };
 
     // Spawn USB HID wheelbase monitor — POS has no wheelbase hardware
@@ -1730,6 +1712,8 @@ async fn main() -> Result<()> {
         lock_screen,
         overlay,
         signal_rx,
+        // ADAPTER-SWAP-01: kept so ws_handler can clone into rebuilt adapters.
+        signal_tx: signal_tx.clone(),
         lock_event_rx,
         heartbeat_event_rx,
         ai_result_rx,
