@@ -1,59 +1,54 @@
 # Racing Point Operations (Unified)
 
-## Parallel Active Milestone: v46.0 Game Launch Diagnostics
+## Current Milestone: v48.0 Codebase Architecture — Department-Driven Event Mesh
 
-**Started:** 2026-04-09 (retroactive — Phase 362 Layer 3 shipped ad-hoc as build `a9b5eaa3` the same day)
-**Goal:** Close all 21 silent data-loss points between kiosk session setup and race results. Move verification from "is the game alive?" to "is it running correctly AND recording everything?"
-**Runs in parallel with:** v47.0 (below). User directive 2026-04-09: finish v46.0 before v47.0 merge/ship.
+**Started:** 2026-04-13
+**Goal:** Restructure the 419K-line RacingPoint codebase into 9 independent, event-driven departments — each with typed contracts, files under 500 lines, and communication via the mesh event bus. Fix the structural causes of the 1,397 debug commits and 36K lines of accumulated band-aids. Provide the absolute best customer experience by making the system simple enough to always work.
 
-**Target features (7 phases — 1 shipped, 6 planned):**
-1. **Phase 361** — Kiosk preset filtering + server gate (wire unused `presetValidity`, filter car/track by pod inventory, server-side combo rejection)
-2. **Phase 362** — Post-launch config verification via shared memory ✅ **SHIPPED** as `a9b5eaa3` on all 8 pods 2026-04-09
-3. **Phase 363** — Data recording verification (lap audit, telemetry completeness, CSV auto-sync, 5s billing grace window) — closes 3 P0s
-4. **Phase 364** — Session quality monitor (telemetry gap >500ms, lap consistency, stalled session, silent-drop audit)
-5. **Phase 365** — AI behavior validation via MMA (AI lap time KB, live anomaly detection)
-6. **Phase 366** — Fleet intelligence (per-pod health score, content drift, concurrent session guard)
-7. **Phase 367** — Staff tools (suspect lap view, on-demand verify, replay, export, Phase B retro-validation)
+**North star:** The customer experience. Every technical decision serves: walk in → play → enjoy food → come back.
 
-**Requirements file:** `.planning/milestones/v46.0-REQUIREMENTS.md` (30 REQ-IDs, 21 silent-loss points mapped)
-**Roadmap file:** `.planning/milestones/v46.0-ROADMAP.md` (mirrored into main ROADMAP.md)
+**9 Departments (business-aligned):**
+
+1. **Wallet** — The "coin slot." Load funds (PWA/POS), rupee→credit conversion, cash vs promotional credit tracking, unified debit (games + cafe), refunds (cash only, never more than deposited)
+2. **Game Launch** — The "arcade machine." Two clean methods: (A) Staff Launch via kiosk, (B) PWA self-service via 4-digit PIN on pod. Both converge at: validate funds → debit → launch game. VMS-parity AC launch. Multi-game: AC, F1 25, iRacing, LMU
+3. **Racing** — The "experience." Multi-game telemetry, lap tracking, leaderboards across all sims (not just AC like VMS), personal bests, session stats
+4. **Cafe** — The "food counter." Menu, orders, unified wallet debit, combo deals with racing
+5. **Community** — The "club." Friends, tournaments, championships, events, time trials, motorsport culture
+6. **Marketing** — The "promoter." Proactive: detect empty hours → push deals via WhatsApp/Instagram. Referrals, coupons, memberships. Cafe+racing combo promotions. Fill weekday afternoons
+7. **Staff** — The "hosts." Customer assistance, car/track recommendations, pod management, debugging. Connect with customers about motorsport
+8. **Pods** — The "machines." Fleet health, content management, lock screen, blanking, self-healing, recovery
+9. **Infrastructure** — The "plumbing." Cloud sync, auth, config, mesh communication, backups, monitoring, AI diagnostics
+
+**Key architectural deliverables:**
+- Event bus on comms-link mesh — departments communicate through typed events, not shared mutable state
+- Feature Registry — machine-readable inventory of every feature (status, owner, e2e coverage)
+- Dead code + band-aid audit — remove 36K lines of accumulated fix bloat
+- Fix-scope tool — static blast radius analysis before every fix
+- Fix-by-subtraction — fixes remove code, not add it. Pre-commit ratio enforcement
+- AC Launch rewrite — VMS-parity (<500 lines), replacing 19,597-line tangled path
+- Two launch methods cleanly separated (Staff Launch + PWA PIN Launch)
+- Promotional credit type in wallet (non-refundable, spend-only)
+- CI gate — pre-merge cargo test + clippy
+- All source files under 500 lines
+
+**Scope:** Unified across racecontrol, comms-link, racingpoint-admin, racingpoint-dashboard. Domain contracts live in rc-common; event bus on comms-link; frontends subscribe via WS.
 
 **Constraints:**
-- Phases 361-367 must not collide with v47.0 phases 344-360
-- Phase 362 retroactive shipping — deferred runtime tests tracked as GLD-G-05 in Phase 367
-- MMA audit mandatory before ship (cross-system data bridge: kiosk ↔ server ↔ pod)
-- Will be run autonomously via `/gsd:autonomous --from 361`
+- Zero behavior change during refactoring — customers must not notice
+- Every split/move must pass cargo build + cargo test as a single commit
+- Venue runs production throughout — changes deploy incrementally
+- v46.0 and v47.0 code already merged into main (deployed 2026-04-12)
+- No new external services
 
 ---
 
-## Current Milestone: v47.0 Admin Dashboard Venue-Ready Hardening
+## Shipped Milestone: v47.0 Admin Dashboard Venue-Ready Hardening (Shipped 2026-04-12)
 
-**Started:** 2026-04-09
-**Goal:** Transform the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) into a resilient central source of truth before customers start using the venue. Absorb Phase 343 Plan 03 (superseded admin PIN UI) and close 18 audit findings from the 2026-04-09 Vishal-PIN incident.
+**Goal:** Transform the admin dashboard into a resilient central source of truth. Close 18 audit findings from Vishal-PIN incident. 17 phases (344-360, 368), all code merged to main, deployed to venue + cloud.
 
-**Target features (11 themes):**
-1. Unbreakable deploys — single `admin-deploy.sh` + post-deploy verify gate + Node pin
-2. Backend resilience — module-load errors → JSON 503, admin.db lazy-load, remove hardcoded JWT default (C5), halt on missing webhook secret (C6)
-3. Single source of truth — cafe menu proxy to racecontrol (kill dead admin.db.menu_items), drop empty employees table (D4), identity consolidation (C8), remove hardcoded terminal_pin (D6)
-4. Local↔cloud sync contract — Litestream venue→cloud read replica (Option A)
-5. Live /api/health + WhatsApp alerting via comms-link relay
-6. Downstream propagation tests — Playwright admin→POS/kiosk contract tests
-7. Auth resilience — per-staff-id lockout (C4), DB persist (C7), 12h JWT, break-glass token
-8. Data durability — daily sqlite3 .backup, 30d retention, rsync DR, quarterly restore drill
-9. UI hardening — hide dead routes, loading/empty/error states, 46-page Playwright smoke
-10. Runbook + staff training — printed one-pagers at POS
-11. Admin Staff Management `/admin/staff` page + `change_staff_pin_safe` + `sync/pull-now` (from superseded Phase 343-03)
+## Shipped Milestone: v46.0 Game Launch Diagnostics (Shipped 2026-04-12)
 
-**Phase numbering:** Starts at Phase 344 (continues from Phase 343 in racecontrol).
-
-**Hard dependency:** Phase 343 Plans 01+02+04 (racecontrol backend — cloud-authority 409 guard + post-write verify + e2e regression) must ship BEFORE v47.0 Phase 347 (admin staff PIN UI) can deploy. Other v47.0 phases can start immediately.
-
-**Constraints:**
-- Venue opening is the hard deadline — no slipping P0 items past go-live
-- Two separate repos: v47.0 ships in `racingpoint-admin/`, Phase 343 ships in `racecontrol/`
-- Dual deployment: venue Windows (.23) + cloud Linux (Bono VPS) — parity required
-- Node 24 on venue → must downgrade to 22 LTS as pre-work (better-sqlite3 ABI)
-- No new external services (no Sentry, no Redis, no Docker)
+**Goal:** Close 21 silent data-loss points between kiosk session setup and race results. 7 phases (361-367), all code merged to main, deployed to venue + cloud.
 
 ## Current State
 
