@@ -995,9 +995,32 @@ async fn main() -> Result<()> {
             run_hid_monitor(hid_vid, hid_pid, hid_pedal_threshold, hid_steering_deadzone, hid_signal_tx).await;
         });
 
-        // Spawn UDP telemetry port listeners
+        // Spawn UDP telemetry port listeners.
+        //
+        // ADAPTER-SWAP-02 (2026-04-12, James): port 20777 (F1 25 telemetry)
+        // is EXCLUDED from this list because F125Adapter owns it exclusively.
+        // The F125Adapter binds 0.0.0.0:20777 without SO_REUSEADDR
+        // (sims/f1_25.rs:458), so if run_udp_monitor also binds it with
+        // SO_REUSEADDR at startup, F125Adapter::connect() silently fails with
+        // "address in use" and UdpReachable never fires — the launch verifier
+        // then times out at 180s and kills the game. Per-adapter SHM sims
+        // (AC/iRacing/LMU/ACE/ACR) still use this dumb listener as a
+        // supplementary "any UDP activity" detector on their respective ports.
+        // See trace: .planning/debug/flow-traces/runs/
+        //            2026-04-12T05-17-IST-f1_25-launch-fullchain/
+        //            (canary 96940ad0 retrace at 00:32:39-00:35:40 UTC proved
+        //            the port conflict — F125Adapter never bound, silent fail).
+        const F125_ADAPTER_PORT: u16 = 20777;
         let udp_signal_tx = signal_tx.clone();
-        let udp_ports = config.telemetry_ports.ports.clone();
+        let udp_ports: Vec<u16> = config.telemetry_ports.ports.iter()
+            .copied()
+            .filter(|&p| p != F125_ADAPTER_PORT)
+            .collect();
+        tracing::info!(
+            target: LOG_TARGET,
+            "run_udp_monitor port list (F125 port 20777 excluded, owned by F125Adapter): {:?}",
+            udp_ports
+        );
         tokio::spawn(async move {
             run_udp_monitor(udp_ports, udp_signal_tx).await;
         });

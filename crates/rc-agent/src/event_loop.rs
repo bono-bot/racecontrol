@@ -389,8 +389,25 @@ pub async fn run(
                     if is_shm_adapter && conn.shm_defer_logged && shm_connect_allowed(conn.game_running_since) {
                         conn.shm_defer_logged = false;
                     }
-                    if adapter.connect().is_ok() {
-                        state.overlay.set_max_rpm(adapter.max_rpm());
+                    // ADAPTER-SWAP-02 (2026-04-12, James): was `if adapter.connect().is_ok()`
+                    // which silently swallowed every failure. A port-conflict bug in
+                    // run_udp_monitor (binding F1 25 port 20777 at rc-agent startup) caused
+                    // F125Adapter::connect() to fail with "address in use" on every tick for
+                    // the full 180s launch window — zero log output, masked the bug. Any
+                    // adapter connect error now surfaces as a WARN so the next investigator
+                    // sees it immediately. See trace:
+                    // .planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/
+                    match adapter.connect() {
+                        Ok(()) => {
+                            state.overlay.set_max_rpm(adapter.max_rpm());
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                "Adapter connect failed for {:?}: {}",
+                                adapter.sim_type(), e
+                            );
+                        }
                     }
                     continue;
                 }
