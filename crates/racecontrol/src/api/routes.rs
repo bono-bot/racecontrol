@@ -183,6 +183,9 @@ fn public_routes() -> Router<Arc<AppState>> {
         // can fetch the experience list without staff JWT. Write ops stay in kiosk_routes.
         // Same pattern as kiosk-allowlist, POS lockdown, presets, pod-inventory.
         .route("/kiosk/experiences", get(list_kiosk_experiences))
+        // Games catalog — read-only is public so kiosk deep health + pod kiosk can fetch
+        // the game list without staff JWT. Write ops (launch/stop/relaunch) stay in staff_routes.
+        .route("/games/catalog", get(games_catalog))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -461,7 +464,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/games/launch", post(launch_game))
         .route("/games/relaunch/{pod_id}", post(relaunch_game))
         .route("/games/stop", post(stop_game))
-        .route("/games/catalog", get(games_catalog))
+        // GET /games/catalog moved to public_routes (kiosk deep health + pod kiosk need game list)
+        // .route("/games/catalog", get(games_catalog))
         .route("/games/active", get(active_games))
         .route("/games/history", get(game_launch_history))
         .route("/launch-timeline/recent", get(get_recent_launch_timelines))
