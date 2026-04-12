@@ -179,6 +179,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/spectator/tracks", get(spectator_list_tracks))
         .route("/spectator/track/{track_id}", get(spectator_get_track))
         .route("/spectator/positions", get(spectator_get_positions))
+        // Kiosk experiences — read-only is public so standalone pod kiosk (/kiosk/pod/N)
+        // can fetch the experience list without staff JWT. Write ops stay in kiosk_routes.
+        // Same pattern as kiosk-allowlist, POS lockdown, presets, pod-inventory.
+        .route("/kiosk/experiences", get(list_kiosk_experiences))
 }
 
 /// Proxy health check for go2rtc cameras on James machine.
@@ -308,7 +312,8 @@ fn customer_routes() -> Router<Arc<AppState>> {
 /// call them while staff/admin routes remain pod-blocked.
 fn kiosk_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/kiosk/experiences", get(list_kiosk_experiences).post(create_kiosk_experience))
+        // GET /kiosk/experiences moved to public_routes (standalone pod kiosk needs it without JWT)
+        .route("/kiosk/experiences", post(create_kiosk_experience))
         .route("/kiosk/experiences/{id}", get(get_kiosk_experience).put(update_kiosk_experience).delete(delete_kiosk_experience))
         .route("/kiosk/settings", get(get_kiosk_settings).put(update_kiosk_settings))
         .route("/kiosk/pod-launch-experience", post(kiosk_pod_launch_experience))
