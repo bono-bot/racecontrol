@@ -1,4 +1,5 @@
 pub mod config_schema;
+pub mod launch_contract;
 pub mod types;
 pub mod protocol;
 pub mod udp_protocol;
