@@ -1,0 +1,2563 @@
+# =============================================================================
+# RaceControl Feature Registry — Phase 382
+# Generated: 2026-04-12
+# Scope: crates/racecontrol/src/ (114 modules) + crates/rc-agent/src/ (72 modules)
+# Total: 178,166 lines of Rust across 317 files
+# DB tables: 138 CREATE TABLE statements, 120+ with INSERT activity
+# API routes: 436 route registrations across 7 auth tiers
+# =============================================================================
+
+[meta]
+generated = "2026-04-12"
+total_rust_lines = 178166
+total_rust_files = 317
+total_routes = 436
+total_db_tables = 138
+todo_count = 21
+fixme_count = 0
+hack_count = 0
+
+# Status legend:
+#   complete   = deployed, tested, actively used in production
+#   incomplete = code exists but missing E2E verification, frontend caller, or runtime testing
+#   stale      = code works but feature is not actively used or maintained
+#   orphaned   = code exists but has no route, no caller, no integration point
+#   dead       = code that can never execute (unreachable, disabled, superseded)
+#   diverged   = venue and cloud versions have drifted out of sync
+
+# =============================================================================
+# DEPARTMENT: BILLING & FINANCE
+# =============================================================================
+
+[features.billing_core]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "POST /billing/start",
+    "POST /billing/{id}/stop",
+    "POST /billing/{id}/pause",
+    "POST /billing/{id}/resume",
+    "POST /billing/{id}/extend",
+    "POST /billing/{id}/upgrade",
+    "GET /billing/active",
+    "GET /billing/sessions",
+    "GET /billing/sessions/{id}",
+    "GET /billing/sessions/{id}/events",
+    "GET /billing/sessions/{id}/summary",
+    "GET /billing/sessions/{id}/invoice",
+    "GET /billing/report/daily",
+    "GET /billing/rates",
+    "POST /billing/rates",
+]
+source_files = ["billing.rs", "billing_fsm.rs"]
+db_tables = ["billing_sessions", "billing_events", "billing_rates", "billing_accuracy_events", "billing_audit_log"]
+lines = 9560
+e2e_tested = true
+notes = "Core revenue system. billing_fsm.rs has 30 unit tests. Known P1 bug in end_billing_session() wallet_debit_paise overwrite (F-05)."
+
+[features.billing_split_sessions]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "GET /billing/split-options/{duration_minutes}",
+    "POST /billing/continue-split",
+]
+source_files = ["billing.rs"]
+db_tables = ["split_sessions"]
+lines = 0
+e2e_tested = false
+notes = "Split billing sessions for group use. Routes exist, logic in billing.rs."
+
+[features.billing_replay]
+status = "stale"
+department = "billing"
+owner = "bono"
+entry_points = ["GET /admin/sessions/{id}/replay"]
+source_files = ["billing_replay.rs"]
+db_tables = []
+lines = 300
+e2e_tested = false
+notes = "Session replay for admin debugging. 300 lines, 1 test. No known frontend caller."
+
+[features.billing_discount_refund]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "POST /billing/{id}/discount",
+    "POST /billing/{id}/refund",
+    "GET /billing/{id}/refunds",
+    "GET /billing/{id}/receipt",
+]
+source_files = ["billing.rs"]
+db_tables = ["refunds", "debit_intents"]
+lines = 0
+e2e_tested = false
+notes = "Discount and refund logic. Routes exist in billing.rs."
+
+[features.wallet]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "GET /customer/wallet",
+    "GET /customer/wallet/transactions",
+    "GET /wallet/{driver_id}",
+    "POST /wallet/{driver_id}/topup",
+    "POST /wallet/{driver_id}/debit",
+    "POST /wallet/{driver_id}/refund",
+    "POST /wallet/{driver_id}/cash-refund",
+    "GET /wallet/transactions",
+    "GET /wallet/bonus-tiers",
+    "GET /wallet/topup-presets",
+]
+source_files = ["wallet.rs"]
+db_tables = ["wallets", "wallet_transactions", "bonus_tiers"]
+lines = 683
+e2e_tested = true
+notes = "Credits-based wallet. 1 credit = 1 rupee. All payments flow through wallet."
+
+[features.accounting]
+status = "complete"
+department = "finance"
+owner = "bono"
+entry_points = [
+    "GET /accounting/trial-balance",
+    "GET /accounting/profit-loss",
+    "GET /accounting/balance-sheet",
+    "GET /accounting/journal",
+    "GET /accounting/accounts",
+]
+source_files = ["accounting.rs"]
+db_tables = ["accounts", "journal_entries", "journal_entry_lines"]
+lines = 835
+e2e_tested = false
+notes = "Double-entry bookkeeping. 17 seeded accounts. Auto-posts on wallet credit/debit/refund."
+
+[features.invoices]
+status = "incomplete"
+department = "finance"
+owner = "bono"
+entry_points = [
+    "GET /customer/sessions/{id}/invoice",
+    "GET /customer/sessions/{id}/receipt",
+    "GET /billing/sessions/{id}/invoice",
+    "GET /billing/{id}/receipt",
+    "GET /visits/{id}/receipt",
+]
+source_files = ["billing.rs"]
+db_tables = ["invoices", "invoice_sequence"]
+lines = 0
+e2e_tested = false
+notes = "Invoice generation exists. invoice_sequence table has no INSERT — sequence may not be used."
+
+[features.dynamic_pricing]
+status = "orphaned"
+department = "billing"
+owner = "bono"
+entry_points = []
+source_files = ["dynamic_pricing.rs"]
+db_tables = ["pricing_rules"]
+lines = 89
+e2e_tested = false
+notes = "89 lines. Declared in lib.rs but NOT referenced in routes.rs or main.rs. Pricing rules CRUD is wired through routes.rs directly, not through this module."
+
+[features.pricing_bridge]
+status = "stale"
+department = "billing"
+owner = "bono"
+entry_points = []
+source_files = ["pricing_bridge.rs"]
+db_tables = ["pricing_tiers"]
+lines = 90
+e2e_tested = false
+notes = "90 lines. Called from main.rs init_pricing_tables() at startup. Initializes pricing data but not actively developed."
+
+[features.pricing_rules]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "GET /pricing",
+    "POST /pricing",
+    "PUT /pricing/{id}",
+    "DELETE /pricing/{id}",
+    "GET /pricing/rules",
+    "POST /pricing/rules",
+    "PUT /pricing/rules/{id}",
+    "DELETE /pricing/rules/{id}",
+    "GET /pricing/display",
+    "GET /pricing/social-proof",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["pricing_tiers", "pricing_rules"]
+lines = 0
+e2e_tested = false
+notes = "Admin CRUD for pricing tiers and dynamic pricing rules. Display endpoint for customer-facing pricing."
+
+[features.reconciliation]
+status = "incomplete"
+department = "finance"
+owner = "bono"
+entry_points = [
+    "POST /reconciliation/run",
+    "GET /reconciliation/status",
+]
+source_files = ["api/routes.rs"]
+db_tables = []
+lines = 0
+e2e_tested = false
+notes = "Reconciliation endpoints exist. No dedicated module — logic likely inline in routes.rs."
+
+[features.payment_gateway_webhook]
+status = "incomplete"
+department = "billing"
+owner = "bono"
+entry_points = ["POST /webhooks/payment-gateway"]
+source_files = ["api/routes.rs"]
+db_tables = []
+lines = 0
+e2e_tested = false
+notes = "Webhook endpoint exists with TODO: Verify HMAC signature. No payment gateway integration deployed."
+
+[features.disputes]
+status = "incomplete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "POST /customer/dispute",
+    "GET /admin/disputes",
+    "GET /admin/disputes/{id}/details",
+    "POST /admin/disputes/{id}/resolve",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["dispute_requests"]
+lines = 0
+e2e_tested = false
+notes = "Customer dispute flow. DB table exists with INSERT. No known frontend caller."
+
+# =============================================================================
+# DEPARTMENT: OPERATIONS — GAME LAUNCH & POD MANAGEMENT
+# =============================================================================
+
+[features.game_launcher]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "POST /games/launch",
+    "POST /games/relaunch/{pod_id}",
+    "POST /games/stop",
+    "GET /games/active",
+    "GET /games/history",
+    "GET /games/pod/{pod_id}",
+]
+source_files = ["game_launcher.rs", "launch_state.rs"]
+db_tables = ["game_launch_events", "launch_events", "launch_timeline_spans", "launch_notes", "game_launch_requests"]
+lines = 3769
+e2e_tested = true
+notes = "Core game launch system. Server-side orchestration. 6 tests in game_launcher.rs."
+
+[features.ac_launcher]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: ac_launcher.rs"]
+db_tables = []
+lines = 3836
+e2e_tested = true
+notes = "Assetto Corsa launcher on pod agent. 82 tests. Largest rc-agent file. SP direct acs.exe spawn."
+
+[features.ac_server]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "POST /ac/session/start",
+    "POST /ac/session/stop",
+    "GET /ac/session/active",
+    "GET /ac/sessions",
+    "GET /ac/sessions/{id}/leaderboard",
+    "POST /ac/session/retry-pod",
+    "POST /ac/session/update-config",
+    "POST /ac/session/{session_id}/continuous",
+    "GET /ac/content/tracks",
+    "GET /ac/content/cars",
+]
+source_files = ["ac_server.rs"]
+db_tables = ["ac_sessions"]
+lines = 2185
+e2e_tested = false
+notes = "Assetto Corsa dedicated server management. 21 tests. Multiplayer AC sessions."
+
+[features.ac_presets]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /ac/presets",
+    "POST /ac/presets",
+    "GET /ac/presets/{id}",
+    "PUT /ac/presets/{id}",
+    "DELETE /ac/presets/{id}",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["ac_presets"]
+lines = 0
+e2e_tested = false
+notes = "AC preset CRUD for track/car configurations."
+
+[features.ac_camera]
+status = "stale"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["ac_camera.rs"]
+db_tables = []
+lines = 373
+e2e_tested = false
+notes = "373 lines. AC camera control. Declared in lib.rs but no route references found. Likely internal use via WS."
+
+[features.sim_telemetry]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = [
+    "rc-agent: sims/assetto_corsa.rs",
+    "rc-agent: sims/f1_25.rs",
+    "rc-agent: sims/lmu.rs",
+    "rc-agent: sims/iracing.rs",
+    "rc-agent: sims/assetto_corsa_evo.rs",
+    "rc-agent: sims/mod.rs",
+]
+db_tables = ["telemetry_samples"]
+lines = 5219
+e2e_tested = true
+notes = "UDP telemetry parsing for 5 sims. AC (9996), F1 25 (20777), Forza (5300), iRacing (6789), LMU (5555). All have tests."
+
+[features.pod_management]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /pods",
+    "POST /pods",
+    "GET /pods/{id}",
+    "POST /pods/seed",
+    "POST /pods/{id}/wake",
+    "POST /pods/{id}/shutdown",
+    "POST /pods/{id}/lockdown",
+    "POST /pods/{id}/enable",
+    "POST /pods/{id}/disable",
+    "POST /pods/{id}/screen",
+    "POST /pods/{id}/unrestrict",
+    "POST /pods/{id}/freedom",
+    "POST /pods/{id}/restart",
+    "POST /pods/wake-all",
+    "POST /pods/shutdown-all",
+    "POST /pods/restart-all",
+    "POST /pods/lockdown-all",
+    "POST /pods/{id}/exec",
+    "GET /pods/{id}/self-test",
+    "POST /pods/{id}/clear-maintenance",
+    "POST /pods/{pod_id}/transmission",
+    "POST /pods/{pod_id}/ffb",
+    "POST /pods/{pod_id}/assists",
+    "GET /pods/{pod_id}/assist-state",
+    "GET /pods/{pod_id}/activity",
+    "POST /pods/{pod_id}/watchdog-crash",
+]
+source_files = ["api/routes.rs", "api/pods.rs"]
+db_tables = ["pods", "pod_activity_log", "pod_configs"]
+lines = 434
+e2e_tested = true
+notes = "Full pod lifecycle management. 26 endpoints. Core operational feature."
+
+[features.multiplayer]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = [
+    "POST /customer/book-multiplayer",
+    "GET /customer/group-session",
+    "POST /customer/group-session/{id}/accept",
+    "POST /customer/group-session/{id}/decline",
+    "GET /customer/multiplayer-results/{group_session_id}",
+    "POST /terminal/book-multiplayer",
+    "GET /terminal/group-sessions",
+    "POST /kiosk/book-multiplayer",
+    "POST /staff/group-sessions/{id}/complete",
+]
+source_files = ["multiplayer.rs"]
+db_tables = ["group_sessions", "group_session_members", "multiplayer_results"]
+lines = 1749
+e2e_tested = false
+notes = "Friends & multiplayer booking. Customer, kiosk, terminal, and staff endpoints. Phase 5 complete."
+
+[features.kiosk]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /kiosk/experiences",
+    "POST /kiosk/experiences",
+    "GET /kiosk/experiences/{id}",
+    "PUT /kiosk/experiences/{id}",
+    "DELETE /kiosk/experiences/{id}",
+    "GET /kiosk/settings",
+    "PUT /kiosk/settings",
+    "POST /kiosk/pod-launch-experience",
+    "POST /kiosk/ping",
+    "POST /kiosk/redeem-pin",
+]
+source_files = ["api/routes.rs", "rc-agent: kiosk.rs"]
+db_tables = ["kiosk_experiences", "kiosk_settings", "kiosk_allowlist"]
+lines = 1182
+e2e_tested = true
+notes = "Kiosk experience management. Staff PIN login, game configurator, direct launch."
+
+[features.lock_screen]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: lock_screen.rs", "rc-agent: native_lock/"]
+db_tables = []
+lines = 3257
+e2e_tested = true
+notes = "Native lock screen on pods. Win32 painter, keyboard hook, QR code, blanking frames. 20 tests."
+
+[features.overlay]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: overlay.rs"]
+db_tables = []
+lines = 1679
+e2e_tested = false
+notes = "HUD overlay for pods showing session info. 16 tests. Runs on pod agent."
+
+[features.ffb_controller]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: ffb_controller.rs"]
+db_tables = []
+lines = 1885
+e2e_tested = true
+notes = "Force Feedback controller for Conspit wheelbases. OpenFFBoard VID:0x1209. 44 tests."
+
+[features.process_guard]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /guard/whitelist/{machine_id}",
+    "POST /guard/report",
+]
+source_files = ["process_guard.rs", "rc-agent: process_guard.rs"]
+db_tables = []
+lines = 2032
+e2e_tested = true
+notes = "Process allowlist enforcement on pods. Server-side whitelist + agent-side enforcement. 35 total tests."
+
+[features.game_presets]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /presets",
+    "POST /presets",
+    "GET /presets/{id}",
+    "PUT /presets/{id}",
+    "DELETE /presets/{id}",
+]
+source_files = ["preset_library.rs"]
+db_tables = ["game_presets", "ac_presets"]
+lines = 541
+e2e_tested = false
+notes = "Reusable game configuration presets. CRUD API."
+
+[features.game_inventory]
+status = "incomplete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /fleet/pod-inventory/{pod_id}",
+    "GET /pods/{id}/inventory",
+    "GET /fleet/game-matrix",
+]
+source_files = ["game_inventory.rs"]
+db_tables = ["pod_game_inventory", "combo_reliability", "combo_validation_flags"]
+lines = 263
+e2e_tested = false
+notes = "Per-pod game/car/track inventory. Content drift detection writes to combo tables. Matrix view for fleet."
+
+[features.weekend_mode]
+status = "incomplete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "POST /games/weekend",
+    "GET /games/weekend",
+    "GET /games/weekend/{id}/status",
+    "POST /games/weekend/{id}/stop",
+]
+source_files = ["weekend.rs"]
+db_tables = []
+lines = 552
+e2e_tested = false
+notes = "Weekend event mode for AC. 4 tests. Routes exist but no known production use."
+
+[features.venue_shutdown]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = ["POST /venue/shutdown"]
+source_files = ["venue_shutdown.rs"]
+db_tables = []
+lines = 310
+e2e_tested = false
+notes = "Coordinated venue shutdown — stops all billing, games, locks pods."
+
+[features.wake_on_lan]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = ["POST /pods/{id}/wake", "POST /pods/wake-all"]
+source_files = ["wol.rs"]
+db_tables = []
+lines = 133
+e2e_tested = true
+notes = "Wake-on-LAN for pods. 6 tests."
+
+[features.port_allocator]
+status = "stale"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["port_allocator.rs"]
+db_tables = []
+lines = 279
+e2e_tested = false
+notes = "279 lines. Port allocation for AC multiplayer. Used internally, no direct route."
+
+[features.spectator]
+status = "incomplete"
+department = "operations"
+owner = "james"
+entry_points = [
+    "GET /spectator/tracks",
+    "GET /spectator/track/{track_id}",
+    "GET /spectator/positions",
+]
+source_files = ["api/routes.rs", "track_outline.rs"]
+db_tables = []
+lines = 406
+e2e_tested = false
+notes = "Spectator mode for viewing live positions on track outlines. Routes exist, no known frontend."
+
+# =============================================================================
+# DEPARTMENT: OPERATIONS — FLEET MANAGEMENT & HEALING
+# =============================================================================
+
+[features.fleet_health]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = [
+    "GET /fleet/health",
+    "POST /sentry/crash",
+    "POST /fleet/blocked-start",
+]
+source_files = ["fleet_health.rs"]
+db_tables = ["pod_crash_events", "pod_uptime_samples"]
+lines = 1652
+e2e_tested = true
+notes = "Fleet health monitoring. 17 tests. Primary diagnostic endpoint."
+
+[features.fleet_intelligence]
+status = "complete"
+department = "fleet"
+owner = "bono"
+entry_points = ["GET /fleet/intelligence"]
+source_files = ["fleet_intelligence.rs"]
+db_tables = ["content_drift_events"]
+lines = 347
+e2e_tested = false
+notes = "Composite health score per pod (0-100). Phase 366. Time-of-day failure patterns."
+
+[features.fleet_healer]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = []
+source_files = ["fleet_healer.rs"]
+db_tables = []
+lines = 1534
+e2e_tested = false
+notes = "SSH diagnostics, canary rollout, repair dispatch. v31.0 autonomous survival system. 18 tests."
+
+[features.pod_healer]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = []
+source_files = ["pod_healer.rs"]
+db_tables = []
+lines = 2525
+e2e_tested = false
+notes = "Per-pod healing logic. ForceRelaunchBrowser, lock screen recovery. 31 tests. Largest racecontrol module after routes/billing."
+
+[features.pod_monitor]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = []
+source_files = ["pod_monitor.rs"]
+db_tables = []
+lines = 650
+e2e_tested = false
+notes = "Background pod monitoring task. 26 tests."
+
+[features.fleet_deploy]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = [
+    "POST /fleet/deploy",
+    "GET /fleet/deploy/status",
+    "POST /deploy/rolling",
+    "GET /deploy/status",
+    "POST /deploy/{pod_id}",
+    "GET /deploy-log",
+]
+source_files = ["fleet_deploy.rs", "deploy.rs", "deploy_awareness.rs"]
+db_tables = ["deploy_logs"]
+lines = 2642
+e2e_tested = false
+notes = "OTA fleet deployment. Rolling deploys with canary. 11+28 tests across deploy modules."
+
+[features.ota_pipeline]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = [
+    "POST /ota/deploy",
+    "GET /ota/status",
+    "GET /pipeline/config",
+    "GET /pipeline/status",
+]
+source_files = ["ota_pipeline.rs"]
+db_tables = []
+lines = 958
+e2e_tested = false
+notes = "OTA binary update pipeline. 36 tests. Billing drain before swap."
+
+[features.fleet_alert]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = ["POST /fleet/alert"]
+source_files = ["fleet_alert.rs"]
+db_tables = ["alert_incidents"]
+lines = 114
+e2e_tested = false
+notes = "Fleet alert ingestion. 2 tests."
+
+[features.fleet_report]
+status = "orphaned"
+department = "fleet"
+owner = "james"
+entry_points = []
+source_files = ["fleet_report.rs"]
+db_tables = []
+lines = 91
+e2e_tested = false
+notes = "91 lines. Declared in lib.rs. Not referenced in routes.rs or main.rs. 1 test."
+
+[features.fleet_kb]
+status = "complete"
+department = "fleet"
+owner = "james"
+entry_points = [
+    "GET /mesh/solutions",
+    "GET /mesh/solutions/search",
+    "GET /mesh/solutions/{id}",
+    "POST /mesh/solutions/{id}/promote",
+    "POST /mesh/solutions/{id}/retire",
+    "GET /mesh/incidents",
+    "GET /mesh/stats",
+    "POST /mesh/audit-seed",
+    "POST /mesh/audit-seed-service",
+    "GET /mesh/audit-check",
+]
+source_files = ["fleet_kb.rs"]
+db_tables = []
+lines = 825
+e2e_tested = false
+notes = "Fleet knowledge base for Meshed Intelligence. Solution management."
+
+[features.content_drift]
+status = "complete"
+department = "fleet"
+owner = "bono"
+entry_points = []
+source_files = ["content_drift.rs"]
+db_tables = ["content_drift_events"]
+lines = 335
+e2e_tested = false
+notes = "Content drift detector. Polls pods hourly, compares disk vs TOML. Phase 366."
+
+# =============================================================================
+# DEPARTMENT: OPERATIONS — AGENT FEATURES (rc-agent)
+# =============================================================================
+
+[features.agent_event_loop]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: event_loop.rs", "rc-agent: ws_handler.rs"]
+db_tables = []
+lines = 5232
+e2e_tested = true
+notes = "Core agent event loop and WS message handler. 26 tests. Handles all CoreToAgentMessage dispatch."
+
+[features.agent_pre_flight]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: pre_flight.rs"]
+db_tables = []
+lines = 1551
+e2e_tested = false
+notes = "Pre-flight checks before game launch. Hardware, software, disk space, USB."
+
+[features.agent_self_test]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: self_test.rs"]
+db_tables = []
+lines = 1101
+e2e_tested = false
+notes = "Pod self-test suite. 17 tests."
+
+[features.agent_self_heal]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: self_heal.rs"]
+db_tables = []
+lines = 496
+e2e_tested = false
+notes = "Self-healing for common pod issues. 10 tests."
+
+[features.agent_self_monitor]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: self_monitor.rs"]
+db_tables = []
+lines = 576
+e2e_tested = false
+notes = "Agent self-monitoring and restart logic. 11 tests."
+
+[features.agent_remote_ops]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: remote_ops.rs"]
+db_tables = []
+lines = 2031
+e2e_tested = true
+notes = "HTTP server on pod (:8090). Exec, health, debug endpoints. 3 tests."
+
+[features.agent_debug_server]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: debug_server.rs"]
+db_tables = []
+lines = 267
+e2e_tested = false
+notes = "Debug HTTP server on pod (:18924). Edge process count, lock screen state."
+
+[features.driving_detector]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: driving_detector.rs"]
+db_tables = []
+lines = 363
+e2e_tested = false
+notes = "Detects active driving via USB HID input. 10s idle threshold. 12 tests."
+
+[features.inactivity_monitor]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: inactivity_monitor.rs"]
+db_tables = []
+lines = 150
+e2e_tested = false
+notes = "Monitors customer inactivity during billing sessions. 7 tests."
+
+[features.billing_guard]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: billing_guard.rs"]
+db_tables = []
+lines = 492
+e2e_tested = false
+notes = "Agent-side billing enforcement. Prevents game launch without billing. 11 tests."
+
+[features.session_enforcer]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: session_enforcer.rs"]
+db_tables = []
+lines = 381
+e2e_tested = false
+notes = "Session time enforcement on agent. 13 tests."
+
+[features.game_doctor]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: game_doctor.rs"]
+db_tables = []
+lines = 629
+e2e_tested = false
+notes = "Game health diagnostics. Detects stuck/crashed games. 6 tests."
+
+[features.game_launch_retry]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: game_launch_retry.rs"]
+db_tables = []
+lines = 498
+e2e_tested = false
+notes = "Automatic game launch retry on failure. 8 tests."
+
+[features.game_process]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: game_process.rs"]
+db_tables = []
+lines = 756
+e2e_tested = false
+notes = "Game process lifecycle management. 16 tests. Known issue: resets to None on reconnect."
+
+[features.launch_verifier]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: launch_verifier.rs"]
+db_tables = []
+lines = 694
+e2e_tested = false
+notes = "Verifies game launched correctly by checking process, window, UDP ports. 12 tests."
+
+[features.startup_cleanup]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: startup_cleanup.rs"]
+db_tables = []
+lines = 783
+e2e_tested = false
+notes = "Cleans up stale processes, temp files, sentinels on agent startup. 5 tests."
+
+[features.content_scanner]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: content_scanner.rs"]
+db_tables = []
+lines = 1419
+e2e_tested = false
+notes = "Scans pod for installed games, tracks, cars. Reports to server. 37 tests."
+
+[features.off_track_detection]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: off_track_detector.rs", "rc-agent: off_track_blanking.rs"]
+db_tables = []
+lines = 491
+e2e_tested = false
+notes = "Detects off-track driving and triggers blanking frames. 5 tests."
+
+[features.dxgi_capture]
+status = "incomplete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: dxgi_capture.rs"]
+db_tables = []
+lines = 221
+e2e_tested = false
+notes = "DXGI screen capture for session highlights. Code exists but session_highlights table has no INSERT."
+
+[features.csv_lap_fallback]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: csv_lap_fallback.rs"]
+db_tables = []
+lines = 394
+e2e_tested = false
+notes = "Fallback lap data from AC CSV files when UDP telemetry fails. 3 tests."
+
+[features.steam_checks]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: steam_checks.rs"]
+db_tables = []
+lines = 436
+e2e_tested = false
+notes = "Steam process and library validation. 10 tests."
+
+[features.iracing_checks]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: iracing_checks.rs"]
+db_tables = []
+lines = 225
+e2e_tested = false
+notes = "iRacing-specific validation and config checks. 5 tests."
+
+[features.firewall]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: firewall.rs"]
+db_tables = []
+lines = 269
+e2e_tested = false
+notes = "Windows Firewall rule management on pods. 7 tests."
+
+[features.safe_mode]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: safe_mode.rs"]
+db_tables = []
+lines = 476
+e2e_tested = false
+notes = "Agent safe mode — degraded operation when critical subsystems fail. 21 tests."
+
+[features.night_ops]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: night_ops.rs"]
+db_tables = []
+lines = 313
+e2e_tested = false
+notes = "After-hours pod behavior (reduce brightness, cleanup). 2 tests."
+
+[features.sentinel_watcher]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: sentinel_watcher.rs"]
+db_tables = []
+lines = 203
+e2e_tested = false
+notes = "Watches for sentinel files (MAINTENANCE_MODE, GRACEFUL_RELAUNCH). Triggers actions."
+
+[features.udp_heartbeat]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["udp_heartbeat.rs", "rc-agent: udp_heartbeat.rs"]
+db_tables = []
+lines = 460
+e2e_tested = false
+notes = "UDP heartbeat between agent and server. 1 test."
+
+[features.mdns_discovery]
+status = "complete"
+department = "operations"
+owner = "james"
+entry_points = []
+source_files = ["mdns.rs", "rc-agent: mdns_discovery.rs"]
+db_tables = []
+lines = 154
+e2e_tested = false
+notes = "mDNS service discovery for server finding on LAN."
+
+# =============================================================================
+# DEPARTMENT: OPERATIONS — AI/ML SUBSYSTEMS (rc-agent)
+# =============================================================================
+
+[features.mma_engine]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: mma_engine.rs", "rc-agent: mma_cache.rs"]
+db_tables = ["model_evaluations"]
+lines = 2123
+e2e_tested = false
+notes = "Multi-Model Adversarial engine. Domain rosters, stratified shuffle, consensus. v31.0."
+
+[features.ai_debugger]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: ai_debugger.rs"]
+db_tables = []
+lines = 1897
+e2e_tested = false
+notes = "AI-powered debugging on pod agent. Uses Ollama/OpenRouter. 50 tests."
+
+[features.tier_engine]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: tier_engine.rs"]
+db_tables = []
+lines = 3063
+e2e_tested = false
+notes = "4-tier debug engine. Deterministic → Memory → Ollama → Cloud. 5 tests."
+
+[features.diagnostic_engine]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: diagnostic_engine.rs", "rc-agent: diagnosis_planner.rs", "rc-agent: diagnostic_log.rs"]
+db_tables = []
+lines = 1225
+e2e_tested = false
+notes = "Automated pod diagnostics. 4 tests in diagnosis_planner."
+
+[features.knowledge_base]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: knowledge_base.rs", "rc-agent: kb_hardening.rs", "rc-agent: kb_promotion_store.rs"]
+db_tables = []
+lines = 2340
+e2e_tested = false
+notes = "Local knowledge base for pod-level debugging. Hardening and promotion. 23 tests across files."
+
+[features.failure_monitor]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: failure_monitor.rs"]
+db_tables = []
+lines = 733
+e2e_tested = false
+notes = "Monitors failure patterns per pod. 24 tests."
+
+[features.cognitive_gate]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: cognitive_gate.rs"]
+db_tables = []
+lines = 742
+e2e_tested = false
+notes = "Cognitive gate enforcement in agent. 6 tests."
+
+[features.model_reputation]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = [
+    "GET /models/evaluations",
+    "GET /models/reputation",
+]
+source_files = ["rc-agent: model_reputation.rs", "rc-agent: model_reputation_store.rs", "rc-agent: model_eval_store.rs"]
+db_tables = ["model_evaluations"]
+lines = 1009
+e2e_tested = false
+notes = "Tracks AI model accuracy over time. 16 tests across files."
+
+[features.openrouter_client]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: openrouter.rs"]
+db_tables = []
+lines = 1321
+e2e_tested = false
+notes = "OpenRouter API client for multi-model AI queries. 12 tests."
+
+[features.budget_tracker]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: budget_tracker.rs", "rc-agent: budget_tracker_store.rs"]
+db_tables = []
+lines = 615
+e2e_tested = false
+notes = "AI API spend tracking. $5/session budget. 15 tests."
+
+[features.eval_rollup]
+status = "complete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: eval_rollup.rs"]
+db_tables = []
+lines = 437
+e2e_tested = false
+notes = "Aggregates model evaluation results. 5 tests."
+
+[features.retrain_export]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: retrain_export.rs"]
+db_tables = []
+lines = 665
+e2e_tested = false
+notes = "Exports training data for model retraining. 7 tests. No active retraining pipeline."
+
+[features.experience_system]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: experience_collector.rs", "rc-agent: experience_score.rs", "rc-agent: experience_actions.rs"]
+db_tables = []
+lines = 528
+e2e_tested = false
+notes = "Experience scoring and action recommendations. 6 tests. No known production use."
+
+[features.predictive_maintenance]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: predictive_maintenance.rs"]
+db_tables = []
+lines = 874
+e2e_tested = false
+notes = "Predictive maintenance using ML. 9 tests. No evidence of production predictions being acted on."
+
+[features.revenue_protection]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: revenue_protection.rs"]
+db_tables = []
+lines = 138
+e2e_tested = false
+notes = "138 lines. Revenue loss detection. No tests. Declared in main but not clear if actively used."
+
+[features.weekly_report]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: weekly_report.rs"]
+db_tables = []
+lines = 821
+e2e_tested = false
+notes = "Weekly report generation. 13 tests. Separate weekly-report crate also exists."
+
+[features.mesh_gossip]
+status = "incomplete"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["rc-agent: mesh_gossip.rs"]
+db_tables = []
+lines = 465
+e2e_tested = false
+notes = "Pod-to-pod gossip protocol for knowledge sharing. 4 tests. Phase 1 code complete, pending deploy."
+
+# =============================================================================
+# DEPARTMENT: OPERATIONS — SERVER AI
+# =============================================================================
+
+[features.ai_chat]
+status = "complete"
+department = "ai"
+owner = "bono"
+entry_points = [
+    "POST /ai/chat",
+    "POST /ai/diagnose",
+    "GET /ai/suggestions",
+    "POST /ai/suggestions/{id}/dismiss",
+    "GET /ai/training/stats",
+    "GET /ai/training/pairs",
+    "POST /ai/training/import",
+    "POST /customer/ai/chat",
+]
+source_files = ["ai.rs"]
+db_tables = ["ai_suggestions", "ai_training_pairs", "ai_messages"]
+lines = 1045
+e2e_tested = false
+notes = "AI chat for staff and customers. Training data management. 8 tests."
+
+[features.ai_behavior_batch]
+status = "complete"
+department = "ai"
+owner = "bono"
+entry_points = ["POST /admin/ai-behavior-batch/run"]
+source_files = ["ai_behavior_batch.rs"]
+db_tables = ["ai_behavior_samples"]
+lines = 1038
+e2e_tested = false
+notes = "Batch AI behavior analysis. 14 tests."
+
+[features.ollama_client]
+status = "stale"
+department = "ai"
+owner = "james"
+entry_points = []
+source_files = ["ollama_client.rs"]
+db_tables = []
+lines = 93
+e2e_tested = false
+notes = "93 lines. Ollama HTTP client. Used by ai.rs but Ollama is venue-only (.27:11434)."
+
+# =============================================================================
+# DEPARTMENT: CUSTOMERS & AUTH
+# =============================================================================
+
+[features.customer_auth]
+status = "complete"
+department = "auth"
+owner = "bono"
+entry_points = [
+    "POST /customer/login",
+    "POST /customer/resend-otp",
+    "POST /customer/verify-otp",
+    "POST /customer/register",
+    "POST /venue/register",
+    "GET /customer/otp-fallback/{token}",
+]
+source_files = ["auth/mod.rs", "auth/middleware.rs", "auth/admin.rs"]
+db_tables = ["drivers", "auth_tokens", "customer_sessions"]
+lines = 3523
+e2e_tested = true
+notes = "OTP-based customer auth + staff JWT. 35 tests across auth modules."
+
+[features.staff_auth]
+status = "complete"
+department = "auth"
+owner = "bono"
+entry_points = [
+    "POST /auth/validate-pin",
+    "POST /auth/kiosk/validate-pin",
+    "POST /staff/validate-pin",
+    "POST /auth/admin-login",
+    "POST /auth/break-glass",
+    "GET /employee/daily-pin",
+    "POST /employee/debug-unlock",
+]
+source_files = ["auth/mod.rs", "auth/admin.rs", "auth/middleware.rs"]
+db_tables = ["staff_members", "staff_login_attempts", "admin_lockout"]
+lines = 0
+e2e_tested = true
+notes = "PIN-based staff auth. Daily rotating debug PIN. Break-glass emergency access."
+
+[features.customer_profile]
+status = "complete"
+department = "customers"
+owner = "bono"
+entry_points = [
+    "GET /customer/profile",
+    "PUT /customer/profile",
+    "GET /customer/racers",
+    "POST /customer/racers",
+    "GET /customer/sessions",
+    "GET /customer/sessions/{id}",
+    "GET /customer/laps",
+    "GET /customer/stats",
+    "GET /customer/waiver-status",
+    "GET /customer/data-export",
+    "DELETE /customer/data-delete",
+    "POST /customer/revoke-consent",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["drivers", "sessions", "laps"]
+lines = 0
+e2e_tested = true
+notes = "Full customer profile management. Data export/delete for GDPR compliance."
+
+[features.friends]
+status = "complete"
+department = "customers"
+owner = "bono"
+entry_points = [
+    "GET /customer/friends",
+    "GET /customer/friends/requests",
+    "POST /customer/friends/request",
+    "POST /customer/friends/request/{id}/accept",
+    "POST /customer/friends/request/{id}/reject",
+    "DELETE /customer/friends/{id}",
+    "PUT /customer/presence",
+]
+source_files = ["friends.rs"]
+db_tables = ["friend_requests", "friendships"]
+lines = 297
+e2e_tested = false
+notes = "Friend requests and presence. friendships table has CREATE but no INSERT found — accept may write to friend_requests instead."
+
+[features.waivers]
+status = "complete"
+department = "customers"
+owner = "bono"
+entry_points = [
+    "GET /waivers",
+    "GET /waivers/check",
+    "GET /waivers/{driver_id}/signature",
+    "POST /guardian/send-otp",
+    "POST /guardian/verify-otp",
+    "GET /legal/minor-waiver-disclosure",
+]
+source_files = ["api/routes.rs"]
+db_tables = []
+lines = 0
+e2e_tested = false
+notes = "Waiver management including minor guardians. OTP verification for legal guardians."
+
+# =============================================================================
+# DEPARTMENT: MARKETING & ENGAGEMENT
+# =============================================================================
+
+[features.referrals]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /customer/referral-code",
+    "POST /customer/referral-code/generate",
+    "POST /customer/redeem-referral",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["referrals"]
+lines = 0
+e2e_tested = false
+notes = "Referral system. 100 credits referrer, 50 credits referee."
+
+[features.coupons]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "POST /customer/apply-coupon",
+    "GET /coupons",
+    "POST /coupons",
+    "PUT /coupons/{id}",
+    "DELETE /coupons/{id}",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["coupons", "coupon_redemptions"]
+lines = 0
+e2e_tested = false
+notes = "Coupon system. Percent/flat/free_minutes types. Admin CRUD + customer apply."
+
+[features.packages]
+status = "incomplete"
+department = "marketing"
+owner = "bono"
+entry_points = ["GET /customer/packages"]
+source_files = ["api/routes.rs"]
+db_tables = ["packages"]
+lines = 0
+e2e_tested = false
+notes = "5 seeded packages (Date Night, Squad, Birthday, Corporate, Student). packages table has no INSERT — read-only from seed."
+
+[features.memberships]
+status = "incomplete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /customer/membership",
+    "POST /customer/membership/subscribe",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["membership_tiers", "memberships"]
+lines = 0
+e2e_tested = false
+notes = "3 tiers (Rookie/Pro/Champion). membership_tiers table has no INSERT — read-only from seed."
+
+[features.review_nudges]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /review-nudges/pending",
+    "POST /review-nudges/{id}/sent",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["review_nudges"]
+lines = 0
+e2e_tested = false
+notes = "Auto-scheduled post-session review nudges. 50 credit reward for Google review."
+
+[features.tournaments]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /tournaments",
+    "POST /tournaments",
+    "GET /tournaments/{id}",
+    "PUT /tournaments/{id}",
+    "GET /tournaments/{id}/registrations",
+    "GET /tournaments/{id}/matches",
+    "POST /tournaments/{id}/generate-bracket",
+    "POST /tournaments/{id}/matches/{match_id}/result",
+    "GET /customer/tournaments",
+    "POST /customer/tournaments/{id}/register",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["tournaments", "tournament_registrations", "tournament_matches"]
+lines = 0
+e2e_tested = false
+notes = "Full tournament bracket system. Admin CRUD + customer registration."
+
+[features.time_trials]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /time-trials",
+    "POST /time-trials",
+    "PUT /time-trials/{id}",
+    "DELETE /time-trials/{id}",
+    "GET /public/time-trial",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["time_trials"]
+lines = 0
+e2e_tested = false
+notes = "Time trial events with public leaderboard. Admin CRUD."
+
+[features.hotlap_events]
+status = "complete"
+department = "marketing"
+owner = "james"
+entry_points = [
+    "POST /staff/events",
+    "GET /staff/events",
+    "GET /staff/events/{id}",
+    "PUT /staff/events/{id}",
+    "POST /staff/events/{id}/link-session",
+    "GET /public/events",
+    "GET /public/events/{id}",
+    "GET /public/events/{id}/sessions",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["hotlap_events", "hotlap_event_entries"]
+lines = 0
+e2e_tested = false
+notes = "Hotlap event management. Staff create events, link group sessions, public leaderboard."
+
+[features.championships]
+status = "complete"
+department = "marketing"
+owner = "james"
+entry_points = [
+    "POST /staff/championships",
+    "GET /staff/championships",
+    "GET /staff/championships/{id}",
+    "POST /staff/championships/{id}/rounds",
+    "GET /public/championships",
+    "GET /public/championships/{id}",
+    "GET /public/championships/{id}/standings",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["championships", "championship_rounds", "championship_standings"]
+lines = 0
+e2e_tested = false
+notes = "Multi-round championship series. Staff manage, public standings."
+
+[features.leaderboard]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /public/leaderboard",
+    "GET /public/leaderboard/{track}",
+    "GET /public/circuit-records",
+    "GET /public/vehicle-records/{car}",
+    "GET /public/drivers",
+    "GET /public/drivers/{id}",
+    "GET /public/drivers/{id}/rating",
+    "GET /public/laps/{lap_id}/telemetry",
+    "GET /public/sessions/{id}",
+    "GET /leaderboard/{track}",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["personal_bests", "personal_bests_v2", "track_records", "track_records_v2"]
+lines = 0
+e2e_tested = true
+notes = "Public leaderboard with circuit/vehicle records. No auth required."
+
+[features.session_share]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = ["GET /customer/sessions/{id}/share"]
+source_files = ["api/routes.rs"]
+db_tables = []
+lines = 0
+e2e_tested = false
+notes = "Shareable session report with percentile ranking, consistency, PB."
+
+[features.driver_rating]
+status = "complete"
+department = "marketing"
+owner = "bono"
+entry_points = [
+    "GET /public/drivers/{id}/rating",
+    "GET /drivers/{id}/rating-history",
+]
+source_files = ["driver_rating.rs"]
+db_tables = ["driver_ratings"]
+lines = 366
+e2e_tested = false
+notes = "ELO-style driver rating system. 5 tests."
+
+# =============================================================================
+# DEPARTMENT: PSYCHOLOGY & GAMIFICATION
+# =============================================================================
+
+[features.psychology_engine]
+status = "complete"
+department = "gamification"
+owner = "bono"
+entry_points = [
+    "GET /psychology/badges",
+    "GET /psychology/badges/{driver_id}",
+    "GET /psychology/streaks/{driver_id}",
+    "GET /psychology/nudge-queue",
+    "POST /psychology/test-nudge",
+    "GET /customer/passport",
+    "GET /customer/badges",
+]
+source_files = ["psychology.rs"]
+db_tables = ["achievements", "driver_achievements", "streaks", "driving_passport", "nudge_queue", "variable_reward_log"]
+lines = 1604
+e2e_tested = false
+notes = "Behavioral psychology engine. Badges, streaks, variable rewards, nudge queue. 15 tests."
+
+[features.staff_gamification]
+status = "incomplete"
+department = "gamification"
+owner = "bono"
+entry_points = [
+    "GET /staff/gamification/challenges",
+    "POST /staff/gamification/challenges/{id}/progress",
+    "GET /staff/gamification/kudos",
+    "GET /staff/gamification/leaderboard",
+    "GET /staff/{id}/badges",
+    "POST /staff/{id}/opt-in",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["staff_kudos", "staff_earned_badges", "staff_badges", "staff_challenges"]
+lines = 0
+e2e_tested = false
+notes = "Staff gamification system. staff_badges and staff_earned_badges have no INSERT. Challenges and kudos have INSERT."
+
+# =============================================================================
+# DEPARTMENT: CAFE
+# =============================================================================
+
+[features.cafe]
+status = "complete"
+department = "cafe"
+owner = "bono"
+entry_points = [
+    "GET /cafe/menu",
+    "GET /cafe/categories",
+    "GET /cafe/items",
+    "PUT /cafe/items/{id}",
+    "POST /cafe/items/{id}/toggle",
+    "POST /cafe/items/{id}/restock",
+    "POST /cafe/items/{id}/image",
+    "GET /cafe/items/low-stock",
+    "POST /cafe/import/preview",
+    "POST /cafe/import/confirm",
+    "POST /cafe/orders",
+    "POST /customer/cafe/orders",
+    "GET /customer/cafe/orders/history",
+]
+source_files = ["cafe.rs"]
+db_tables = ["cafe_categories", "cafe_items", "cafe_orders"]
+lines = 2172
+e2e_tested = false
+notes = "Full cafe POS. 36 menu items seeded. Customer ordering + staff management. 7 tests."
+
+[features.cafe_promos]
+status = "complete"
+department = "cafe"
+owner = "bono"
+entry_points = [
+    "GET /cafe/promos",
+    "GET /cafe/promos/active",
+    "PUT /cafe/promos/{id}",
+    "POST /cafe/promos/{id}/toggle",
+]
+source_files = ["cafe_promos.rs"]
+db_tables = ["cafe_promos"]
+lines = 547
+e2e_tested = false
+notes = "Cafe promotions management."
+
+[features.cafe_alerts]
+status = "stale"
+department = "cafe"
+owner = "bono"
+entry_points = []
+source_files = ["cafe_alerts.rs"]
+db_tables = []
+lines = 522
+e2e_tested = false
+notes = "522 lines. Low-stock alerts, expiry warnings. No direct route. Spawned as background task."
+
+[features.cafe_marketing]
+status = "stale"
+department = "cafe"
+owner = "bono"
+entry_points = ["POST /cafe/marketing/broadcast"]
+source_files = ["cafe_marketing.rs"]
+db_tables = []
+lines = 216
+e2e_tested = false
+notes = "216 lines. Cafe marketing broadcasts. One route. Unclear if used."
+
+# =============================================================================
+# DEPARTMENT: RESERVATIONS & QUEUE
+# =============================================================================
+
+[features.reservations]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = [
+    "GET /customer/reservation",
+    "POST /customer/reservation/create",
+    "PUT /customer/reservation/modify",
+    "DELETE /customer/reservation",
+    "GET /customer/active-reservation",
+    "POST /customer/end-reservation",
+    "POST /customer/continue-session",
+    "POST /customer/book",
+    "GET /bookings",
+    "POST /bookings",
+]
+source_files = ["reservation.rs", "pod_reservation.rs"]
+db_tables = ["reservations", "pod_reservations", "bookings"]
+lines = 1074
+e2e_tested = false
+notes = "Customer booking wizard + pod reservation. 8-step wizard at /book."
+
+[features.virtual_queue]
+status = "incomplete"
+department = "operations"
+owner = "bono"
+entry_points = [
+    "POST /queue/join",
+    "GET /queue/status/{id}",
+    "POST /queue/{id}/leave",
+    "GET /queue",
+    "POST /queue/{id}/call",
+    "POST /queue/{id}/seat",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["virtual_queue"]
+lines = 0
+e2e_tested = false
+notes = "Virtual queue system. Routes exist. No known frontend integration."
+
+# =============================================================================
+# DEPARTMENT: OBSERVABILITY & MONITORING
+# =============================================================================
+
+[features.metrics]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = [
+    "GET /metrics/prometheus",
+    "GET /metrics/snapshot",
+    "GET /metrics/query",
+    "GET /metrics/names",
+    "GET /metrics/launch-stats",
+    "GET /metrics/launch-observability",
+    "GET /metrics/billing-accuracy",
+    "GET /analytics/telemetry",
+    "GET /analytics/trends",
+]
+source_files = ["metrics.rs", "metrics_tsdb.rs", "metrics_producers.rs", "api/metrics.rs", "api/metrics_prometheus.rs", "api/metrics_query.rs"]
+db_tables = ["metrics_samples", "metrics_rollups"]
+lines = 3016
+e2e_tested = false
+notes = "TSDB metrics + Prometheus exporter + query API. 8 tests in prometheus."
+
+[features.app_health_monitor]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = ["GET /app-health"]
+source_files = ["app_health_monitor.rs"]
+db_tables = ["app_health_log", "app_restart_log"]
+lines = 887
+e2e_tested = false
+notes = "Application health monitoring. Restart detection."
+
+[features.subsystem_health]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["subsystem_health.rs"]
+db_tables = []
+lines = 981
+e2e_tested = false
+notes = "Per-subsystem health tracking. 13 tests."
+
+[features.synthetic_monitor]
+status = "stale"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["synthetic_monitor.rs"]
+db_tables = ["synthetic_probes"]
+lines = 241
+e2e_tested = false
+notes = "241 lines. Synthetic probes for uptime monitoring. Background task."
+
+[features.metric_alerts]
+status = "stale"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["metric_alerts.rs"]
+db_tables = []
+lines = 269
+e2e_tested = false
+notes = "269 lines. Threshold-based metric alerting. 8 tests."
+
+[features.data_collector]
+status = "orphaned"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["data_collector.rs"]
+db_tables = []
+lines = 160
+e2e_tested = false
+notes = "160 lines. Hardcoded pod_count_online: 8, active_sessions: 0. TODO comments for real queries. Not wired to routes."
+
+[features.error_aggregator]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["error_aggregator.rs"]
+db_tables = []
+lines = 301
+e2e_tested = false
+notes = "Spawned from main.rs. Aggregates errors across subsystems."
+
+[features.error_rate]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["error_rate.rs"]
+db_tables = []
+lines = 258
+e2e_tested = false
+notes = "Error rate tracking. 4 tests."
+
+[features.feedback_loop]
+status = "stale"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["feedback_loop.rs"]
+db_tables = []
+lines = 188
+e2e_tested = false
+notes = "188 lines. Prediction outcome tracking. TODO for missed_failures. Not wired to routes."
+
+[features.session_audit]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = []
+source_files = ["session_audit.rs"]
+db_tables = []
+lines = 520
+e2e_tested = false
+notes = "Session integrity auditing. 8 tests."
+
+[features.activity_log]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = [
+    "GET /activity",
+    "GET /debug/activity",
+]
+source_files = ["activity_log.rs"]
+db_tables = ["pod_activity_log"]
+lines = 199
+e2e_tested = false
+notes = "Global activity feed. 4 tests."
+
+[features.event_archive]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = ["GET /system-events"]
+source_files = ["event_archive.rs"]
+db_tables = ["system_events"]
+lines = 649
+e2e_tested = false
+notes = "System event archival. 1 test."
+
+[features.audit_log]
+status = "complete"
+department = "observability"
+owner = "bono"
+entry_points = ["GET /audit-log"]
+source_files = ["api/routes.rs"]
+db_tables = ["audit_log"]
+lines = 0
+e2e_tested = false
+notes = "Audit trail with before/after snapshots. Auto-logs on pricing/coupons CRUD."
+
+# =============================================================================
+# DEPARTMENT: ALERTING & NOTIFICATIONS
+# =============================================================================
+
+[features.whatsapp_alerter]
+status = "complete"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["whatsapp_alerter.rs"]
+db_tables = []
+lines = 375
+e2e_tested = false
+notes = "WhatsApp alert sending. Referenced in routes.rs."
+
+[features.whatsapp_escalation]
+status = "stale"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["whatsapp_escalation.rs"]
+db_tables = []
+lines = 289
+e2e_tested = false
+notes = "289 lines. Multi-level WhatsApp escalation. Declared in lib.rs. Not directly routed."
+
+[features.email_alerts]
+status = "complete"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["email_alerts.rs"]
+db_tables = []
+lines = 383
+e2e_tested = false
+notes = "Email alerting. 13 tests."
+
+[features.alert_engine]
+status = "stale"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["alert_engine.rs"]
+db_tables = ["alert_incidents"]
+lines = 134
+e2e_tested = false
+notes = "134 lines. Generic alert engine. Declared in lib.rs."
+
+[features.notification_outbox]
+status = "incomplete"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["notification_outbox.rs"]
+db_tables = ["notification_outbox"]
+lines = 276
+e2e_tested = false
+notes = "276 lines. Persistent notification queue. DB table has INSERT but no route to deliver notifications."
+
+[features.escalation]
+status = "stale"
+department = "alerting"
+owner = "bono"
+entry_points = []
+source_files = ["escalation.rs"]
+db_tables = []
+lines = 159
+e2e_tested = false
+notes = "159 lines. Escalation logic. 10 tests. Referenced indirectly."
+
+# =============================================================================
+# DEPARTMENT: INFRASTRUCTURE
+# =============================================================================
+
+[features.cloud_sync]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "GET /sync/changes",
+    "POST /sync/push",
+    "GET /sync/health",
+    "POST /sync/import-sessions",
+    "POST /admin/sync/pull-now",
+]
+source_files = ["cloud_sync.rs"]
+db_tables = ["sync_log", "sync_state"]
+lines = 2176
+e2e_tested = true
+notes = "Cloud-venue bidirectional sync. 30s interval. Cloud authoritative for drivers/pricing."
+
+[features.mesh_handler]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "GET /cloud/mesh/pull",
+    "POST /cloud/mesh/sync",
+    "GET /mesh/deploy-status",
+]
+source_files = ["mesh_handler.rs", "mesh_cloud_sync.rs"]
+db_tables = []
+lines = 484
+e2e_tested = false
+notes = "Mesh cloud sync endpoints."
+
+[features.backup_pipeline]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = ["GET /backup/status"]
+source_files = ["backup_pipeline.rs"]
+db_tables = []
+lines = 1155
+e2e_tested = false
+notes = "Database backup pipeline. 14 tests."
+
+[features.tls]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["tls.rs", "rc-agent: tls.rs"]
+db_tables = []
+lines = 545
+e2e_tested = false
+notes = "TLS configuration for server and agent. 11 tests across both."
+
+[features.config_management]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "POST /config/push",
+    "GET /config/push/queue",
+    "GET /config/pod/{pod_id}",
+    "GET /config/audit",
+]
+source_files = ["config_push.rs", "config.rs"]
+db_tables = ["config_push_queue", "config_audit_log", "pod_configs"]
+lines = 2403
+e2e_tested = false
+notes = "Config push to pods via WS. Audit trail. 29 tests across modules."
+
+[features.feature_flags]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "GET /flags",
+    "POST /flags",
+    "PUT /flags/{name}",
+]
+source_files = ["flags.rs", "rc-agent: feature_flags.rs"]
+db_tables = ["feature_flags"]
+lines = 627
+e2e_tested = false
+notes = "Runtime feature flags. Server CRUD + agent periodic fetch."
+
+[features.websocket]
+status = "complete"
+department = "infrastructure"
+owner = "james"
+entry_points = []
+source_files = ["ws/mod.rs"]
+db_tables = []
+lines = 3185
+e2e_tested = true
+notes = "WebSocket server. Agent connections, dashboard events, billing ticks."
+
+[features.scheduler]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "GET /scheduler/status",
+    "PUT /scheduler/settings",
+    "GET /scheduler/analytics",
+]
+source_files = ["scheduler.rs"]
+db_tables = ["scheduler_events"]
+lines = 516
+e2e_tested = false
+notes = "Background task scheduler. Analytics and settings API."
+
+[features.recovery]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = ["GET /recovery/events", "POST /recovery/events"]
+source_files = ["recovery.rs"]
+db_tables = ["recovery_events"]
+lines = 314
+e2e_tested = false
+notes = "Recovery event tracking. 11 tests."
+
+[features.cascade_guard]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["cascade_guard.rs"]
+db_tables = []
+lines = 407
+e2e_tested = false
+notes = "Prevents cascade failures across subsystems. 9 tests."
+
+[features.dependency_chain]
+status = "stale"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["dependency_chain.rs"]
+db_tables = []
+lines = 144
+e2e_tested = false
+notes = "144 lines. Dependency tracking between subsystems. No tests."
+
+[features.self_healing]
+status = "stale"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["self_healing.rs"]
+db_tables = []
+lines = 99
+e2e_tested = false
+notes = "99 lines. Server-side self-healing. Minimal implementation."
+
+[features.venue_state]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["venue_state.rs"]
+db_tables = []
+lines = 130
+e2e_tested = false
+notes = "Venue state tracking. 1 test."
+
+[features.network_source]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["network_source.rs"]
+db_tables = []
+lines = 226
+e2e_tested = false
+notes = "Network source detection (pod vs non-pod). 7 tests. Used in route middleware."
+
+[features.input_validation]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["input_validation.rs"]
+db_tables = []
+lines = 131
+e2e_tested = false
+notes = "Input validation utilities. 7 tests."
+
+[features.crypto]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["crypto/encryption.rs", "crypto/redaction.rs"]
+db_tables = []
+lines = 267
+e2e_tested = false
+notes = "Encryption and PII redaction. 14 tests."
+
+[features.data_retention]
+status = "incomplete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = []
+db_tables = ["data_retention_config"]
+lines = 0
+e2e_tested = false
+notes = "data_retention_config table defined but no INSERT found. Not wired."
+
+# =============================================================================
+# DEPARTMENT: ADMIN & STAFF
+# =============================================================================
+
+[features.staff_management]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /staff",
+    "POST /staff",
+    "PUT /staff/{id}",
+    "DELETE /staff/{id}",
+    "POST /staff/{id}/reset-pin",
+    "POST /admin/staff/{id}/change-pin",
+    "POST /staff/shift-handoff",
+    "GET /staff/shift-briefing",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["staff_members"]
+lines = 0
+e2e_tested = false
+notes = "Staff CRUD + shift handoff + briefing."
+
+[features.debug_tools]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /debug/db-stats",
+    "GET /debug/activity",
+    "GET /debug/playbooks",
+    "GET /debug/incidents",
+    "POST /debug/incidents",
+    "PUT /debug/incidents/{id}",
+    "POST /debug/incidents/{id}/apply-fix",
+    "POST /debug/diagnose",
+    "GET /debug/pod-events/{pod_id}",
+]
+source_files = ["api/routes.rs", "api/debug_launches.rs"]
+db_tables = ["debug_incidents", "debug_playbooks", "debug_resolutions"]
+lines = 274
+e2e_tested = false
+notes = "Staff debugging tools. Incident tracking, playbook management."
+
+[features.terminal]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "POST /terminal/auth",
+    "GET /terminal/commands",
+    "GET /terminal/commands/pending",
+    "POST /terminal/commands/{id}/result",
+]
+source_files = ["remote_terminal.rs"]
+db_tables = ["terminal_commands"]
+lines = 190
+e2e_tested = false
+notes = "Remote terminal for kiosk/pod commands."
+
+[features.bot_coordinator]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /bot/lookup",
+    "GET /bot/pricing",
+    "GET /bot/leaderboard",
+    "GET /bot/pods-status",
+    "POST /bot/book",
+    "POST /bot/register-lead",
+    "GET /bot/events",
+    "GET /bot/customer-stats",
+]
+source_files = ["bot_coordinator.rs"]
+db_tables = []
+lines = 655
+e2e_tested = false
+notes = "WhatsApp/Discord bot API. 14 tests."
+
+[features.bono_relay]
+status = "stale"
+department = "admin"
+owner = "bono"
+entry_points = []
+source_files = ["bono_relay.rs"]
+db_tables = []
+lines = 355
+e2e_tested = false
+notes = "355 lines. Relay for Bono VPS communication. 4 tests. Mostly superseded by comms-link."
+
+[features.action_queue]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "POST /actions",
+    "GET /actions/pending",
+    "GET /actions/history",
+    "POST /actions/process",
+    "POST /actions/{id}/ack",
+]
+source_files = ["action_queue.rs"]
+db_tables = ["action_queue"]
+lines = 361
+e2e_tested = false
+notes = "Persistent action queue for async operations."
+
+[features.policy_engine]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /policy/rules",
+    "PUT /policy/rules/{id}",
+    "GET /policy/eval-log",
+]
+source_files = ["policy_engine.rs"]
+db_tables = ["policy_rules", "policy_eval_log"]
+lines = 744
+e2e_tested = false
+notes = "Policy rule engine. 7 tests."
+
+[features.hr]
+status = "incomplete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /hr/sjts",
+    "GET /hr/sjts/{id}",
+    "GET /hr/campaign-templates",
+    "GET /hr/nudge-templates",
+    "GET /hr/job-preview",
+    "GET /hr/recognition",
+]
+source_files = ["api/routes.rs"]
+db_tables = ["hiring_sjts", "campaign_templates", "nudge_templates", "job_preview"]
+lines = 0
+e2e_tested = false
+notes = "HR features. hiring_sjts, campaign_templates, nudge_templates, job_preview all have no INSERT — read-only from seed."
+
+# =============================================================================
+# DEPARTMENT: MAINTENANCE
+# =============================================================================
+
+[features.maintenance_engine]
+status = "complete"
+department = "maintenance"
+owner = "james"
+entry_points = [
+    "POST /maintenance/events",
+    "GET /maintenance/summary",
+    "POST /maintenance/tasks",
+]
+source_files = ["maintenance_engine.rs", "maintenance_store.rs", "maintenance_models.rs", "maintenance_xai.rs"]
+db_tables = []
+lines = 2658
+e2e_tested = false
+notes = "Predictive maintenance engine. Anomaly scanning with healing. Spawned from main.rs."
+
+[features.server_diagnostics]
+status = "complete"
+department = "maintenance"
+owner = "james"
+entry_points = []
+source_files = ["server_diagnostics.rs"]
+db_tables = []
+lines = 504
+e2e_tested = false
+notes = "Server-side diagnostics."
+
+[features.server_ops]
+status = "complete"
+department = "maintenance"
+owner = "james"
+entry_points = []
+source_files = ["server_ops.rs"]
+db_tables = []
+lines = 548
+e2e_tested = false
+notes = "Server operations on :8090."
+
+# =============================================================================
+# DEPARTMENT: ORPHANED / DEAD CODE
+# =============================================================================
+
+[features.business_forecast]
+status = "orphaned"
+department = "analytics"
+owner = "bono"
+entry_points = []
+source_files = ["business_forecast.rs"]
+db_tables = []
+lines = 59
+e2e_tested = false
+notes = "59 lines. Declared in lib.rs. NOT referenced in routes.rs or main.rs. Zero integration."
+
+[features.optimization_engine]
+status = "orphaned"
+department = "analytics"
+owner = "bono"
+entry_points = []
+source_files = ["optimization_engine.rs"]
+db_tables = []
+lines = 85
+e2e_tested = false
+notes = "85 lines. Declared in lib.rs. NOT referenced in routes.rs or main.rs. Zero integration."
+
+[features.snapshot_manager]
+status = "orphaned"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["snapshot_manager.rs"]
+db_tables = []
+lines = 33
+e2e_tested = false
+notes = "33 lines. Declared in lib.rs. NOT referenced in routes.rs or main.rs. Zero integration."
+
+[features.promotion]
+status = "stale"
+department = "marketing"
+owner = "bono"
+entry_points = []
+source_files = ["promotion.rs"]
+db_tables = []
+lines = 200
+e2e_tested = false
+notes = "200 lines. Promotion engine. Declared in lib.rs. Not referenced in routes.rs. May be used internally."
+
+[features.visits]
+status = "complete"
+department = "billing"
+owner = "bono"
+entry_points = [
+    "POST /visits/end/{id}",
+    "GET /visits/{id}/receipt",
+]
+source_files = ["visits.rs"]
+db_tables = ["visits"]
+lines = 185
+e2e_tested = false
+notes = "Visit tracking. TODO: Send WhatsApp receipt on auto-close."
+
+[features.lap_tracker]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = ["GET /laps", "GET /customer/laps"]
+source_files = ["lap_tracker.rs"]
+db_tables = ["laps", "lap_rejections"]
+lines = 1119
+e2e_tested = false
+notes = "Lap tracking and rejection logic. 4 tests."
+
+[features.lap_consistency]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = []
+source_files = ["lap_consistency.rs"]
+db_tables = []
+lines = 148
+e2e_tested = false
+notes = "Lap consistency analysis for coaching. 5 tests."
+
+[features.telemetry_store]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = [
+    "GET /customer/telemetry",
+    "GET /analytics/telemetry",
+]
+source_files = ["telemetry_store.rs"]
+db_tables = ["telemetry_samples"]
+lines = 809
+e2e_tested = false
+notes = "Telemetry data storage and retrieval."
+
+[features.catalog]
+status = "complete"
+department = "operations"
+owner = "bono"
+entry_points = [
+    "GET /customer/ac/catalog",
+    "GET /customer/experiences",
+    "GET /games/catalog",
+]
+source_files = ["catalog.rs"]
+db_tables = []
+lines = 1213
+e2e_tested = false
+notes = "AC catalog (36 tracks, 41 cars featured). Games catalog. 23 tests."
+
+[features.security_api]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = []
+source_files = ["api/security.rs"]
+db_tables = []
+lines = 263
+e2e_tested = false
+notes = "Security middleware and rate limiting. 18 tests."
+
+[features.survival_api]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = [
+    "POST /failover/broadcast",
+    "POST /internal/test/config-mismatch",
+]
+source_files = ["api/survival.rs"]
+db_tables = []
+lines = 554
+e2e_tested = false
+notes = "Failover and survival endpoints. 11 tests."
+
+[features.inventory]
+status = "stale"
+department = "operations"
+owner = "bono"
+entry_points = []
+source_files = ["inventory.rs"]
+db_tables = []
+lines = 90
+e2e_tested = false
+notes = "90 lines. Generic inventory. Declared in lib.rs but no direct route."
+
+[features.log_sync]
+status = "complete"
+department = "infrastructure"
+owner = "bono"
+entry_points = ["GET /logs"]
+source_files = ["log_sync.rs"]
+db_tables = []
+lines = 149
+e2e_tested = false
+notes = "Log retrieval API. Spawned from main.rs."
+
+[features.pos_lockdown]
+status = "complete"
+department = "admin"
+owner = "bono"
+entry_points = [
+    "GET /pos/lockdown",
+    "POST /pos/lockdown",
+]
+source_files = ["api/routes.rs"]
+db_tables = []
+lines = 0
+e2e_tested = false
+notes = "POS lockdown toggle."
+
+# =============================================================================
+# SUMMARY STATISTICS
+# =============================================================================
+
+[summary]
+complete = 78
+incomplete = 14
+stale = 17
+orphaned = 4
+dead = 0
+diverged = 0
+total_features = 113
+
+# Tables with CREATE TABLE but no INSERT found (possibly seeded or unused):
+# accounts, ai_messages, bonus_tiers, bookings (may use events table),
+# campaign_templates, data_retention_config, debug_playbooks, event_entries, events,
+# friendships, hiring_sjts, invoice_sequence, job_preview, kiosk_allowlist,
+# membership_tiers, nudge_templates, packages, pod_uptime_samples, session_feedback,
+# session_highlights, staff_badges, staff_earned_badges, sync_log
+
+# TODO markers: 21 found across both crates
+# FIXME markers: 0
+# HACK markers: 0
+
+# =============================================================================
+# TOP 10 DELETION CANDIDATES (dead/orphaned/stale features by lines)
+# =============================================================================
+
+[deletion_candidates]
+rank_1 = { feature = "predictive_maintenance", lines = 874, status = "stale", reason = "No production predictions being acted on. 874 lines of ML code with no evidence of impact." }
+rank_2 = { feature = "retrain_export", lines = 665, status = "stale", reason = "Exports training data but no active retraining pipeline exists. 665 lines." }
+rank_3 = { feature = "cafe_alerts", lines = 522, status = "stale", reason = "522 lines. Background alerts for cafe stock. No route. Unclear if active." }
+rank_4 = { feature = "experience_system", lines = 528, status = "stale", reason = "528 lines across 3 files. Experience scoring with no known production use." }
+rank_5 = { feature = "bono_relay", lines = 355, status = "stale", reason = "355 lines. Mostly superseded by comms-link v2." }
+rank_6 = { feature = "billing_replay", lines = 300, status = "stale", reason = "300 lines. Session replay for admin. No known frontend caller." }
+rank_7 = { feature = "whatsapp_escalation", lines = 289, status = "stale", reason = "289 lines. Multi-level escalation. Not directly routed." }
+rank_8 = { feature = "notification_outbox", lines = 276, status = "incomplete", reason = "276 lines. Notification queue with no delivery mechanism routed." }
+rank_9 = { feature = "promotion", lines = 200, status = "stale", reason = "200 lines. Promotion engine not referenced in routes." }
+rank_10 = { feature = "data_collector", lines = 160, status = "orphaned", reason = "160 lines. Hardcoded placeholder values. Two TODO comments. No integration." }
