@@ -149,6 +149,13 @@ pub(crate) struct ConnectionState {
     pub(crate) current_launch_id: Option<String>,
     /// Layer 3: Config verification completed for current session (reset on game exit).
     pub(crate) config_verified: bool,
+    /// ADAPTER-SWAP-02 (2026-04-12, James): last adapter connect() error string.
+    /// Used to throttle the WARN log — repeated identical failures are silenced,
+    /// only new/changed errors get logged. AC SHM `Failed to open shared memory:
+    /// Local\acpmf_physics` fires every 100ms when no game is running (expected
+    /// state), and would flood the log if logged unconditionally. This field
+    /// reduces that to one log entry per error-message transition.
+    pub(crate) last_adapter_connect_error: Option<String>,
 }
 
 impl ConnectionState {
@@ -202,6 +209,7 @@ impl ConnectionState {
             launch_start: None,
             current_launch_id: None,
             config_verified: false,
+            last_adapter_connect_error: None,
         }
     }
 }
@@ -393,20 +401,39 @@ pub async fn run(
                     // which silently swallowed every failure. A port-conflict bug in
                     // run_udp_monitor (binding F1 25 port 20777 at rc-agent startup) caused
                     // F125Adapter::connect() to fail with "address in use" on every tick for
-                    // the full 180s launch window — zero log output, masked the bug. Any
-                    // adapter connect error now surfaces as a WARN so the next investigator
-                    // sees it immediately. See trace:
+                    // the full 180s launch window — zero log output, masked the bug.
+                    //
+                    // Now: log WARN on the FIRST failure with a given error message, and
+                    // suppress subsequent identical failures (AC SHM `Failed to open shared
+                    // memory` fires every 100ms when no game is running — would flood the
+                    // log without throttling). Also log INFO once on recovery to a Ok state.
+                    // See trace:
                     // .planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/
                     match adapter.connect() {
                         Ok(()) => {
                             state.overlay.set_max_rpm(adapter.max_rpm());
+                            if conn.last_adapter_connect_error.is_some() {
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    "Adapter connect recovered for {:?}", adapter.sim_type()
+                                );
+                                conn.last_adapter_connect_error = None;
+                            }
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                target: LOG_TARGET,
-                                "Adapter connect failed for {:?}: {}",
-                                adapter.sim_type(), e
-                            );
+                            let err_str = e.to_string();
+                            let is_new_error = conn.last_adapter_connect_error
+                                .as_ref()
+                                .map(|prev| prev != &err_str)
+                                .unwrap_or(true);
+                            if is_new_error {
+                                tracing::warn!(
+                                    target: LOG_TARGET,
+                                    "Adapter connect failed for {:?}: {}",
+                                    adapter.sim_type(), err_str
+                                );
+                                conn.last_adapter_connect_error = Some(err_str);
+                            }
                         }
                     }
                     continue;
