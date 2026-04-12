@@ -36,6 +36,13 @@ The absolute minimum. Nothing else matters until these work end-to-end.
 
 ### Multiplayer
 
+### End-to-End Verification
+
+- [ ] **E2E-01**: Automated test exists that launches AC on a pod, simulates driving, and verifies a lap row appears in the laps table
+- [ ] **E2E-02**: Session report page on PWA shows laps, best time, and consistency after a session ends
+
+### Multiplayer
+
 - [ ] **MULT-01**: AC multiplayer session launches on 2+ pods simultaneously
 - [ ] **MULT-02**: All participants' laps are recorded during multiplayer session
 - [ ] **MULT-03**: Multiplayer sessions do not disconnect or orphan drivers mid-race
@@ -67,6 +74,20 @@ Revenue, retention, and the cafe. Blocks growth but not basic operation.
 - [ ] **CUST-01**: PWA shows session stats, personal bests, and telemetry for any game played
 - [ ] **CUST-02**: Leaderboard shows fastest laps across AC, F1 25, iRacing, and LMU (not just AC)
 - [ ] **CUST-03**: Session wait time from "staff clicks launch" to "customer is driving" is under 15 seconds
+
+### Customer Onboarding
+
+- [ ] **ONBD-01**: New customer registration via PWA works end-to-end (register, verify, create wallet)
+- [ ] **ONBD-02**: Staff can create a new customer from the POS kiosk for walk-ins without phones
+
+### Staff Visibility
+
+- [ ] **STFV-01**: POS dashboard shows venue state at a glance — which pods are free, active sessions with timers, wallet balances
+- [ ] **STFV-02**: POS dashboard file split from 2,426-line single page into components
+
+### Venue Operations
+
+- [ ] **VOPS-01**: Venue boot sequence: all machines power on and reach "ready" state within 10 minutes of first power-on, with a health gate confirming all pods, server, and POS are connected
 
 ### Marketing — Fill Empty Hours
 
@@ -143,6 +164,8 @@ Prevents the next 1,397 debug commits. Enables future growth.
 | LAPS-04 | Phase 371 | Pending |
 | LAPS-05 | Phase 371 | Pending |
 | LAPS-06 | Phase 371 | Pending |
+| E2E-01 | Phase 371 | Pending |
+| E2E-02 | Phase 371 | Pending |
 | BILL-01 | Phase 372 | Pending |
 | BILL-02 | Phase 372 | Pending |
 | BILL-03 | Phase 372 | Pending |
@@ -160,6 +183,11 @@ Prevents the next 1,397 debug commits. Enables future growth.
 | WLLT-03 | Phase 375 | Pending |
 | CAFE-01 | Phase 376 | Pending |
 | CAFE-02 | Phase 376 | Pending |
+| ONBD-01 | Phase 377 | Pending |
+| ONBD-02 | Phase 377 | Pending |
+| STFV-01 | Phase 377 | Pending |
+| STFV-02 | Phase 377 | Pending |
+| VOPS-01 | Phase 377 | Pending |
 | CUST-01 | Phase 377 | Pending |
 | CUST-02 | Phase 377 | Pending |
 | CUST-03 | Phase 377 | Pending |
@@ -186,14 +214,32 @@ Prevents the next 1,397 debug commits. Enables future growth.
 | FNDN-05 | Phase 382 | Pending |
 
 **Coverage:**
-- P0 requirements: 22 (LNCH-01..07, LAPS-01..06, BILL-01..05, MULT-01..04)
-- P1 requirements: 14 (PWAL-01..03, WLLT-01..03, CAFE-01..02, CUST-01..03, MKTG-01..03)
+- P0 requirements: 24 (LNCH-01..07, LAPS-01..06, E2E-01..02, BILL-01..05, MULT-01..04)
+- P1 requirements: 21 (PWAL-01..03, WLLT-01..03, CAFE-01..02, ONBD-01..02, STFV-01..02, VOPS-01, CUST-01..03, MKTG-01..03)
 - P2 requirements: 18 (EVNT-01..05, DCMP-01..05, FTOL-01..03, FNDN-01..05)
-- Total: 54 requirements mapped
+- Total: 63 requirements mapped
 - Unmapped: 0
 
 **Priority rule:** No P1 phase starts until ALL P0 requirements are verified working. No P2 phase starts until ALL P1 requirements are verified working. Exception: P2 decomposition work that directly unblocks a P0 requirement (e.g., splitting ac_launcher.rs to enable LNCH-05) can run in parallel.
 
+## Execution Commitments (Hard Constraints)
+
+These are not guidelines. They are constraints that override all other instructions.
+
+1. **One phase at a time, fully verified.** No starting Phase N+1 until Phase N is: code complete, deployed to venue AND cloud, and verified by a REAL action on a REAL pod producing a REAL result. "cargo test passes" is not verification. "A lap appears in the database" is verification.
+
+2. **Uday gates every P0 phase.** Every P0 phase (369-373) requires Uday's sign-off at the venue: launch a game from the kiosk, drive a lap, check if it shows on the leaderboard. AI self-certification is not accepted for P0.
+
+3. **No new milestones until v48 P0 ships.** No v49, no "urgent" new milestone, no parallel milestone. v48 P0 (phases 369-373) must be proven with real laps in the database before any new work is scoped.
+
+4. **Shared contracts before code.** Before any phase that involves both Bono and James, a contract file in rc-common must be agreed upon. Neither side writes implementation code until the contract compiles. Contract changes require a [CONTRACT CHANGE] tagged commit and comms-link notification.
+
+5. **Daily deployable increments.** No phase runs for more than 3 days without a deployable, verifiable increment on a real pod. If a phase can't produce a verifiable result in 3 days, it's scoped too large — split it.
+
+6. **Success measured by laps in the database.** Not by commits. Not by phases completed. Not by lines of code. Not by test count. The v48 P0 success metric is: `SELECT COUNT(*) FROM laps` > 0 on production.
+
+7. **Fix by subtraction.** When a bug is found during v48, the default response is to remove or simplify code, not add guards. If a fix adds more lines than it removes, it requires justification in the commit message.
+
 ---
 *Requirements defined: 2026-04-13*
-*Last updated: 2026-04-13 — Roadmap created, all 54 requirements mapped to phases 369-382*
+*Last updated: 2026-04-13 — Added 9 requirements (E2E, ONBD, STFV, VOPS) + execution commitments*
