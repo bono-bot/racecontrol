@@ -1010,7 +1010,7 @@ async fn main() -> Result<()> {
         //            2026-04-12T05-17-IST-f1_25-launch-fullchain/
         //            (canary 96940ad0 retrace at 00:32:39-00:35:40 UTC proved
         //            the port conflict — F125Adapter never bound, silent fail).
-        const F125_ADAPTER_PORT: u16 = 20777;
+        const F125_ADAPTER_PORT: u16 = 20778;
         let udp_signal_tx = signal_tx.clone();
         let udp_ports: Vec<u16> = config.telemetry_ports.ports.iter()
             .copied()
@@ -1018,7 +1018,7 @@ async fn main() -> Result<()> {
             .collect();
         tracing::info!(
             target: LOG_TARGET,
-            "run_udp_monitor port list (F125 port 20777 excluded, owned by F125Adapter): {:?}",
+            "run_udp_monitor port list (F125 port 20778 excluded, owned by F125Adapter): {:?}",
             udp_ports
         );
         tokio::spawn(async move {
