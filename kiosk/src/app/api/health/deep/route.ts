@@ -11,6 +11,11 @@ import { NextResponse } from 'next/server';
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.31.23:8080';
+// Self-proxy base: the kiosk's own URL, used to verify the rewrite proxy works.
+// In production standalone, this is localhost:PORT. fetchApi in the browser hits
+// this same host:port with /api/v1/* paths — if the proxy is broken, staff PIN,
+// experiences, and ALL API calls fail silently (2026-04-12 incident).
+const SELF_BASE = `http://localhost:${process.env.PORT || '3300'}`;
 const TIMEOUT_MS = 8000;
 
 interface CheckResult {
@@ -44,6 +49,20 @@ async function checkWithTimeout(
 
 export async function GET() {
   const checks = await Promise.all([
+    // Self-proxy test: verify the Next.js rewrite proxy forwards /api/v1/* to racecontrol.
+    // This is how fetchApi() in the browser reaches the backend. If broken, ALL client-side
+    // API calls (staff PIN, experiences, fleet health) silently fail with 404 or HTML.
+    // 2026-04-12 incident: basePath auto-prefix broke the proxy on port 3300.
+    checkWithTimeout(
+      'api_proxy',
+      `${SELF_BASE}/api/v1/health`,
+      (data) => {
+        const bid = (data as { build_id?: string }).build_id;
+        return bid
+          ? { passed: true, detail: `proxy OK, backend build_id: ${bid}` }
+          : { passed: false, detail: 'proxy returned data but no build_id — wrong endpoint?' };
+      },
+    ),
     checkWithTimeout(
       'pods_available',
       `${API_BASE}/api/v1/fleet/health`,
