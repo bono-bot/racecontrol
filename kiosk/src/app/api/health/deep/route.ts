@@ -57,7 +57,8 @@ export async function GET() {
     ),
     checkWithTimeout(
       'games_catalog',
-      `${API_BASE}/api/v1/games`,
+      // /games/catalog is the public endpoint (public_routes). /games alone returns 404.
+      `${API_BASE}/api/v1/games/catalog`,
       (data) => {
         const games = (data as { games?: unknown[] }).games;
         const count = Array.isArray(games) ? games.length : 0;
@@ -68,7 +69,8 @@ export async function GET() {
     ),
     checkWithTimeout(
       'billing_pricing',
-      `${API_BASE}/api/v1/pricing`,
+      // /pricing/display is the public endpoint (public_routes). /pricing requires staff JWT.
+      `${API_BASE}/api/v1/pricing/display`,
       (data) => {
         const tiers = (data as { tiers?: unknown[] }).tiers;
         const count = Array.isArray(tiers) ? tiers.length : 0;
