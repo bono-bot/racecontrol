@@ -479,7 +479,7 @@ impl SimAdapter for F125Adapter {
         raw.set_nonblocking(true)
             .context("Failed to set non-blocking on F1 25 telemetry socket")?;
 
-        let addr: std::net::SocketAddr = "0.0.0.0:20777".parse().unwrap();
+        let addr: std::net::SocketAddr = "127.0.0.1:20777".parse().unwrap();
         raw.bind(&addr.into())
             .context("Failed to bind F1 25 telemetry port 20777 (SO_REUSEADDR)")?;
 
@@ -500,7 +500,7 @@ impl SimAdapter for F125Adapter {
         let socket: UdpSocket = raw.into();
         self.socket = Some(socket);
         self.connected = true;
-        tracing::info!(target: LOG_TARGET, "F1 25 adapter listening on UDP port 20777 (SO_REUSEADDR, coexists with ConspitLink)");
+        tracing::info!(target: LOG_TARGET, "F1 25 adapter listening on 127.0.0.1:20777 (SO_REUSEADDR, matches ConspitLink specificity)");
         Ok(())
     }
 
