@@ -455,12 +455,52 @@ impl SimAdapter for F125Adapter {
     }
 
     fn connect(&mut self) -> Result<()> {
-        let socket = UdpSocket::bind("0.0.0.0:20777")
-            .context("Failed to bind F1 25 telemetry port 20777")?;
-        socket.set_nonblocking(true)?;
+        // ADAPTER-SWAP-03 (2026-04-12, James): bind with SO_REUSEADDR to coexist
+        // with ConspitLink2.0, the venue's wheelbase FFB driver. ConspitLink binds
+        // 127.0.0.1:20777 to receive F1 25 UDP telemetry for force-feedback
+        // generation. Without SO_REUSEADDR, this bind fails with "address in use"
+        // and F125Adapter silently starves — UdpReachable never fires, launch
+        // verifier times out at 180s, server retry kills the game.
+        //
+        // With SO_REUSEADDR, Windows delivers each UDP datagram to ALL matching
+        // sockets, so both ConspitLink (FFB) and F125Adapter (launch verifier +
+        // HUD overlay) receive every packet. The non-inheritable handle flag
+        // prevents cmd.exe children from holding the port after rc-agent exits.
+        //
+        // Pre-check via netstat on Pod 4 confirmed ConspitLink2.0 (PID 21392)
+        // holds UDP 127.0.0.1:20777. See trace:
+        // .planning/debug/flow-traces/runs/2026-04-12T05-17-IST-f1_25-launch-fullchain/
+        use socket2::{Domain, Protocol, Socket, Type};
+
+        let raw = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))
+            .context("Failed to create UDP socket for F1 25 telemetry")?;
+        raw.set_reuse_address(true)
+            .context("Failed to set SO_REUSEADDR on F1 25 telemetry socket")?;
+        raw.set_nonblocking(true)
+            .context("Failed to set non-blocking on F1 25 telemetry socket")?;
+
+        let addr: std::net::SocketAddr = "0.0.0.0:20777".parse().unwrap();
+        raw.bind(&addr.into())
+            .context("Failed to bind F1 25 telemetry port 20777 (SO_REUSEADDR)")?;
+
+        // Non-inheritable handle — prevents cmd.exe children from holding the port.
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            let sock_handle = raw.as_raw_socket() as usize;
+            unsafe {
+                winapi::um::handleapi::SetHandleInformation(
+                    sock_handle as *mut _,
+                    0x00000001, // HANDLE_FLAG_INHERIT
+                    0,          // clear = non-inheritable
+                );
+            }
+        }
+
+        let socket: UdpSocket = raw.into();
         self.socket = Some(socket);
         self.connected = true;
-        tracing::info!(target: LOG_TARGET, "F1 25 adapter listening on UDP port 20777");
+        tracing::info!(target: LOG_TARGET, "F1 25 adapter listening on UDP port 20777 (SO_REUSEADDR, coexists with ConspitLink)");
         Ok(())
     }
 
