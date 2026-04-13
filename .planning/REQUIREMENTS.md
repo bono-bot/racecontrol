@@ -1,245 +1,204 @@
-# Requirements: RacingPoint v48.0 — Codebase Architecture
+# Requirements: RacingPoint v49.0 — Unified RaceControl Operations
 
-**Defined:** 2026-04-13
-**Core Value:** A customer walks in, launches a game, drives, and their laps appear on the leaderboard. Every time. For every supported game.
+**Defined:** 2026-04-14
+**Core Value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically. Every time. For every game.
 
-## P0 — Core Product Must Work
+**Predecessor:** v48.0 (Codebase Architecture). v49 ships v48's committed code, completes lap recording, then builds autonomous revenue systems.
 
-The absolute minimum. Nothing else matters until these work end-to-end.
+## Prior Art — What's Already Done
 
-### Game Launch
+The following capabilities exist in code (committed or deployed). v49 does NOT rebuild them — it deploys, verifies, and builds on top.
 
-- [ ] **LNCH-01**: Staff launches AC from kiosk — game starts on pod in <5 seconds, no failures
-- [ ] **LNCH-02**: Staff launches F1 25 from kiosk — game starts on pod, no pin-grid block, no browser stuck
-- [ ] **LNCH-03**: Staff launches iRacing from kiosk — game starts on pod
-- [ ] **LNCH-04**: Staff launches LMU from kiosk — game starts on pod
-- [ ] **LNCH-05**: AC launch is VMS-parity — write config, spawn process, done (<500 lines, replacing 19,597-line path)
-- [ ] **LNCH-06**: Each sim has a SimLauncher trait implementation (<500 lines each) — no copy-paste from AC
-- [ ] **LNCH-07**: Staff Launch (Method 1) and PWA Launch (Method 2) are completely separate code paths that converge only at "validate funds -> debit -> launch"
+| Capability | Source | Status |
+|---|---|---|
+| Native Win32 lock screen (no Edge) | James v44.0 Phase 329 | Deployed |
+| VMS architecture integration | James v44.0 Phases 329-336 | Code complete |
+| Credits/rupees wallet separation | James v45.0 Phases 337-342 | Deployed |
+| Post-launch config verification | James v46.0 Phase 362 | Deployed (build a9b5eaa3) |
+| Data recording verification | James v46.0 Phase 363 | Code complete, **NOT deployed** |
+| Game intelligence + fleet health | James v41.0 Phases 315-320 | Deployed |
+| Reliability dashboard | James v41.0 Phase 319 | Deployed |
+| Health + WhatsApp alerts | James v47.0 Phase 352 | Deployed |
+| Auth resilience (lockout, break-glass) | James v47.0 Phase 348 | Deployed |
+| Data durability (backups, WAL) | James v47.0 Phase 351 | Deployed |
+| DB sync via Google Drive | James v47.0 Phase 349 | Deployed |
+| Runbooks + staff training | James v47.0 Phase 353 | Deployed |
+| Session trace ID propagation | James v39.0 Phase 310 | Partial (1/2 plans) |
+| Security hardening (TLS, RBAC, JWT) | James v38.0 Phases 305-309 | Deployed |
+| Self-audit + visual regression | James v43.0 Phases 325-328 | Deployed |
+| Live launch status + autonomous debug | James Phase 368 | Deployed |
+| routes.rs split (26K → 55 modules) | Bono v48 Phase 380 | Committed, not deployed |
+| launch_contract types | Bono v48 Phase 369 | Committed, not deployed |
+| billing_arcade model | Bono v48 Phase 372 | Committed, not deployed |
+| PWA self-service PIN launch | Bono v48 Phase 374 | Committed, not deployed |
+| Credit types (cash vs promo) | Bono v48 Phase 375 | Committed, not deployed |
+| Cafe wallet integration | Bono v48 Phase 376 | Committed, not deployed |
+| PWA session report + leaderboard | Bono v48 Phase 377 | Committed, not deployed |
+| Marketing engine (empty hours) | Bono v48 Phase 378 | Committed, not deployed |
+| Domain events foundation | Bono v48 Phase 379 | Committed, not deployed |
+| Fix-scope blast radius tool | Bono v48 Phase 381 | Committed, not deployed |
+| ADAPTER-SWAP F1 25 fixes (5 commits) | Bono debug sessions | Committed, not deployed |
 
-### Lap Recording
+## Wave 1 — Deploy & Verify (Gate: all code deployed + healthy)
 
-- [ ] **LAPS-01**: AC laps are recorded to the database during a session (shared memory -> rc-agent -> server -> SQLite)
-- [ ] **LAPS-02**: F1 25 laps are recorded to the database during a session (UDP telemetry -> rc-agent -> server -> SQLite)
-- [ ] **LAPS-03**: iRacing laps are recorded to the database
-- [ ] **LAPS-04**: LMU laps are recorded to the database
-- [ ] **LAPS-05**: Recorded laps appear on the PWA leaderboard within 10 seconds of completion
-- [ ] **LAPS-06**: Telemetry (speed, gear, throttle, brake) is captured for all 4 supported games
+Ship everything that's committed but sitting undeployed. Nothing else starts until the codebase running on production matches the codebase in git.
 
-### Billing — Arcade Model
+- [ ] **DPLY-01**: All v48 committed code (phases 369, 372, 374-381) built and deployed to server .23 + Bono VPS
+- [ ] **DPLY-02**: Phase 363 (data recording verification) deployed to server .23 — lap audit, telemetry completeness, CSV fallback, billing 5s grace window all active
+- [ ] **DPLY-03**: ADAPTER-SWAP F1 25 fixes (commits 96940ad0 through 5d2d0877) deployed to all 8 pods via canary rollout (Pod 8 first)
+- [ ] **DPLY-04**: routes.rs split (Phase 380, 55 modules) compiles and serves all existing endpoints identically — zero functional regression
+- [ ] **DPLY-05**: Phase 363 billing 5s grace window verified: lap arriving within 5s of session end updates refund calc before commit
+- [ ] **DPLY-06**: `/api/v1/health` on server .23 returns 200 with matching build_id after deploy
 
-- [ ] **BILL-01**: Customer wallet must have sufficient funds BEFORE game launch (coin first, game second)
-- [ ] **BILL-02**: Funds are deducted at game start, not session creation
-- [ ] **BILL-03**: Per-minute billing runs while game is active — game stops when funds run out
-- [ ] **BILL-04**: 30-minute and 1-hour tier options work correctly
-- [ ] **BILL-05**: Game crash -> billing pauses automatically, resumes on relaunch
+## Wave 2 — Lap Recording (P0 Gate: `SELECT COUNT(*) FROM laps` > 0 on production)
 
-### Multiplayer
+Uday's #1 pain point. Nothing else starts until a customer drives and their lap appears in the database.
 
-### End-to-End Verification
+### Lap Recording Wiring
 
-- [ ] **E2E-01**: Automated test exists that launches AC on a pod, simulates driving, and verifies a lap row appears in the laps table
-- [ ] **E2E-02**: Session report page on PWA shows laps, best time, and consistency after a session ends
+- [ ] **LAPR-01**: AC adapter is swapped on LaunchGame command — when staff launches AC, the correct sim adapter binds to shared memory (not the boot-time default)
+- [ ] **LAPR-02**: Adapter connect retry loop — if shared memory isn't immediately available after game launch, adapter retries every 2s for up to 60s
+- [ ] **LAPR-03**: persist_lap works without an active billing session — laps are recorded even during free trials or when billing is paused
+- [ ] **LAPR-04**: AC laps flow end-to-end: shared memory → rc-agent adapter → WS to server → SQLite `laps` table → PWA leaderboard within 10s
+- [ ] **LAPR-05**: F1 25 laps flow end-to-end: UDP port 20777 → rc-agent adapter → WS to server → SQLite `laps` table
+- [ ] **LAPR-06**: Telemetry (speed, gear, throttle, brake) captured and stored for both AC and F1 25
 
-### Multiplayer
+### Verification
 
-- [ ] **MULT-01**: AC multiplayer session launches on 2+ pods simultaneously
-- [ ] **MULT-02**: All participants' laps are recorded during multiplayer session
-- [ ] **MULT-03**: Multiplayer sessions do not disconnect or orphan drivers mid-race
-- [ ] **MULT-04**: Multiplayer billing is atomic — all participants debited, or none
+- [ ] **VRFY-01**: Uday verifies at venue: launch AC from kiosk, drive 3 laps, check PWA leaderboard — laps appear
+- [ ] **VRFY-02**: Uday verifies at venue: launch F1 25 from kiosk, drive 3 laps, check PWA leaderboard — laps appear
+- [ ] **VRFY-03**: Session report page on PWA shows laps, best time, consistency, and telemetry after session ends
 
-## P1 — Business Model Must Work
+## Wave 3 — Architecture Completion (P1)
 
-Revenue, retention, and the cafe. Blocks growth but not basic operation.
+Finish the decomposition started in v48. Blocks testability and maintainability.
 
-### PWA Self-Service Launch
+- [ ] **ARCH-01**: billing.rs (9,142 lines) split into: wallet.rs, session_lifecycle.rs, pricing.rs, post_session_hooks.rs — each under 500 lines
+- [ ] **ARCH-02**: db/mod.rs (5K+ lines) split by department table groups — each under 500 lines
+- [ ] **ARCH-03**: All remaining files >500 lines split along department boundaries
+- [ ] **ARCH-04**: CI gate runs `cargo test` + `cargo clippy` before merge to main
+- [ ] **ARCH-05**: Dead code audit — remove unused features identified by Feature Registry (Phase 382). Target: 10-20% codebase reduction
 
-- [ ] **PWAL-01**: Customer selects game + presets in PWA — receives 4-digit numeric PIN
-- [ ] **PWAL-02**: Customer enters PIN on pod's 4-digit PIN Grid — game launches without staff
-- [ ] **PWAL-03**: PWA launch path is completely independent from staff launch path in code
+## Wave 4 — Revenue Engine (P2)
 
-### Wallet
+Autonomous systems that drive revenue without human intervention. The core v3.0 vision.
 
-- [ ] **WLLT-01**: Credits have a type: cash (refundable) vs promotional (non-refundable, spend-only)
-- [ ] **WLLT-02**: Refund logic enforces: refund amount <= total cash deposited (promotional credits never refunded)
-- [ ] **WLLT-03**: Same wallet debits for games AND cafe (unified path)
+### Autonomous Pricing
 
-### Cafe Integration
+- [ ] **PRCG-01**: Expense data model — rent (₹1.6L), salaries (₹80K), utilities (₹60K), marketing (₹1.5L), cafe inventory (₹12K) stored in `business_expenses` table with monthly update capability
+- [ ] **PRCG-02**: Break-even calculator — given expenses + current session count, computes minimum price per session to cover costs
+- [ ] **PRCG-03**: Optimal price engine — factors: time of day, day of week, historical demand, competitor pricing, expense data → recommended price per tier
+- [ ] **PRCG-04**: Auto-update pricing — Bono adjusts `pricing_rules` table based on engine output, reflected in PWA and billing within 1 sync cycle. Uday does NOT approve — Bono decides.
+- [ ] **PRCG-05**: Pricing dashboard — admin page showing: current prices, engine recommendations, historical price changes, revenue impact
 
-- [ ] **CAFE-01**: Cafe orders debit from the customer's wallet (same credits as games)
-- [ ] **CAFE-02**: Combo deals exist: game session + cafe item at a discount
+### Customer Preferences (Anti-Spam Foundation)
 
-### Customer Experience
+- [ ] **PREF-01**: `customer_preferences` table — per-customer opt-in/opt-out for promotional messages, channel preference (WhatsApp/Discord/PWA), frequency cap
+- [ ] **PREF-02**: Opt-out via WhatsApp — customer sends "stop" or similar → immediately removed from promotional list. Transactional messages (booking confirmations, receipts) unaffected.
+- [ ] **PREF-03**: Frequency cap enforcement — even opted-in customers receive max 2-3 promotional messages per week
+- [ ] **PREF-04**: Engagement throttle — if customer ignores 3 consecutive offers, stop sending until they re-engage
+- [ ] **PREF-05**: PWA preferences page — customer can manage their communication preferences
 
-- [ ] **CUST-01**: PWA shows session stats, personal bests, and telemetry for any game played
-- [ ] **CUST-02**: Leaderboard shows fastest laps across AC, F1 25, iRacing, and LMU (not just AC)
-- [ ] **CUST-03**: Session wait time from "staff clicks launch" to "customer is driving" is under 15 seconds
+### Autonomous Marketing
 
-### Customer Onboarding
+- [ ] **AMKT-01**: Empty hour detection — system identifies pods with 0 active sessions during typically busy hours
+- [ ] **AMKT-02**: Targeted offer generation — based on customer preferences, past behavior, and available inventory, generate personalized offers
+- [ ] **AMKT-03**: WhatsApp delivery — push offers to opted-in customers via WhatsApp (Evolution API). Only to customers who haven't opted out.
+- [ ] **AMKT-04**: Offer tracking — track which offers were sent, opened, redeemed. Feed back into engagement throttle.
+- [ ] **AMKT-05**: Cafe + racing combo promotions — "Book 1 hour, get free coffee" type deals auto-generated during empty hours
 
-- [ ] **ONBD-01**: New customer registration via PWA works end-to-end (register, verify, create wallet)
-- [ ] **ONBD-02**: Staff can create a new customer from the POS kiosk for walk-ins without phones
+## Wave 5 — Game Launch Completion (P2)
 
-### Staff Visibility
+Full multi-game support beyond AC.
 
-- [ ] **STFV-01**: POS dashboard shows venue state at a glance — which pods are free, active sessions with timers, wallet balances
-- [ ] **STFV-02**: POS dashboard file split from 2,426-line single page into components
+- [ ] **GAME-01**: F1 25 full launch — staff launches from kiosk, game starts on pod, telemetry flows, laps recorded. Verified on all 8 pods.
+- [ ] **GAME-02**: iRacing basic launch — staff launches from kiosk, game starts on pod. Telemetry and lap recording functional.
+- [ ] **GAME-03**: LMU launch — staff launches from kiosk, game starts on pod with timer billing
+- [ ] **GAME-04**: Multiplayer AC session — 2+ pods launch simultaneously, all laps recorded, billing atomic
 
-### Venue Operations
+## Wave 6 — Polish & Access (P3)
 
-- [ ] **VOPS-01**: Venue boot sequence: all machines power on and reach "ready" state within 10 minutes of first power-on, with a health gate confirming all pods, server, and POS are connected
+Visible improvements for customers and staff.
 
-### Marketing — Fill Empty Hours
+- [ ] **DISP-01**: Leaderboard display on spectator PCs (192.168.31.200, .32, .84, .37) — shows live lap times during active sessions
+- [ ] **DISP-02**: Live circuit viewer (Phase 335 code) deployed to spectator PCs — car positions update at 10Hz
+- [ ] **CLUD-01**: Cloud dashboard public access — DNS A record (cloud.racingpoint.cloud → 72.60.101.58) + TLS via certbot
+- [ ] **CLUD-02**: Cloud dashboard magic-link auth works end-to-end (WhatsApp OTP to Uday)
+- [ ] **CHKL-01**: Digital staff checklist system — pod status, cleaning, hardware checks with audit trail in DB
+- [ ] **CHKL-02**: Morning opening checklist + evening closing checklist templates
+- [ ] **CHKL-03**: Checklist compliance visible on admin dashboard — which staff completed which checks
 
-- [ ] **MKTG-01**: System detects low-utilization hours and triggers deal generation
-- [ ] **MKTG-02**: Deals push via WhatsApp to registered customers
-- [ ] **MKTG-03**: Cafe + racing combo promotions exist as a promotion type
+## v47.0 Completion (James — Parallel Track)
 
-## P2 — Architecture Must Be Sustainable
+These are James's v47.0 phases that remain incomplete. They run in parallel with v49 waves. Not renumbered — tracked in James's existing GSD.
 
-Prevents the next 1,397 debug commits. Enables future growth.
+| Phase | Description | v49 Dependency |
+|---|---|---|
+| 345 | Backend Resilience (no 500s, lazy-load admin.db) | None — independent |
+| 346 | Cafe Menu Proxy Rewrite (SSOT) | Blocks CAFE integration testing |
+| 350 | Contract Tests (Playwright) | Blocks Wave 6 readiness review |
+| 354 | UI Hardening (loading/empty/error states) | None — independent |
+| 355 | Venue-Ready Readiness Review | Blocks milestone close |
+| 356 | Business Rules Config Table | Blocks PRCG-04 (pricing auto-update) |
+| 357 | Pricing Tiers CRUD | Blocks PRCG-04 |
+| 358 | Cafe Promos Admin Page | Blocks AMKT-05 |
+| 359 | Bonus Tiers Admin Page | None — independent |
+| 360 | Topup Presets SSOT (remaining) | None — independent |
 
-### Department Event Contracts
+## Execution Commitments (inherited from v48, adapted for v49)
 
-- [ ] **EVNT-01**: Typed DomainEvent enum in rc-common defines events for all departments
-- [ ] **EVNT-02**: Event bus on comms-link mesh broadcasts events to all subscribed devices
-- [ ] **EVNT-03**: Game Launch publishes GameStarted/GameCrashed/GameEnded events
-- [ ] **EVNT-04**: Billing subscribes to game events (not polling) for state awareness
-- [ ] **EVNT-05**: Correlation ID traces a customer action across all departments
-
-### Decomposition
-
-- [ ] **DCMP-01**: routes.rs (26K lines) split into department-aligned route modules
-- [ ] **DCMP-02**: billing.rs (9K lines) split into wallet, session lifecycle, pricing, post-session hooks
-- [ ] **DCMP-03**: db/mod.rs (5K lines) split by department table groups
-- [ ] **DCMP-04**: All 141 files >500 lines split along department boundaries
-- [ ] **DCMP-05**: Lock screen / blanking / browser lifecycle fully separated from game launch logic
-
-### Fix Tooling
-
-- [ ] **FTOL-01**: fix-scope tool maps blast radius for any function (callers, shared state, cross-crate deps)
-- [ ] **FTOL-02**: Pre-commit hook warns on fix commits with insertion:deletion ratio > 2:1
-- [ ] **FTOL-03**: Band-aid audit: review 36K lines of fix bloat, replace with root fixes
-
-### Foundation
-
-- [ ] **FNDN-01**: Feature Registry classifies every feature as complete/dead/orphaned/incomplete
-- [ ] **FNDN-02**: Dead code removed (target: 10-20% codebase reduction)
-- [ ] **FNDN-03**: CI gate runs cargo test + cargo clippy before merge to main
-- [ ] **FNDN-04**: CODEOWNERS assigns department ownership (Bono vs James)
-- [ ] **FNDN-05**: Every source file under 500 lines
-
-## Future (v49+)
-
-- Pods in multiple locations with PIN-based remote launch
-- Multi-venue data sync and architecture
-- Mobile native app
-- Advanced AI coaching across all games
-- New game support beyond AC/F1 25/iRacing/LMU
+1. **Deploy before build.** No new code until all committed v48 code is deployed and verified on production.
+2. **Laps gate everything.** No Wave 3+ work until LAPR-01 through LAPR-06 are verified with real laps at the venue.
+3. **Uday gates P0.** Wave 2 completion requires Uday at the venue: launch game, drive laps, see them on leaderboard.
+4. **Anti-spam is a hard constraint.** All marketing features (AMKT-*) must have opt-in/opt-out (PREF-*) deployed and verified BEFORE any promotional message is sent. Violation = immediate rollback.
+5. **Shared contracts before code.** Bono-James phases require rc-common contract agreement before implementation.
+6. **Daily deployable increments.** No phase runs >3 days without a deployable result on a real pod.
+7. **Fix by subtraction.** Bug fixes that add more lines than they remove require commit message justification.
 
 ## Out of Scope
 
 | Feature | Reason |
-|---------|--------|
-| New game support | Stabilize AC/F1 25/iRacing/LMU first |
-| New external services | Keep stack lean |
-| Multi-venue deployment | Architecture supports it later |
-| Mobile native app | PWA sufficient for now |
-| AI coaching | Needs working telemetry first (P0) |
+|---|---|
+| Multi-venue support | Single-venue SQLite; migrate to Postgres when scaling |
+| Mobile native app | PWA-first approach |
+| Instagram DM bot | No API integration yet; defer to v50 |
+| Email campaigns | Resend setup needed; defer to v50 |
+| WhatsApp lead nurturing | Needs operational bot first; defer to v50 |
+| Discord expansion | 9 commands sufficient for now |
+| Content pipeline | Staff-reviewed content; defer to v50 |
+| VR support | No VR hardware |
+| VNM Motion integration | Future hardware upgrade |
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| LNCH-01 | Phase 369 | Pending |
-| LNCH-02 | Phase 370 | Pending |
-| LNCH-03 | Phase 370 | Pending |
-| LNCH-04 | Phase 370 | Pending |
-| LNCH-05 | Phase 369 | Pending |
-| LNCH-06 | Phase 370 | Pending |
-| LNCH-07 | Phase 369 | Pending |
-| LAPS-01 | Phase 371 | Pending |
-| LAPS-02 | Phase 371 | Pending |
-| LAPS-03 | Phase 371 | Pending |
-| LAPS-04 | Phase 371 | Pending |
-| LAPS-05 | Phase 371 | Pending |
-| LAPS-06 | Phase 371 | Pending |
-| E2E-01 | Phase 371 | Pending |
-| E2E-02 | Phase 371 | Pending |
-| BILL-01 | Phase 372 | Pending |
-| BILL-02 | Phase 372 | Pending |
-| BILL-03 | Phase 372 | Pending |
-| BILL-04 | Phase 372 | Pending |
-| BILL-05 | Phase 372 | Pending |
-| MULT-01 | Phase 373 | Pending |
-| MULT-02 | Phase 373 | Pending |
-| MULT-03 | Phase 373 | Pending |
-| MULT-04 | Phase 373 | Pending |
-| PWAL-01 | Phase 374 | Pending |
-| PWAL-02 | Phase 374 | Pending |
-| PWAL-03 | Phase 374 | Pending |
-| WLLT-01 | Phase 375 | Pending |
-| WLLT-02 | Phase 375 | Pending |
-| WLLT-03 | Phase 375 | Pending |
-| CAFE-01 | Phase 376 | Pending |
-| CAFE-02 | Phase 376 | Pending |
-| ONBD-01 | Phase 377 | Pending |
-| ONBD-02 | Phase 377 | Pending |
-| STFV-01 | Phase 377 | Pending |
-| STFV-02 | Phase 377 | Pending |
-| VOPS-01 | Phase 377 | Pending |
-| CUST-01 | Phase 377 | Pending |
-| CUST-02 | Phase 377 | Pending |
-| CUST-03 | Phase 377 | Pending |
-| MKTG-01 | Phase 378 | Pending |
-| MKTG-02 | Phase 378 | Pending |
-| MKTG-03 | Phase 378 | Pending |
-| EVNT-01 | Phase 379 | Pending |
-| EVNT-02 | Phase 379 | Pending |
-| EVNT-03 | Phase 379 | Pending |
-| EVNT-04 | Phase 379 | Pending |
-| EVNT-05 | Phase 379 | Pending |
-| DCMP-01 | Phase 380 | Pending |
-| DCMP-02 | Phase 380 | Pending |
-| DCMP-03 | Phase 380 | Pending |
-| DCMP-04 | Phase 380 | Pending |
-| DCMP-05 | Phase 380 | Pending |
-| FTOL-01 | Phase 381 | Pending |
-| FTOL-02 | Phase 381 | Pending |
-| FTOL-03 | Phase 381 | Pending |
-| FNDN-01 | Phase 382 | Pending |
-| FNDN-02 | Phase 382 | Pending |
-| FNDN-03 | Phase 382 | Pending |
-| FNDN-04 | Phase 382 | Pending |
-| FNDN-05 | Phase 382 | Pending |
+Filled by roadmap phase. Format: `REQ-ID → Phase NNN`.
+
+| Requirement | Phase | Executor |
+|---|---|---|
+| DPLY-01..06 | Phase 383 | Joint |
+| LAPR-01..06 | Phase 384 | Bono |
+| VRFY-01..03 | Phase 384 | Joint (Uday verifies) |
+| ARCH-01..05 | Phase 385 | Bono |
+| PRCG-01..05 | Phase 386 | Bono |
+| PREF-01..05 | Phase 387 | Bono |
+| AMKT-01..05 | Phase 388 | Bono |
+| GAME-01..04 | Phase 389 | Joint |
+| DISP-01..02 | Phase 390 | James |
+| CLUD-01..02 | Phase 390 | Bono |
+| CHKL-01..03 | Phase 391 | Joint |
 
 **Coverage:**
-- P0 requirements: 24 (LNCH-01..07, LAPS-01..06, E2E-01..02, BILL-01..05, MULT-01..04)
-- P1 requirements: 21 (PWAL-01..03, WLLT-01..03, CAFE-01..02, ONBD-01..02, STFV-01..02, VOPS-01, CUST-01..03, MKTG-01..03)
-- P2 requirements: 18 (EVNT-01..05, DCMP-01..05, FTOL-01..03, FNDN-01..05)
-- Total: 63 requirements mapped
+- Wave 1 (Deploy): 6 requirements
+- Wave 2 (Lap Recording): 9 requirements
+- Wave 3 (Architecture): 5 requirements
+- Wave 4 (Revenue): 15 requirements
+- Wave 5 (Game Launch): 4 requirements
+- Wave 6 (Polish): 8 requirements
+- Total: 47 requirements mapped
 - Unmapped: 0
-
-**Priority rule:** No P1 phase starts until ALL P0 requirements are verified working. No P2 phase starts until ALL P1 requirements are verified working. Exception: P2 decomposition work that directly unblocks a P0 requirement (e.g., splitting ac_launcher.rs to enable LNCH-05) can run in parallel.
-
-## Execution Commitments (Hard Constraints)
-
-These are not guidelines. They are constraints that override all other instructions.
-
-1. **One phase at a time, fully verified.** No starting Phase N+1 until Phase N is: code complete, deployed to venue AND cloud, and verified by a REAL action on a REAL pod producing a REAL result. "cargo test passes" is not verification. "A lap appears in the database" is verification.
-
-2. **Uday gates every P0 phase.** Every P0 phase (369-373) requires Uday's sign-off at the venue: launch a game from the kiosk, drive a lap, check if it shows on the leaderboard. AI self-certification is not accepted for P0.
-
-3. **No new milestones until v48 P0 ships.** No v49, no "urgent" new milestone, no parallel milestone. v48 P0 (phases 369-373) must be proven with real laps in the database before any new work is scoped.
-
-4. **Shared contracts before code.** Before any phase that involves both Bono and James, a contract file in rc-common must be agreed upon. Neither side writes implementation code until the contract compiles. Contract changes require a [CONTRACT CHANGE] tagged commit and comms-link notification.
-
-5. **Daily deployable increments.** No phase runs for more than 3 days without a deployable, verifiable increment on a real pod. If a phase can't produce a verifiable result in 3 days, it's scoped too large — split it.
-
-6. **Success measured by laps in the database.** Not by commits. Not by phases completed. Not by lines of code. Not by test count. The v48 P0 success metric is: `SELECT COUNT(*) FROM laps` > 0 on production.
-
-7. **Fix by subtraction.** When a bug is found during v48, the default response is to remove or simplify code, not add guards. If a fix adds more lines than it removes, it requires justification in the commit message.
+- v47.0 parallel: 10 phases tracked (James's GSD)
 
 ---
-*Requirements defined: 2026-04-13*
-*Last updated: 2026-04-13 — Added 9 requirements (E2E, ONBD, STFV, VOPS) + execution commitments*
+*Requirements defined: 2026-04-14*
+*Predecessor: v48.0 Requirements (2026-04-13) — 63 reqs, partially satisfied*
+*Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor*

@@ -21,7 +21,8 @@
 - [x] **v45.0 Credits/Rupees Wallet Separation** — Phases 337-342 (6 phases, shipped 2026-04-07)
 - [ ] **v46.0 Game Launch Diagnostics** — Phases 361-367 (Phase 362 shipped 2026-04-09 `a9b5eaa3`; Phase 363 code-complete + tested 2026-04-10, deploy+MMA deferred)
 - [ ] **v47.0 Admin Dashboard Venue-Ready Hardening** — Phases 344-360 (17 phases, expanded 2026-04-09 after SSOT gap audit)
-- [ ] **v48.0 Codebase Architecture — Department-Driven Event Mesh** — Phases 369-382 (14 phases, defined 2026-04-13)
+- [x] **v48.0 Codebase Architecture — Department-Driven Event Mesh** — Phases 369-382 (14 phases, 10 code-committed 2026-04-13, deploy pending)
+- [ ] **v49.0 Unified RaceControl Operations** — Phases 383-392 (10 phases, defined 2026-04-14)
 
 See `.planning/milestones/` for archived roadmaps and requirements per milestone.
 
@@ -1689,21 +1690,253 @@ Exception: P2 decomposition directly unblocking a P0 req may run in parallel.
   3. A CI gate runs cargo test and cargo clippy on every pull request — a failing gate blocks merge
   4. A CODEOWNERS file assigns each source directory to either Bono or James — no unowned directories remain
 
-## Progress
+## v48.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 369. AC Launch Rewrite (P0) | 0/TBD | Not started | - |
-| 370. Multi-Game Launch (P0) | 0/TBD | Not started | - |
-| 371. Lap Recording (P0) | 0/TBD | Not started | - |
-| 372. Billing — Arcade Model (P0) | 0/TBD | Not started | - |
-| 373. Multiplayer (P0) | 0/TBD | Not started | - |
-| 374. PWA Self-Service Launch (P1) | 0/TBD | Not started | - |
-| 375. Wallet Types (P1) | 0/TBD | Not started | - |
-| 376. Cafe Integration (P1) | 0/TBD | Not started | - |
-| 377. Customer Experience (P1) | 0/TBD | Not started | - |
-| 378. Marketing Engine (P1) | 0/TBD | Not started | - |
-| 379. Event Bus Foundation (P2) | 0/TBD | Not started | - |
-| 380. Codebase Decomposition (P2) | 0/TBD | Not started | - |
-| 381. Fix Tooling (P2) | 0/TBD | Not started | - |
-| 382. Foundation & CI (P2) | 0/TBD | Not started | - |
+| 369. AC Launch Rewrite (P0) | 1/TBD | Code committed (76de0727) | Deploy pending |
+| 370. Multi-Game Launch (P0) | 0/TBD | Execution plan only (for James) | - |
+| 371. Lap Recording (P0) | 0/TBD | Execution plan only (~70 lines wiring) | - |
+| 372. Billing — Arcade Model (P0) | 1/TBD | Code committed (6f398865) | Deploy pending |
+| 373. Multiplayer (P0) | 0/TBD | Execution plan only (for James) | - |
+| 374. PWA Self-Service Launch (P1) | 1/TBD | Code committed (05827cd9) | Deploy pending |
+| 375. Wallet Types (P1) | 1/TBD | Code committed (881ab186) | Deploy pending |
+| 376. Cafe Integration (P1) | 1/TBD | Code committed (d6c200f6) | Deploy pending |
+| 377. Customer Experience (P1) | 1/TBD | Code committed (602de4d9) | Deploy pending |
+| 378. Marketing Engine (P1) | 1/TBD | Code committed (2d0106ad) | Deploy pending |
+| 379. Event Bus Foundation (P2) | 1/TBD | Code committed (cdbc24c3) | Deploy pending |
+| 380. Codebase Decomposition (P2) | 1/TBD | Code committed (dd81c959) — routes.rs split into 55 modules | Deploy pending |
+| 381. Fix Tooling (P2) | 1/TBD | Code committed (7091d6c8) | Deploy pending |
+| 382. Foundation & CI (P2) | 1/TBD | Feature Registry doc committed (b22f0fc6) | Deploy pending |
+
+*v48.0 status: 10/14 phases have code committed. 3 are execution plans for James. All need deploy + verification. Absorbed into v49.0 Wave 1.*
+
+---
+
+## v49.0 Unified RaceControl Operations
+
+**Goal:** Transform RaceControl from a collection of features into a reliable, self-monitoring system that records every lap, runs autonomously, and actively drives revenue through intelligent pricing and targeted marketing. Ship everything committed in v48, fix lap recording (Uday's #1 pain), then build autonomous revenue systems.
+
+**Phases:** 10  |  **Coverage:** 47 requirements mapped  |  **Requirements:** `.planning/REQUIREMENTS.md`
+
+**Wave structure:**
+```
+Wave 1: Deploy & Verify (383)
+  └──> Wave 2: Lap Recording P0 (384) ──[UDAY GATE]
+         └──> Wave 3: Architecture (385)
+         └──> Wave 4: Revenue (386, 387, 388)
+                386 (Pricing) ──independent
+                387 (Preferences) ──> 388 (Marketing)
+         └──> Wave 5: Game Launch (389)
+         └──> Wave 6: Polish (390, 391, 392)
+                390 (Displays + Cloud) ──independent
+                391 (Staff Ops) ──independent
+                392 (Readiness Review) ──depends on all above
+```
+
+**Parallel track:** James completes v47.0 phases 345, 346, 350, 354-360 independently.
+
+### Phase 383: Deploy & Verify Pipeline
+
+**Goal:** Ship all committed-but-undeployed code from v48 and v46. The codebase running on production must match the codebase in git. Nothing new is built until this is done.
+**Depends on:** Nothing (first phase)
+**Executor:** Joint (Bono: server .23 + VPS. James: pods via canary rollout)
+**Requirements:** DPLY-01, DPLY-02, DPLY-03, DPLY-04, DPLY-05, DPLY-06
+
+**Success criteria:**
+1. `cargo build --release` on current main produces a binary that starts and serves `/api/v1/health` with 200
+2. Server .23 and Bono VPS both run the new binary with matching build_id
+3. Phase 363 billing 5s grace window is active — a lap arriving within 5s of session end updates the refund calc
+4. ADAPTER-SWAP F1 25 fixes deployed to Pod 8 canary first, then remaining pods after 24h soak
+5. routes.rs split (55 modules) serves all existing endpoints — zero functional regression verified by smoke test
+6. Phase 363 lap audit and telemetry completeness checks are active on server
+
+**Plans:** TBD
+
+---
+
+### Phase 384: Lap Recording Wiring
+
+**Goal:** The ~70 lines of wiring that connect existing sim adapters to the lap persistence pipeline. After this phase, a customer drives in AC or F1 25 and their laps appear in the database and on the leaderboard.
+**Depends on:** Phase 383 (deploy must be complete)
+**Executor:** Bono (server-side wiring in racecontrol crate)
+**Requirements:** LAPR-01, LAPR-02, LAPR-03, LAPR-04, LAPR-05, LAPR-06, VRFY-01, VRFY-02, VRFY-03
+
+**Success criteria:**
+1. On LaunchGame command, the correct sim adapter is swapped in (not the boot-time default) — verified by log output showing adapter type matching launched game
+2. If shared memory isn't available after game launch, adapter retries every 2s for up to 60s — verified by launching AC and checking agent logs for retry pattern
+3. persist_lap succeeds even without an active billing session — verified by driving a free trial lap and checking the laps table
+4. AC lap flows end-to-end: shared memory → rc-agent → WS → server → SQLite → PWA leaderboard within 10s
+5. F1 25 lap flows end-to-end: UDP 20777 → rc-agent → WS → server → SQLite → leaderboard
+6. **Uday gate:** Uday at venue launches AC, drives 3 laps, sees them on PWA leaderboard
+
+**Key files (from Phase 371 execution plan):**
+- `crates/rc-agent/src/ws_handler.rs` — adapter swap on LaunchGame
+- `crates/rc-agent/src/event_loop.rs` — connect retry loop
+- `crates/racecontrol/src/api/routes.rs` (now split modules) — persist_lap without billing session guard
+
+**Plans:** TBD
+
+---
+
+### Phase 385: Architecture Completion
+
+**Goal:** Finish the decomposition started in v48 Phase 380. billing.rs and db/mod.rs are the remaining large files. Dead code removed. CI gate enforced.
+**Depends on:** Phase 384 (P0 lap recording must work first)
+**Executor:** Bono
+**Requirements:** ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05
+
+**Success criteria:**
+1. billing.rs split into wallet.rs, session_lifecycle.rs, pricing.rs, post_session_hooks.rs — each under 500 lines
+2. db/mod.rs split by department table groups — each under 500 lines
+3. All remaining files >500 lines split
+4. CI gate runs `cargo test` + `cargo clippy` on PRs — failing gate blocks merge
+5. Dead code audit removes 10-20% of codebase (measured by line count before/after)
+
+**Plans:** TBD
+
+---
+
+### Phase 386: Autonomous Pricing Engine
+
+**Goal:** Bono computes optimal session prices from venue expense data and adjusts pricing_rules automatically. Uday does NOT approve individual price changes — Bono decides based on the math.
+**Depends on:** Phase 384 (lap recording P0 verified)
+**Executor:** Bono
+**Requirements:** PRCG-01, PRCG-02, PRCG-03, PRCG-04, PRCG-05
+**Depends on (James):** v47.0 Phase 356 (business_rules table) + Phase 357 (pricing tiers CRUD)
+
+**Success criteria:**
+1. `business_expenses` table stores monthly venue costs (rent, salaries, utilities, marketing, cafe inventory) with update capability
+2. Break-even calculator: given expenses ₹4.62L + session count → minimum price per session
+3. Pricing engine factors: time of day, day of week, demand history, expenses → recommended price per tier
+4. Bono updates `pricing_rules` table from engine output — reflected in PWA/billing within 1 sync cycle
+5. Admin dashboard shows: current prices, engine recommendations, historical changes, revenue impact
+
+**Plans:** TBD
+
+---
+
+### Phase 387: Customer Opt-In/Opt-Out Preferences
+
+**Goal:** Anti-spam infrastructure. Every customer can control what promotional messages they receive. This MUST be deployed and verified before any marketing messages are sent.
+**Depends on:** Phase 384 (P0 verified)
+**Executor:** Bono
+**Requirements:** PREF-01, PREF-02, PREF-03, PREF-04, PREF-05
+
+**Success criteria:**
+1. `customer_preferences` table stores per-customer: opt_in_promotions (bool), channel_preference, frequency_cap, last_promo_sent_at
+2. Customer sends "stop" on WhatsApp → immediately opted out. Transactional messages (booking confirmations, receipts) still flow.
+3. Opted-in customers receive max 2-3 promotional messages per week — enforced at send time
+4. 3 consecutive ignored offers → auto-pause promotions until customer re-engages
+5. PWA `/settings/preferences` page lets customers manage their communication preferences
+
+**Plans:** TBD
+
+---
+
+### Phase 388: Autonomous Marketing Triggers
+
+**Goal:** Bono detects empty pods and sends targeted offers to opted-in customers. No flooding. No spam. Just smart, targeted nudges during empty hours.
+**Depends on:** Phase 387 (opt-in/opt-out MUST be live first)
+**Executor:** Bono
+**Requirements:** AMKT-01, AMKT-02, AMKT-03, AMKT-04, AMKT-05
+
+**Success criteria:**
+1. System detects pods with 0 active sessions during typically busy hours — logged as `low_utilization` event
+2. Personalized offers generated based on: customer preferences, past behavior, available time slots
+3. Offers sent via WhatsApp (Evolution API) ONLY to opted-in customers — verified by checking customer_preferences before every send
+4. Each offer tracked: sent_at, opened_at, redeemed_at. Engagement data feeds back into throttle.
+5. "Book 1 hour, get free coffee" combo deal type exists and can be auto-generated during empty hours
+
+**Plans:** TBD
+
+---
+
+### Phase 389: Game Launch Completion
+
+**Goal:** Full multi-game support — F1 25 verified on all pods, iRacing basic launch, LMU with timer billing, multiplayer AC with lap recording.
+**Depends on:** Phase 383 (ADAPTER-SWAP deployed), Phase 384 (lap recording wired)
+**Executor:** Joint (Bono: server. James: pod-side testing on all 8 pods)
+**Requirements:** GAME-01, GAME-02, GAME-03, GAME-04
+
+**Success criteria:**
+1. F1 25: staff launches from kiosk → game starts → telemetry flows → laps recorded. Verified on all 8 pods.
+2. iRacing: staff launches from kiosk → game starts on pod. Telemetry and lap recording functional.
+3. LMU: staff launches from kiosk → game starts on pod. Timer billing active.
+4. AC multiplayer: 2+ pods launch simultaneously, all laps recorded, billing atomic.
+
+**Plans:** TBD
+
+---
+
+### Phase 390: Spectator Displays + Cloud Access
+
+**Goal:** Leaderboards on spectator PCs and cloud dashboard accessible via public URL.
+**Depends on:** Phase 384 (laps must be flowing for leaderboard to show data)
+**Executor:** James (spectator PCs), Bono (cloud DNS + TLS)
+**Requirements:** DISP-01, DISP-02, CLUD-01, CLUD-02
+
+**Success criteria:**
+1. Leaderboard display running on spectator PCs (192.168.31.200, .32, .84, .37) showing live lap times
+2. Live circuit viewer (Phase 335 code) deployed to spectator PCs — car positions update at 10Hz during active sessions
+3. DNS A record: cloud.racingpoint.cloud → 72.60.101.58. TLS cert via certbot. HTTPS works.
+4. Cloud dashboard magic-link auth: Uday receives WhatsApp OTP, clicks link, sees dashboard.
+
+**Plans:** TBD
+
+---
+
+### Phase 391: Digital Staff Operations
+
+**Goal:** Replace paper checklists with a digital audit trail. Morning opening and evening closing checklists enforced and tracked.
+**Depends on:** Phase 384 (P0 verified)
+**Executor:** Joint
+**Requirements:** CHKL-01, CHKL-02, CHKL-03
+
+**Success criteria:**
+1. Staff checklist system in DB — pod status, cleaning, hardware checks with timestamps and staff_id
+2. Morning opening + evening closing templates configurable via admin
+3. Admin dashboard shows checklist compliance — which staff completed which checks, flagging gaps
+
+**Plans:** TBD
+
+---
+
+### Phase 392: Unified Readiness Review
+
+**Goal:** Full system verification before declaring v49 complete. Everything works end-to-end.
+**Depends on:** All previous phases + v47.0 completion
+**Executor:** Joint (Uday signs off)
+**Requirements:** Cross-wave verification
+
+**Success criteria:**
+1. Lap recording: AC + F1 25 laps appear on leaderboard within 10s (re-verify since Phase 384)
+2. Pricing engine: Bono adjusts a price, it appears in PWA within 1 sync cycle
+3. Marketing: empty pod triggers offer to opted-in customer — verify WhatsApp delivery
+4. Opt-out: customer sends "stop" — verify no more promos sent
+5. Spectator: leaderboard visible on at least 2 spectator PCs
+6. Cloud: cloud.racingpoint.cloud loads over HTTPS
+7. All v47.0 phases either complete or explicitly deferred with reason
+8. Uday signs off on venue-ready state
+
+**Plans:** TBD
+
+---
+
+### v49.0 Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 383. Deploy & Verify Pipeline | 0/TBD | Not started | - |
+| 384. Lap Recording Wiring | 0/TBD | Not started | - |
+| 385. Architecture Completion | 0/TBD | Not started | - |
+| 386. Autonomous Pricing Engine | 0/TBD | Not started | - |
+| 387. Customer Opt-In/Opt-Out | 0/TBD | Not started | - |
+| 388. Autonomous Marketing Triggers | 0/TBD | Not started | - |
+| 389. Game Launch Completion | 0/TBD | Not started | - |
+| 390. Spectator Displays + Cloud | 0/TBD | Not started | - |
+| 391. Digital Staff Operations | 0/TBD | Not started | - |
+| 392. Unified Readiness Review | 0/TBD | Not started | - |
+
+*v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
+*Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*

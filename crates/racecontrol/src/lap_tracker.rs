@@ -150,16 +150,17 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         timers.get(&lap.pod_id).map(|t| t.session_id.clone())
     };
 
-    // UX-04 integrity gate: reject laps with no billing session.
-    // This makes manual leaderboard entry structurally impossible — every lap
-    // must be backed by a real billed session.
+    // UX-04: Log when no billing session exists but still record the lap.
+    // Previously this was a hard gate that rejected all laps without billing,
+    // causing zero laps to be recorded for 43 days. Laps during free trials,
+    // testing, or billing timing mismatches are now recorded with NULL
+    // billing_session_id. The suspect flag (line ~209) already catches
+    // unattributed laps (empty driver_id).
     if billing_session_id.is_none() {
-        tracing::warn!(
+        tracing::info!(
             pod = %lap.pod_id, driver = %lap.driver_id, lap_id = %lap.id,
-            "UX-04: Lap rejected — no active billing session on pod. \
-             Laps may only be created from billed sessions."
+            "UX-04: Lap has no active billing session — recording with NULL billing_session_id"
         );
-        return false;
     }
 
     // Look up car_class from active billing session's kiosk_experience
