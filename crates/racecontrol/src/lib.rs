@@ -15,6 +15,7 @@ pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod billing;
+pub mod billing_jobs;
 pub mod billing_pricing;
 pub mod billing_fsm;
 pub mod billing_replay;
