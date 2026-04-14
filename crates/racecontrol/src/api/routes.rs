@@ -47,6 +47,7 @@ use super::activity_routes::*;
 use super::admin_events::*;
 use super::admin_gamification::*;
 use super::admin_hr::*;
+use super::admin_export::*;
 use super::admin_tools::*;
 use super::ai_routes::*;
 use super::auth_handlers::*;

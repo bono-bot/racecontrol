@@ -14,6 +14,7 @@ pub mod activity_routes;
 pub mod admin_events;
 pub mod admin_gamification;
 pub mod admin_hr;
+pub mod admin_export;
 pub mod admin_tools;
 pub mod ai_routes;
 pub mod auth_handlers;
