@@ -101,6 +101,12 @@ use super::tournament_core::*;
 use super::waiver_routes::*;
 use super::wallet_ops::*;
 use super::wallet_staff::*;
+// Phase 385 companion modules
+use super::pod_mgmt_bulk::*;
+use super::mesh_intelligence_cloud::*;
+use super::deploy_audit::*;
+use super::customer_booking_continue::*;
+use super::game_ac_data::*;
 
 /// Top-level API router: merges 5 tiered sub-routers.
 ///
