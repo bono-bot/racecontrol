@@ -89,6 +89,7 @@ pub mod metrics;
 pub mod metrics_tsdb;
 pub mod metrics_producers;
 pub mod multiplayer;
+pub mod multiplayer_ops;
 pub mod network_source;
 pub mod ota_pipeline;
 pub mod port_allocator;
