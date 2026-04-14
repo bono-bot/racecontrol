@@ -81,8 +81,10 @@ pub(crate) async fn sync_push(
             if id.is_empty() { continue; }
             let r = sqlx::query(
                 "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car,
-                    lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at, venue_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+                    lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, created_at,
+                    car_class, suspect, session_type, assist_config_hash, assist_tier,
+                    billing_session_id, validity, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
                  ON CONFLICT(id) DO NOTHING",
             )
             .bind(id)
@@ -99,6 +101,13 @@ pub(crate) async fn sync_push(
             .bind(lap.get("sector3_ms").and_then(|v| v.as_i64()))
             .bind(lap.get("valid").and_then(|v| v.as_i64()).unwrap_or(1))
             .bind(lap.get("created_at").and_then(|v| v.as_str()))
+            .bind(lap.get("car_class").and_then(|v| v.as_str()))
+            .bind(lap.get("suspect").and_then(|v| v.as_i64()).unwrap_or(0))
+            .bind(lap.get("session_type").and_then(|v| v.as_str()).unwrap_or("practice"))
+            .bind(lap.get("assist_config_hash").and_then(|v| v.as_str()))
+            .bind(lap.get("assist_tier").and_then(|v| v.as_str()).unwrap_or("unknown"))
+            .bind(lap.get("billing_session_id").and_then(|v| v.as_str()))
+            .bind(lap.get("validity").and_then(|v| v.as_str()).unwrap_or("valid"))
             .bind(&state.config.venue.venue_id)
             .execute(&state.db)
             .await;
@@ -112,10 +121,11 @@ pub(crate) async fn sync_push(
             let track = rec.get("track").and_then(|v| v.as_str()).unwrap_or_default();
             let car = rec.get("car").and_then(|v| v.as_str()).unwrap_or_default();
             if track.is_empty() || car.is_empty() { continue; }
+            let sim_type = rec.get("sim_type").and_then(|v| v.as_str()).unwrap_or("assettoCorsa");
             let r = sqlx::query(
-                "INSERT INTO track_records (track, car, driver_id, best_lap_ms, lap_id, achieved_at, venue_id)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7)
-                 ON CONFLICT(track, car) DO UPDATE SET
+                "INSERT INTO track_records (track, car, sim_type, driver_id, best_lap_ms, lap_id, achieved_at, venue_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+                 ON CONFLICT(track, car, sim_type) DO UPDATE SET
                     driver_id = CASE WHEN excluded.best_lap_ms < track_records.best_lap_ms
                         THEN excluded.driver_id ELSE track_records.driver_id END,
                     best_lap_ms = MIN(excluded.best_lap_ms, track_records.best_lap_ms),
@@ -126,6 +136,7 @@ pub(crate) async fn sync_push(
             )
             .bind(track)
             .bind(car)
+            .bind(sim_type)
             .bind(rec.get("driver_id").and_then(|v| v.as_str()))
             .bind(rec.get("best_lap_ms").and_then(|v| v.as_i64()).unwrap_or(i64::MAX))
             .bind(rec.get("lap_id").and_then(|v| v.as_str()))

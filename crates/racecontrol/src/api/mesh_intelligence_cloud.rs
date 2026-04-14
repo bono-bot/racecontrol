@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::billing;
+use crate::lap_tracker;
 use crate::state::AppState;
+use rc_common::types::{LapData, SessionType, SimType};
 
 // ─── GLD-C-03: CSV Telemetry Fallback Endpoint ───────────────────────────────
 
@@ -105,6 +107,17 @@ pub(crate) async fn telemetry_fallback_handler(
                 bytes = csv_len,
                 "telemetry_fallback: csv received and stored"
             );
+
+            // Step 4: Parse CSV rows and insert each lap into the laps table.
+            // This closes the gap where fallback laps were saved to disk but
+            // never made visible to leaderboards, personal bests, or driver stats.
+            let state_clone = state.clone();
+            let session_id_clone = session_id.clone();
+            let csv_data_clone = csv_data.clone();
+            tokio::spawn(async move {
+                parse_and_persist_fallback_laps(&state_clone, &session_id_clone, &csv_data_clone).await;
+            });
+
             (StatusCode::OK, "received").into_response()
         }
         Ok(_) => (StatusCode::NOT_FOUND, "session not found").into_response(),
@@ -113,6 +126,250 @@ pub(crate) async fn telemetry_fallback_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, "db update failed").into_response()
         }
     }
+}
+
+/// Resolve the SimType for a billing session by looking up its kiosk_experience game field.
+/// Falls back to AssettoCorsa if the session or experience is not found.
+async fn resolve_sim_type_for_session(db: &sqlx::SqlitePool, session_id: &str) -> SimType {
+    let row = sqlx::query_as::<_, (String,)>(
+        "SELECT ke.game
+         FROM billing_sessions bs
+         JOIN kiosk_experiences ke ON ke.id = bs.experience_id
+         WHERE bs.id = ?
+         LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    match row {
+        Some((game,)) => match game.as_str() {
+            "assetto_corsa" => SimType::AssettoCorsa,
+            "assetto_corsa_evo" => SimType::AssettoCorsaEvo,
+            "assetto_corsa_rally" => SimType::AssettoCorsaRally,
+            "iracing" => SimType::IRacing,
+            "le_mans_ultimate" | "lmu" => SimType::LeMansUltimate,
+            "f1_25" | "f125" => SimType::F125,
+            "forza" => SimType::Forza,
+            "forza_horizon_5" => SimType::ForzaHorizon5,
+            _ => {
+                tracing::warn!(
+                    session_id = %session_id, game = %game,
+                    "telemetry_fallback: unknown game in experience, defaulting to AssettoCorsa"
+                );
+                SimType::AssettoCorsa
+            }
+        },
+        None => {
+            tracing::warn!(
+                session_id = %session_id,
+                "telemetry_fallback: no kiosk_experience found for session, defaulting to AssettoCorsa"
+            );
+            SimType::AssettoCorsa
+        }
+    }
+}
+
+/// Parse a session_type string from CSV (Debug-formatted enum) back into SessionType.
+fn parse_session_type(s: &str) -> SessionType {
+    match s.to_lowercase().as_str() {
+        "practice" => SessionType::Practice,
+        "qualifying" => SessionType::Qualifying,
+        "race" => SessionType::Race,
+        "hotlap" => SessionType::Hotlap,
+        _ => SessionType::Practice,
+    }
+}
+
+/// Parse CSV fallback data and persist each lap via lap_tracker::persist_lap().
+///
+/// CSV header (from rc-agent csv_lap_fallback.rs):
+///   timestamp,driver_id,car,track,lap_time_ms,session_type,lap_number,valid,id,pod_id
+///
+/// Laps that already exist in the DB (duplicate id) are silently skipped
+/// because persist_lap() uses INSERT which fails on PRIMARY KEY conflict.
+async fn parse_and_persist_fallback_laps(
+    state: &Arc<AppState>,
+    session_id: &str,
+    csv_data: &[u8],
+) {
+    let csv_str = match std::str::from_utf8(csv_data) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                session_id = %session_id,
+                error = %e,
+                "telemetry_fallback: CSV is not valid UTF-8"
+            );
+            return;
+        }
+    };
+
+    let lines: Vec<&str> = csv_str.lines().collect();
+    if lines.len() < 2 {
+        tracing::info!(
+            session_id = %session_id,
+            "telemetry_fallback: CSV has no data rows (header only or empty)"
+        );
+        return;
+    }
+
+    // Resolve sim_type once for the entire session
+    let sim_type = resolve_sim_type_for_session(&state.db, session_id).await;
+
+    let mut persisted = 0u32;
+    let mut skipped = 0u32;
+    let mut errors = 0u32;
+
+    // Skip header (line 0), parse each data row
+    for (line_idx, line) in lines.iter().enumerate().skip(1) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Simple CSV parse — fields may be quoted (csv_escape in rc-agent wraps
+        // values containing comma/quote/newline). Use a basic state machine.
+        let fields = parse_csv_line(line);
+        if fields.len() < 10 {
+            tracing::warn!(
+                session_id = %session_id,
+                line = line_idx + 1,
+                field_count = fields.len(),
+                "telemetry_fallback: malformed CSV row, skipping"
+            );
+            skipped += 1;
+            continue;
+        }
+
+        // Fields: 0=timestamp, 1=driver_id, 2=car, 3=track, 4=lap_time_ms,
+        //         5=session_type, 6=lap_number, 7=valid, 8=id, 9=pod_id
+        let lap_time_ms: u32 = match fields[4].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    line = line_idx + 1,
+                    raw = %fields[4],
+                    "telemetry_fallback: invalid lap_time_ms, skipping"
+                );
+                skipped += 1;
+                continue;
+            }
+        };
+
+        let lap_number: u32 = match fields[6].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    line = line_idx + 1,
+                    raw = %fields[6],
+                    "telemetry_fallback: invalid lap_number, skipping"
+                );
+                skipped += 1;
+                continue;
+            }
+        };
+
+        let valid = fields[7] == "1";
+
+        let lap_id = fields[8].to_string();
+        let pod_id = rc_common::pod_id::normalize_pod_id(&fields[9])
+            .unwrap_or_else(|_| fields[9].to_string());
+
+        // Parse the CSV timestamp for created_at
+        let created_at = chrono::DateTime::parse_from_rfc3339(&fields[0])
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|_| chrono::Utc::now());
+
+        let lap = LapData {
+            id: lap_id.clone(),
+            session_id: session_id.to_string(),
+            driver_id: fields[1].to_string(),
+            pod_id,
+            sim_type: sim_type.clone(),
+            track: fields[3].to_string(),
+            car: fields[2].to_string(),
+            lap_number,
+            lap_time_ms,
+            sector1_ms: None, // CSV fallback does not capture sector times
+            sector2_ms: None,
+            sector3_ms: None,
+            valid,
+            session_type: parse_session_type(&fields[5]),
+            created_at,
+        };
+
+        // Check for duplicate lap id before calling persist_lap to avoid
+        // the error log that persist_lap emits on INSERT conflict.
+        let exists = sqlx::query_as::<_, (i32,)>(
+            "SELECT 1 FROM laps WHERE id = ? LIMIT 1"
+        )
+        .bind(&lap_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+
+        if exists {
+            tracing::debug!(
+                session_id = %session_id,
+                lap_id = %lap_id,
+                "telemetry_fallback: lap already exists, skipping duplicate"
+            );
+            skipped += 1;
+            continue;
+        }
+
+        let _is_record = lap_tracker::persist_lap(state, &lap).await;
+        persisted += 1;
+    }
+
+    tracing::info!(
+        session_id = %session_id,
+        persisted,
+        skipped,
+        errors,
+        total_rows = lines.len() - 1,
+        "telemetry_fallback: CSV lap parsing complete"
+    );
+}
+
+/// Parse a single CSV line, handling quoted fields (double-quote escaping).
+/// Returns a Vec of unquoted field values.
+fn parse_csv_line(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            if ch == '"' {
+                // Check for escaped quote ("")
+                if chars.peek() == Some(&'"') {
+                    current.push('"');
+                    chars.next(); // consume the second quote
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '"' {
+            in_quotes = true;
+        } else if ch == ',' {
+            fields.push(std::mem::take(&mut current));
+        } else {
+            current.push(ch);
+        }
+    }
+    fields.push(current);
+    fields
 }
 
 // ─── Cloud Mesh KB Sync (v26.0 Phase 227) ───────────────────────────────────

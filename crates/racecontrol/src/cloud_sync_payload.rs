@@ -27,7 +27,14 @@ pub(crate) async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Resul
             'pod_id', pod_id, 'sim_type', sim_type, 'track', track, 'car', car,
             'lap_number', lap_number, 'lap_time_ms', lap_time_ms,
             'sector1_ms', sector1_ms, 'sector2_ms', sector2_ms, 'sector3_ms', sector3_ms,
-            'valid', valid, 'created_at', created_at
+            'valid', valid, 'created_at', created_at,
+            'car_class', car_class, 'suspect', COALESCE(suspect, 0),
+            'session_type', COALESCE(session_type, 'practice'),
+            'assist_config_hash', assist_config_hash,
+            'assist_tier', COALESCE(assist_tier, 'unknown'),
+            'billing_session_id', billing_session_id,
+            'validity', COALESCE(validity, 'valid'),
+            'venue_id', venue_id
         ) FROM laps WHERE created_at > ? ORDER BY created_at ASC LIMIT 500",
     )
     .bind(&last_push)
@@ -46,7 +53,8 @@ pub(crate) async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Resul
     // Collect track records (always push all — small table)
     let records = sqlx::query_as::<_, (String,)>(
         "SELECT json_object(
-            'track', track, 'car', car, 'driver_id', driver_id,
+            'track', track, 'car', car, 'sim_type', sim_type,
+            'driver_id', driver_id,
             'best_lap_ms', best_lap_ms, 'lap_id', lap_id, 'achieved_at', achieved_at
         ) FROM track_records",
     )

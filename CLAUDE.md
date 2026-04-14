@@ -707,7 +707,7 @@ Before investigating from scratch, consult `docs/`:
 - 30min / ₹700 | 60min / ₹900 | 5min free trial | 10s idle threshold
 - PWA shows "credits" (not rupees)
 - Wheelbases: Conspit Ares 8Nm — OpenFFBoard VID:0x1209 PID:0xFFB0
-- UDP telemetry ports: 9996 (AC) | 20777 (F1) | 5300 (Forza) | 6789 (iRacing) | 5555 (LMU)
+- UDP telemetry ports: 9996 (AC) | 20778 (F1 25, ADAPTER-SWAP-06) | 5300 (Forza) | 6789 (iRacing) | 5555 (LMU)
 
 ---
 
