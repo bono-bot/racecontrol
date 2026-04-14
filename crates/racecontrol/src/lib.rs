@@ -88,6 +88,8 @@ pub mod input_validation;
 pub mod business_forecast;
 pub mod dynamic_pricing;
 pub mod inventory;
+pub mod business_store;
+pub mod hr_store;
 pub mod maintenance_engine;
 pub mod maintenance_models;
 pub mod maintenance_store;
