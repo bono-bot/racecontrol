@@ -3,6 +3,8 @@
 pub mod ac_camera;
 pub mod ac_server;
 pub mod ac_server_config;
+pub mod ac_server_lifecycle;
+pub mod ac_server_monitor;
 pub mod ac_server_results;
 pub mod alert_engine;
 pub mod bono_relay;
