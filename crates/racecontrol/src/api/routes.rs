@@ -13,7 +13,6 @@ use super::metrics_intel;
 use super::metrics_prometheus;
 use super::metrics_query;
 use super::survival;
-use crate::accounting;
 use crate::fleet_alert;
 use crate::recovery;
 use crate::cafe;
@@ -33,7 +32,6 @@ use crate::process_guard;
 use crate::scheduler;
 use crate::state::AppState;
 use crate::venue_shutdown;
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 
 
 // ─── Domain module imports ────────────────────────────────────────────────
@@ -53,7 +51,6 @@ use super::admin_tools::*;
 use super::ai_routes::*;
 use super::auth_handlers::*;
 use super::auth_staff::*;
-use super::billing_coupon::*;
 use super::billing_discount::*;
 use super::billing_invoice::*;
 use super::billing_session::*;

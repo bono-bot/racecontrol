@@ -4,7 +4,7 @@
 //! Handles crash recovery, error taxonomy, auto-relaunch, billing completion.
 use std::sync::Arc;
 use chrono::Utc;
-use crate::{activity_log::log_pod_activity, billing::PauseReason, metrics, state::AppState};
+use crate::{activity_log::log_pod_activity, metrics, state::AppState};
 use crate::game_launcher::{GameTracker, is_stop_guarded};
 use crate::game_launcher_support::{classify_error_taxonomy, extract_launch_fields, log_game_event, send_staff_launch_alert};
 use rc_common::{pod_id::normalize_pod_id, protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent}, types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType}};

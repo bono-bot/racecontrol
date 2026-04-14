@@ -10,12 +10,8 @@
 //!   TelemetryGap                               → log + alert (stub; TELEM-01 Phase 26)
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
-use rc_common::types::{BillingSessionStatus, GameState, PodFailureReason};
-
-use crate::billing::end_billing_session_public;
+use rc_common::types::{GameState, PodFailureReason};
 use crate::pod_healer::is_pod_in_recovery;
 use crate::state::{AppState, WatchdogState};
 

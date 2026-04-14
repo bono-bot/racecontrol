@@ -43,7 +43,7 @@ pub async fn run_fleet_deploy(
     }
 
     // Collect wave data needed for orchestration without holding the lock.
-    let (binary_url, binary_hash, wave_delay_secs, waves_snapshot) = {
+    let (binary_url, _binary_hash, wave_delay_secs, waves_snapshot) = {
         let guard = session_lock.read().await;
         if let Some(ref s) = *guard {
             (s.binary_url.clone(), s.binary_hash.clone(), s.wave_delay_secs, s.waves.clone())

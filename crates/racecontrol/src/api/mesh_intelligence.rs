@@ -312,28 +312,6 @@ pub(crate) async fn mesh_audit_seed_service(
     result.into_response()
 }
 
-pub(crate) async fn mesh_promote_solution(
-    State(state): State<Arc<AppState>>,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Json<serde_json::Value> {
-    match crate::fleet_kb::update_status(&state.db, &id, rc_common::mesh_types::SolutionStatus::FleetVerified).await {
-        Ok(true) => Json(serde_json::json!({ "ok": true, "status": "fleet_verified" })),
-        Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
-        Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
-    }
-}
-
-pub(crate) async fn mesh_retire_solution(
-    State(state): State<Arc<AppState>>,
-    axum::extract::Path(id): axum::extract::Path<String>,
-) -> Json<serde_json::Value> {
-    match crate::fleet_kb::update_status(&state.db, &id, rc_common::mesh_types::SolutionStatus::Retired).await {
-        Ok(true) => Json(serde_json::json!({ "ok": true, "status": "retired" })),
-        Ok(false) => Json(serde_json::json!({ "ok": false, "error": "not found" })),
-        Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
-    }
-}
-
 #[allow(dead_code)]
 #[derive(serde::Deserialize)]
 pub(crate) struct EvalQueryParams {

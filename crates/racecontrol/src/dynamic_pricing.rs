@@ -22,31 +22,30 @@ pub fn recommend_pricing(
     is_weekend: bool,
 ) -> PricingRecommendation {
     let mut change_pct: f32 = 0.0;
-    let mut reason = String::new();
 
     // High demand (>80% occupancy) — suggest premium
-    if forecast_occupancy_pct > 80.0 {
+    let reason = if forecast_occupancy_pct > 80.0 {
         change_pct = if is_peak { 15.0 } else { 10.0 };
-        reason = format!(
+        format!(
             "High forecasted demand ({:.0}% occupancy)",
             forecast_occupancy_pct
-        );
+        )
     }
     // Low demand (<30% occupancy) — suggest discount
     else if forecast_occupancy_pct < 30.0 {
         change_pct = if is_weekend { -10.0 } else { -15.0 };
-        reason = format!(
+        format!(
             "Low forecasted demand ({:.0}% occupancy) — discount to drive traffic",
             forecast_occupancy_pct
-        );
+        )
     }
     // Normal demand — no change
     else {
-        reason = format!(
+        format!(
             "Normal demand ({:.0}% occupancy) — no change recommended",
             forecast_occupancy_pct
-        );
-    }
+        )
+    };
 
     // MMA-v29: Zero base price — can't compute percentage change, return early
     if current_price_paise == 0 {

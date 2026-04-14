@@ -313,7 +313,7 @@ pub(crate) async fn stop_billing(
             .await;
 
             // Remove from in-memory waiting_for_game map
-            if let Some((_, ref driver_id, _, _wallet_owner)) = refund_info.as_ref().map(|r| (&id, &r.0, r.1, &r.2)) {
+            if let Some((_, ref _driver_id, _, _wallet_owner)) = refund_info.as_ref().map(|r| (&id, &r.0, r.1, &r.2)) {
                 // Find pod_id from DB
                 let pod_id_opt: Option<String> = sqlx::query_scalar(
                     "SELECT pod_id FROM billing_sessions WHERE id = ?",

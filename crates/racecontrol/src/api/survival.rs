@@ -12,7 +12,7 @@ use axum::{
     Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    routing::{delete, post},
+    routing::post,
     Json,
 };
 use chrono::Utc;

@@ -9,11 +9,9 @@ use axum::extract::State;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use serde::Serialize;
 use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::state::AppState;
-use rc_common::protocol::DashboardEvent;
 
 // ─── Phase 335: Spectator Circuit Viewer WebSocket ───────────────────────────
 

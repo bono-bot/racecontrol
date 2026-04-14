@@ -9,7 +9,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::state::AppState;
-use super::{compute_consensus, KbEntry, ModelBandResponse, TierBand};
+use super::{compute_consensus, KbEntry, ModelBandResponse};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

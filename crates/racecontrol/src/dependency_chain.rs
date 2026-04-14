@@ -11,8 +11,6 @@ use crate::app_health_monitor::AppHealthEntry;
 use crate::state::AppState;
 use crate::whatsapp_alerter;
 
-/// The upstream dependency that all apps share.
-const API_UPSTREAM: &str = "api";
 /// Apps that depend on the API upstream.
 const DEPENDENT_APPS: &[&str] = &["admin", "kiosk", "web"];
 

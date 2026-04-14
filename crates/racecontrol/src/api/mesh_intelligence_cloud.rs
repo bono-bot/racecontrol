@@ -221,7 +221,7 @@ async fn parse_and_persist_fallback_laps(
 
     let mut persisted = 0u32;
     let mut skipped = 0u32;
-    let mut errors = 0u32;
+    let errors = 0u32;
 
     // Skip header (line 0), parse each data row
     for (line_idx, line) in lines.iter().enumerate().skip(1) {

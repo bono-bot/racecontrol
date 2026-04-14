@@ -12,8 +12,7 @@ use crate::activity_log::log_pod_activity;
 use crate::game_launcher_state::handle_game_state_update;
 use crate::metrics;
 use crate::state::AppState;
-use rc_common::pod_id::normalize_pod_id;
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
+use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 use rc_common::types::{GameLaunchInfo, GameState, SimType};
 
 pub async fn send_staff_launch_alert(

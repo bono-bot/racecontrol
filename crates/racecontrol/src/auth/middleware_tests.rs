@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -8,7 +8,12 @@ mod tests {
         routing::get,
         Router,
     };
+    use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
     use tower::ServiceExt;
+    use crate::auth::middleware::{
+        create_staff_jwt, create_staff_jwt_with_role, require_role, require_staff_jwt, StaffClaims,
+    };
+    use crate::state::AppState;
 
     const TEST_SECRET: &str = "test-secret-key-for-unit-tests-only";
 

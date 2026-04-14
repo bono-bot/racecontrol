@@ -16,8 +16,6 @@ use super::LOG_TARGET;
 ///
 /// Returns the filename (not full path) for use in the SCP call.
 pub(super) async fn export_daily_jsonl(db: &SqlitePool, archive_dir: &str) -> anyhow::Result<String> {
-    use chrono::Datelike;
-
     let yesterday = (chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata)
         - chrono::Duration::days(1))
     .date_naive();

@@ -4,10 +4,8 @@
 //! until all report ready, then start simultaneously.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 use rc_common::types::{LobbyPhase, LobbyStatus};
 
 const LOG_TARGET: &str = "lobby";

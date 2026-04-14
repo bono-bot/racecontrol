@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use axum::Json;
 use axum::http::StatusCode;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, State};
 use uuid::Uuid;
 use crate::state::AppState;
 

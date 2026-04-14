@@ -1,7 +1,7 @@
 //! v29.0 Phase 30: Business alert engine — monitors financial KPIs and triggers alerts.
 
 use serde::Serialize;
-use chrono::{Utc, Datelike, Timelike};
+use chrono::{Utc, Datelike};
 
 const LOG_TARGET: &str = "alert-engine";
 

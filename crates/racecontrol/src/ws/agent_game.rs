@@ -3,7 +3,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use rc_common::protocol::{
-    AgentMessage, CoreMessage, DashboardEvent, LaunchState,
+    CoreMessage, DashboardEvent, LaunchState,
 };
 use rc_common::types::GameLaunchInfo;
 use rc_common::types::{AiDebugSuggestion, BillingSessionStatus, GameState, LapData, TelemetryFrame};

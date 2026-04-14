@@ -23,7 +23,6 @@ use rc_common::types::{MachineWhitelist, ProcessViolation};
 #[path = "process_guard_server.rs"]
 mod server;
 pub use server::spawn_server_guard;
-pub(crate) use server::is_server_critical;
 
 /// Returns the machine_type string for a given machine_id.
 /// Returns None for unknown / invalid IDs.
@@ -194,6 +193,7 @@ pub async fn post_guard_report_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::server::is_server_critical;
     use crate::config::{AllowedProcess, ProcessGuardConfig, ProcessGuardOverride};
     use std::collections::HashMap;
 

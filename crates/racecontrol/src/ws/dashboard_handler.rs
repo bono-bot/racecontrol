@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 
-use crate::{ac_camera, ac_server, auth, billing, deploy, game_launcher};
+use crate::{ac_camera, ac_server, auth, billing, game_launcher};
 use crate::state::AppState;
 use rc_common::protocol::{DashboardCommand, DashboardEvent};
 use super::{DASHBOARD_CLIENT_COUNT, DASHBOARD_WS_CONNECTS, DASHBOARD_WS_DISCONNECTS};
@@ -106,7 +106,7 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     let send_task = tokio::spawn(async move {
         // Phase 254: Debounce RecordBroken broadcasts — max 1 per second per (track, sim_type)
         let mut record_debounce: HashMap<(String, String), Instant> = HashMap::new();
-        let mut last_pong = Instant::now();
+        let last_pong = Instant::now();
         let mut ping_interval = tokio::time::interval(Duration::from_secs(20));
         ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         ping_interval.tick().await; // consume first immediate tick

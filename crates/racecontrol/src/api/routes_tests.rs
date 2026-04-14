@@ -42,6 +42,7 @@ mod lockdown_tests {
     use super::*;
     use crate::billing::BillingTimer;
     use axum::extract::{Path, State};
+    use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
     use std::sync::Arc;
     use tokio::sync::mpsc;
 
@@ -213,6 +214,7 @@ mod lockdown_tests {
 mod pod_status_summary_tests {
     use super::*;
     use axum::extract::State;
+    use rc_common::types::{PodInfo, PodStatus, SimType};
     use std::sync::Arc;
 
     async fn make_state() -> Arc<AppState> {
@@ -591,6 +593,7 @@ mod watchdog_crash_report_tests {
     use axum::extract::{Path, State};
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
+    use rc_common::types::WatchdogCrashReport;
     use std::sync::Arc;
 
     async fn make_state() -> Arc<AppState> {
@@ -839,6 +842,7 @@ mod data_rights_tests {
 #[cfg(test)]
 mod config_snapshot_tests {
     use super::*;
+    use crate::state::VenueConfigSnapshot;
     use serde_json::json;
 
     #[test]
@@ -1796,6 +1800,7 @@ mod post_write_verify_tests {
 #[cfg(test)]
 mod venue_authority_tests {
     use super::*;
+    use axum::http::StatusCode;
 
     /// Build a minimal Config with cloud.enabled and authoritative_tables set.
     fn make_config(cloud_enabled: bool, authoritative_tables: Vec<String>, is_cloud: bool) -> crate::config::Config {
