@@ -74,6 +74,8 @@ pub mod sync_failover;
 pub mod terminal_handlers;
 pub mod tournament_admin;
 pub mod tournament_core;
+pub mod tournament_customer;
+pub mod tournament_timetrial;
 pub mod waiver_routes;
 pub mod wallet_ops;
 pub mod wallet_staff;
