@@ -2,6 +2,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 
 mod migrate_core;
+mod migrate_core_columns;
 mod migrate_billing;
 mod migrate_game;
 mod migrate_kiosk;
