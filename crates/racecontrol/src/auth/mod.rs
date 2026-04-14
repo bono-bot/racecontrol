@@ -3,6 +3,8 @@ mod game_helpers;
 pub mod middleware;
 pub mod otp;
 pub mod rate_limit;
+mod token_consume;
+mod token_manage;
 mod token_validation;
 
 pub use admin::{admin_login, hash_admin_pin, verify_admin_pin};
