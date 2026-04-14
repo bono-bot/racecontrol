@@ -43,6 +43,7 @@ pub mod cafe_orders;
 pub mod cafe_alerts;
 pub mod cafe_marketing;
 pub mod cafe_promos;
+pub mod cafe_stock;
 pub mod catalog;
 pub mod cloud_sync;
 pub mod cloud_sync_pull;

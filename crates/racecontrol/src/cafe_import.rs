@@ -291,3 +291,99 @@ pub async fn confirm_import_rows(
 
     Ok(count)
 }
+
+// ─── Import Handlers ─────────────────────────────────────────────────────────
+
+pub async fn import_preview(
+    State(_state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename = String::new();
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        tracing::warn!("import_preview multipart error: {}", e);
+        StatusCode::BAD_REQUEST
+    })? {
+        if field.name() == Some("file") {
+            filename = field
+                .file_name()
+                .unwrap_or("upload.csv")
+                .to_lowercase();
+            file_bytes = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|e| {
+                        tracing::warn!("import_preview read bytes error: {}", e);
+                        StatusCode::BAD_REQUEST
+                    })?
+                    .to_vec(),
+            );
+        }
+    }
+
+    let bytes = file_bytes.ok_or(StatusCode::BAD_REQUEST)?;
+
+    let (raw_headers, rows) = if filename.ends_with(".xlsx") || filename.ends_with(".xls") {
+        parse_xlsx_bytes(&bytes).map_err(|e| {
+            tracing::warn!("import_preview XLSX parse error: {}", e);
+            StatusCode::BAD_REQUEST
+        })?
+    } else if filename.ends_with(".csv") {
+        parse_csv_bytes(&bytes).map_err(|e| {
+            tracing::warn!("import_preview CSV parse error: {}", e);
+            StatusCode::BAD_REQUEST
+        })?
+    } else {
+        tracing::warn!("import_preview: unsupported file type '{}'", filename);
+        return Err(StatusCode::BAD_REQUEST);
+    };
+
+    let mapping = detect_column_mapping(&raw_headers);
+    let columns: Vec<serde_json::Value> = raw_headers
+        .iter()
+        .zip(mapping.iter())
+        .enumerate()
+        .map(|(i, (header, mapped))| {
+            serde_json::json!({
+                "index": i,
+                "header": header,
+                "mapped_to": mapped
+            })
+        })
+        .collect();
+
+    let row_results: Vec<ImportRowResult> = rows
+        .into_iter()
+        .map(|row| {
+            let errors = validate_import_row(&row);
+            let valid = errors.is_empty();
+            ImportRowResult { row, valid, errors }
+        })
+        .collect();
+
+    let total_rows = row_results.len();
+    let valid_rows = row_results.iter().filter(|r| r.valid).count();
+    let invalid_rows = total_rows - valid_rows;
+
+    Ok(Json(serde_json::json!({
+        "columns": columns,
+        "rows": row_results,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "invalid_rows": invalid_rows
+    })))
+}
+
+pub async fn confirm_import(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ConfirmImportRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let count = confirm_import_rows(&state.db, &req.rows).await.map_err(|e| {
+        tracing::warn!("confirm_import error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    Ok(Json(serde_json::json!({ "imported": count })))
+}
