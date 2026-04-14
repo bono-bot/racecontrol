@@ -42,6 +42,8 @@ pub mod cafe_marketing;
 pub mod cafe_promos;
 pub mod catalog;
 pub mod cloud_sync;
+pub mod cloud_sync_pull;
+pub mod cloud_sync_push;
 pub mod cloud_sync_upsert;
 pub mod config;
 pub mod content_drift;
