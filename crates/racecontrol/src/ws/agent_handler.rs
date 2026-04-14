@@ -1,0 +1,3197 @@
+use axum::extract::ws::{Message, WebSocket};
+use futures_util::{SinkExt, StreamExt};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use tokio::sync::mpsc;
+use tokio::time::{interval, Duration, MissedTickBehavior};
+
+use crate::ac_camera;
+use crate::ac_server;
+use crate::activity_log::log_pod_activity;
+use crate::auth;
+use crate::billing;
+use crate::event_archive;
+use crate::game_launcher;
+use crate::state::{AppState, CachedAssistState};
+use rc_common::pod_id::normalize_pod_id;
+use rc_common::protocol::{
+    AgentMessage, AiChannelMessage, CoreMessage, CoreToAgentMessage, DashboardCommand,
+    DashboardEvent,
+};
+use rc_common::types::{BillingSessionStatus, GameState};
+
+use super::{
+    check_sentinel_cooldown, pod_mac_address, REGISTER_COOLDOWN, REGISTER_COOLDOWN_SECS,
+    WS_TRY_SEND_OVERFLOWS, WsAuthParams,
+};
+
+/// WS authentication result for the agent endpoint (Phase 306).
+pub(super) enum AgentAuthResult {
+    PskAuthenticated,
+    JwtAuthenticated { pod_id: String, pod_number: u32 },
+}
+
+/// Phase 306: Authenticate a pod WS connection.
+/// Tries JWT first (steady-state), then PSK (bootstrap).
+pub(super) fn authenticate_agent_ws(
+    state: &AppState,
+    params: &WsAuthParams,
+) -> Result<AgentAuthResult, String> {
+    if let Some(ref jwt_token) = params.jwt {
+        if !jwt_token.is_empty() {
+            let prev_secret = state.config.auth.jwt_secret_previous.as_deref();
+            match crate::auth::middleware::decode_pod_jwt(
+                jwt_token,
+                &state.config.auth.jwt_secret,
+                prev_secret,
+            ) {
+                Ok(claims) => {
+                    return Ok(AgentAuthResult::JwtAuthenticated {
+                        pod_id: claims.pod_id,
+                        pod_number: claims.pod_number,
+                    });
+                }
+                Err(e) => return Err(format!("Invalid pod JWT: {}", e)),
+            }
+        }
+    }
+    let psk_ok = match &state.config.cloud.terminal_secret {
+        None => true,
+        Some(s) if s.is_empty() => true,
+        Some(secret) => {
+            let token_match = params.token.as_deref() == Some(secret.as_str());
+            if !token_match && params.token.is_none() {
+                // No token provided at all — allow with warning (backward compat).
+                // Agent will identify via Register message. Agents without ws_secret
+                // in their config still need to connect for fleet operations.
+                tracing::warn!(
+                    "WS agent connection with no PSK token — allowing for backward compatibility. \
+                     Configure ws_secret in rc-agent.toml [core] section to suppress this warning."
+                );
+                true
+            } else {
+                token_match
+            }
+        }
+    };
+    if psk_ok {
+        Ok(AgentAuthResult::PskAuthenticated)
+    } else {
+        Err("Invalid or missing PSK token".to_string())
+    }
+}
+
+/// Phase 306: Issue a 24-hour pod JWT and queue it for sending.
+fn issue_pod_jwt_to_agent(
+    state: &AppState,
+    pod_id: &str,
+    pod_number: u32,
+    cmd_tx: &mpsc::Sender<CoreMessage>,
+) {
+    match crate::auth::middleware::create_pod_jwt(
+        &state.config.auth.jwt_secret,
+        pod_id,
+        pod_number,
+        24,
+    ) {
+        Ok(token) => {
+            let expires_at = (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
+            if cmd_tx
+                .try_send(CoreMessage::wrap(CoreToAgentMessage::IssueJwt {
+                    token,
+                    expires_at,
+                }))
+                .is_ok()
+            {
+                tracing::info!(
+                    "Phase 306: JWT issued to pod {} (expires_at={})",
+                    pod_id,
+                    expires_at
+                );
+            } else {
+                tracing::warn!("Phase 306: Failed to queue IssueJwt for pod {}", pod_id);
+            }
+        }
+        Err(e) => tracing::error!("Phase 306: Failed to create pod JWT for {}: {}", pod_id, e),
+    }
+}
+
+pub(super) async fn handle_agent(
+    socket: WebSocket,
+    state: Arc<AppState>,
+    auth_result: AgentAuthResult,
+) {
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+
+    // Unique ID for this connection — used to avoid stale disconnect cleanup
+    static CONN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let conn_id = CONN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    tracing::info!("Pod agent connected (conn_id={}, auth={})", conn_id,
+        match &auth_result { AgentAuthResult::PskAuthenticated => "psk", AgentAuthResult::JwtAuthenticated { .. } => "jwt" });
+
+    // Create mpsc channel for sending commands back to this agent.
+    // Phase 312: Channel carries CoreMessage (pre-wrapped) so callers control command_id.
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<CoreMessage>(64);
+    let mut registered_pod_id: Option<String> = None;
+
+    // Phase 306: JWT was already issued if this is a JWT-authenticated connection
+    let jwt_issued_for_conn = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+        matches!(auth_result, AgentAuthResult::JwtAuthenticated { .. }),
+    ));
+
+    // Shared state for pending application-level ping measurement
+    // send_task writes (id, Instant) when it sends a Ping; receive loop reads+clears it on Pong
+    static PING_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let pending_ping: Arc<tokio::sync::Mutex<Option<(u64, Instant)>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let pending_ping_send = pending_ping.clone();
+
+    // Spawn task to forward commands from mpsc to WebSocket sender.
+    // Also sends WS-level keepalive ping every 15s (CONN-01) and
+    // an app-level measurement Ping every 30s (PERF-03).
+    let send_task = tokio::spawn(async move {
+        let mut ping_interval = interval(Duration::from_secs(15));
+        ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        let mut measure_interval = interval(Duration::from_secs(30));
+        measure_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        // Consume the immediate first tick so the first real tick fires after the full interval
+        ping_interval.tick().await;
+        measure_interval.tick().await;
+
+        loop {
+            tokio::select! {
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(wrapped) => {
+                            // Phase 312: Channel now carries CoreMessage (pre-wrapped by callers).
+                            // DEPLOY-05 command_id is set by CoreMessage::wrap() at the call site.
+                            if let Ok(json) = serde_json::to_string(&wrapped) {
+                                // MMA-P2: Log and continue on transient send failures instead
+                                // of breaking the entire send loop. Only break on channel close.
+                                if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                                    tracing::warn!("WS send failed (conn_id={}): {} — continuing", conn_id, e);
+                                    // If the socket is truly closed, the next send will also fail
+                                    // and we'll detect it on the next iteration or via ping failure
+                                }
+                            }
+                        }
+                        None => break, // Channel closed — handle_agent is exiting
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    // WS-level keepalive ping to prevent TCP idle timeout during CPU spikes
+                    tracing::trace!("WS ping sent (conn_id={})", conn_id);
+                    if ws_sender.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
+                    }
+                }
+                _ = measure_interval.tick() => {
+                    // Application-level ping for round-trip latency measurement
+                    let ping_id = PING_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let msg = CoreMessage::wrap(CoreToAgentMessage::Ping { id: ping_id });
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        // Record send time before sending
+                        *pending_ping_send.lock().await = Some((ping_id, Instant::now()));
+                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Phase 306 WSAUTH-02: JWT rotation — issue RefreshJwt ~1h before the 24h token expires.
+    // A shared Arc<Mutex<Option<(String, u32)>>> lets the receive loop inform the rotation task
+    // which pod is registered. The task spawns a one-shot 23h sleep then sends RefreshJwt.
+    let jwt_rotation_pod_id: std::sync::Arc<tokio::sync::Mutex<Option<(String, u32)>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
+    {
+        let rotation_pod_id = jwt_rotation_pod_id.clone();
+        let rotation_state = state.clone();
+        let rotation_cmd_tx = cmd_tx.clone();
+        tokio::spawn(async move {
+            // Wait up to 60s for the pod to Register and set rotation_pod_id
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let guard = rotation_pod_id.lock().await;
+            let Some((ref pod_id, pod_number)) = *guard else {
+                return;
+            };
+            let pod_id = pod_id.clone();
+            drop(guard);
+            // Now wait another 23h (total ~23h after connect), then refresh
+            tokio::time::sleep(Duration::from_secs(22 * 3600)).await;
+            if rotation_cmd_tx.is_closed() {
+                return;
+            }
+            match crate::auth::middleware::create_pod_jwt(
+                &rotation_state.config.auth.jwt_secret,
+                &pod_id,
+                pod_number,
+                24,
+            ) {
+                Ok(token) => {
+                    let expires_at =
+                        (chrono::Utc::now() + chrono::Duration::hours(24)).timestamp();
+                    let msg =
+                        CoreMessage::wrap(CoreToAgentMessage::RefreshJwt { token, expires_at });
+                    if rotation_cmd_tx.try_send(msg).is_ok() {
+                        tracing::info!(
+                            "Phase 306: JWT refreshed for pod {} (expires_at={})",
+                            pod_id,
+                            expires_at
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Phase 306: JWT refresh failed for {}: {}", pod_id, e)
+                }
+            }
+        });
+    }
+
+    // Listen for messages from the agent
+    while let Some(Ok(msg)) = ws_receiver.next().await {
+        if let Message::Text(text) = msg {
+            // WS-HARDEN: message size limit (2MB for agents — telemetry can be larger)
+            if text.len() > 2_097_152 {
+                tracing::warn!(
+                    "Agent WS message too large ({} bytes, conn_id={}) — dropping",
+                    text.len(),
+                    conn_id
+                );
+                continue;
+            }
+            match serde_json::from_str::<AgentMessage>(&text) {
+                Ok(agent_msg) => {
+                    match &agent_msg {
+                        AgentMessage::Register(pod_info) => {
+                            // Normalize pod_id to canonical form (pod_N) at registration entry
+                            let canonical_id = normalize_pod_id(&pod_info.id)
+                                .unwrap_or_else(|_| pod_info.id.clone());
+
+                            // Reconnect storm throttle: skip re-registration if <2s since last
+                            {
+                                let mut cooldown =
+                                    REGISTER_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
+                                let now = Instant::now();
+                                if let Some(last) = cooldown.get(&canonical_id) {
+                                    if now.duration_since(*last).as_secs()
+                                        < REGISTER_COOLDOWN_SECS
+                                    {
+                                        tracing::warn!(
+                                            target: "fleet-health",
+                                            "Register throttled for {} — {}ms since last register (reconnect storm protection)",
+                                            canonical_id,
+                                            now.duration_since(*last).as_millis()
+                                        );
+                                        continue;
+                                    }
+                                }
+                                cooldown.insert(canonical_id.clone(), now);
+                            }
+
+                            tracing::info!(
+                                "Pod {} registered (conn_id={}): {}",
+                                pod_info.number,
+                                conn_id,
+                                pod_info.name
+                            );
+                            registered_pod_id = Some(canonical_id.clone());
+                            // Phase 306: Tell rotation task which pod this connection serves
+                            *jwt_rotation_pod_id.lock().await =
+                                Some((canonical_id.clone(), pod_info.number));
+                            log_pod_activity(
+                                &state,
+                                &canonical_id,
+                                "system",
+                                "Pod Online",
+                                &format!(
+                                    "Pod {} connected (conn_id={})",
+                                    pod_info.number, conn_id
+                                ),
+                                "agent",
+                                None,
+                            );
+                            event_archive::append_event(
+                                &state.db,
+                                "pod.online",
+                                "ws",
+                                Some(&canonical_id),
+                                serde_json::json!({
+                                    "pod_number": pod_info.number,
+                                    "conn_id": conn_id,
+                                }),
+                                &state.config.venue.venue_id,
+                            );
+
+                            // WS stability tracking: record reconnect for MI diagnostic detection.
+                            // The fleet health API exposes ws_reconnects_5m per pod.
+                            {
+                                let mut fleet = state.pod_fleet_health.write().await;
+                                let store =
+                                    fleet.entry(canonical_id.clone()).or_default();
+                                store.ws_reconnect_count += 1;
+                                store.ws_reconnect_times.push(chrono::Utc::now());
+                                // Keep only last 20 timestamps
+                                if store.ws_reconnect_times.len() > 20 {
+                                    store.ws_reconnect_times.remove(0);
+                                }
+                            }
+
+                            // MMA-109: Scope each lock tightly — never hold across .await
+                            // Lock order: agent_senders → agent_conn_ids → pods (consistent)
+                            {
+                                state
+                                    .agent_senders
+                                    .write()
+                                    .await
+                                    .insert(canonical_id.clone(), cmd_tx.clone());
+                            }
+                            {
+                                state
+                                    .agent_conn_ids
+                                    .write()
+                                    .await
+                                    .insert(canonical_id.clone(), conn_id);
+                            }
+                            {
+                                state
+                                    .pods
+                                    .write()
+                                    .await
+                                    .insert(canonical_id.clone(), pod_info.clone());
+                            }
+
+                            // MMA-P1-FIX: Sync pod registration to SQLite — keeps DB in sync
+                            // with in-memory state so kiosk/API queries see current pod data.
+                            // - ON CONFLICT preserves 'disabled' status (MMA F-02)
+                            // - Validates number matches seeded value (MMA F-03/F-06)
+                            // - Awaited (not spawned) to prevent race with disconnect (MMA F-01)
+                            {
+                                let db_result = sqlx::query(
+                                    "INSERT INTO pods (id, number, name, ip_address, sim_type, status, last_seen, venue_id)
+                                     VALUES (?, ?, ?, ?, 'assetto_corsa', 'online', datetime('now'), ?)
+                                     ON CONFLICT(id) DO UPDATE SET
+                                       ip_address = excluded.ip_address,
+                                       status = CASE WHEN pods.status IN ('disabled', 'maintenance') THEN pods.status ELSE 'online' END,
+                                       last_seen = datetime('now')"
+                                )
+                                .bind(&canonical_id)
+                                .bind(pod_info.number as i64)
+                                .bind(&pod_info.name)
+                                .bind(&pod_info.ip_address)
+                                .bind(&state.config.venue.venue_id)
+                                .execute(&state.db)
+                                .await;
+
+                                match db_result {
+                                    Ok(_) => {}
+                                    Err(ref e) => {
+                                        // MMA-R2: Use sqlx error type matching, not string contains
+                                        let is_unique = matches!(e, sqlx::Error::Database(db_err) if db_err.code().map_or(false, |c| c == "2067"));
+                                        if is_unique {
+                                            tracing::error!(
+                                                "Pod {} registration rejected: number {} conflicts with another pod — rolling back in-memory",
+                                                canonical_id, pod_info.number
+                                            );
+                                            // MMA-R2-01: Roll back in-memory insert to prevent divergence
+                                            state
+                                                .pods
+                                                .write()
+                                                .await
+                                                .remove(&canonical_id);
+                                            state
+                                                .agent_senders
+                                                .write()
+                                                .await
+                                                .remove(&canonical_id);
+                                            state
+                                                .agent_conn_ids
+                                                .write()
+                                                .await
+                                                .remove(&canonical_id);
+                                            registered_pod_id = None;
+                                            continue; // Skip rest of Register handling
+                                        } else {
+                                            tracing::warn!(
+                                                "Failed to sync pod {} registration to DB: {}",
+                                                canonical_id,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::PodUpdate(pod_info.clone()));
+
+                            // GSTATE-02: Smart reconciliation — merge pod's actual state with server tracker
+                            // Pod is ALWAYS source of truth for what's actually running, except for
+                            // very recent Launching state (<30s) where agent may not have received command yet.
+                            {
+                                let mut games =
+                                    state.game_launcher.active_games.write().await;
+                                let pod_game_state =
+                                    pod_info.game_state.unwrap_or(GameState::Idle);
+                                let server_state =
+                                    games.get(&canonical_id).map(|t| t.game_state);
+
+                                match (server_state, pod_game_state) {
+                                    // Case 1: Both agree no game running
+                                    (None, GameState::Idle) => {
+                                        // No action needed
+                                    }
+
+                                    // Case 2: Server has no tracker, pod reports active game — create tracker
+                                    (
+                                        None,
+                                        GameState::Running
+                                        | GameState::Launching
+                                        | GameState::Loading
+                                        | GameState::InLobby,
+                                    ) => {
+                                        if let Some(sim) = pod_info.current_game {
+                                            games.insert(
+                                                canonical_id.clone(),
+                                                game_launcher::GameTracker {
+                                                    pod_id: canonical_id.clone(),
+                                                    sim_type: sim,
+                                                    game_state: pod_game_state,
+                                                    pid: None,
+                                                    launched_at: None,
+                                                    error_message: None,
+                                                    launch_args: None,
+                                                    auto_relaunch_count: 0,
+                                                    externally_tracked: true,
+                                                    dynamic_timeout_secs: None,
+                                                    exit_codes: Vec::new(),
+                                                    max_auto_relaunch: 2,
+                                                    playable_at: None,
+                                                    ready_delay_ms: None,
+                                                    billing_session_id: None,
+                                                    launch_id: uuid::Uuid::new_v4()
+                                                        .to_string(),
+                                                },
+                                            );
+                                            tracing::info!(
+                                                "GSTATE-02: Created game tracker for pod {} on reconnect ({:?})",
+                                                pod_info.number,
+                                                pod_game_state
+                                            );
+                                        }
+                                    }
+
+                                    // Case 3: Server has tracker, pod reports active — update state from pod (source of truth)
+                                    (
+                                        Some(_server_gs),
+                                        GameState::Running
+                                        | GameState::Launching
+                                        | GameState::Loading
+                                        | GameState::InLobby,
+                                    ) => {
+                                        if let Some(tracker) =
+                                            games.get_mut(&canonical_id)
+                                        {
+                                            let old_state = tracker.game_state;
+                                            tracker.game_state = pod_game_state;
+                                            if old_state != pod_game_state {
+                                                tracing::info!(
+                                                    "GSTATE-02: Reconciled pod {} game state: {:?} -> {:?} (pod is source of truth)",
+                                                    pod_info.number, old_state, pod_game_state
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    // Case 4: Server has Launching tracker, pod reports Idle
+                                    // Pod may not have processed a very recent launch command yet.
+                                    // Keep tracker if launched <30s ago; GSTATE-01 180s hard-cap cleans up if launch truly failed.
+                                    (Some(GameState::Launching), GameState::Idle) => {
+                                        let keep =
+                                            if let Some(tracker) = games.get(&canonical_id) {
+                                                match tracker.launched_at {
+                                                    Some(launched_at) => {
+                                                        let elapsed = chrono::Utc::now()
+                                                            .signed_duration_since(launched_at)
+                                                            .num_seconds();
+                                                        elapsed < 30
+                                                    }
+                                                    None => true, // No timestamp = just created, keep it
+                                                }
+                                            } else {
+                                                false
+                                            };
+                                        if keep {
+                                            tracing::info!(
+                                                "GSTATE-02: Keeping recent Launching tracker for pod {} despite Idle reconnect (launch may be in-flight)",
+                                                pod_info.number
+                                            );
+                                        } else {
+                                            games.remove(&canonical_id);
+                                            tracing::info!(
+                                                "GSTATE-02: Removed stale Launching tracker for pod {} (pod reports Idle, launch >30s old)",
+                                                pod_info.number
+                                            );
+                                        }
+                                    }
+
+                                    // Case 5: Server has Running/Loading/Stopping/Error tracker, pod reports Idle
+                                    // Pod is source of truth — game ended while disconnected. Remove tracker.
+                                    (Some(server_gs), GameState::Idle) => {
+                                        games.remove(&canonical_id);
+                                        tracing::info!(
+                                            "GSTATE-02: Removed stale {:?} tracker for pod {} on reconnect (pod reports Idle)",
+                                            server_gs, pod_info.number
+                                        );
+                                    }
+
+                                    // Case 6: Pod reports Stopping or Error — update existing tracker
+                                    (
+                                        Some(_),
+                                        GameState::Stopping | GameState::Error,
+                                    ) => {
+                                        if let Some(tracker) =
+                                            games.get_mut(&canonical_id)
+                                        {
+                                            tracker.game_state = pod_game_state;
+                                            tracing::info!(
+                                                "GSTATE-02: Updated tracker for pod {} to {:?} on reconnect",
+                                                pod_info.number,
+                                                pod_game_state
+                                            );
+                                        }
+                                    }
+
+                                    // Case 7: No server tracker, pod reports Stopping/Error — create transient tracker
+                                    // So state is visible on dashboard; normal timeout will clean it up.
+                                    (
+                                        None,
+                                        GameState::Stopping | GameState::Error,
+                                    ) => {
+                                        if let Some(sim) = pod_info.current_game {
+                                            games.insert(
+                                                canonical_id.clone(),
+                                                game_launcher::GameTracker {
+                                                    pod_id: canonical_id.clone(),
+                                                    sim_type: sim,
+                                                    game_state: pod_game_state,
+                                                    pid: None,
+                                                    launched_at: Some(chrono::Utc::now()),
+                                                    error_message: None,
+                                                    launch_args: None,
+                                                    auto_relaunch_count: 0,
+                                                    externally_tracked: true,
+                                                    dynamic_timeout_secs: None,
+                                                    exit_codes: Vec::new(),
+                                                    max_auto_relaunch: 2,
+                                                    playable_at: None,
+                                                    ready_delay_ms: None,
+                                                    billing_session_id: None,
+                                                    launch_id: uuid::Uuid::new_v4()
+                                                        .to_string(),
+                                                },
+                                            );
+                                            tracing::info!(
+                                                "GSTATE-02: Created {:?} tracker for pod {} on reconnect (transient)",
+                                                pod_game_state,
+                                                pod_info.number
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Resync active billing session to reconnected agent
+                            {
+                                let resync = {
+                                    let timers =
+                                        state.billing.active_timers.read().await;
+                                    timers.get(&canonical_id).map(|timer| {
+                                        (
+                                            timer.session_id.clone(),
+                                            timer.driver_name.clone(),
+                                            timer.allocated_seconds,
+                                            timer.remaining_seconds(),
+                                        )
+                                    })
+                                };
+                                if let Some((
+                                    session_id,
+                                    driver_name,
+                                    allocated_seconds,
+                                    remaining,
+                                )) = resync
+                                {
+                                    // Resume PausedDisconnect timer — pod is back online
+                                    {
+                                        let mut timers =
+                                            state.billing.active_timers.write().await;
+                                        if let Some(timer) =
+                                            timers.get_mut(&canonical_id)
+                                        {
+                                            if timer.status
+                                                == rc_common::types::BillingSessionStatus::PausedDisconnect
+                                            {
+                                                timer.status = rc_common::types::BillingSessionStatus::Active;
+                                                timer.offline_since = None;
+                                                timer.pause_seconds = 0; // Reset per-disconnect counter on resume
+                                                tracing::info!(
+                                                    "Resumed PausedDisconnect timer for session {} on pod {} — customer is back",
+                                                    session_id, canonical_id
+                                                );
+                                            }
+                                        }
+                                    }
+                                    let _ = cmd_tx
+                                        .send(CoreMessage::wrap(
+                                            CoreToAgentMessage::BillingStarted {
+                                                billing_session_id: session_id.clone(),
+                                                driver_name: driver_name.clone(),
+                                                allocated_seconds,
+                                                session_token: Some(
+                                                    uuid::Uuid::new_v4().to_string(),
+                                                ),
+                                            },
+                                        ))
+                                        .await;
+                                    let _ = cmd_tx
+                                        .send(CoreMessage::wrap(
+                                            CoreToAgentMessage::BillingTick {
+                                                remaining_seconds: remaining,
+                                                allocated_seconds,
+                                                driver_name: driver_name.clone(),
+                                                tick_seq: 0, // initial tick on reconnect — next real tick will be seq > 0
+                                                elapsed_seconds: None,
+                                                cost_paise: None,
+                                                rate_per_min_paise: None,
+                                                paused: None,
+                                                minutes_to_next_tier: None,
+                                                tier_name: None,
+                                            },
+                                        ))
+                                        .await;
+                                    // Restore pod state (agent Register overwrites with Idle)
+                                    {
+                                        let mut pods = state.pods.write().await;
+                                        if let Some(pod) =
+                                            pods.get_mut(&canonical_id)
+                                        {
+                                            pod.billing_session_id =
+                                                Some(session_id.clone());
+                                            pod.current_driver =
+                                                Some(driver_name.clone());
+                                            pod.status =
+                                                rc_common::types::PodStatus::InSession;
+                                            let _ = state.dashboard_tx.send(
+                                                DashboardEvent::PodUpdate(pod.clone()),
+                                            );
+                                        }
+                                    }
+                                    tracing::info!(
+                                        "Resynced billing session {} to pod {} ({}s remaining)",
+                                        session_id,
+                                        pod_info.number,
+                                        remaining
+                                    );
+                                }
+                            }
+
+                            // Send current kiosk settings to newly connected agent
+                            if let Ok(rows) = sqlx::query_as::<_, (String, String)>(
+                                "SELECT key, value FROM kiosk_settings",
+                            )
+                            .fetch_all(&state.db)
+                            .await
+                            {
+                                if !rows.is_empty() {
+                                    let settings: std::collections::HashMap<String, String> =
+                                        rows.into_iter().collect();
+                                    let pod_settings = state
+                                        .settings_for_pod(&settings, pod_info.number)
+                                        .await;
+                                    let _ = cmd_tx
+                                        .send(CoreMessage::wrap(
+                                            CoreToAgentMessage::SettingsUpdated {
+                                                settings: pod_settings,
+                                            },
+                                        ))
+                                        .await;
+                                    tracing::info!(
+                                        "Sent initial kiosk settings to pod {}",
+                                        pod_info.number
+                                    );
+                                }
+                            }
+
+                            // Phase 306 WSAUTH-01/04: Issue JWT after PSK bootstrap.
+                            if !jwt_issued_for_conn
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                            {
+                                issue_pod_jwt_to_agent(
+                                    &state,
+                                    &canonical_id,
+                                    pod_info.number,
+                                    &cmd_tx,
+                                );
+                                jwt_issued_for_conn
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            // Phase 296 PUSH-02: Push stored full AgentConfig to pod on connect
+                            if let Err(e) =
+                                crate::config_push::push_full_config_to_pod(
+                                    &state,
+                                    &canonical_id,
+                                    &cmd_tx,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to push full config to pod {} on connect: {}",
+                                    canonical_id,
+                                    e
+                                );
+                            }
+                            // Phase 298 PRESET-02: Push preset library to pod on connect
+                            if let Err(e) =
+                                crate::preset_library::push_presets_to_pod(
+                                    &state,
+                                    &canonical_id,
+                                    &cmd_tx,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    "Failed to push presets to pod {} on connect: {}",
+                                    canonical_id,
+                                    e
+                                );
+                            }
+                        }
+                        AgentMessage::Heartbeat(pod_info) => {
+                            // Merge agent-reported fields with core-managed fields
+                            // (billing_session_id, current_driver, status are managed by racecontrol billing)
+                            // OR-016: Normalize pod_id (same as Register handler) to prevent split state
+                            let hb_pod_id = normalize_pod_id(&pod_info.id)
+                                .unwrap_or_else(|_| pod_info.id.clone());
+                            // Kimi-004: Verify heartbeat sender matches this connection's registered pod
+                            if let Some(ref expected) = registered_pod_id {
+                                if &hb_pod_id != expected {
+                                    tracing::warn!(
+                                        "Heartbeat pod_id mismatch: conn registered as {} but sent heartbeat for {}",
+                                        expected,
+                                        hb_pod_id
+                                    );
+                                    continue; // Reject spoofed heartbeat
+                                }
+                            }
+                            let mut pods = state.pods.write().await;
+                            let updated = if let Some(existing) =
+                                pods.get_mut(&hb_pod_id)
+                            {
+                                // Preserve core-managed billing state
+                                existing.ip_address = pod_info.ip_address.clone();
+                                let now = chrono::Utc::now();
+                                existing.last_seen = Some(now);
+                                // OR-007: Only accept agent-reported game_state if valid transition
+                                // Prevents stale heartbeats from reverting Running→Idle etc.
+                                existing.driving_state = pod_info.driving_state;
+                                if let Some(new_gs) = pod_info.game_state {
+                                    let accept = match (existing.game_state, new_gs) {
+                                        // Never allow heartbeat to revert from Running to Idle/Launching
+                                        // (only GameStateUpdate messages should do that)
+                                        (Some(GameState::Running), GameState::Idle) => {
+                                            false
+                                        }
+                                        (
+                                            Some(GameState::Running),
+                                            GameState::Launching,
+                                        ) => false,
+                                        (
+                                            Some(GameState::Running),
+                                            GameState::Loading,
+                                        ) => false,
+                                        _ => true,
+                                    };
+                                    if accept {
+                                        existing.game_state = pod_info.game_state;
+                                    }
+                                }
+                                existing.current_game = pod_info.current_game;
+                                existing.screen_blanked = pod_info.screen_blanked;
+                                existing.ffb_preset = pod_info.ffb_preset.clone();
+                                if !pod_info.installed_games.is_empty() {
+                                    existing.installed_games =
+                                        pod_info.installed_games.clone();
+                                }
+                                // Backfill MAC address if missing (needed for WOL)
+                                if existing.mac_address.is_none() {
+                                    existing.mac_address =
+                                        pod_mac_address(&hb_pod_id);
+                                }
+                                existing.clone()
+                            } else {
+                                let mut new_pod = pod_info.clone();
+                                new_pod.mac_address = pod_mac_address(&hb_pod_id);
+                                pods.insert(hb_pod_id.clone(), new_pod.clone());
+                                new_pod
+                            };
+                            drop(pods);
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::PodUpdate(updated));
+
+                            // FSM-02: Phantom billing guard — detect billing=active + game=Idle >30s.
+                            // Skip check if game_state is None (old agents may not send it).
+                            if let Some(reported_gs) = pod_info.game_state {
+                                let has_active_billing = {
+                                    let timers =
+                                        state.billing.active_timers.read().await;
+                                    timers.get(&hb_pod_id).map_or(false, |t| {
+                                        matches!(
+                                            t.status,
+                                            BillingSessionStatus::Active
+                                        )
+                                    })
+                                };
+                                if has_active_billing
+                                    && reported_gs == GameState::Idle
+                                {
+                                    // Condition detected: billing active but game idle — start or check timer
+                                    let phantom_elapsed = {
+                                        let mut phantom =
+                                            state.phantom_billing_start.write().await;
+                                        let entry = phantom
+                                            .entry(hb_pod_id.clone())
+                                            .or_insert_with(std::time::Instant::now);
+                                        entry.elapsed().as_secs()
+                                    };
+                                    if phantom_elapsed > 30 {
+                                        tracing::error!(
+                                            "PHANTOM BILLING DETECTED: pod {} has billing=active but game=Idle for {}s — auto-pausing",
+                                            hb_pod_id, phantom_elapsed
+                                        );
+                                        // Auto-pause the billing timer
+                                        {
+                                            let mut timers = state
+                                                .billing
+                                                .active_timers
+                                                .write()
+                                                .await;
+                                            if let Some(timer) =
+                                                timers.get_mut(&hb_pod_id)
+                                            {
+                                                if timer.status
+                                                    == BillingSessionStatus::Active
+                                                {
+                                                    timer.status = BillingSessionStatus::PausedGamePause; // FSM-02: phantom guard
+                                                }
+                                            }
+                                        }
+                                        // Clear the phantom timer entry — condition resolved by pausing
+                                        state
+                                            .phantom_billing_start
+                                            .write()
+                                            .await
+                                            .remove(&hb_pod_id);
+                                    }
+                                } else {
+                                    // Condition cleared: remove phantom timer entry if it exists
+                                    let has_entry = state
+                                        .phantom_billing_start
+                                        .read()
+                                        .await
+                                        .contains_key(&hb_pod_id);
+                                    if has_entry {
+                                        state
+                                            .phantom_billing_start
+                                            .write()
+                                            .await
+                                            .remove(&hb_pod_id);
+                                    }
+                                }
+                            }
+
+                            // RESIL-08: Clock drift detection — compare agent_timestamp with server time.
+                            // Drop any lock before async work. Snapshot only what is needed.
+                            if let Some(ref agent_ts_str) = pod_info.agent_timestamp {
+                                if let Ok(agent_time) =
+                                    chrono::DateTime::parse_from_rfc3339(agent_ts_str)
+                                {
+                                    let server_time = chrono::Utc::now();
+                                    let drift_secs = (server_time
+                                        - agent_time.with_timezone(&chrono::Utc))
+                                    .num_seconds();
+                                    let abs_drift = drift_secs.unsigned_abs();
+                                    if abs_drift > 5 {
+                                        tracing::warn!(
+                                            "RESIL-08: Clock drift {}s on pod {} (server - agent)",
+                                            drift_secs, hb_pod_id
+                                        );
+                                    }
+                                    // Update fleet health store with drift value
+                                    let mut fleet =
+                                        state.pod_fleet_health.write().await;
+                                    let store = fleet
+                                        .entry(hb_pod_id.clone())
+                                        .or_default();
+                                    store.clock_drift_secs = Some(drift_secs);
+                                }
+                            }
+                        }
+                        AgentMessage::Telemetry(frame) => {
+                            // MMA-ITER1-#4 (8/8): Override pod_id with authenticated WS identity
+                            let mut frame = frame.clone();
+                            if let Some(ref expected) = registered_pod_id {
+                                if frame.pod_id != *expected {
+                                    tracing::warn!(
+                                        "Telemetry pod_id spoof: conn={} frame={} — overriding",
+                                        expected,
+                                        frame.pod_id
+                                    );
+                                    frame.pod_id = expected.clone();
+                                }
+                            }
+                            // Feed telemetry to camera controller
+                            crate::ac_camera::on_telemetry(&state, &frame).await;
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::Telemetry(frame.clone()));
+                            // Phase 251: Send to telemetry writer for persistence
+                            if let Some(ref tx) = state.telemetry_writer_tx {
+                                // Non-blocking send — drop frame if channel is full
+                                let _ = tx.try_send(frame.clone());
+                            }
+                            // GLD-C-02: Record 1s coverage bucket.
+                            // Non-blocking try_write — if lock busy, skip this sample.
+                            // Minor coverage undercounting is acceptable per D-04.
+                            // CLAUDE.md: guard dropped immediately — no .await held.
+                            if let Ok(mut timers) =
+                                state.billing.active_timers.try_write()
+                            {
+                                if let Some(timer) = timers.get_mut(&frame.pod_id) {
+                                    let elapsed = timer.elapsed_seconds;
+                                    timer
+                                        .telemetry_seconds_covered
+                                        .insert(elapsed);
+                                }
+                            } // guard dropped here
+                        }
+                        AgentMessage::LapCompleted(lap) => {
+                            let mut lap = lap.clone();
+
+                            // Resolve driver from active billing session on this pod
+                            if let Some((driver_id, session_id)) =
+                                crate::lap_tracker::resolve_driver_for_pod(
+                                    &state,
+                                    &lap.pod_id,
+                                )
+                                .await
+                            {
+                                lap.driver_id = driver_id;
+                                lap.session_id = session_id;
+                            }
+
+                            tracing::info!(
+                                "Lap completed: {} - {}ms on {}",
+                                lap.driver_id,
+                                lap.lap_time_ms,
+                                lap.track
+                            );
+
+                            // Persist to DB and update leaderboards
+                            crate::lap_tracker::persist_lap(&state, &lap).await;
+
+                            // Phase 364 CONSIST-01: in-flight lap consistency check
+                            if lap.valid {
+                                crate::lap_consistency::check_lap_consistency(
+                                    &state, &lap,
+                                )
+                                .await;
+                            }
+
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::LapCompleted(lap));
+                        }
+                        AgentMessage::SessionUpdate(session) => {
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::SessionUpdate(session.clone()));
+                        }
+                        AgentMessage::DrivingStateUpdate {
+                            pod_id,
+                            state: driving_state,
+                        } => {
+                            tracing::debug!(
+                                "Pod {} driving state: {:?}",
+                                pod_id,
+                                driving_state
+                            );
+
+                            // Update pod info
+                            if let Some(pod) =
+                                state.pods.write().await.get_mut(pod_id)
+                            {
+                                pod.driving_state = Some(*driving_state);
+                            }
+
+                            // Update billing timer
+                            billing::update_driving_state(
+                                &state,
+                                pod_id,
+                                *driving_state,
+                            )
+                            .await;
+                        }
+                        AgentMessage::GameStateUpdate(info) => {
+                            tracing::info!(
+                                "Pod {} game state: {:?} ({:?})",
+                                info.pod_id,
+                                info.game_state,
+                                info.sim_type
+                            );
+                            let gs_action = match info.game_state {
+                                GameState::Running => "Game Running",
+                                GameState::Loading => "Game Loading",
+                                GameState::Error => "Game Crashed",
+                                GameState::Idle => "Game Stopped",
+                                GameState::Launching => "Game Launching",
+                                GameState::Stopping => "Game Stopping",
+                                GameState::InLobby => "Game In Lobby",
+                            };
+                            let gs_details = match &info.error_message {
+                                Some(err) => format!("{}: {}", info.sim_type, err),
+                                None => format!("{}", info.sim_type),
+                            };
+                            log_pod_activity(
+                                &state,
+                                &info.pod_id,
+                                "game",
+                                gs_action,
+                                &gs_details,
+                                "agent",
+                                None,
+                            );
+                            game_launcher::handle_game_state_update(
+                                &state,
+                                info.clone(),
+                            )
+                            .await;
+                            // ─── Phase 317 (LAUNCH-04): Chain failure detection ──────────────
+                            {
+                                let sim_key = format!(
+                                    "{}:{:?}",
+                                    info.pod_id, info.sim_type
+                                );
+                                match info.game_state {
+                                    GameState::Error => {
+                                        // Snapshot needed data, drop lock BEFORE any .await
+                                        let should_escalate = {
+                                            let mut tracker = state
+                                                .chain_failure_tracker
+                                                .write()
+                                                .await;
+                                            let entry = tracker
+                                                .entry(sim_key.clone())
+                                                .or_default();
+                                            // Reset if window expired
+                                            if entry.is_window_expired() {
+                                                entry.reset();
+                                            }
+                                            // Start window on first failure
+                                            if entry.window_start.is_none() {
+                                                entry.window_start =
+                                                    Some(std::time::Instant::now());
+                                            }
+                                            entry.consecutive_failures = entry
+                                                .consecutive_failures
+                                                .saturating_add(1);
+                                            // Escalate on 3rd failure if not already alerted this window
+                                            let should = entry.consecutive_failures
+                                                >= 3
+                                                && !entry.alerted;
+                                            if should {
+                                                entry.alerted = true;
+                                            }
+                                            (should, entry.consecutive_failures)
+                                        };
+                                        // Write lock is dropped — now safe to do async work
+                                        if should_escalate.0 {
+                                            let escalation = state
+                                                .whatsapp_escalation
+                                                .clone();
+                                            let pod_id_esc =
+                                                info.pod_id.clone();
+                                            let sim_type_str =
+                                                format!("{}", info.sim_type);
+                                            let count = should_escalate.1;
+                                            let incident_id = format!(
+                                                "chain_fail_{}_{:?}",
+                                                pod_id_esc, info.sim_type
+                                            );
+                                            tokio::spawn(async move {
+                                                escalation.handle_escalation(rc_common::protocol::EscalationPayload {
+                                                    pod_id: pod_id_esc.clone(),
+                                                    incident_id,
+                                                    severity: "critical".to_string(),
+                                                    trigger: "ChainLaunchFailure".to_string(),
+                                                    summary: format!(
+                                                        "Chain failure: {} on {} failed {} times in 10 min",
+                                                        sim_type_str, pod_id_esc, count
+                                                    ),
+                                                    actions_tried: vec!["auto_relaunch_attempted".to_string()],
+                                                    impact: format!("{} is unlaunchable on {} — customers cannot start sessions", sim_type_str, pod_id_esc),
+                                                    dashboard_url: "http://192.168.31.23:3201/fleet".to_string(),
+                                                    timestamp: crate::whatsapp_alerter::ist_now_string(),
+                                                }).await;
+                                            });
+                                        }
+                                    }
+                                    GameState::Running => {
+                                        // Launch succeeded — reset chain failure for this pod+sim
+                                        let mut tracker = state
+                                            .chain_failure_tracker
+                                            .write()
+                                            .await;
+                                        if let Some(entry) =
+                                            tracker.get_mut(&sim_key)
+                                        {
+                                            entry.reset();
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        AgentMessage::AiDebugResult(suggestion) => {
+                            tracing::info!(
+                                "AI debug suggestion for pod {}: {}",
+                                suggestion.pod_id, suggestion.model
+                            );
+                            // Persist to DB
+                            let id = uuid::Uuid::new_v4().to_string();
+                            let _ = sqlx::query(
+                                "INSERT INTO ai_suggestions (id, pod_id, sim_type, error_context, suggestion, model, source) \
+                                 VALUES (?, ?, ?, ?, ?, ?, 'crash')"
+                            )
+                            .bind(&id)
+                            .bind(&suggestion.pod_id)
+                            .bind(format!("{:?}", suggestion.sim_type))
+                            .bind(&suggestion.error_context)
+                            .bind(&suggestion.suggestion)
+                            .bind(&suggestion.model)
+                            .execute(&state.db)
+                            .await;
+
+                            let _ = state
+                                .dashboard_tx
+                                .send(DashboardEvent::AiDebugSuggestion(
+                                    suggestion.clone(),
+                                ));
+                        }
+                        // Phase 368 Plan 02 — P1-01 live launch status relay
+                        // Receives LaunchStatusUpdate from rc-agent (game_launch_retry.rs hook
+                        // points) and forwards to the LaunchStateMachine + dashboard broadcast.
+                        AgentMessage::LaunchStatusUpdate {
+                            launch_id,
+                            state: new_state,
+                            detail,
+                            ai_tier,
+                            fix_action,
+                            origin: _,
+                        } => {
+                            // D-01 split-deploy detection: rc-agent mints local UUID when
+                            // the server is on an older build lacking launch_id in LaunchGame.
+                            if launch_id.starts_with("rcagent-local-") {
+                                tracing::error!(
+                                    launch_id = %launch_id,
+                                    ?new_state,
+                                    "split-deploy launch_id received — REQUIRES FLEET UPDATE. \
+                                     rc-agent minted this id because the server was on an older build \
+                                     when the pod booted. Upgrade rc-agent to build_id >= 368-02 to \
+                                     restore D-01 canonical server-minted launch_id."
+                                );
+                            }
+
+                            let maybe_card = state
+                                .launch_state_machine
+                                .transition(
+                                    &launch_id,
+                                    *new_state,
+                                    detail.clone(),
+                                    *ai_tier,
+                                    fix_action.clone(),
+                                )
+                                .await;
+
+                            match maybe_card {
+                                Some(card) => {
+                                    // No lock held across .await (CLAUDE.md standing rule).
+                                    if let Err(e) = state.dashboard_tx.send(
+                                        DashboardEvent::LaunchStatusChanged(card),
+                                    ) {
+                                        tracing::debug!(
+                                            error = %e,
+                                            "dashboard_tx has no subscribers for LaunchStatusChanged"
+                                        );
+                                    }
+                                }
+                                None => {
+                                    tracing::warn!(
+                                        launch_id = %launch_id,
+                                        ?new_state,
+                                        "LaunchStatusUpdate for unknown or terminal launch_id — dropping"
+                                    );
+                                }
+                            }
+                        }
+                        AgentMessage::PinEntered { pod_id, pin } => {
+                            tracing::info!("PIN entered on pod {}", pod_id);
+                            log_pod_activity(
+                                &state, pod_id, "auth", "PIN Entered", "", "agent",
+                                None,
+                            );
+                            auth::handle_pin_entered(
+                                &state,
+                                pod_id.clone(),
+                                pin.clone(),
+                            )
+                            .await;
+                        }
+                        AgentMessage::Pong { id, agent_delay_us } => {
+                            // Application-level round-trip measurement response
+                            let mut guard = pending_ping.lock().await;
+                            if let Some((pending_id, sent_at)) = guard.take() {
+                                if pending_id == *id {
+                                    let elapsed_ms =
+                                        sent_at.elapsed().as_millis();
+                                    let fallback_label =
+                                        format!("conn_{}", conn_id);
+                                    let label = registered_pod_id
+                                        .as_deref()
+                                        .unwrap_or(&fallback_label);
+                                    if elapsed_ms > 600 {
+                                        let agent_info = match agent_delay_us {
+                                            Some(us) => format!(
+                                                ", agent_process={}us",
+                                                us
+                                            ),
+                                            None => String::new(),
+                                        };
+                                        tracing::warn!(
+                                            "WS round-trip slow: {} took {}ms (threshold 600ms{})",
+                                            label, elapsed_ms, agent_info
+                                        );
+                                    } else {
+                                        tracing::debug!(
+                                            "WS round-trip: {}ms ({})",
+                                            elapsed_ms, label
+                                        );
+                                    }
+                                } else {
+                                    // Stale pong (id mismatch) — discard
+                                    tracing::debug!(
+                                        "Stale pong id={} (expected {}), discarding",
+                                        id, pending_id
+                                    );
+                                }
+                            }
+                        }
+                        AgentMessage::GameStatusUpdate {
+                            pod_id,
+                            ac_status,
+                            sim_type,
+                        } => {
+                            tracing::info!(
+                                "Pod {} AC STATUS: {:?}",
+                                pod_id, ac_status
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "game",
+                                &format!("AC Status: {:?}", ac_status),
+                                "",
+                                "agent",
+                                None,
+                            );
+                            billing::handle_game_status_update(
+                                &state, pod_id, *ac_status, *sim_type, &cmd_tx,
+                            )
+                            .await;
+                        }
+                        AgentMessage::FfbZeroed { pod_id } => {
+                            tracing::info!(
+                                "Pod {} FFB zeroed (safety action completed)",
+                                pod_id
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "safety",
+                                "FFB Zeroed",
+                                "Wheelbase torque set to 0",
+                                "agent",
+                                None,
+                            );
+                        }
+                        AgentMessage::GameCrashed {
+                            pod_id,
+                            billing_active,
+                        } => {
+                            tracing::warn!(
+                                "Pod {} game crashed (billing_active={})",
+                                pod_id, billing_active
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "game",
+                                "Game Crashed",
+                                &format!("billing_active={}", billing_active),
+                                "agent",
+                                None,
+                            );
+                            // CRASH-02: Auto-pause billing on game crash
+                            if *billing_active {
+                                let mut timers =
+                                    state.billing.active_timers.write().await;
+                                if let Some(timer) =
+                                    timers.get_mut(pod_id.as_str())
+                                {
+                                    if timer.status == BillingSessionStatus::Active
+                                    {
+                                        timer.status =
+                                            BillingSessionStatus::PausedGamePause;
+                                        timer.pause_seconds = 0;
+                                        timer.pause_count += 1;
+                                        tracing::info!(
+                                            "Billing auto-paused on crash for pod {}",
+                                            pod_id
+                                        );
+                                    }
+                                }
+                            }
+
+                            // RESIL-06: Record crash event and check if pod should be flagged for maintenance.
+                            // Drop lock before any async work (standing rule: no lock across .await).
+                            let crash_id = uuid::Uuid::new_v4().to_string();
+                            let crash_result = sqlx::query(
+                                "INSERT INTO pod_crash_events (id, pod_id, crash_type) VALUES (?, ?, 'game_crash')"
+                            )
+                            .bind(&crash_id)
+                            .bind(pod_id)
+                            .execute(&state.db)
+                            .await;
+
+                            if let Err(e) = crash_result {
+                                tracing::warn!(
+                                    "RESIL-06: Failed to insert crash event for pod {}: {}",
+                                    pod_id, e
+                                );
+                            } else {
+                                // Count crashes in last hour
+                                let count_result: Result<(i64,), _> = sqlx::query_as(
+                                    "SELECT COUNT(*) FROM pod_crash_events WHERE pod_id = ? AND created_at > datetime('now', '-1 hour')"
+                                )
+                                .bind(pod_id)
+                                .fetch_one(&state.db)
+                                .await;
+
+                                if let Ok((count,)) = count_result {
+                                    // Snapshot pod_id for async use, update fleet health store
+                                    let pod_id_owned = pod_id.clone();
+                                    let count_i32 = count as i32;
+                                    {
+                                        let mut fleet =
+                                            state.pod_fleet_health.write().await;
+                                        let store = fleet
+                                            .entry(pod_id_owned.clone())
+                                            .or_default();
+                                        store.crashes_last_hour = count_i32;
+                                        if count > 3 && !store.maintenance_flag {
+                                            store.maintenance_flag = true;
+                                            tracing::error!(
+                                                "RESIL-06: Pod {} flagged for maintenance — {} crashes in 1 hour",
+                                                pod_id_owned, count
+                                            );
+                                            // Send WhatsApp alert (after lock is dropped)
+                                            let alert_msg = format!(
+                                                "[MAINTENANCE] Pod {} auto-flagged: {} crashes in last hour. Check hardware. {}",
+                                                pod_id_owned, count,
+                                                crate::whatsapp_alerter::ist_now_string()
+                                            );
+                                            // drop fleet write guard before async send
+                                            drop(fleet);
+                                            crate::whatsapp_alerter::send_whatsapp(
+                                                &state.config,
+                                                &alert_msg,
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        AgentMessage::AssistChanged {
+                            pod_id,
+                            assist_type,
+                            enabled,
+                            confirmed,
+                        } => {
+                            tracing::info!(
+                                "Pod {} assist changed: {} = {} (confirmed: {})",
+                                pod_id, assist_type, enabled, confirmed
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "game",
+                                "Assist Changed",
+                                &format!(
+                                    "{} = {} (confirmed: {})",
+                                    assist_type, enabled, confirmed
+                                ),
+                                "agent",
+                                None,
+                            );
+                            // Update assist cache with the changed value
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                let entry =
+                                    cache.entry(pod_id.clone()).or_default();
+                                match assist_type.as_str() {
+                                    "abs" => {
+                                        entry.abs =
+                                            if *enabled { 1 } else { 0 }
+                                    }
+                                    "tc" => {
+                                        entry.tc =
+                                            if *enabled { 1 } else { 0 }
+                                    }
+                                    "transmission" => {
+                                        entry.auto_shifter = *enabled
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        AgentMessage::FfbGainChanged { pod_id, percent } => {
+                            tracing::info!(
+                                "Pod {} FFB gain changed to {}%",
+                                pod_id, percent
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "game",
+                                "FFB Gain Changed",
+                                &format!("{}%", percent),
+                                "agent",
+                                None,
+                            );
+                            // Update FFB percent in assist cache
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                let entry =
+                                    cache.entry(pod_id.clone()).or_default();
+                                entry.ffb_percent = *percent;
+                            }
+                        }
+                        AgentMessage::AssistState {
+                            pod_id,
+                            abs,
+                            tc,
+                            auto_shifter,
+                            ffb_percent,
+                        } => {
+                            tracing::info!(
+                                "Pod {} assist state: ABS={} TC={} auto_shifter={} FFB={}%",
+                                pod_id, abs, tc, auto_shifter, ffb_percent
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "game",
+                                "Assist State",
+                                &format!(
+                                    "ABS={} TC={} auto_shifter={} FFB={}%",
+                                    abs, tc, auto_shifter, ffb_percent
+                                ),
+                                "agent",
+                                None,
+                            );
+                            // Replace entire cached state for this pod with fresh data from agent
+                            {
+                                let mut cache = state.assist_cache.write().await;
+                                cache.insert(
+                                    pod_id.clone(),
+                                    CachedAssistState {
+                                        abs: *abs,
+                                        tc: *tc,
+                                        auto_shifter: *auto_shifter,
+                                        ffb_percent: *ffb_percent,
+                                    },
+                                );
+                            }
+                        }
+                        AgentMessage::ContentManifest(manifest) => {
+                            if let Some(ref pod_id) = registered_pod_id {
+                                let car_count = manifest.cars.len();
+                                let track_count = manifest.tracks.len();
+                                tracing::info!(
+                                    "Pod {} content manifest: {} cars, {} tracks",
+                                    pod_id, car_count, track_count
+                                );
+                                log_pod_activity(
+                                    &state,
+                                    pod_id,
+                                    "content",
+                                    "Content Scanned",
+                                    &format!(
+                                        "{} cars, {} tracks",
+                                        car_count, track_count
+                                    ),
+                                    "agent",
+                                    None,
+                                );
+                                state
+                                    .pod_manifests
+                                    .write()
+                                    .await
+                                    .insert(pod_id.clone(), manifest.clone());
+                            }
+                        }
+                        AgentMessage::ExecResult {
+                            request_id,
+                            success,
+                            exit_code,
+                            stdout,
+                            stderr,
+                        } => {
+                            tracing::info!(
+                                "WS command result {}: success={}",
+                                request_id, success
+                            );
+                            let mut pending =
+                                state.pending_ws_execs.write().await;
+                            if let Some(sender) = pending.remove(request_id) {
+                                let _ =
+                                    sender.send(crate::state::WsExecResult {
+                                        success: *success,
+                                        exit_code: *exit_code,
+                                        stdout: stdout.clone(),
+                                        stderr: stderr.clone(),
+                                    });
+                            } else {
+                                tracing::warn!(
+                                    "No pending request for request_id={}",
+                                    request_id
+                                );
+                            }
+                        }
+                        // Phase 312: Handle CommandAck from agent (WSCMD-01/02)
+                        AgentMessage::CommandAck {
+                            command_id,
+                            success,
+                            error,
+                        } => {
+                            tracing::info!(
+                                "CommandAck from pod {:?}: cmd={} success={} err={:?}",
+                                registered_pod_id, command_id, success, error
+                            );
+                            let mut pending =
+                                state.pending_command_acks.write().await;
+                            if let Some(sender) = pending.remove(command_id) {
+                                let _ = sender.send(
+                                    crate::state::CommandAckResult {
+                                        success: *success,
+                                        error: error.clone(),
+                                    },
+                                );
+                            } else {
+                                tracing::debug!(
+                                    "CommandAck for unknown command_id {} (already timed out?)",
+                                    command_id
+                                );
+                            }
+                        }
+                        AgentMessage::StartupReport {
+                            pod_id,
+                            version,
+                            uptime_secs,
+                            config_hash,
+                            crash_recovery,
+                            repairs,
+                            lock_screen_port_bound,
+                            remote_ops_port_bound,
+                            hid_detected,
+                            udp_ports_bound,
+                            windows_session_id,
+                            ..
+                        } => {
+                            tracing::info!(
+                                "Pod {} startup report: version={}, uptime={}s, config_hash={}, crash_recovery={}, repairs={:?}, \
+                                 lock_screen={}, remote_ops={}, hid={}, udp_ports={:?}",
+                                pod_id, version, uptime_secs, config_hash, crash_recovery, repairs,
+                                lock_screen_port_bound, remote_ops_port_bound, hid_detected, udp_ports_bound
+                            );
+                            if *crash_recovery {
+                                tracing::warn!(
+                                    "Pod {} recovered from a crash!",
+                                    pod_id
+                                );
+                            }
+                            if !repairs.is_empty() {
+                                tracing::warn!(
+                                    "Pod {} self-healed: {:?}",
+                                    pod_id, repairs
+                                );
+                            }
+                            if !lock_screen_port_bound {
+                                tracing::warn!("Pod {} BOOT WARNING: lock screen port 18923 NOT bound!", pod_id);
+                            }
+                            if !remote_ops_port_bound {
+                                tracing::warn!("Pod {} BOOT WARNING: remote ops port 8090 NOT bound!", pod_id);
+                            }
+                            // MI hardening: Session 0 detection (closes incident #3)
+                            if let Some(session) = windows_session_id {
+                                if *session == 0 {
+                                    tracing::error!(
+                                        target: "fleet-anomaly",
+                                        "SESSION_0: Pod {} rc-agent running in Session 0 (Services) — ALL GUI features broken (Edge, overlay, game launch, blanking)",
+                                        pod_id
+                                    );
+                                    let msg = format!(
+                                        "🚨 SESSION 0: Pod {} rc-agent running in Session 0!\nGUI features (blanking, game launch, overlay) WILL NOT WORK.\nFix: kill rc-agent → RCWatchdog restarts in Session 1. Never use schtasks directly.",
+                                        pod_id
+                                    );
+                                    let config = state.config.clone();
+                                    tokio::spawn(async move {
+                                        crate::whatsapp_alerter::send_whatsapp(
+                                            &config, &msg,
+                                        )
+                                        .await;
+                                    });
+                                }
+                            }
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Startup Report",
+                                &format!(
+                                    "v{} uptime={}s hash={} crash_recovery={} repairs={:?}",
+                                    version, uptime_secs, config_hash, crash_recovery, repairs
+                                ),
+                                "agent",
+                                None,
+                            );
+                            // Store version + uptime + boot verification for fleet health dashboard.
+                            let crash_loop_just_detected = {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                let store = fleet
+                                    .entry(pod_id.clone())
+                                    .or_default();
+                                let was_looping = store.crash_loop;
+                                crate::fleet_health::store_startup_report(
+                                    store,
+                                    version,
+                                    *uptime_secs,
+                                    *crash_recovery,
+                                    *lock_screen_port_bound,
+                                    *remote_ops_port_bound,
+                                    *hid_detected,
+                                    udp_ports_bound,
+                                    *windows_session_id,
+                                );
+                                // Newly detected crash loop (transition false → true)
+                                !was_looping && store.crash_loop
+                            };
+                            // Phase 317 (LAUNCH-03): WhatsApp alert via EscalationRequest path — NOT direct Evolution API.
+                            // incident_id deduplicates: 30-min suppression window built into WhatsAppEscalation.
+                            if crash_loop_just_detected {
+                                let restart_count = {
+                                    let fleet =
+                                        state.pod_fleet_health.read().await;
+                                    fleet
+                                        .get(pod_id.as_str())
+                                        .map(|s| s.startup_timestamps.len())
+                                        .unwrap_or(0)
+                                };
+                                let summary = format!(
+                                    "CRASH LOOP: Pod {} is restarting every ~{}s ({} restarts in 5 min). Likely OS/hardware issue. Reboot required.",
+                                    pod_id, uptime_secs, restart_count
+                                );
+                                tracing::error!(
+                                    target: "fleet-health",
+                                    pod_id = %pod_id,
+                                    restart_count = restart_count,
+                                    uptime_secs = uptime_secs,
+                                    "{}",
+                                    summary
+                                );
+                                let escalation =
+                                    state.whatsapp_escalation.clone();
+                                let pod_id_owned = pod_id.clone();
+                                tokio::spawn(async move {
+                                    escalation.handle_escalation(rc_common::protocol::EscalationPayload {
+                                        pod_id: pod_id_owned.clone(),
+                                        incident_id: format!("crash_loop_{}", pod_id_owned),
+                                        severity: "critical".to_string(),
+                                        trigger: "CrashLoop".to_string(),
+                                        summary,
+                                        actions_tried: vec!["monitoring_only".to_string()],
+                                        impact: format!("Pod {} unavailable — all customer sessions on this pod are broken", pod_id_owned),
+                                        dashboard_url: "http://192.168.31.23:8080/api/v1/fleet/health".to_string(),
+                                        timestamp: crate::whatsapp_alerter::ist_now_string(),
+                                    }).await;
+                                });
+                            }
+                        }
+                        AgentMessage::HardwareFailure {
+                            pod_id,
+                            reason,
+                            detail,
+                        } => {
+                            crate::bot_coordinator::handle_hardware_failure(
+                                &state, &pod_id, &reason, &detail,
+                            )
+                            .await;
+                        }
+                        AgentMessage::HardwareDisconnect {
+                            pod_id,
+                            device,
+                            timestamp,
+                        } => {
+                            tracing::error!(
+                                "RESIL-04: Hardware disconnect on pod {}: {} at {}",
+                                pod_id, device, timestamp
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "hardware",
+                                "USB Disconnect",
+                                &format!("{} disconnected", device),
+                                "agent",
+                                None,
+                            );
+
+                            // Pause active billing session if present
+                            // Snapshot pod_id and billing state before async work
+                            let has_active_billing = {
+                                let timers =
+                                    state.billing.active_timers.read().await;
+                                timers.get(pod_id.as_str()).map_or(false, |t| {
+                                    matches!(
+                                        t.status,
+                                        BillingSessionStatus::Active
+                                    )
+                                })
+                            };
+                            if has_active_billing {
+                                let mut timers =
+                                    state.billing.active_timers.write().await;
+                                if let Some(timer) =
+                                    timers.get_mut(pod_id.as_str())
+                                {
+                                    if timer.status
+                                        == BillingSessionStatus::Active
+                                    {
+                                        timer.status =
+                                            BillingSessionStatus::PausedGamePause;
+                                        timer.pause_count += 1;
+                                        tracing::info!(
+                                            "RESIL-04: Billing auto-paused for pod {} — {} disconnected",
+                                            pod_id, device
+                                        );
+                                    }
+                                }
+                                drop(timers);
+                            }
+
+                            // WhatsApp alert to staff
+                            let alert_msg = format!(
+                                "[HW ALERT] {} disconnected on Pod {}. Billing paused. {}",
+                                device,
+                                pod_id,
+                                crate::whatsapp_alerter::ist_now_string()
+                            );
+                            crate::whatsapp_alerter::send_whatsapp(
+                                &state.config,
+                                &alert_msg,
+                            )
+                            .await;
+                        }
+                        AgentMessage::TelemetryGap {
+                            pod_id,
+                            sim_type: _,
+                            gap_seconds,
+                        } => {
+                            crate::bot_coordinator::handle_telemetry_gap(
+                                &state,
+                                &pod_id,
+                                *gap_seconds as u64,
+                            )
+                            .await;
+                        }
+                        AgentMessage::TelemetryQualityGap { pod_id, gap_ms } => {
+                            crate::bot_coordinator::handle_telemetry_quality_gap(
+                                &state, pod_id, *gap_ms,
+                            )
+                            .await;
+                        }
+                        AgentMessage::SessionStalled {
+                            pod_id,
+                            silence_seconds,
+                        } => {
+                            crate::bot_coordinator::handle_session_stalled(
+                                &state,
+                                pod_id,
+                                *silence_seconds,
+                            )
+                            .await;
+                        }
+                        AgentMessage::BillingAnomaly {
+                            pod_id,
+                            billing_session_id,
+                            reason,
+                            detail,
+                        } => {
+                            crate::bot_coordinator::handle_billing_anomaly(
+                                &state,
+                                &pod_id,
+                                &billing_session_id,
+                                *reason,
+                                &detail,
+                            )
+                            .await;
+                        }
+                        AgentMessage::LapFlagged {
+                            pod_id,
+                            lap_id,
+                            reason,
+                            detail,
+                        } => {
+                            tracing::info!(
+                                "[bot] LapFlagged pod={} lap={} reason={:?}: {}",
+                                pod_id, lap_id, reason, detail
+                            );
+                        }
+                        AgentMessage::MultiplayerFailure {
+                            pod_id,
+                            reason,
+                            session_id,
+                        } => {
+                            crate::bot_coordinator::handle_multiplayer_failure(
+                                &state,
+                                &pod_id,
+                                &reason,
+                                session_id.as_deref(),
+                            )
+                            .await;
+                        }
+                        AgentMessage::Disconnect { pod_id } => {
+                            tracing::info!("Pod {} disconnected", pod_id);
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Pod Offline",
+                                "Agent sent disconnect",
+                                "agent",
+                                None,
+                            );
+                            event_archive::append_event(
+                                &state.db,
+                                "pod.offline",
+                                "ws",
+                                Some(pod_id),
+                                serde_json::json!({ "reason": "agent_disconnect" }),
+                                &state.config.venue.venue_id,
+                            );
+                            let has_active_billing = state
+                                .billing
+                                .active_timers
+                                .read()
+                                .await
+                                .contains_key(pod_id.as_str());
+
+                            if let Some(pod) =
+                                state.pods.write().await.get_mut(pod_id)
+                            {
+                                // Don't overwrite Disabled — admin intentionally shut it down
+                                if pod.status
+                                    == rc_common::types::PodStatus::Disabled
+                                {
+                                    break;
+                                }
+                                pod.status =
+                                    rc_common::types::PodStatus::Offline;
+                                pod.driving_state = Some(
+                                    rc_common::types::DrivingState::NoDevice,
+                                );
+                                // Preserve game_state if billing is active — agent will resync on reconnect
+                                if !has_active_billing {
+                                    pod.game_state = Some(GameState::Idle);
+                                    pod.current_game = None;
+                                }
+                                let _ = state.dashboard_tx.send(
+                                    DashboardEvent::PodUpdate(pod.clone()),
+                                );
+                            }
+                            // Update billing timer to no-device
+                            billing::update_driving_state(
+                                &state,
+                                pod_id,
+                                rc_common::types::DrivingState::NoDevice,
+                            )
+                            .await;
+                            // MMA-P1-FIX: Sync offline status to DB — preserves disabled/maintenance.
+                            if let Err(e) = sqlx::query(
+                                "UPDATE pods SET status = 'offline', last_seen = datetime('now')
+                                 WHERE id = ? AND status NOT IN ('disabled', 'maintenance')",
+                            )
+                            .bind(pod_id)
+                            .execute(&state.db)
+                            .await
+                            {
+                                tracing::warn!(
+                                    "Failed to sync pod {} graceful disconnect to DB: {}",
+                                    pod_id, e
+                                );
+                            }
+                            // Clear fleet health version/uptime on graceful disconnect.
+                            {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                if let Some(store) =
+                                    fleet.get_mut(pod_id.as_str())
+                                {
+                                    crate::fleet_health::clear_on_disconnect(
+                                        store,
+                                    );
+                                }
+                            }
+                            break;
+                        }
+                        AgentMessage::ProcessApprovalRequest {
+                            pod_id,
+                            process_name,
+                            exe_path,
+                            sighting_count,
+                        } => {
+                            tracing::warn!(
+                                "[kiosk] Pod {} requesting approval for '{}' (path: {}, seen {} times)",
+                                pod_id, process_name, exe_path, sighting_count
+                            );
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "kiosk",
+                                "Process Approval Request",
+                                &format!(
+                                    "Process '{}' at '{}' seen {} times — awaiting approval",
+                                    process_name, exe_path, sighting_count
+                                ),
+                                "rc-bot",
+                                None,
+                            );
+                            // TODO: forward to admin dashboard for approve/reject UI
+                            // For now, log and let TTL handle it (auto-reject after 10min)
+                        }
+                        AgentMessage::KioskLockdown { pod_id, reason } => {
+                            tracing::warn!(
+                                "[kiosk] Pod {} LOCKDOWN: {}",
+                                pod_id, reason
+                            );
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "kiosk",
+                                "Kiosk Lockdown",
+                                &reason,
+                                "rc-bot",
+                                None,
+                            );
+
+                            // Auto-pause active billing session on this pod (SESS-05)
+                            let pause_result: Result<Option<(String,)>, _> = sqlx::query_as(
+                                "SELECT id FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1"
+                            )
+                            .bind(&pod_id)
+                            .fetch_optional(&state.db)
+                            .await;
+
+                            if let Ok(Some((session_id,))) = pause_result {
+                                let pause_reason = format!(
+                                    "Security anomaly: {}",
+                                    reason
+                                );
+                                let _ = sqlx::query(
+                                    "UPDATE billing_sessions SET status = 'paused_manual', pause_count = pause_count + 1 WHERE id = ? AND status = 'active'"
+                                )
+                                .bind(&session_id)
+                                .execute(&state.db)
+                                .await;
+                                tracing::warn!(
+                                    "[kiosk] Billing session {} auto-paused due to lockdown on pod {}",
+                                    session_id, pod_id
+                                );
+                                log_pod_activity(
+                                    &state,
+                                    &pod_id,
+                                    "billing",
+                                    "Auto-Pause",
+                                    &pause_reason,
+                                    "rc-bot",
+                                    None,
+                                );
+                            }
+
+                            // WhatsApp alert with debounce (SESS-05)
+                            let alert_msg = format!(
+                                "SECURITY ALERT -- Pod {} LOCKDOWN\nReason: {}\nBilling auto-paused. Check admin dashboard.",
+                                pod_id, reason
+                            );
+                            crate::whatsapp_alerter::send_security_alert(
+                                &state.config,
+                                &pod_id,
+                                &alert_msg,
+                            )
+                            .await;
+                        }
+                        // SESSION-01: Agent auto-ended an orphaned billing session.
+                        AgentMessage::SessionAutoEnded {
+                            pod_id,
+                            billing_session_id,
+                            reason,
+                        } => {
+                            tracing::warn!(
+                                "[session-auto-end] Pod {} session {} auto-ended by agent: {}",
+                                pod_id, billing_session_id, reason
+                            );
+                            log_pod_activity(
+                                &state,
+                                &pod_id,
+                                "billing",
+                                "Session Auto-Ended",
+                                &format!(
+                                    "session={} reason={}",
+                                    billing_session_id, reason
+                                ),
+                                "rc-agent",
+                                None,
+                            );
+                        }
+                        // SESSION-03 + FSM-04: Billing paused during crash recovery.
+                        AgentMessage::BillingPaused {
+                            pod_id,
+                            billing_session_id,
+                        } => {
+                            tracing::info!(
+                                "[billing] Pod {} session {} billing paused (crash recovery)",
+                                pod_id, billing_session_id
+                            );
+                            // FSM-04: Actually pause the billing timer via FSM transition
+                            let timers = &state.billing.active_timers;
+                            let mut guard = timers.write().await;
+                            if let Some(timer) = guard
+                                .values_mut()
+                                .find(|t| t.session_id == *billing_session_id)
+                            {
+                                if let Err(e) =
+                                    crate::billing_fsm::validate_transition(
+                                        timer.status,
+                                        crate::billing_fsm::BillingEvent::CrashPause,
+                                    )
+                                {
+                                    tracing::warn!(
+                                        "[billing] FSM rejected CrashPause for session {}: {}",
+                                        billing_session_id, e
+                                    );
+                                } else {
+                                    timer.status = rc_common::types::BillingSessionStatus::PausedGamePause;
+                                    // BILL-06: Mark this as crash-recovery pause so recovery_pause_seconds increments
+                                    timer.pause_reason =
+                                        crate::billing::PauseReason::CrashRecovery;
+                                    tracing::info!(
+                                        "[billing] Timer paused for session {} (FSM-04 crash recovery)",
+                                        billing_session_id
+                                    );
+                                }
+                            }
+                            drop(guard);
+                        }
+                        // SESSION-03: Billing resumed after successful game relaunch.
+                        AgentMessage::BillingResumed {
+                            pod_id,
+                            billing_session_id,
+                        } => {
+                            tracing::info!(
+                                "[billing] Pod {} session {} billing resumed",
+                                pod_id, billing_session_id
+                            );
+                        }
+                        // Phase 50: Agent returns self-test probe results.
+                        AgentMessage::PreFlightPassed { pod_id } => {
+                            tracing::info!(
+                                "Pod {} pre-flight checks passed",
+                                pod_id
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Pre-flight Passed",
+                                "All checks passed before session start",
+                                "agent",
+                                None,
+                            );
+                            // Phase 100 (STAFF-03): Clear maintenance state — pod is healthy.
+                            {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                let store = fleet
+                                    .entry(pod_id.clone())
+                                    .or_default();
+                                store.in_maintenance = false;
+                                store.maintenance_failures.clear();
+                            }
+                        }
+                        AgentMessage::PreFlightFailed {
+                            pod_id, failures, ..
+                        } => {
+                            tracing::warn!(
+                                "Pod {} pre-flight checks failed: {:?}",
+                                pod_id, failures
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Pre-flight Failed",
+                                &format!("Failures: {:?}", failures),
+                                "agent",
+                                None,
+                            );
+                            // Phase 100 (STAFF-03): Mark pod as in maintenance with failure details.
+                            {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                let store = fleet
+                                    .entry(pod_id.clone())
+                                    .or_default();
+                                store.in_maintenance = true;
+                                store.maintenance_failures = failures.clone();
+                            }
+                        }
+                        AgentMessage::SelfTestResult {
+                            pod_id,
+                            request_id,
+                            report,
+                        } => {
+                            tracing::info!(
+                                "[self-test] Pod {} returned self-test results for request_id={}",
+                                pod_id, request_id
+                            );
+                            let mut pending =
+                                state.pending_self_tests.write().await;
+                            if let Some((_pod_id, tx)) =
+                                pending.remove(request_id.as_str())
+                            {
+                                let _ = tx.send(report.clone());
+                            } else {
+                                tracing::warn!(
+                                    "[self-test] Received SelfTestResult for unknown request_id: {}",
+                                    request_id
+                                );
+                            }
+                        }
+                        AgentMessage::ProcessViolation(violation) => {
+                            let machine_id = violation.machine_id.clone();
+                            let name = violation.name.clone();
+                            let action = violation.action_taken.clone();
+                            let ts = violation.timestamp.clone();
+                            let now = chrono::Utc::now();
+
+                            // Use debug for report_only violations (no action taken).
+                            // warn floods the console when whitelist isn't configured.
+                            if action == "reported"
+                                || action == "report_only"
+                            {
+                                tracing::debug!(
+                                    "[guard] Violation on {}: {} action={} ts={}",
+                                    machine_id, name, action, ts
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "[guard] Violation on {}: {} action={} ts={}",
+                                    machine_id, name, action, ts
+                                );
+                            }
+
+                            // Prefer registered_pod_id (authoritative WS key); fall back to machine_id
+                            let pod_key =
+                                if let Some(pod_id) = &registered_pod_id {
+                                    pod_id.clone()
+                                } else {
+                                    machine_id.replace('-', "_")
+                                };
+
+                            // Store violation and check for repeat offender
+                            let should_escalate = {
+                                let mut vmap =
+                                    state.pod_violations.write().await;
+                                let store =
+                                    vmap.entry(pod_key.clone()).or_default();
+                                let escalate = store
+                                    .repeat_offender_check(violation, now);
+                                store.push(violation.clone());
+                                escalate
+                            };
+
+                            // Email escalation: 3 kills of same process within 5 minutes
+                            if should_escalate {
+                                let subject = format!(
+                                    "GUARD ALERT: Repeat offender on {} — {}",
+                                    machine_id, name
+                                );
+                                let body = format!(
+                                    "Process '{}' has been killed 3+ times in the last 5 minutes on machine '{}'.\n\
+                                     Last action: {}\nTimestamp: {}\n\n\
+                                     Check C:\\RacingPoint\\process-guard.log on the affected machine.",
+                                    name, machine_id, action, ts
+                                );
+                                let mut alerter =
+                                    state.email_alerter.write().await;
+                                alerter
+                                    .send_alert(&pod_key, &subject, &body)
+                                    .await;
+                            }
+                        }
+                        AgentMessage::ProcessGuardStatus {
+                            pod_id,
+                            scan_count,
+                            violation_count_total,
+                            violation_count_last_scan,
+                            last_scan_at,
+                            guard_active,
+                        } => {
+                            tracing::info!(
+                                "[guard] Status from {}: scans={}, violations_total={}, violations_last_scan={}, last_scan={}, active={}",
+                                pod_id, scan_count, violation_count_total, violation_count_last_scan, last_scan_at, guard_active
+                            );
+                        }
+                        AgentMessage::IdleHealthFailed {
+                            pod_id,
+                            failures,
+                            consecutive_count,
+                            timestamp,
+                        } => {
+                            tracing::warn!(
+                                "Pod {} idle health failed: {:?} ({} consecutive, at {})",
+                                pod_id, failures, consecutive_count, timestamp
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "system",
+                                "Idle Health Failed",
+                                &format!(
+                                    "Failures: {:?}, consecutive: {}",
+                                    failures, consecutive_count
+                                ),
+                                "agent",
+                                None,
+                            );
+                            {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                let store = fleet
+                                    .entry(pod_id.clone())
+                                    .or_default();
+                                store.idle_health_fail_count =
+                                    *consecutive_count;
+                                store.idle_health_failures = failures.clone();
+                            }
+                        }
+                        AgentMessage::FlagCacheSync(payload) => {
+                            tracing::info!(
+                                "Pod {} requests flag sync (cached_version={})",
+                                payload.pod_id, payload.cached_version
+                            );
+                            // Get current max flag version from state.feature_flags cache
+                            let max_version = {
+                                let flags = state.feature_flags.read().await;
+                                flags
+                                    .values()
+                                    .map(|f| f.version)
+                                    .max()
+                                    .unwrap_or(0)
+                            };
+                            // If pod is stale, send full flag state with per-pod override resolution
+                            if payload.cached_version < max_version as u64 {
+                                let flags = state.feature_flags.read().await;
+                                let pod_id = &payload.pod_id;
+                                let flag_map: std::collections::HashMap<
+                                    String,
+                                    bool,
+                                > = flags
+                                    .iter()
+                                    .map(|(name, row)| {
+                                        let effective = serde_json::from_str::<
+                                            std::collections::HashMap<
+                                                String,
+                                                bool,
+                                            >,
+                                        >(
+                                            &row.overrides
+                                        )
+                                        .ok()
+                                        .and_then(|ovr| {
+                                            ovr.get(pod_id).copied()
+                                        })
+                                        .unwrap_or(row.enabled);
+                                        (name.clone(), effective)
+                                    })
+                                    .collect();
+                                let sync_payload =
+                                    rc_common::types::FlagSyncPayload {
+                                        flags: flag_map,
+                                        version: max_version as u64,
+                                    };
+                                let _ = cmd_tx
+                                    .send(CoreMessage::wrap(
+                                        CoreToAgentMessage::FlagSync(
+                                            sync_payload,
+                                        ),
+                                    ))
+                                    .await;
+                            }
+                            // Replay pending config pushes for this pod.
+                            crate::config_push::replay_pending_config_pushes(
+                                &state,
+                                &payload.pod_id,
+                                &cmd_tx,
+                            )
+                            .await;
+                        }
+                        AgentMessage::ConfigAck(payload) => {
+                            tracing::info!(
+                                "Pod {} acked config push seq={} accepted={}",
+                                payload.pod_id, payload.sequence, payload.accepted
+                            );
+                            // Update config_push_queue: mark acked
+                            let ack_result = sqlx::query(
+                                "UPDATE config_push_queue SET status = 'acked', acked_at = datetime('now') \
+                                 WHERE pod_id = ? AND seq_num = ?",
+                            )
+                            .bind(&payload.pod_id)
+                            .bind(payload.sequence as i64)
+                            .execute(&state.db)
+                            .await;
+                            if let Err(e) = ack_result {
+                                tracing::warn!(
+                                    "Failed to update config_push_queue ack for pod {} seq {}: {}",
+                                    payload.pod_id, payload.sequence, e
+                                );
+                            }
+                            // Update config_audit_log pods_acked — find by seq_num (deterministic lookup).
+                            let audit_lookup = sqlx::query_scalar::<_, i64>(
+                                "SELECT id FROM config_audit_log WHERE entity_type = 'config' AND seq_num = ?",
+                            )
+                            .bind(payload.sequence as i64)
+                            .fetch_optional(&state.db)
+                            .await;
+                            if let Ok(Some(audit_id)) = audit_lookup {
+                                let current_acked: String =
+                                    sqlx::query_scalar(
+                                        "SELECT pods_acked FROM config_audit_log WHERE id = ?",
+                                    )
+                                    .bind(audit_id)
+                                    .fetch_one(&state.db)
+                                    .await
+                                    .unwrap_or_else(|_| "[]".to_string());
+                                let mut acked: Vec<String> =
+                                    serde_json::from_str(&current_acked)
+                                        .unwrap_or_default();
+                                if !acked.contains(&payload.pod_id) {
+                                    acked.push(payload.pod_id.clone());
+                                }
+                                let _ = sqlx::query(
+                                    "UPDATE config_audit_log SET pods_acked = ? WHERE id = ?",
+                                )
+                                .bind(
+                                    serde_json::to_string(&acked)
+                                        .unwrap_or_else(|_| "[]".to_string()),
+                                )
+                                .bind(audit_id)
+                                .execute(&state.db)
+                                .await;
+                            } else {
+                                tracing::warn!(
+                                    "No audit log entry found for config push seq={}",
+                                    payload.sequence
+                                );
+                            }
+                        }
+                        // Phase 206 (OBS-04): Sentinel file change on pod.
+                        AgentMessage::SentinelChange {
+                            pod_id,
+                            file,
+                            action,
+                            timestamp,
+                        } => {
+                            tracing::info!(
+                                target: "fleet",
+                                pod = %pod_id,
+                                sentinel = %file,
+                                action = %action,
+                                timestamp = %timestamp,
+                                "sentinel file change received"
+                            );
+
+                            // Parse pod number from pod_id (e.g. "pod_3" -> 3)
+                            let pod_number: u32 = pod_id
+                                .strip_prefix("pod_")
+                                .and_then(|n| n.parse().ok())
+                                .unwrap_or(0);
+
+                            // Update fleet health store (active_sentinels field)
+                            let updated_sentinels = {
+                                let mut fleet =
+                                    state.pod_fleet_health.write().await;
+                                let store = fleet
+                                    .entry(pod_id.clone())
+                                    .or_default();
+                                crate::fleet_health::update_sentinel(
+                                    store, file, action,
+                                );
+                                store.active_sentinels.clone()
+                            };
+
+                            // REQUIRED: Broadcast to dashboard via DashboardEvent::SentinelChanged.
+                            let _ = state.dashboard_tx.send(
+                                DashboardEvent::SentinelChanged {
+                                    pod_id: pod_id.clone(),
+                                    pod_number,
+                                    file: file.clone(),
+                                    action: action.clone(),
+                                    timestamp: timestamp.clone(),
+                                    active_sentinels: updated_sentinels,
+                                },
+                            );
+
+                            // OBS-01: MAINTENANCE_MODE creation → WhatsApp alert to Uday
+                            if file == "MAINTENANCE_MODE"
+                                && action == "created"
+                            {
+                                let cooldown_key = format!(
+                                    "sentinel_{}_{}",
+                                    file, pod_number
+                                );
+                                if check_sentinel_cooldown(&cooldown_key) {
+                                    let alert_msg = format!(
+                                        "[ALERT] Pod {} entered MAINTENANCE_MODE at {} (IST). \
+                                        Sentinel file created — all restarts are now blocked. \
+                                        Check fleet health or clear sentinel to recover.",
+                                        pod_number, timestamp
+                                    );
+                                    crate::whatsapp_alerter::send_whatsapp(
+                                        &state.config,
+                                        &alert_msg,
+                                    )
+                                    .await;
+                                    tracing::warn!(
+                                        target: "state",
+                                        pod = pod_number,
+                                        "MAINTENANCE_MODE WhatsApp alert sent to Uday"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        target: "state",
+                                        pod = pod_number,
+                                        "MAINTENANCE_MODE WhatsApp alert suppressed (5-min cooldown active)"
+                                    );
+                                }
+                            }
+                        }
+                        // ─── Staff Diagnostic Bridge (v27.0) ──────────────────────
+                        AgentMessage::DiagnosticResult {
+                            correlation_id,
+                            tier,
+                            outcome,
+                            root_cause,
+                            fix_action,
+                            fix_type,
+                            confidence,
+                            fix_applied,
+                            problem_hash,
+                            summary,
+                        } => {
+                            tracing::info!(
+                                target: "debug-bridge",
+                                correlation_id = %correlation_id,
+                                tier = tier,
+                                outcome = %outcome,
+                                fix_applied = fix_applied,
+                                "DiagnosticResult received from pod"
+                            );
+
+                            // Store in debug_resolutions for kiosk RAG
+                            if outcome == "fixed" || !root_cause.is_empty() {
+                                let res_id =
+                                    uuid::Uuid::new_v4().to_string();
+                                let resolution_text = if !summary.is_empty() {
+                                    format!("[Tier {}] {}", tier, summary)
+                                } else {
+                                    format!(
+                                        "[Tier {}] {}: {}",
+                                        tier, outcome, fix_action
+                                    )
+                                };
+                                let effectiveness =
+                                    if outcome == "fixed" { 4 } else { 2 };
+
+                                // Find the incident category using correlation_id (MMA R4-1 fix)
+                                let category: String = sqlx::query_scalar(
+                                    "SELECT category FROM debug_incidents WHERE id = ?",
+                                )
+                                .bind(correlation_id.as_str())
+                                .fetch_optional(&state.db)
+                                .await
+                                .unwrap_or(None)
+                                .unwrap_or_else(|| "unknown".to_string());
+
+                                let _ = sqlx::query(
+                                    "INSERT INTO debug_resolutions (id, incident_id, category, resolution_text, effectiveness) \
+                                     VALUES (?, ?, ?, ?, ?)"
+                                )
+                                .bind(&res_id)
+                                .bind(&correlation_id)
+                                .bind(&category)
+                                .bind(&resolution_text)
+                                .bind(effectiveness)
+                                .execute(&state.db)
+                                .await;
+
+                                // Log to activity feed
+                                let log_detail = format!(
+                                    "Tier {} diagnosis: {} (confidence: {:.0}%, applied: {})",
+                                    tier,
+                                    summary,
+                                    confidence * 100.0,
+                                    fix_applied
+                                );
+                                let log_pod = registered_pod_id
+                                    .as_deref()
+                                    .unwrap_or("unknown");
+                                crate::activity_log::log_pod_activity(
+                                    &state,
+                                    log_pod,
+                                    "race_engineer",
+                                    "Pod Diagnosis Complete",
+                                    &log_detail,
+                                    "race_engineer",
+                                    None,
+                                );
+                            }
+
+                            // ─── Fleet Distribution (v27.0) ──────────────────────────
+                            let is_fleet_worthy =
+                                *tier >= 2 && *confidence >= 0.8;
+                            if outcome == "fixed"
+                                && is_fleet_worthy
+                                && !problem_hash.is_empty()
+                            {
+                                tracing::info!(
+                                    target: "debug-bridge",
+                                    problem_hash = %problem_hash,
+                                    confidence = confidence,
+                                    "Broadcasting solution to fleet via MeshSolutionBroadcast"
+                                );
+
+                                let broadcast_msg = CoreToAgentMessage::MeshSolutionBroadcast {
+                                    problem_hash: problem_hash.clone(),
+                                    problem_key: format!("staff_{}", correlation_id),
+                                    root_cause: root_cause.clone(),
+                                    fix_action: fix_action.clone(),
+                                    fix_type: fix_type.clone(),
+                                    confidence: *confidence,
+                                    source_node: registered_pod_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                                    promotion_status: "fleet_verified".to_string(),
+                                };
+
+                                // Send to OTHER connected pods (exclude origin) — clone senders first.
+                                let origin_pod = match &registered_pod_id {
+                                    Some(id) => id.clone(),
+                                    None => {
+                                        tracing::warn!(target: "debug-bridge", "Fleet broadcast skipped — origin pod not registered");
+                                        String::new()
+                                    }
+                                };
+                                let sender_snapshot: Vec<_> =
+                                    if origin_pod.is_empty() {
+                                        vec![]
+                                    } else {
+                                        let senders = state
+                                            .agent_senders
+                                            .read()
+                                            .await;
+                                        senders
+                                            .iter()
+                                            .filter(|(id, _)| {
+                                                **id != origin_pod
+                                            })
+                                            .map(|(id, s)| {
+                                                (id.clone(), s.clone())
+                                            })
+                                            .collect()
+                                    }; // lock dropped here
+                                for (target_pod_id, sender) in
+                                    &sender_snapshot
+                                {
+                                    if let Err(e) = sender
+                                        .send(CoreMessage::wrap(
+                                            broadcast_msg.clone(),
+                                        ))
+                                        .await
+                                    {
+                                        tracing::debug!(
+                                            target: "debug-bridge",
+                                            pod = %target_pod_id,
+                                            "Failed to broadcast solution: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+
+                            // If incident was resolved, update its status
+                            if outcome == "fixed" && *fix_applied {
+                                match sqlx::query(
+                                    "UPDATE debug_incidents SET status = 'resolved', resolved_at = datetime('now') \
+                                     WHERE id = ? AND status = 'open'"
+                                )
+                                .bind(correlation_id.as_str())
+                                .execute(&state.db)
+                                .await
+                                {
+                                    Ok(result)
+                                        if result.rows_affected() == 0 =>
+                                    {
+                                        tracing::debug!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Incident already closed or not found — skipping resolution"
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        tracing::info!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Incident auto-resolved by tier engine diagnosis"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            target: "debug-bridge",
+                                            correlation_id = %correlation_id,
+                                            "Failed to resolve incident: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        // ─── BILL-01: Inactivity Alert ───────────────────────────────────────
+                        AgentMessage::InactivityAlert {
+                            pod_id,
+                            idle_seconds,
+                        } => {
+                            // Look up driver name and session id from billing timers
+                            let (driver_name, session_id) = {
+                                let timers =
+                                    state.billing.active_timers.read().await;
+                                if let Some(timer) =
+                                    timers.get(pod_id.as_str())
+                                {
+                                    (
+                                        timer.driver_name.clone(),
+                                        timer.session_id.clone(),
+                                    )
+                                } else {
+                                    (
+                                        String::from("unknown"),
+                                        String::from("unknown"),
+                                    )
+                                }
+                            }; // lock dropped
+                            tracing::warn!(
+                                "BILL-01: Pod {} idle for {}s — staff alerted (driver={}, session={})",
+                                pod_id, idle_seconds, driver_name, session_id
+                            );
+                            log_pod_activity(
+                                &state,
+                                pod_id,
+                                "billing",
+                                "Customer Idle",
+                                &format!(
+                                    "No input for {}s — staff alert sent",
+                                    idle_seconds
+                                ),
+                                "agent",
+                                None,
+                            );
+                            // Broadcast to staff dashboard — do NOT auto-end the session
+                            let _ = state.dashboard_tx.send(
+                                DashboardEvent::InactivityAlert {
+                                    pod_id: pod_id.clone(),
+                                    idle_seconds: *idle_seconds,
+                                    driver_name,
+                                    session_id,
+                                },
+                            );
+                        }
+
+                        // v29.0: Extended hardware telemetry for preventive maintenance
+                        AgentMessage::ExtendedTelemetry {
+                            pod_id,
+                            gpu_temp_celsius,
+                            cpu_usage_pct,
+                            gpu_usage_pct,
+                            memory_usage_pct,
+                            disk_usage_pct,
+                            process_handle_count,
+                            network_latency_ms,
+                            system_uptime_secs,
+                            ..
+                        } => {
+                            tracing::debug!(
+                                pod = %pod_id,
+                                gpu_temp = ?gpu_temp_celsius,
+                                cpu = ?cpu_usage_pct,
+                                gpu = ?gpu_usage_pct,
+                                mem = ?memory_usage_pct,
+                                disk = ?disk_usage_pct,
+                                handles = ?process_handle_count,
+                                latency = ?network_latency_ms,
+                                uptime = ?system_uptime_secs,
+                                "v29.0: Extended telemetry received"
+                            );
+                            // Store in telemetry_store for trend analysis
+                            crate::telemetry_store::store_extended_telemetry(
+                                &state,
+                                pod_id,
+                                &agent_msg,
+                            );
+                        }
+
+                        // ─── Meshed Intelligence gossip (v26.0) ─────────────────────
+                        AgentMessage::MeshSolutionAnnounce { .. }
+                        | AgentMessage::MeshSolutionRequest { .. }
+                        | AgentMessage::MeshExperimentAnnounce { .. }
+                        | AgentMessage::MeshHeartbeat { .. } => {
+                            crate::mesh_handler::handle_mesh_message(
+                                &state, &agent_msg, &cmd_tx,
+                            )
+                            .await;
+                        }
+
+                        // ─── Model Evaluation Sync (EVAL-03 / Phase 290) ─────────────
+                        AgentMessage::ModelEvalSync { pod_id, records } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                record_count = records.len(),
+                                "EVAL-03: received model eval sync from pod"
+                            );
+                            for rec in records.iter() {
+                                if let Err(e) =
+                                    crate::fleet_kb::insert_eval_record(
+                                        &state.db, rec,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %rec.model_id,
+                                        "EVAL-03: failed to insert eval record"
+                                    );
+                                }
+                            }
+                        }
+
+                        // ─── Model Reputation Sync (MREP-04 / Phase 292) ─────────────
+                        AgentMessage::ModelReputationSync { pod_id, rows } => {
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                model_count = rows.len(),
+                                "MREP-04: received model reputation sync from pod"
+                            );
+                            for row in rows.iter() {
+                                if let Err(e) =
+                                    crate::fleet_kb::upsert_reputation(
+                                        &state.db, row, &pod_id,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        target: "racecontrol::ws",
+                                        error = %e,
+                                        model_id = %row.model_id,
+                                        "MREP-04: failed to upsert reputation row"
+                                    );
+                                }
+                            }
+                        }
+
+                        // ─── Tier 5 WhatsApp escalation (v274) ──────────────────────
+                        AgentMessage::EscalationRequest(payload) => {
+                            tracing::warn!(
+                                target: "racecontrol::ws",
+                                pod_id = %payload.pod_id,
+                                incident_id = %payload.incident_id,
+                                severity = %payload.severity,
+                                "Received Tier 5 escalation from pod"
+                            );
+                            let escalation =
+                                state.whatsapp_escalation.clone();
+                            let payload_owned = payload.clone();
+                            tokio::spawn(async move {
+                                escalation
+                                    .handle_escalation(payload_owned)
+                                    .await;
+                            });
+                        }
+
+                        // ─── Experience Score Report (CX-06) ─────────────────────────
+                        AgentMessage::ExperienceScoreReport {
+                            pod_id,
+                            total_score,
+                            status,
+                            ..
+                        } => {
+                            let pod_id_owned = pod_id.clone();
+                            let score = *total_score;
+                            let status_owned = status.clone();
+                            tracing::debug!(
+                                target: "racecontrol::ws",
+                                pod_id = %pod_id,
+                                score = score,
+                                status = %status,
+                                "Received experience score report from pod"
+                            );
+                            let mut fleet =
+                                state.pod_fleet_health.write().await;
+                            let store =
+                                fleet.entry(pod_id_owned).or_default();
+                            store.experience_score = Some(score);
+                            store.experience_status = Some(status_owned);
+                        }
+
+                        // Phase 306: JwtAck — agent confirmed JWT receipt
+                        AgentMessage::JwtAck { pod_id } => {
+                            tracing::info!(
+                                "Phase 306: JWT ack from pod {}",
+                                pod_id
+                            );
+                        }
+
+                        // Phase 317: Persist pod game inventory to pod_game_inventory table (INV-02)
+                        AgentMessage::GameInventoryUpdate(inventory) => {
+                            tracing::info!(
+                                target: "fleet-inventory",
+                                "GameInventoryUpdate from pod {}: {} games",
+                                inventory.pod_id,
+                                inventory.games.len()
+                            );
+                            let state_clone = state.clone();
+                            let inv = inventory.clone();
+                            tokio::spawn(async move {
+                                crate::game_inventory::handle_game_inventory_update(
+                                    &state_clone, inv,
+                                )
+                                .await;
+                            });
+                        }
+
+                        // Phase 317: Persist combo validation results + auto-disable invalid presets (COMBO-03/04)
+                        AgentMessage::ComboValidationReport {
+                            pod_id,
+                            results,
+                        } => {
+                            tracing::info!(
+                                target: "fleet-inventory",
+                                "ComboValidationReport from pod {}: {} results",
+                                pod_id,
+                                results.len()
+                            );
+                            let state_clone = state.clone();
+                            let pid = pod_id.clone();
+                            let res = results.clone();
+                            tokio::spawn(async move {
+                                crate::game_inventory::handle_combo_validation_report(
+                                    &state_clone, pid, res,
+                                )
+                                .await;
+                            });
+                        }
+
+                        // Phase 318 (LAUNCH-05): Persist agent launch timeline to launch_timeline_spans table.
+                        AgentMessage::LaunchTimelineReport(timeline) => {
+                            let db = state.db.clone();
+                            let events_json =
+                                serde_json::to_string(&timeline.events)
+                                    .unwrap_or_else(|_| "[]".to_string());
+                            let created_at = chrono::Utc::now()
+                                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                                .to_string();
+                            let tl = timeline.clone();
+                            tokio::spawn(async move {
+                                let result = sqlx::query(
+                                    "INSERT OR REPLACE INTO launch_timeline_spans
+                                     (launch_id, pod_id, sim_type, preset_id, billing_session_id,
+                                      outcome, total_duration_ms, started_at, events_json, created_at)
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                )
+                                .bind(&tl.launch_id)
+                                .bind(&tl.pod_id)
+                                .bind(tl.sim_type.to_string())
+                                .bind(&tl.preset_id)
+                                .bind(&tl.billing_session_id)
+                                .bind(&tl.outcome)
+                                .bind(tl.total_duration_ms as i64)
+                                .bind(&tl.started_at)
+                                .bind(&events_json)
+                                .bind(&created_at)
+                                .execute(&db)
+                                .await;
+                                if let Err(e) = result {
+                                    tracing::error!(
+                                        "LAUNCH-05: Failed to insert launch_timeline_spans for {}: {}",
+                                        tl.launch_id, e
+                                    );
+                                } else {
+                                    tracing::info!(
+                                        "LAUNCH-05: Persisted launch timeline for {} (outcome={})",
+                                        tl.launch_id, tl.outcome
+                                    );
+                                }
+                            });
+                        }
+
+                        AgentMessage::ConfigMismatchDetected {
+                            pod_id,
+                            sim_type,
+                            mismatches,
+                            timestamp,
+                        } => {
+                            // Layer 3: Log config mismatch and alert staff
+                            let mismatch_details: Vec<String> = mismatches
+                                .iter()
+                                .map(|(field, expected, actual)| {
+                                    format!(
+                                        "{}: expected '{}', got '{}'",
+                                        field, expected, actual
+                                    )
+                                })
+                                .collect();
+                            let detail_str = mismatch_details.join("; ");
+                            tracing::warn!(
+                                "CONFIG MISMATCH on Pod {} ({:?}): {} [{}]",
+                                pod_id, sim_type, detail_str, timestamp
+                            );
+
+                            // Persist to event archive
+                            event_archive::append_event(
+                                &state.db,
+                                "game.config_mismatch",
+                                "agent",
+                                Some(&pod_id),
+                                serde_json::json!({
+                                    "sim_type": format!("{:?}", sim_type),
+                                    "mismatches": mismatches,
+                                    "timestamp": timestamp,
+                                }),
+                                &state.config.venue.venue_id,
+                            );
+
+                            // WhatsApp alert to staff
+                            let alert_msg = format!(
+                                "\u{26a0}\u{fe0f} CONFIG MISMATCH — Pod {}\nSim: {:?}\n{}\nTimestamp: {}\n\nCustomer may have wrong game settings. Check kiosk wizard → race.ini pipeline.",
+                                pod_id, sim_type, detail_str, timestamp
+                            );
+                            crate::whatsapp_alerter::send_whatsapp(
+                                &state.config,
+                                &alert_msg,
+                            )
+                            .await;
+
+                            // Broadcast to admin dashboard
+                            let _ = state.dashboard_tx.send(
+                                DashboardEvent::ConfigMismatch {
+                                    pod_id: pod_id.clone(),
+                                    sim_type: format!("{:?}", sim_type),
+                                    details: mismatch_details,
+                                    timestamp: timestamp.clone(),
+                                },
+                            );
+                        }
+
+                        _ => { /* catch-all for future protocol additions */ }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Invalid agent message: {}", e);
+                }
+            }
+        }
+    }
+
+    // Cleanup: only remove sender and mark offline if THIS connection is still the active one.
+    if let Some(pod_id) = &registered_pod_id {
+        let current_conn_id =
+            state.agent_conn_ids.read().await.get(pod_id).copied();
+        let is_stale =
+            current_conn_id.is_some() && current_conn_id != Some(conn_id);
+
+        if is_stale {
+            tracing::info!(
+                "Stale WebSocket cleanup for pod {} (conn_id={}, current={}). Skipping.",
+                pod_id,
+                conn_id,
+                current_conn_id.unwrap()
+            );
+        } else {
+            state.agent_senders.write().await.remove(pod_id);
+            state.agent_conn_ids.write().await.remove(pod_id);
+
+            // Clear fleet health version/uptime on ungraceful disconnect.
+            {
+                let mut fleet = state.pod_fleet_health.write().await;
+                if let Some(store) = fleet.get_mut(pod_id.as_str()) {
+                    crate::fleet_health::clear_on_disconnect(store);
+                }
+            }
+
+            // Sweep pending WS command entries for this pod (they use "pod_X:" prefix)
+            {
+                let prefix = format!("{}:", pod_id);
+                let mut pending = state.pending_ws_execs.write().await;
+                let stale_keys: Vec<String> = pending
+                    .keys()
+                    .filter(|k| k.starts_with(&prefix))
+                    .cloned()
+                    .collect();
+                for key in &stale_keys {
+                    pending.remove(key);
+                }
+                if !stale_keys.is_empty() {
+                    tracing::info!(
+                        "Cleaned {} pending WS command(s) for disconnected {}",
+                        stale_keys.len(),
+                        pod_id
+                    );
+                }
+            }
+
+            // Clean up pending self-tests for disconnected pod
+            {
+                let mut pending = state.pending_self_tests.write().await;
+                let before = pending.len();
+                pending.retain(|_req_id, (pid, _tx)| pid != pod_id);
+                let removed = before - pending.len();
+                if removed > 0 {
+                    tracing::info!(
+                        "Cleaned {} pending self-test(s) for disconnected {}",
+                        removed,
+                        pod_id
+                    );
+                }
+            }
+
+            let has_active_billing = state
+                .billing
+                .active_timers
+                .read()
+                .await
+                .contains_key(pod_id.as_str());
+
+            // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
+            if let Some(pod) =
+                state.pods.write().await.get_mut(pod_id.as_str())
+            {
+                if pod.status != rc_common::types::PodStatus::Offline
+                    && pod.status != rc_common::types::PodStatus::Disabled
+                {
+                    tracing::warn!(
+                        "Pod {} WebSocket dropped without Disconnect (conn_id={}) — marking Offline",
+                        pod_id, conn_id
+                    );
+                    log_pod_activity(
+                        &state,
+                        pod_id,
+                        "system",
+                        "Pod Disconnected",
+                        &format!(
+                            "WebSocket dropped unexpectedly (conn_id={})",
+                            conn_id
+                        ),
+                        "core",
+                        None,
+                    );
+                    pod.status = rc_common::types::PodStatus::Offline;
+                    pod.driving_state =
+                        Some(rc_common::types::DrivingState::NoDevice);
+                    // Preserve game_state if billing is active — agent will resync on reconnect
+                    if !has_active_billing {
+                        pod.game_state = Some(GameState::Idle);
+                        pod.current_game = None;
+                    }
+                    let _ = state
+                        .dashboard_tx
+                        .send(DashboardEvent::PodUpdate(pod.clone()));
+                }
+            }
+
+            // MMA-P1-FIX: Sync offline status to DB — preserves disabled/maintenance
+            if let Err(e) = sqlx::query(
+                "UPDATE pods SET status = 'offline', last_seen = datetime('now')
+                 WHERE id = ? AND status NOT IN ('disabled', 'maintenance')",
+            )
+            .bind(pod_id)
+            .execute(&state.db)
+            .await
+            {
+                tracing::warn!(
+                    "Failed to sync pod {} disconnect to DB: {}",
+                    pod_id, e
+                );
+            }
+
+            billing::update_driving_state(
+                &state,
+                pod_id,
+                rc_common::types::DrivingState::NoDevice,
+            )
+            .await;
+        }
+    }
+
+    send_task.abort();
+    tracing::info!("Pod agent disconnected");
+}
