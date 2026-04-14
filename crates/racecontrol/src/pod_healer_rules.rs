@@ -15,11 +15,11 @@ use chrono::Utc;
 use crate::activity_log::log_pod_activity;
 use crate::event_archive;
 use crate::pod_healer::{
-    should_skip_for_watchdog_state, HealAction, DISK_THRESHOLD_PCT,
+    has_active_billing, should_skip_for_watchdog_state, HealAction, DISK_THRESHOLD_PCT,
     MEMORY_LOW_MB, POD_AGENT_PORT,
 };
 use crate::pod_healer_ai::escalate_to_ai;
-use crate::pod_healer_diagnostics::{collect_diagnostics, exec_on_pod, has_active_billing, is_protected_pid};
+use crate::pod_healer_diagnostics::{collect_diagnostics, exec_on_pod, is_protected_pid};
 use crate::state::{AppState, WatchdogState};
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 use rc_common::recovery::{

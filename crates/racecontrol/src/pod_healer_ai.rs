@@ -1,7 +1,9 @@
-//! Pod healer AI escalation and WARN log scanner.
+//! Pod healer AI escalation — LLM-based analysis and WARN log surge detection.
+//!
+//! Handles escalation of complex pod issues to AI (Ollama/Claude) and monitors
+//! the server WARN log for surge patterns requiring AI diagnosis.
 //!
 //! Extracted from pod_healer.rs (Phase 385, v49.0 Architecture Completion).
-//! Contains: escalate_to_ai, parse_ai_action_server, scan_warn_logs, escalate_warn_surge.
 
 use std::sync::Arc;
 
@@ -9,13 +11,12 @@ use chrono::Utc;
 use serde_json::json;
 
 use crate::activity_log::log_pod_activity;
+use crate::pod_healer::HealAction;
 use crate::state::AppState;
 use rc_common::protocol::DashboardEvent;
 use rc_common::types::{AiDebugSuggestion, PodInfo, SimType};
 
-use crate::pod_healer::HealAction;
-
-// --- AI Escalation -----------------------------------------------------------
+// ─── AI Escalation ───────────────────────────────────────────────────────────
 
 pub(crate) async fn escalate_to_ai(
     state: &Arc<AppState>,
@@ -137,8 +138,6 @@ pub(crate) async fn escalate_to_ai(
                 .send(DashboardEvent::AiDebugSuggestion(debug_suggestion.clone()));
 
             // Phase 140: Parse AI suggestion for whitelisted actions and log audit trail.
-            // The server does NOT execute actions — rc-agent executes them on the pod.
-            // This logs what action the AI recommended for the server-side activity log.
             if let Some(action_name) = parse_ai_action_server(&debug_suggestion.suggestion) {
                 let detail = format!("AI recommended action model={}", debug_suggestion.model);
                 log_pod_activity(
@@ -164,7 +163,7 @@ pub(crate) async fn escalate_to_ai(
     }
 }
 
-// --- Phase 140-02: Server-side AI action parsing ----------------------------
+// ─── Phase 140-02: Server-side AI action parsing ─────────────────────────────
 
 /// Parse a whitelisted AI action from a free-text LLM suggestion.
 ///
@@ -205,7 +204,7 @@ pub(crate) fn parse_ai_action_server(suggestion: &str) -> Option<&'static str> {
     None
 }
 
-// --- Phase 141: WARN Log Scanner ---------------------------------------------
+// ─── Phase 141: WARN Log Scanner ─────────────────────────────────────────────
 
 /// Constants for WARN log scanning.
 const WARN_SCAN_WINDOW_SECS: i64 = 300;   // 5-minute rolling window

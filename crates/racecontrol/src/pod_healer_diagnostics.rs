@@ -1,24 +1,74 @@
-//! Pod healer diagnostics: data collection, verification chains, heal actions, and helpers.
+//! Pod healer diagnostics — remote pod health data collection.
+//!
+//! Collects stale sockets, disk space, memory, rc-agent health, and suspicious
+//! processes from pods via pod-agent `/exec`. Also provides `exec_on_pod` helper
+//! used by other pod_healer submodules.
 //!
 //! Extracted from pod_healer.rs (Phase 385, v49.0 Architecture Completion).
-//! Contains: collect_diagnostics, check_stale_sockets, check_disk_space, check_memory,
-//! check_rc_agent_health (with ColdVerificationChain), check_processes, execute_heal_action,
-//! exec_on_pod, is_protected_pid, has_active_billing.
 
 use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::state::AppState;
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
-use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
-
 use crate::pod_healer::{
-    PodDiagnostics, HealAction, PROTECTED_PROCESSES, MONITORED_PORTS,
-    POD_AGENT_PORT, POD_AGENT_TIMEOUT,
+    PodDiagnostics, MONITORED_PORTS, POD_AGENT_PORT, POD_AGENT_TIMEOUT, PROTECTED_PROCESSES,
 };
+use crate::state::AppState;
+use rc_common::verification::{ColdVerificationChain, VerificationError, VerifyStep};
 
-// --- Diagnostics Collection --------------------------------------------------
+// ─── Verification chain steps for curl parse (COV-02) ────────────────────────
+
+struct StepRawStdout;
+impl VerifyStep for StepRawStdout {
+    type Input = String;  // raw exec output
+    type Output = String; // same, but verified non-empty
+    fn name(&self) -> &str { "raw_stdout_check" }
+    fn run(&self, input: String) -> Result<String, VerificationError> {
+        if input.trim().is_empty() {
+            return Err(VerificationError::InputParseError {
+                step: self.name().to_string(),
+                raw_value: format!("(empty, len={})", input.len()),
+            });
+        }
+        Ok(input)
+    }
+}
+
+struct StepTrimQuotes;
+impl VerifyStep for StepTrimQuotes {
+    type Input = String;
+    type Output = String;
+    fn name(&self) -> &str { "trim_quotes" }
+    fn run(&self, input: String) -> Result<String, VerificationError> {
+        let trimmed = input.trim().trim_matches('"').to_string();
+        Ok(trimmed)
+    }
+}
+
+struct StepParseU32;
+impl VerifyStep for StepParseU32 {
+    type Input = String;
+    type Output = u32;
+    fn name(&self) -> &str { "parse_http_code" }
+    fn run(&self, input: String) -> Result<u32, VerificationError> {
+        input.parse::<u32>().map_err(|_| VerificationError::InputParseError {
+            step: self.name().to_string(),
+            raw_value: input,
+        })
+    }
+}
+
+struct StepCheckHttp200;
+impl VerifyStep for StepCheckHttp200 {
+    type Input = u32;
+    type Output = bool;
+    fn name(&self) -> &str { "check_http_200" }
+    fn run(&self, input: u32) -> Result<bool, VerificationError> {
+        Ok(input == 200)
+    }
+}
+
+// ─── Diagnostics Collection ──────────────────────────────────────────────────
 
 pub(crate) async fn collect_diagnostics(
     state: &Arc<AppState>,
@@ -136,58 +186,6 @@ async fn check_memory(
     Ok((8192, 32768)) // default: assume 8GB free / 32GB total
 }
 
-// ─── Verification chain steps for curl parse (COV-02) ────────────────────────
-
-struct StepRawStdout;
-impl VerifyStep for StepRawStdout {
-    type Input = String;  // raw exec output
-    type Output = String; // same, but verified non-empty
-    fn name(&self) -> &str { "raw_stdout_check" }
-    fn run(&self, input: String) -> Result<String, VerificationError> {
-        if input.trim().is_empty() {
-            return Err(VerificationError::InputParseError {
-                step: self.name().to_string(),
-                raw_value: format!("(empty, len={})", input.len()),
-            });
-        }
-        Ok(input)
-    }
-}
-
-struct StepTrimQuotes;
-impl VerifyStep for StepTrimQuotes {
-    type Input = String;
-    type Output = String;
-    fn name(&self) -> &str { "trim_quotes" }
-    fn run(&self, input: String) -> Result<String, VerificationError> {
-        let trimmed = input.trim().trim_matches('"').to_string();
-        Ok(trimmed)
-    }
-}
-
-struct StepParseU32;
-impl VerifyStep for StepParseU32 {
-    type Input = String;
-    type Output = u32;
-    fn name(&self) -> &str { "parse_http_code" }
-    fn run(&self, input: String) -> Result<u32, VerificationError> {
-        input.parse::<u32>().map_err(|_| VerificationError::InputParseError {
-            step: self.name().to_string(),
-            raw_value: input,
-        })
-    }
-}
-
-struct StepCheckHttp200;
-impl VerifyStep for StepCheckHttp200 {
-    type Input = u32;
-    type Output = bool;
-    fn name(&self) -> &str { "check_http_200" }
-    fn run(&self, input: u32) -> Result<bool, VerificationError> {
-        Ok(input == 200)
-    }
-}
-
 /// Check if rc-agent lock screen is responsive.
 /// The lock screen binds to 127.0.0.1:18923, so we must check from the pod
 /// itself via pod-agent exec rather than connecting directly to the pod's network IP.
@@ -286,79 +284,7 @@ async fn check_processes(
     Ok(suspicious)
 }
 
-// --- Auto-Heal Actions -------------------------------------------------------
-
-pub(crate) async fn execute_heal_action(state: &Arc<AppState>, pod_ip: &str, action: &HealAction) {
-    // Relaunch lock screen: send ForceRelaunchBrowser over WS — no shell exec needed
-    if action.action == "relaunch_lock_screen" {
-        let senders = state.agent_senders.read().await;
-        if let Some(sender) = senders.get(&action.pod_id) {
-            let msg = CoreToAgentMessage::ForceRelaunchBrowser {
-                pod_id: action.pod_id.clone(),
-            };
-            match sender.send(CoreMessage::wrap(msg)).await {
-                Ok(_) => tracing::info!(
-                    "Pod healer: ForceRelaunchBrowser sent to {} (lock screen recovery)",
-                    action.pod_id
-                ),
-                Err(e) => tracing::warn!(
-                    "Pod healer: ForceRelaunchBrowser send to {} failed: {}",
-                    action.pod_id, e
-                ),
-            }
-        } else {
-            tracing::warn!(
-                "Pod healer: ForceRelaunchBrowser -- no WS sender for {} (pod disconnected?)",
-                action.pod_id
-            );
-        }
-        return;
-    }
-
-    let cmd = match action.action.as_str() {
-        "kill_zombie" => {
-            // Extract PID from target like "PID 1234"
-            let pid = action
-                .target
-                .strip_prefix("PID ")
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0);
-            if pid == 0 {
-                tracing::warn!("Pod healer: invalid PID in kill_zombie action");
-                return;
-            }
-            format!("taskkill /F /PID {}", pid)
-        }
-        "clear_temp" => {
-            r#"del /q /s C:\Users\*\AppData\Local\Temp\* >nul 2>&1"#.to_string()
-        }
-        _ => {
-            tracing::warn!("Pod healer: unknown action type: {}", action.action);
-            return;
-        }
-    };
-
-    match exec_on_pod(state, pod_ip, &cmd).await {
-        Ok(output) => {
-            tracing::info!(
-                "Pod healer: action '{}' on {} completed: {}",
-                action.action,
-                action.pod_id,
-                output.chars().take(200).collect::<String>()
-            );
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Pod healer: action '{}' on {} failed: {}",
-                action.action,
-                action.pod_id,
-                e
-            );
-        }
-    }
-}
-
-// --- Helpers -----------------------------------------------------------------
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Execute a command on a pod via pod-agent POST /exec.
 pub(crate) async fn exec_on_pod(
@@ -411,10 +337,4 @@ pub(crate) async fn is_protected_pid(state: &Arc<AppState>, pod_ip: &str, pid: u
         }
         Err(_) => true, // if we can't check, treat as protected (safe default)
     }
-}
-
-/// Check if a pod has an active billing session.
-pub(crate) async fn has_active_billing(state: &Arc<AppState>, pod_id: &str) -> bool {
-    let timers = state.billing.active_timers.read().await;
-    timers.contains_key(pod_id)
 }
