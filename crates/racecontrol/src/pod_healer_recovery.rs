@@ -8,6 +8,20 @@
 //!   Step 5+ (AlertStaff): Repeated staff alerts every 15 minutes
 //!
 //! Extracted from pod_healer.rs (Phase 385, v49.0 Architecture Completion).
+//!
+//! ## Module structure
+//!
+//! - `pod_healer_recovery_wol` — WakeOnLan step with 3 pre-checks
+//! - `pod_healer_recovery_escalation` — AI escalation + staff alerting steps
+
+#[path = "pod_healer_recovery_wol.rs"]
+mod wol_step;
+
+#[path = "pod_healer_recovery_escalation.rs"]
+mod escalation;
+
+pub(crate) use escalation::{run_ai_escalation_step, run_alert_staff_step};
+pub(crate) use wol_step::run_wol_step;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +31,6 @@ use chrono::Utc;
 use crate::activity_log::log_pod_activity;
 use crate::pod_healer::{has_active_billing, PodRecoveryStep, PodRecoveryTracker};
 use crate::state::AppState;
-use crate::wol;
 use rc_common::recovery::{
     RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryIntent, RecoveryLogger,
     RECOVERY_LOG_SERVER,
@@ -334,379 +347,15 @@ pub(crate) async fn run_graduated_recovery(
         }
 
         PodRecoveryStep::WakeOnLan => {
-            tracing::info!(
-                target: "pod_healer",
-                "Pod {} -- step WoL: checking recovery events before WoL",
-                pod.id
-            );
-
-            // CHECK 1: Query recovery events — skip WoL if rc-sentry restarted recently
-            let skip_wol_sentry = {
-                let store = state.recovery_events.lock().unwrap_or_else(|e| e.into_inner());
-                let recent = store.query(Some(&pod.id), Some(60));
-                recent.iter().any(|e| {
-                    e.authority == RecoveryAuthority::RcSentry
-                        && matches!(e.action, RecoveryAction::Restart)
-                        && e.spawn_verified == Some(true)
-                })
-            };
-            if skip_wol_sentry {
-                tracing::info!(
-                    target: "pod_healer",
-                    "Pod {} -- skipping WoL, sentry restarted within grace window (spawn_verified=true within 60s)",
-                    pod.id
-                );
-                let decision = RecoveryDecision::new(
-                    "server",
-                    "rc-agent.exe",
-                    RecoveryAuthority::PodHealer,
-                    RecoveryAction::SkipCascadeGuardActive,
-                    "sentry_restarted_within_60s_skip_wol",
-                );
-                let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
-                tracker.step = PodRecoveryStep::AiEscalation;
-                return;
-            }
-
-            // CHECK 2 (MAINT-04): Read MAINTENANCE_MODE via rc-sentry /files
-            let maintenance_url = format!(
-                "http://{}:8091/files?path=C%3A%5CRacingPoint%5CMAINTENANCE_MODE",
-                pod.ip_address
-            );
-            let in_maintenance_file = match state
-                .sentry_get(&maintenance_url)
-                .timeout(Duration::from_secs(3))
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => true,
-                _ => false,
-            };
-            if in_maintenance_file {
-                tracing::warn!(
-                    target: "pod_healer",
-                    "Pod {} has MAINTENANCE_MODE file -- skipping WoL to prevent WoL->restart->block infinite loop",
-                    pod.id
-                );
-                let decision = RecoveryDecision::new(
-                    "server",
-                    "rc-agent.exe",
-                    RecoveryAuthority::PodHealer,
-                    RecoveryAction::SkipMaintenanceMode,
-                    "maintenance_mode_file_present_skip_wol",
-                );
-                let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
-                tracker.step = PodRecoveryStep::AlertStaff;
-                return;
-            }
-
-            // CHECK 2b (OTA-09): Check OTA sentinel
-            let ota_check_url = format!(
-                "http://{}:8091/files?path=C%3A%5CRacingPoint%5Cota-in-progress.flag",
-                pod.ip_address
-            );
-            let ota_in_progress = match state
-                .sentry_get(&ota_check_url)
-                .timeout(Duration::from_secs(3))
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => true,
-                _ => false,
-            };
-            if ota_in_progress {
-                tracing::info!(
-                    target: "pod_healer",
-                    "Pod {} has OTA in progress -- skipping WoL to prevent WoL<>OTA conflict",
-                    pod.id
-                );
-                tracker.step = PodRecoveryStep::AlertStaff;
-                return;
-            }
-
-            // PRE-WoL: If rc-sentry IS reachable, try rc-agent restart via sentry first.
-            let sentry_health = format!("http://{}:8091/health", pod.ip_address);
-            let sentry_alive = state
-                .sentry_get(&sentry_health)
-                .timeout(std::time::Duration::from_secs(3))
-                .send()
-                .await
-                .is_ok();
-            if sentry_alive {
-                tracing::info!(
-                    target: "pod_healer",
-                    "Pod {} — rc-sentry alive (machine is ON), retrying rc-agent restart via watchdog before WoL",
-                    pod.id
-                );
-                let restart_url = format!("http://{}:8091/exec", pod.ip_address);
-                let _ = state
-                    .sentry_post(&restart_url)
-                    .json(&serde_json::json!({ "cmd": "sc start RCWatchdog", "timeout": 10 }))
-                    .timeout(std::time::Duration::from_secs(15))
-                    .send()
-                    .await;
-                let _ = state
-                    .sentry_post(&restart_url)
-                    .json(&serde_json::json!({ "cmd": "taskkill /F /IM rc-agent.exe", "timeout": 10 }))
-                    .timeout(std::time::Duration::from_secs(15))
-                    .send()
-                    .await;
-                log_pod_activity(
-                    state,
-                    &pod.id,
-                    "race_engineer",
-                    "Graduated Recovery (Tier 2: Watchdog Restart)",
-                    "rc-agent killed via sentry before WoL, RCWatchdog respawns in Session 1 (machine is on, WoL useless)",
-                    "race_engineer",
-                    None,
-                );
-            }
-
-            // CHECK 3: Write WOL_SENT sentinel via rc-sentry /exec BEFORE sending magic packet.
-            let sentinel_cmd = r#"echo WOL_SENT > C:\RacingPoint\WOL_SENT"#;
-            let exec_url = format!("http://{}:8091/exec", pod.ip_address);
-            let sentinel_body = serde_json::json!({ "cmd": sentinel_cmd, "timeout_ms": 5000 });
-            match state
-                .sentry_post(&exec_url)
-                .json(&sentinel_body)
-                .timeout(Duration::from_secs(5))
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => {
-                    tracing::info!(
-                        target: "pod_healer",
-                        "Pod {} WOL_SENT sentinel written via rc-sentry",
-                        pod.id
-                    );
-                }
-                _ => {
-                    tracing::warn!(
-                        target: "pod_healer",
-                        "Pod {} failed to write WOL_SENT sentinel (rc-sentry may be down) -- proceeding with WoL anyway",
-                        pod.id
-                    );
-                }
-            }
-
-            // SEND WoL: look up MAC address from pod info
-            let mac = {
-                let pods = state.pods.read().await;
-                pods.get(&pod.id).and_then(|p| p.mac_address.clone())
-            };
-            match mac {
-                Some(ref mac_addr) => {
-                    let decision = RecoveryDecision::new(
-                        "server",
-                        &pod.id,
-                        RecoveryAuthority::PodHealer,
-                        RecoveryAction::WakeOnLan,
-                        "graduated_wol_after_tier1_failed",
-                    );
-                    {
-                        let mut guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
-                        if guard.record(&decision) {
-                            tracing::error!(
-                                target: "pod_healer",
-                                "Cascade guard triggered on WoL for {} -- aborting",
-                                pod.id
-                            );
-                            return;
-                        }
-                    }
-                    let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
-
-                    // SF-05: Heal-lease check before WoL
-                    if state.lease_manager.get_lease(&pod.id).is_some() {
-                        tracing::info!(pod_id = %pod.id, "pod_healer: active heal lease — skipping WoL");
-                        return;
-                    }
-                    match wol::send_wol(mac_addr).await {
-                        Ok(()) => {
-                            tracing::info!(
-                                target: "pod_healer",
-                                "Pod {} WoL magic packet sent (MAC: {})",
-                                pod.id,
-                                mac_addr
-                            );
-                            log_pod_activity(
-                                state,
-                                &pod.id,
-                                "race_engineer",
-                                "Wake-on-LAN Sent",
-                                &format!(
-                                    "Graduated recovery WoL (Tier 1 restart failed, MAC: {})",
-                                    mac_addr
-                                ),
-                                "race_engineer",
-                                None,
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                target: "pod_healer",
-                                "Pod {} WoL failed: {}",
-                                pod.id,
-                                e
-                            );
-                        }
-                    }
-                }
-                None => {
-                    tracing::warn!(
-                        target: "pod_healer",
-                        "Pod {} has no MAC address -- cannot send WoL",
-                        pod.id
-                    );
-                }
-            }
-
-            tracker.step = PodRecoveryStep::AiEscalation;
+            run_wol_step(state, pod, tracker).await;
         }
 
         PodRecoveryStep::AiEscalation => {
-            tracing::info!(
-                target: "pod_healer",
-                "Pod {} — step 3: AI escalation",
-                pod.id
-            );
-            let decision = RecoveryDecision::new(
-                "server",
-                "rc-agent.exe",
-                RecoveryAuthority::PodHealer,
-                RecoveryAction::EscalateToAi,
-                "graduated_step3_ai_escalation",
-            );
-            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
-
-            let context = format!(
-                "Pod {} is offline. Tier 1 restart was attempted and pod remains offline. \
-                 Last seen: {:?}. Please suggest root cause and next steps.",
-                pod.id, pod.last_seen
-            );
-            let messages = vec![
-                serde_json::json!({
-                    "role": "system",
-                    "content": "You are a sim racing venue technician. A pod has failed to recover \
-                                after an automated restart. Provide a brief root cause and specific \
-                                manual steps. Keep under 150 words."
-                }),
-                serde_json::json!({ "role": "user", "content": context.clone() }),
-            ];
-            match crate::ai::query_ai(
-                &state.config.ai_debugger,
-                &messages,
-                Some(&state.db),
-                Some("healer_graduated"),
-            )
-            .await
-            {
-                Ok((suggestion, model)) => {
-                    tracing::info!(
-                        target: "pod_healer",
-                        "Pod {} AI suggestion ({}): {}",
-                        pod.id,
-                        model,
-                        suggestion.chars().take(100).collect::<String>()
-                    );
-                    log_pod_activity(
-                        state,
-                        &pod.id,
-                        "race_engineer",
-                        "AI Escalation",
-                        &format!(
-                            "AI suggestion ({}): {}",
-                            model,
-                            suggestion.chars().take(200).collect::<String>()
-                        ),
-                        "race_engineer",
-                        None,
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "pod_healer",
-                        "Pod {} AI escalation failed: {}",
-                        pod.id,
-                        e
-                    );
-                }
-            }
-            tracker.step = PodRecoveryStep::AlertStaff;
+            run_ai_escalation_step(state, pod, tracker).await;
         }
 
         PodRecoveryStep::AlertStaff => {
-            // CONN-RESIL: Re-alert every 15 minutes instead of every 2-minute cycle.
-            const RE_ALERT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
-            let should_alert = tracker.last_staff_alert_at
-                .map(|t| t.elapsed() >= RE_ALERT_INTERVAL)
-                .unwrap_or(true); // First alert always fires
-
-            if !should_alert {
-                tracing::info!(
-                    target: "pod_healer",
-                    "Pod {} — still at AlertStaff, re-alert suppressed (next in {}s)",
-                    pod.id,
-                    RE_ALERT_INTERVAL.as_secs().saturating_sub(
-                        tracker.last_staff_alert_at.map(|t| t.elapsed().as_secs()).unwrap_or(0)
-                    )
-                );
-                return;
-            }
-
-            tracing::warn!(
-                target: "pod_healer",
-                "Pod {} — step 4: alerting staff (re-alert every 15min)",
-                pod.id
-            );
-            let decision = RecoveryDecision::new(
-                "server",
-                "rc-agent.exe",
-                RecoveryAuthority::PodHealer,
-                RecoveryAction::AlertStaff,
-                "graduated_step4_staff_alert",
-            );
-            let _ = RecoveryLogger::new(RECOVERY_LOG_SERVER).log(&decision);
-
-            let offline_duration = tracker.first_detected_at
-                .map(|t| t.elapsed())
-                .unwrap_or_default();
-            let body = format!(
-                "Pod {} has failed all automated recovery steps.\n\
-                 Tier 1 restart attempted. AI escalated. Pod still offline.\n\
-                 Offline for: {}min {}s\n\
-                 Last seen: {:?}\n\
-                 Manual intervention required.\n\
-                 (This alert repeats every 15 minutes until resolved.)",
-                pod.id,
-                offline_duration.as_secs() / 60,
-                offline_duration.as_secs() % 60,
-                pod.last_seen
-            );
-            let subject = format!(
-                "[RaceControl] Pod {} — Manual Intervention Required ({}min offline)",
-                pod.id,
-                offline_duration.as_secs() / 60
-            );
-            state
-                .email_alerter
-                .write()
-                .await
-                .send_alert(&pod.id, &subject, &body)
-                .await;
-            tracker.last_staff_alert_at = Some(std::time::Instant::now());
-            log_pod_activity(
-                state,
-                &pod.id,
-                "race_engineer",
-                "Staff Alert Sent",
-                &format!(
-                    "All automated recovery steps exhausted — staff alerted (offline {}min)",
-                    offline_duration.as_secs() / 60
-                ),
-                "race_engineer",
-                None,
-            );
+            run_alert_staff_step(state, pod, tracker).await;
         }
     }
 }
