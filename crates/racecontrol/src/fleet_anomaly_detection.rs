@@ -13,7 +13,7 @@
 //!
 //! Uses static cooldowns (15 min per class) to prevent alert fatigue.
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 

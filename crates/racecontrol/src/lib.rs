@@ -62,6 +62,7 @@ pub mod fleet_deploy;
 pub mod fleet_healer;
 pub mod fleet_anomaly_detection;
 pub mod fleet_health;
+pub mod fleet_violation_store;
 pub mod fleet_intelligence;
 pub mod fleet_kb;
 pub mod fleet_report;
