@@ -1,101 +1,23 @@
 //! Cafe order processing — place orders, receipts, order history.
 //!
 //! Extracted from cafe.rs (Phase 385, v49.0 Architecture Completion).
-//! Contains order types, place_cafe_order (the core 384-line transaction),
+//! Contains order types, place_cafe_order (the core transaction),
 //! WhatsApp receipt, thermal receipt, and customer order listing.
 
+#[path = "cafe_order_types.rs"]
+mod cafe_order_types;
+pub use cafe_order_types::*;
+
+#[path = "cafe_order_receipts.rs"]
+mod cafe_order_receipts;
+pub use cafe_order_receipts::*;
+
 use std::sync::Arc;
-use axum::{Json, extract::{Path, State}};
+use axum::{Json, extract::State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::state::AppState;
-use crate::cafe_alerts::check_low_stock_alerts;
-use crate::cafe_promos::{ActivePromo, CafePromo, evaluate_promos, time_in_window};
-use crate::wallet;
-use crate::whatsapp_alerter;
-
-// ─── Order Types ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct PlaceOrderRequest {
-    pub driver_id: String,
-    pub items: Vec<OrderItemRequest>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct OrderItemRequest {
-    pub item_id: String,
-    pub quantity: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PlaceOrderResponse {
-    pub order_id: String,
-    pub receipt_number: String,
-    pub wallet_txn_id: String,
-    pub total_paise: i64,
-    pub discount_paise: i64,
-    pub applied_promo_id: Option<String>,
-    pub applied_promo_name: Option<String>,
-    pub new_balance_paise: i64,
-    pub items: Vec<OrderItemDetail>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct OrderItemDetail {
-    pub item_id: String,
-    pub name: String,
-    pub quantity: i64,
-    pub unit_price_paise: i64,
-    pub line_total_paise: i64,
-}
-
-/// Internal verified item during order processing (held between transaction and wallet debit).
-#[derive(Clone)]
-struct VerifiedOrderItem {
-    item_id: String,
-    name: String,
-    quantity: i64,
-    unit_price_paise: i64,
-    is_countable: bool,
-}
-
-// ─── Order Helpers ───────────────────────────────────────────────────────────
-
-/// Rollback stock for countable items with per-item tracking and 3x retry.
-/// MMA iter2 fix: tracks which items succeeded to prevent double-rollback.
-pub async fn rollback_stock(state: &Arc<AppState>, items: &[VerifiedOrderItem], context: &str) {
-    use std::collections::HashSet;
-    let mut done: HashSet<String> = HashSet::new();
-    for attempt in 0..3u8 {
-        let mut any_failed = false;
-        for item in items {
-            if !item.is_countable || done.contains(&item.item_id) {
-                continue;
-            }
-            match sqlx::query(
-                "UPDATE cafe_items SET stock_quantity = stock_quantity + ? WHERE id = ?",
-            )
-            .bind(item.quantity)
-            .bind(&item.item_id)
-            .execute(&state.db)
-            .await
-            {
-                Ok(_) => { done.insert(item.item_id.clone()); }
-                Err(e) => {
-                    tracing::error!("rollback_stock: item {} failed (attempt {}/3, ctx={}): {}", item.item_id, attempt + 1, context, e);
-                    any_failed = true;
-                }
-            }
-        }
-        if !any_failed { break; }
-        if attempt < 2 {
-            tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
-        }
-    }
-}
 
 // ─── Order Handlers ───────────────────────────────────────────────────────────
 
@@ -515,185 +437,6 @@ pub async fn place_cafe_order_customer(
 
     req.driver_id = driver_id;
     place_cafe_order_inner(&state, req).await
-}
-
-// ─── Post-Order Side Effects ──────────────────────────────────────────────────
-
-/// Send a WhatsApp order confirmation receipt to the customer's phone.
-/// Fire-and-forget: all errors are logged as warnings, never propagated.
-pub async fn send_order_receipt_whatsapp(
-    state: &Arc<AppState>,
-    driver_id: &str,
-    receipt_number: &str,
-    items: &[OrderItemDetail],
-    total_paise: i64,
-    new_balance_paise: i64,
-) {
-    let config = &state.config;
-    let db = &state.db;
-
-    if !config.alerting.enabled {
-        tracing::debug!(target: "cafe", "WA alerting disabled, skipping receipt for driver {}", driver_id);
-        return;
-    }
-
-    // Fetch driver phone
-    let phone_opt: Option<Option<String>> = sqlx::query_scalar("SELECT phone FROM drivers WHERE id = ?")
-        .bind(driver_id)
-        .fetch_optional(db)
-        .await
-        .ok();
-
-    let phone = match phone_opt.flatten() {
-        Some(p) if !p.trim().is_empty() => p,
-        _ => {
-            tracing::warn!(target: "cafe", "No phone for driver {}, skipping WA receipt", driver_id);
-            return;
-        }
-    };
-
-    let (evo_url, evo_key, evo_instance) = match (
-        &config.auth.evolution_url,
-        &config.auth.evolution_api_key,
-        &config.auth.evolution_instance,
-    ) {
-        (Some(url), Some(key), Some(inst)) => (url, key, inst),
-        _ => {
-            tracing::warn!(target: "cafe", "Evolution API not configured, skipping WA receipt for {}", receipt_number);
-            return;
-        }
-    };
-
-    let ist = chrono::Utc::now()
-        .with_timezone(&chrono_tz::Asia::Kolkata)
-        .format("%d %b %Y %H:%M IST")
-        .to_string();
-
-    let mut items_text = String::new();
-    for item in items {
-        items_text.push_str(&format!(
-            "  {} x{}  Rs.{}\n",
-            item.name,
-            item.quantity,
-            item.line_total_paise / 100
-        ));
-    }
-
-    let message = format!(
-        "[Racing Point Cafe] Order Confirmed!\nReceipt: {}\n{}\n\n{}
-Total: Rs.{}\nBalance: Rs.{}\n\nThank you! Your order is being prepared.",
-        receipt_number,
-        ist,
-        items_text,
-        total_paise / 100,
-        new_balance_paise / 100
-    );
-
-    let url = format!("{}/message/sendText/{}", evo_url, evo_instance);
-    let body = serde_json::json!({ "number": phone, "text": message });
-
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(target: "cafe", "Failed to build HTTP client for WA receipt: {}", e);
-            return;
-        }
-    };
-
-    match client
-        .post(&url)
-        .header("apikey", evo_key.as_str())
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
-            tracing::info!(target: "cafe", "WA receipt sent for order {} to driver {}", receipt_number, driver_id);
-        }
-        Ok(resp) => {
-            tracing::warn!(target: "cafe", "Evolution API returned {} for WA receipt {}", resp.status(), receipt_number);
-        }
-        Err(e) => {
-            tracing::warn!(target: "cafe", "WA receipt send failed for {}: {}", receipt_number, e);
-        }
-    }
-}
-
-/// Print a thermal receipt via a Node.js script (fire-and-forget).
-/// Skipped silently if print_script_path is not configured.
-pub async fn print_thermal_receipt(
-    state: &Arc<AppState>,
-    receipt_number: &str,
-    items: &[OrderItemDetail],
-    total_paise: i64,
-    customer_name: &str,
-) {
-    let config = &state.config;
-    let script_path = match &config.cafe.print_script_path {
-        Some(p) => p.clone(),
-        None => {
-            tracing::debug!(target: "cafe", "Thermal print skipped: print_script_path not configured");
-            return;
-        }
-    };
-
-    let ist = chrono::Utc::now()
-        .with_timezone(&chrono_tz::Asia::Kolkata)
-        .format("%d %b %Y %H:%M IST")
-        .to_string();
-
-    let mut items_text = String::new();
-    for item in items {
-        items_text.push_str(&format!(
-            "{}\n  {} x Rs.{} = Rs.{}\n",
-            item.name,
-            item.quantity,
-            item.unit_price_paise / 100,
-            item.line_total_paise / 100
-        ));
-    }
-
-    let receipt_text = format!(
-        "================================\n    RACING POINT CAFE\n================================\nReceipt: {}\n{}\nCustomer: {}\n--------------------------------\n{}--------------------------------\nTOTAL: Rs.{}\n================================\n     Thank you!\n================================",
-        receipt_number,
-        ist,
-        customer_name,
-        items_text,
-        total_paise / 100
-    );
-
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::process::Command::new("node")
-            .arg(&script_path)
-            .arg(&receipt_text)
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    {
-        Ok(Ok(output)) => {
-            if output.status.success() {
-                tracing::info!(target: "cafe", "Thermal receipt printed for {}", receipt_number);
-            } else {
-                tracing::warn!(
-                    target: "cafe",
-                    "Print script exited with non-zero status for {}: {}",
-                    receipt_number,
-                    output.status
-                );
-            }
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(target: "cafe", "Print script failed to launch for {}: {}", receipt_number, e);
-        }
-        Err(_) => {
-            tracing::warn!(target: "cafe", "Thermal print timed out for {}", receipt_number);
-        }
-    }
 }
 
 /// GET /customer/cafe/orders/history
