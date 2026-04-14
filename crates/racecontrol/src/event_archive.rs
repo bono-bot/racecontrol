@@ -15,10 +15,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sha2::Digest;
 use sqlx::SqlitePool;
 
 use crate::state::AppState;
+
+#[path = "event_archive_export.rs"]
+mod export;
+
+#[path = "event_archive_transfer.rs"]
+mod transfer;
 
 const LOG_TARGET: &str = "event_archive";
 
@@ -141,15 +146,15 @@ async fn archive_tick(
     let retention_days = state.config.event_archive.retention_days;
 
     // Step 1: Export yesterday's events to JSONL (idempotent via file-exists check)
-    let filename = export_daily_jsonl(&state.db, &archive_dir).await?;
+    let filename = export::export_daily_jsonl(&state.db, &archive_dir).await?;
 
     // Step 2: Purge events older than retention_days (AFTER export — order is critical)
-    purge_old_events(&state.db, retention_days).await?;
+    export::purge_old_events(&state.db, retention_days).await?;
 
     // Step 3: SCP the JSONL file to Bono VPS (only during IST 02:00-03:59 window, once per day)
     if remote_enabled {
         let filepath = format!("{}/{}", archive_dir, filename);
-        if let Err(e) = transfer_jsonl_to_remote(
+        if let Err(e) = transfer::transfer_jsonl_to_remote(
             state,
             &filepath,
             &filename,
@@ -159,263 +164,6 @@ async fn archive_tick(
         {
             tracing::error!(target: LOG_TARGET, "JSONL remote transfer failed: {}", e);
         }
-    }
-
-    Ok(())
-}
-
-// ─── Private: JSONL export ────────────────────────────────────────────────────
-
-/// Export the previous day's events (IST) to a JSONL file.
-///
-/// Idempotent: if the file already exists, returns immediately without re-querying.
-/// One JSON object per line. Payload is re-parsed from string to avoid double-encoding.
-///
-/// Returns the filename (not full path) for use in the SCP call.
-async fn export_daily_jsonl(db: &SqlitePool, archive_dir: &str) -> anyhow::Result<String> {
-    use chrono::Datelike;
-
-    let yesterday = (chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata)
-        - chrono::Duration::days(1))
-    .date_naive();
-    let date_str = yesterday.format("%Y-%m-%d").to_string();
-    let filename = format!("events-{}.jsonl", date_str);
-    let filepath = format!("{}/{}", archive_dir, filename);
-
-    // Idempotent: skip if file already exists (handles server restarts mid-window)
-    if std::path::Path::new(&filepath).exists() {
-        tracing::debug!(target: LOG_TARGET, "JSONL already exists, skipping: {}", filename);
-        return Ok(filename);
-    }
-
-    // Fetch all events for yesterday ordered by time ascending
-    let rows: Vec<(String, String, String, Option<String>, String, String)> = sqlx::query_as(
-        "SELECT id, event_type, source, pod, timestamp, payload
-         FROM system_events
-         WHERE date(timestamp) = ?
-         ORDER BY timestamp ASC",
-    )
-    .bind(&date_str)
-    .fetch_all(db)
-    .await?;
-
-    // Create the archive directory if it does not exist
-    std::fs::create_dir_all(archive_dir)?;
-
-    let mut lines = String::new();
-    for (id, event_type, source, pod, timestamp, payload) in &rows {
-        let payload_value = serde_json::from_str::<serde_json::Value>(payload)
-            .unwrap_or_else(|_| serde_json::Value::String(payload.clone()));
-
-        let obj = serde_json::json!({
-            "id": id,
-            "event_type": event_type,
-            "source": source,
-            "pod": pod,
-            "timestamp": timestamp,
-            "payload": payload_value,
-        });
-        lines.push_str(&obj.to_string());
-        lines.push('\n');
-    }
-
-    std::fs::write(&filepath, lines)?;
-    tracing::info!(
-        target: LOG_TARGET,
-        "JSONL export complete: {} ({} events)",
-        filename,
-        rows.len()
-    );
-    Ok(filename)
-}
-
-// ─── Private: purge ───────────────────────────────────────────────────────────
-
-/// Delete events older than `retention_days` from the system_events table.
-///
-/// Uses SQLite datetime modifier in the SQL string — the days parameter is
-/// formatted inline since SQLite datetime() does not accept bind parameters for modifiers.
-async fn purge_old_events(db: &SqlitePool, retention_days: u32) -> anyhow::Result<u64> {
-    let sql = format!(
-        "DELETE FROM system_events WHERE timestamp < datetime('now', '-{} days')",
-        retention_days
-    );
-    let result = sqlx::query(&sql).execute(db).await?;
-    let deleted = result.rows_affected();
-    if deleted > 0 {
-        tracing::info!(
-            target: LOG_TARGET,
-            "Purged {} events older than {} days",
-            deleted,
-            retention_days
-        );
-    }
-    Ok(deleted)
-}
-
-// ─── Private: SCP transfer ────────────────────────────────────────────────────
-
-/// Transfer a JSONL file to Bono VPS via SCP with SHA256 verification.
-///
-/// Reuses backup_pipeline.rs Steps A-E verbatim:
-///   A: ssh mkdir -p remote_path
-///   B: local SHA256 of the file
-///   C: scp with 120s timeout
-///   D: remote sha256sum via SSH
-///   E: compare checksums, update last_remote_transfer on match
-///
-/// Only runs during IST 02:00-03:59 window, once per day.
-async fn transfer_jsonl_to_remote(
-    state: &Arc<AppState>,
-    filepath: &str,
-    filename: &str,
-    last_remote_transfer: &mut Option<chrono::NaiveDate>,
-) -> anyhow::Result<()> {
-    // Clone config before any async IO — no lock held across .await
-    let remote_host = state.config.event_archive.remote_host.clone();
-    let remote_path = state.config.event_archive.remote_path.clone();
-
-    // Check IST hour — only proceed during 02:00-03:59 IST
-    use chrono::Timelike;
-    let now_ist = chrono::Utc::now().with_timezone(&chrono_tz::Asia::Kolkata);
-    let ist_hour = now_ist.hour();
-    let today = now_ist.date_naive();
-
-    if ist_hour != 2 && ist_hour != 3 {
-        return Ok(());
-    }
-
-    // Deduplication: skip if already transferred today
-    if *last_remote_transfer == Some(today) {
-        return Ok(());
-    }
-
-    tracing::info!(
-        target: LOG_TARGET,
-        "Starting nightly JSONL transfer: {} → {}:{}",
-        filename,
-        remote_host,
-        remote_path
-    );
-
-    // Step A: Ensure remote directory exists
-    let mkdir_result = tokio::process::Command::new("ssh")
-        .arg("-o").arg("StrictHostKeyChecking=no")
-        .arg("-o").arg("BatchMode=yes")
-        .arg("-o").arg("ConnectTimeout=10")
-        .arg(&remote_host)
-        .arg(&format!("mkdir -p {}", remote_path))
-        .output()
-        .await;
-
-    if let Err(e) = mkdir_result {
-        return Err(anyhow::anyhow!("SSH mkdir failed: {}", e));
-    }
-
-    // Step B: Compute local SHA256
-    let bytes = tokio::fs::read(filepath).await?;
-    let local_checksum = hex::encode(sha2::Sha256::digest(&bytes));
-    tracing::debug!(target: LOG_TARGET, "Local SHA256: {}", local_checksum);
-
-    // Step C: SCP the file with 120s timeout
-    let remote_dest = format!("{}:{}/{}", remote_host, remote_path, filename);
-    let scp_output = tokio::time::timeout(
-        Duration::from_secs(120),
-        tokio::process::Command::new("scp")
-            .arg("-o").arg("StrictHostKeyChecking=no")
-            .arg("-o").arg("BatchMode=yes")
-            .arg("-o").arg("ConnectTimeout=10")
-            .arg(filepath)
-            .arg(&remote_dest)
-            .output(),
-    )
-    .await;
-
-    let scp_result = match scp_output {
-        Err(_timeout) => {
-            return Err(anyhow::anyhow!(
-                "SCP transfer timed out after 120s for {}",
-                filename
-            ));
-        }
-        Ok(Err(e)) => {
-            return Err(anyhow::anyhow!("SCP spawn error: {}", e));
-        }
-        Ok(Ok(output)) => output,
-    };
-
-    if !scp_result.status.success() {
-        let stderr = String::from_utf8_lossy(&scp_result.stderr);
-        return Err(anyhow::anyhow!(
-            "SCP transfer failed for {}: {}",
-            filename,
-            stderr
-        ));
-    }
-
-    tracing::info!(target: LOG_TARGET, "SCP transfer complete: {}", filename);
-
-    // Step D: Remote SHA256 verification
-    let verify_output = tokio::process::Command::new("ssh")
-        .arg("-o").arg("StrictHostKeyChecking=no")
-        .arg("-o").arg("BatchMode=yes")
-        .arg("-o").arg("ConnectTimeout=10")
-        .arg(&remote_host)
-        .arg(&format!("sha256sum {}/{}", remote_path, filename))
-        .output()
-        .await;
-
-    let checksums_match = match verify_output {
-        Err(e) => {
-            tracing::warn!(target: LOG_TARGET, "sha256sum SSH call failed: {}", e);
-            None
-        }
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // sha256sum output: "<64-char-hex>  <filename>"
-            let remote_checksum = stdout.split_whitespace().next().unwrap_or("").to_string();
-            let matched = remote_checksum.len() == 64 && remote_checksum == local_checksum;
-            tracing::info!(
-                target: LOG_TARGET,
-                "Checksum — local: {} remote: {} match: {}",
-                local_checksum,
-                remote_checksum,
-                matched
-            );
-            if !matched {
-                tracing::error!(
-                    target: LOG_TARGET,
-                    "[EVENT-ARCHIVE] Remote checksum MISMATCH for {} — local: {} remote: {}",
-                    filename,
-                    local_checksum,
-                    remote_checksum
-                );
-            }
-            Some(matched)
-        }
-    };
-
-    // Step E: Update last_remote_transfer on successful transfer
-    if checksums_match.unwrap_or(false) {
-        *last_remote_transfer = Some(today);
-        tracing::info!(
-            target: LOG_TARGET,
-            "Nightly JSONL transfer complete and verified: {}",
-            filename
-        );
-    } else if checksums_match.is_some() {
-        return Err(anyhow::anyhow!(
-            "Checksum mismatch for {} — transfer may be corrupt",
-            filename
-        ));
-    } else {
-        // Checksum verification failed (SSH error) but SCP succeeded — still record transfer
-        *last_remote_transfer = Some(today);
-        tracing::warn!(
-            target: LOG_TARGET,
-            "JSONL transfer complete but checksum unverified (SSH error): {}",
-            filename
-        );
     }
 
     Ok(())
@@ -527,7 +275,7 @@ mod tests {
             .unwrap();
         }
 
-        let filename = export_daily_jsonl(&db, &dir).await.unwrap();
+        let filename = export::export_daily_jsonl(&db, &dir).await.unwrap();
 
         let filepath = format!("{}/{}", dir, filename);
         assert!(
@@ -563,7 +311,7 @@ mod tests {
             .unwrap();
 
         // First export
-        let filename = export_daily_jsonl(&db, &dir).await.unwrap();
+        let filename = export::export_daily_jsonl(&db, &dir).await.unwrap();
         let filepath = format!("{}/{}", dir, filename);
         let content_first = std::fs::read_to_string(&filepath).unwrap();
 
@@ -574,7 +322,7 @@ mod tests {
             .unwrap();
 
         // Second export — should return same filename and NOT rewrite
-        let filename2 = export_daily_jsonl(&db, &dir).await.unwrap();
+        let filename2 = export::export_daily_jsonl(&db, &dir).await.unwrap();
         assert_eq!(filename, filename2, "Filename should be the same");
 
         let content_second = std::fs::read_to_string(&filepath).unwrap();
@@ -610,7 +358,7 @@ mod tests {
         .await
         .unwrap();
 
-        let deleted = purge_old_events(&db, 90).await.unwrap();
+        let deleted = export::purge_old_events(&db, 90).await.unwrap();
         assert_eq!(deleted, 1, "Should delete exactly 1 old event");
 
         let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM system_events")
