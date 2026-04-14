@@ -293,8 +293,12 @@ mod tests {
     /// Forza Motorsport also gets session enforcement.
     #[test]
     fn test_tick_terminate_forza_motorsport() {
-        let past = Instant::now() - Duration::from_secs(3600);
-        let mut enforcer = SessionEnforcer::new_with_start(SimType::Forza, 9999, 3600, past);
+        // Use checked_sub to avoid panic on CI VMs with low uptime (<3600s).
+        // Fallback: subtract only 10s (still > duration 5s) to guarantee Terminate.
+        let past = Instant::now()
+            .checked_sub(Duration::from_secs(3600))
+            .unwrap_or_else(|| Instant::now() - Duration::from_secs(10));
+        let mut enforcer = SessionEnforcer::new_with_start(SimType::Forza, 9999, 5, past);
         assert_eq!(enforcer.tick(), SessionAction::Terminate);
     }
 

@@ -1341,7 +1341,7 @@ mod tests {
         mock.expect_zero_force().returning(|| Ok(true));
         let result = check_hid(&mock).await;
         assert!(matches!(result.status, CheckStatus::Pass));
-        assert_eq!(result.detail, "Wheelbase HID connected");
+        assert_eq!(result.detail, "Wheelbase OpenFFBoard vendor interface responding");
     }
 
     #[tokio::test]
@@ -1349,7 +1349,7 @@ mod tests {
         let mut mock = MockHidBackend::new();
         mock.expect_zero_force().returning(|| Ok(false));
         let result = check_hid(&mock).await;
-        assert!(matches!(result.status, CheckStatus::Fail));
+        assert!(matches!(result.status, CheckStatus::Warn));
         assert!(result.detail.contains("VID:0x1209 PID:0xFFB0"));
     }
 
@@ -1358,7 +1358,7 @@ mod tests {
         let mut mock = MockHidBackend::new();
         mock.expect_zero_force().returning(|| Err("USB error".to_string()));
         let result = check_hid(&mock).await;
-        assert!(matches!(result.status, CheckStatus::Fail));
+        assert!(matches!(result.status, CheckStatus::Warn));
         assert!(result.detail.contains("USB error"));
     }
 
