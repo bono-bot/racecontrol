@@ -44,6 +44,7 @@ pub use super::pod_queue::queue_expire_task;
 
 use super::accounting_handlers::*;
 use super::activity_routes::*;
+use super::admin_championships::*;
 use super::admin_events::*;
 use super::admin_gamification::*;
 use super::admin_hr::*;

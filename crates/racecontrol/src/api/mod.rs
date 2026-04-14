@@ -11,6 +11,7 @@ pub mod survival;
 // ─── Domain handler modules (Phase 380 split from routes.rs) ─────────────
 pub mod accounting_handlers;
 pub mod activity_routes;
+pub mod admin_championships;
 pub mod admin_events;
 pub mod admin_gamification;
 pub mod admin_hr;

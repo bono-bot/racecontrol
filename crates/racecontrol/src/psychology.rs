@@ -1,9 +1,9 @@
 //! Psychology Engine — centralized badge evaluation, streak tracking,
 //! notification budget enforcement, and multi-channel dispatch.
 //!
-//! Core types and badge/streak logic live here; notification dispatch,
-//! channel routing, driving passport, and retention loops are in the
-//! `nudge` submodule.
+//! Core types and badge/streak logic live here; notification dispatch
+//! and channel routing are in the `nudge` submodule; driving passport
+//! and retention loops are in the `retention` submodule.
 
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
@@ -14,9 +14,16 @@ use crate::state::AppState;
 #[path = "psychology_nudge.rs"]
 mod nudge;
 
+#[path = "psychology_retention.rs"]
+mod retention;
+
 // Re-export everything the rest of the crate uses from the nudge submodule.
 pub use nudge::{
     is_whatsapp_budget_exceeded, queue_notification, spawn_dispatcher,
+};
+
+// Re-export everything the rest of the crate uses from the retention submodule.
+pub use retention::{
     update_driving_passport, backfill_driving_passport,
     notify_pb_beaten_holders, maybe_grant_variable_reward,
     check_streak_at_risk, check_membership_expiry_warnings,
