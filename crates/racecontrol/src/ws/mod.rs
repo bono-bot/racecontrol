@@ -6,6 +6,7 @@ mod agent_register;
 mod agent_game;
 mod agent_fleet;
 mod agent_sync;
+mod agent_sync_misc;
 mod agent_lifecycle;
 
 pub use dashboard_handler::handle_dashboard;

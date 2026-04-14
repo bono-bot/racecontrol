@@ -28,6 +28,7 @@ pub mod billing_fsm;
 pub mod billing_replay;
 pub mod billing_timer;
 pub mod billing_timer_expiry;
+pub mod billing_timer_expiry_timeout;
 pub mod billing_timer_persist;
 pub mod billing_timer_stale;
 pub mod billing_game_status;
