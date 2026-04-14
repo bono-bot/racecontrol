@@ -1,10 +1,3 @@
-//! OTP (One-Time Password) authentication — customer login + guardian consent.
-//!
-//! Handles 6-digit OTP generation, argon2 hashing (SEC-08), WhatsApp delivery
-//! via Evolution API, and verification with session creation.
-//!
-//! Extracted from auth/mod.rs (Phase 385, v49.0 Architecture Completion).
-
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
@@ -16,7 +9,7 @@ use crate::state::AppState;
 
 use super::create_jwt;
 
-// ─── OTP Hashing (SEC-08) ────────────────────────────────────────────────────
+// ─── OTP Hashing (SEC-08) ─────────────────────────────────────────────
 
 /// Hash a one-time password using Argon2id with a random salt.
 /// Returns the PHC-format hash string (starts with "$argon2id$").
@@ -47,7 +40,7 @@ pub(crate) fn verify_otp_hash(otp: &str, hash_str: &str) -> bool {
         .is_ok()
 }
 
-// ─── OTP Send / Verify ───────────────────────────────────────────────────────
+// ─── OTP Send/Verify ──────────────────────────────────────────────────
 
 /// Result of an OTP send attempt. `driver_id` is always set on success;
 /// `delivered` indicates whether the WhatsApp message actually reached the API.
@@ -130,7 +123,7 @@ pub async fn send_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendResul
 /// Send OTP message via WhatsApp Evolution API.
 /// Returns `true` if the API accepted the message, `false` on any failure.
 /// Uses the shared HTTP client from AppState with a 5-second timeout.
-pub(crate) async fn send_otp_whatsapp(state: &Arc<AppState>, phone: &str, otp_str: &str) -> bool {
+async fn send_otp_whatsapp(state: &Arc<AppState>, phone: &str, otp_str: &str) -> bool {
     let (evo_url, evo_key, evo_instance) = match (
         &state.config.auth.evolution_url,
         &state.config.auth.evolution_api_key,
@@ -202,14 +195,18 @@ pub async fn resend_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendRes
                 if exp_dt > chrono::Utc::now() + chrono::Duration::seconds(30) {
                     otp.clone()
                 } else {
-                    generate_and_store_otp(state, &driver_id).await?
+                    // Almost expired — generate new
+                    let new_otp = generate_and_store_otp(state, &driver_id).await?;
+                    new_otp
                 }
             } else {
-                generate_and_store_otp(state, &driver_id).await?
+                let new_otp = generate_and_store_otp(state, &driver_id).await?;
+                new_otp
             }
         }
         _ => {
-            generate_and_store_otp(state, &driver_id).await?
+            let new_otp = generate_and_store_otp(state, &driver_id).await?;
+            new_otp
         }
     };
 
@@ -305,10 +302,12 @@ pub async fn verify_otp(state: &Arc<AppState>, phone: &str, otp: &str) -> Result
     Ok(jwt)
 }
 
-// ─── Guardian OTP (LEGAL-04/05) ──────────────────────────────────────────────
+// ─── Guardian OTP (LEGAL-04/05) ────────────────────────────────────────────
 
 /// Send a 6-digit OTP to a minor's guardian phone for consent verification.
 /// Stores an argon2-hashed OTP in drivers.guardian_otp_code (SEC-08 compliant).
+/// Returns true if WhatsApp delivery succeeded; false if Evolution API is not configured
+/// or the send failed (OTP is still stored — staff can relay it verbally).
 pub async fn send_guardian_otp(
     state: &Arc<AppState>,
     driver_id: &str,
@@ -329,10 +328,10 @@ pub async fn send_guardian_otp(
     let otp_str = format!("{:06}", otp);
     let expires_at = Utc::now() + Duration::seconds(state.config.auth.otp_expiry_secs as i64);
 
-    // SEC-08: Hash the OTP before storing
+    // SEC-08: Hash the OTP before storing — plaintext must not be recoverable from DB
     let otp_hash = hash_otp(&otp_str).map_err(|e| format!("OTP hash error: {}", e))?;
 
-    // Store hashed OTP + reset verified flag
+    // Store hashed OTP + reset verified flag (new send invalidates any previous verification)
     sqlx::query(
         "UPDATE drivers SET guardian_otp_code = ?, guardian_otp_expires_at = ?, guardian_otp_verified = 0, guardian_phone = ? WHERE id = ?",
     )
@@ -344,7 +343,7 @@ pub async fn send_guardian_otp(
     .await
     .map_err(|e| format!("DB error storing guardian OTP: {}", e))?;
 
-    // Send via WhatsApp
+    // Send via WhatsApp — reuse existing Evolution API send logic
     let delivered = send_otp_whatsapp(state, guardian_phone, &otp_str).await;
 
     tracing::info!(
@@ -362,11 +361,14 @@ pub async fn send_guardian_otp(
 
 /// Verify a guardian's OTP for a minor customer.
 /// On success: sets guardian_otp_verified=1 and guardian_otp_verified_at on the driver record.
+/// Returns Ok(true) on valid OTP, Ok(false) on invalid hash.
+/// Returns Err on DB failure, missing OTP, or expired OTP.
 pub async fn verify_guardian_otp(
     state: &Arc<AppState>,
     driver_id: &str,
     otp: &str,
 ) -> Result<bool, String> {
+    // Fetch stored guardian OTP hash and expiry
     let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT guardian_otp_code, guardian_otp_expires_at FROM drivers WHERE id = ?",
     )
@@ -381,7 +383,7 @@ pub async fn verify_guardian_otp(
     let stored_hash = stored_otp_hash.ok_or_else(|| "No guardian OTP pending".to_string())?;
     let expires_str = expires_at_str.ok_or_else(|| "No guardian OTP pending".to_string())?;
 
-    // Check expiry
+    // Check expiry (same 5-min window as regular OTP)
     let expires = chrono::DateTime::parse_from_rfc3339(&expires_str)
         .map_err(|_| "Invalid OTP expiry timestamp".to_string())?;
     if Utc::now() > expires {
@@ -399,7 +401,7 @@ pub async fn verify_guardian_otp(
         return Ok(false);
     }
 
-    // Mark guardian OTP as verified
+    // Mark guardian OTP as verified — billing gate will pass on next start_billing call
     sqlx::query(
         "UPDATE drivers SET guardian_otp_verified = 1, guardian_otp_verified_at = datetime('now') WHERE id = ?",
     )
