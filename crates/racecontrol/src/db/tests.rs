@@ -261,7 +261,7 @@ mod phase363_migration_tests {
         let cols = column_names(&pool, "lap_rejections").await;
         drop(pool);
         let _ = std::fs::remove_file(&path);
-        for col in &["id", "session_id", "pod_id", "reason", "raw_data", "created_at"] {
+        for col in &["id", "session_id", "lap_number", "reason", "rejected_at", "venue_id"] {
             assert!(
                 cols.contains(&col.to_string()),
                 "lap_rejections missing column '{}'. Got: {:?}",

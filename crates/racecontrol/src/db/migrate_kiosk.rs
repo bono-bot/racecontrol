@@ -252,14 +252,8 @@ pub(crate) async fn migrate_kiosk(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
 
 
-    let _ = sqlx::query("UPDATE kiosk_experiences SET updated_at = created_at WHERE updated_at IS NULL")
-        .execute(pool)
-        .await;
-
-
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_kiosk_exp_updated ON kiosk_experiences(updated_at)")
-        .execute(pool)
-        .await?;
+    // NOTE: updated_at column, backfill, and index for kiosk_experiences
+    // are handled by migrate_cross_domain which runs after all domain migrations.
 
 
     // ─── pricing_tier_id for kiosk experiences (links experience → billing tier) ──

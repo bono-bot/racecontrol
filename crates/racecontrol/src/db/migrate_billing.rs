@@ -14,7 +14,8 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
             is_trial BOOLEAN DEFAULT 0,
             is_active BOOLEAN DEFAULT 1,
             sort_order INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
         )",
     )
     .execute(pool)
@@ -375,21 +376,10 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
         .await;
 
 
-    let _ = sqlx::query("UPDATE billing_sessions SET updated_at = created_at WHERE updated_at IS NULL")
-        .execute(pool)
-        .await;
-
-    let _ = sqlx::query("UPDATE pricing_tiers SET updated_at = created_at WHERE updated_at IS NULL")
-        .execute(pool)
-        .await;
-
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallets_updated ON wallets(updated_at)")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_pricing_tiers_updated ON pricing_tiers(updated_at)")
-        .execute(pool)
-        .await?;
+    // NOTE: updated_at columns, backfill, and indexes for billing_sessions,
+    // pricing_tiers, and wallets are handled by migrate_cross_domain which
+    // runs after all domain migrations. Do NOT create updated_at indexes here
+    // as the column may not exist yet.
 
     // ─── Refunds ───────────────────────────────────────────────────────────
     sqlx::query(
