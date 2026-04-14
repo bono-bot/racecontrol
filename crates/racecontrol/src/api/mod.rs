@@ -37,6 +37,8 @@ pub mod customer_register;
 pub mod customer_session;
 pub mod customer_social;
 pub mod customer_wallet;
+pub mod debug_fixes;
+pub mod debug_incidents;
 pub mod debug_system;
 pub mod deploy_handlers;
 pub mod driver_routes;
