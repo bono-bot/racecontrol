@@ -48,6 +48,8 @@ pub mod health_misc;
 pub mod kiosk_config;
 pub mod kiosk_handlers;
 pub mod leaderboard_events;
+pub mod leaderboard_driver_profile;
+pub mod leaderboard_driver_ratings;
 pub mod leaderboard_public;
 pub mod mesh_intelligence;
 pub mod pod_exec;

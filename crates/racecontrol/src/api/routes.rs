@@ -79,6 +79,8 @@ use super::health_misc::*;
 use super::kiosk_config::*;
 use super::kiosk_handlers::*;
 use super::leaderboard_events::*;
+use super::leaderboard_driver_profile::*;
+use super::leaderboard_driver_ratings::*;
 use super::leaderboard_public::*;
 use super::mesh_intelligence::*;
 use super::pod_exec::*;
