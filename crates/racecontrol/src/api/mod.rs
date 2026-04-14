@@ -28,6 +28,8 @@ pub mod billing_views;
 pub mod bot_routes;
 pub mod customer_auth;
 pub mod customer_booking;
+pub mod customer_data_retention;
+pub mod customer_disputes;
 pub mod customer_legal;
 pub mod customer_marketing;
 pub mod customer_passport;
