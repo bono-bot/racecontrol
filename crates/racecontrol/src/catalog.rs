@@ -1,67 +1,22 @@
 use std::collections::HashSet;
-use std::collections::HashMap;
-use std::sync::LazyLock;
 
-use serde::Serialize;
 use serde_json::{json, Value};
 
 use rc_common::types::ContentManifest;
+
+#[path = "catalog_data.rs"]
+mod catalog_data;
+
+pub use catalog_data::{TrackEntry, CarEntry, PresetEntry};
+use catalog_data::{
+    TRACK_NAME_MAP, FEATURED_TRACKS, FEATURED_CARS,
+    ALL_TRACK_IDS, ALL_CAR_IDS, PRESETS,
+};
 
 /// Maximum AI cars in single-player AC (20 slots total, 1 for player)
 const MAX_AI_SINGLE_PLAYER: u32 = 19;
 
 // ─── Track Name Normalization ─────────────────────────────────────────────────
-//
-// Maps (sim_type_stored_format, raw_track_id_lowercase) → canonical catalog track ID.
-//
-// sim_type_stored_format is the format stored in the DB:
-//   format!("{:?}", SimType::AssettoCorsa).to_lowercase() = "assettoCorsa"
-//   format!("{:?}", SimType::F125).to_lowercase()         = "f125"
-//   format!("{:?}", SimType::IRacing).to_lowercase()      = "iracing"
-//   format!("{:?}", SimType::LeMansUltimate).to_lowercase() = "lemansultimate"
-//
-// AC track IDs ARE canonical — no mapping needed for AC (passthrough).
-// Unknown combinations pass through unchanged — never block lap storage.
-
-static TRACK_NAME_MAP: LazyLock<HashMap<(String, String), &'static str>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-
-    // F1 25 (sim_type stored as "f125")
-    m.insert(("f125".to_string(), "monza".to_string()), "monza");
-    m.insert(("f125".to_string(), "spa".to_string()), "spa");
-    m.insert(("f125".to_string(), "silverstone".to_string()), "ks_silverstone");
-    m.insert(("f125".to_string(), "red_bull_ring".to_string()), "ks_red_bull_ring");
-    m.insert(("f125".to_string(), "barcelona".to_string()), "ks_barcelona");
-    m.insert(("f125".to_string(), "jeddah".to_string()), "jeddah21");
-    m.insert(("f125".to_string(), "las_vegas".to_string()), "lasvegas23");
-    m.insert(("f125".to_string(), "suzuka".to_string()), "rt_suzuka");
-    m.insert(("f125".to_string(), "zandvoort".to_string()), "ks_zandvoort");
-    m.insert(("f125".to_string(), "imola".to_string()), "imola");
-    m.insert(("f125".to_string(), "monaco".to_string()), "monaco");
-    m.insert(("f125".to_string(), "bahrain".to_string()), "bahrain");
-    m.insert(("f125".to_string(), "singapore".to_string()), "singapore");
-    m.insert(("f125".to_string(), "interlagos".to_string()), "interlagos");
-
-    // iRacing (sim_type stored as "iracing")
-    m.insert(("iracing".to_string(), "monza combined".to_string()), "monza");
-    m.insert(("iracing".to_string(), "spa-francorchamps".to_string()), "spa");
-    m.insert(("iracing".to_string(), "silverstone circuit".to_string()), "ks_silverstone");
-    m.insert(("iracing".to_string(), "suzuka international".to_string()), "rt_suzuka");
-    m.insert(("iracing".to_string(), "nurburgring nordschleife".to_string()), "ks_nordschleife");
-    m.insert(("iracing".to_string(), "laguna seca".to_string()), "ks_laguna_seca");
-
-    // Le Mans Ultimate (sim_type stored as "lemansultimate")
-    m.insert(("lemansultimate".to_string(), "monza".to_string()), "monza");
-    m.insert(("lemansultimate".to_string(), "spa".to_string()), "spa");
-    m.insert(("lemansultimate".to_string(), "nurburgring".to_string()), "ks_nurburgring");
-
-    // Forza (sim_type stored as "forza")
-    m.insert(("forza".to_string(), "monza".to_string()), "monza");
-    m.insert(("forza".to_string(), "spa-francorchamps".to_string()), "spa");
-    m.insert(("forza".to_string(), "laguna seca".to_string()), "ks_laguna_seca");
-
-    m
-});
 
 /// Normalize a raw game track name to the canonical Racing Point catalog ID.
 ///
@@ -79,98 +34,7 @@ pub fn normalize_track_name(sim_type: &str, raw_track: &str) -> String {
     }
 }
 
-#[cfg(test)]
-mod catalog_normalize_tests {
-    use super::*;
-
-    #[test]
-    fn normalize_track_name_maps_known_tracks() {
-        // F1 25 → canonical
-        assert_eq!(normalize_track_name("f125", "silverstone"), "ks_silverstone");
-        assert_eq!(normalize_track_name("f125", "red_bull_ring"), "ks_red_bull_ring");
-        assert_eq!(normalize_track_name("f125", "monza"), "monza");
-
-        // iRacing → canonical
-        assert_eq!(normalize_track_name("iracing", "monza combined"), "monza");
-        assert_eq!(normalize_track_name("iracing", "spa-francorchamps"), "spa");
-
-        // AC passthrough (no mapping needed — already canonical)
-        assert_eq!(normalize_track_name("assettoCorsa", "spa"), "spa");
-        assert_eq!(normalize_track_name("assettoCorsa", "ks_silverstone"), "ks_silverstone");
-
-        // Unknown track → passthrough unchanged
-        assert_eq!(normalize_track_name("f125", "unknown_track_xyz"), "unknown_track_xyz");
-        assert_eq!(normalize_track_name("iracing", "some_new_track"), "some_new_track");
-
-        // Case-insensitive lookup for raw_track
-        assert_eq!(normalize_track_name("f125", "Silverstone"), "ks_silverstone");
-        assert_eq!(normalize_track_name("f125", "MONACO"), "monaco");
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TrackEntry {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub category: &'static str,
-    pub country: &'static str,
-    /// Per-track minimum lap time floor in milliseconds.
-    /// Laps below this time are flagged review_required=1 in the DB.
-    /// None means no floor configured for this track.
-    pub min_lap_time_ms: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CarEntry {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub category: &'static str,
-}
-
-// ─── Featured Tracks ─────────────────────────────────────────────────────────
-
-const FEATURED_TRACKS: &[TrackEntry] = &[
-    // F1 Circuits
-    TrackEntry { id: "spa", name: "Spa-Francorchamps", category: "F1 Circuits", country: "Belgium", min_lap_time_ms: Some(120_000) },
-    TrackEntry { id: "monza", name: "Monza", category: "F1 Circuits", country: "Italy", min_lap_time_ms: Some(80_000) },
-    TrackEntry { id: "ks_silverstone", name: "Silverstone", category: "F1 Circuits", country: "UK", min_lap_time_ms: Some(90_000) },
-    TrackEntry { id: "ks_red_bull_ring", name: "Red Bull Ring", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
-    TrackEntry { id: "spielberg", name: "Red Bull Ring (Alt)", category: "F1 Circuits", country: "Austria", min_lap_time_ms: None },
-    TrackEntry { id: "ks_barcelona", name: "Barcelona", category: "F1 Circuits", country: "Spain", min_lap_time_ms: None },
-    TrackEntry { id: "monaco", name: "Monaco", category: "F1 Circuits", country: "Monaco", min_lap_time_ms: None },
-    TrackEntry { id: "interlagos", name: "Interlagos", category: "F1 Circuits", country: "Brazil", min_lap_time_ms: None },
-    TrackEntry { id: "bahrain", name: "Bahrain", category: "F1 Circuits", country: "Bahrain", min_lap_time_ms: None },
-    TrackEntry { id: "yas_marina_circuit-day", name: "Yas Marina (Day)", category: "F1 Circuits", country: "UAE", min_lap_time_ms: None },
-    TrackEntry { id: "albert-park_acu", name: "Albert Park", category: "F1 Circuits", country: "Australia", min_lap_time_ms: None },
-    TrackEntry { id: "china-gp", name: "Shanghai", category: "F1 Circuits", country: "China", min_lap_time_ms: None },
-    TrackEntry { id: "cota", name: "Circuit of the Americas", category: "F1 Circuits", country: "USA", min_lap_time_ms: None },
-    TrackEntry { id: "jeddah21", name: "Jeddah", category: "F1 Circuits", country: "Saudi Arabia", min_lap_time_ms: None },
-    TrackEntry { id: "lasvegas23", name: "Las Vegas", category: "F1 Circuits", country: "USA", min_lap_time_ms: None },
-    TrackEntry { id: "singapore", name: "Singapore", category: "F1 Circuits", country: "Singapore", min_lap_time_ms: None },
-    TrackEntry { id: "fn_losail", name: "Losail", category: "F1 Circuits", country: "Qatar", min_lap_time_ms: None },
-    TrackEntry { id: "baku_2022", name: "Baku", category: "F1 Circuits", country: "Azerbaijan", min_lap_time_ms: None },
-    TrackEntry { id: "vrc_mexico", name: "Mexico City", category: "F1 Circuits", country: "Mexico", min_lap_time_ms: None },
-    TrackEntry { id: "rt_suzuka", name: "Suzuka", category: "F1 Circuits", country: "Japan", min_lap_time_ms: None },
-    TrackEntry { id: "imola", name: "Imola", category: "F1 Circuits", country: "Italy", min_lap_time_ms: None },
-    TrackEntry { id: "ks_zandvoort", name: "Zandvoort", category: "F1 Circuits", country: "Netherlands", min_lap_time_ms: None },
-    // Real Circuits
-    TrackEntry { id: "ks_nordschleife", name: "Nordschleife", category: "Real Circuits", country: "Germany", min_lap_time_ms: None },
-    TrackEntry { id: "ks_nurburgring", name: "Nurburgring GP", category: "Real Circuits", country: "Germany", min_lap_time_ms: None },
-    TrackEntry { id: "ks_laguna_seca", name: "Laguna Seca", category: "Real Circuits", country: "USA", min_lap_time_ms: None },
-    TrackEntry { id: "mugello", name: "Mugello", category: "Real Circuits", country: "Italy", min_lap_time_ms: None },
-    TrackEntry { id: "ks_brands_hatch", name: "Brands Hatch", category: "Real Circuits", country: "UK", min_lap_time_ms: None },
-    TrackEntry { id: "phillip_island_circuit", name: "Phillip Island", category: "Real Circuits", country: "Australia", min_lap_time_ms: None },
-    TrackEntry { id: "daytona_2017", name: "Daytona", category: "Real Circuits", country: "USA", min_lap_time_ms: None },
-    TrackEntry { id: "sx_lemans", name: "Le Mans", category: "Real Circuits", country: "France", min_lap_time_ms: None },
-    // Indian Circuits
-    TrackEntry { id: "kari_motor_speedway", name: "Kari Motor Speedway", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
-    TrackEntry { id: "madras_international_circuit", name: "Madras Motor Race Track", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
-    TrackEntry { id: "india", name: "Buddh International Circuit", category: "Indian Circuits", country: "India", min_lap_time_ms: None },
-    // Street / Touge
-    TrackEntry { id: "shuto_revival_project_beta", name: "Shuto Expressway (SRP)", category: "Street / Touge", country: "Japan", min_lap_time_ms: None },
-    TrackEntry { id: "haruna", name: "Mt. Haruna", category: "Street / Touge", country: "Japan", min_lap_time_ms: None },
-    TrackEntry { id: "isle_of_man", name: "Isle of Man TT", category: "Street / Touge", country: "UK", min_lap_time_ms: None },
-];
+// ─── Track/Car Lookups ───────────────────────────────────────────────────────
 
 /// Return the minimum lap time floor for a track ID, or None if unconfigured.
 ///
@@ -214,164 +78,7 @@ pub fn get_featured_cars_for_passport() -> Vec<Value> {
         .collect()
 }
 
-// ─── Featured Cars ───────────────────────────────────────────────────────────
-
-const FEATURED_CARS: &[CarEntry] = &[
-    // F1 2025
-    CarEntry { id: "ferrari_sf25", name: "Ferrari SF-25", category: "F1 2025" },
-    CarEntry { id: "red_bull_rb21", name: "Red Bull RB21", category: "F1 2025" },
-    CarEntry { id: "mclaren_mcl39", name: "McLaren MCL39", category: "F1 2025" },
-    CarEntry { id: "mercedes_w16", name: "Mercedes W16", category: "F1 2025" },
-    CarEntry { id: "aston_martin_amr25", name: "Aston Martin AMR25", category: "F1 2025" },
-    CarEntry { id: "williams_fw47", name: "Williams FW47", category: "F1 2025" },
-    CarEntry { id: "racingbulls_rb02", name: "Racing Bulls VCARB 02", category: "F1 2025" },
-    CarEntry { id: "gp_2025_a525", name: "Alpine A525", category: "F1 2025" },
-    CarEntry { id: "gp_2025_c45", name: "Sauber C45", category: "F1 2025" },
-    CarEntry { id: "gp_2025_vf25", name: "Haas VF-25", category: "F1 2025" },
-    // GT3
-    CarEntry { id: "ks_ferrari_488_gt3", name: "Ferrari 488 GT3", category: "GT3" },
-    CarEntry { id: "cf_ferrari_296_gt3", name: "Ferrari 296 GT3", category: "GT3" },
-    CarEntry { id: "ks_lamborghini_huracan_gt3", name: "Lamborghini Huracan GT3", category: "GT3" },
-    CarEntry { id: "ks_mercedes_amg_gt3", name: "Mercedes AMG GT3", category: "GT3" },
-    CarEntry { id: "ks_audi_r8_lms_2016", name: "Audi R8 LMS 2016", category: "GT3" },
-    CarEntry { id: "ks_porsche_911_gt3_r_2016", name: "Porsche 911 GT3 R", category: "GT3" },
-    CarEntry { id: "ks_mclaren_650_gt3", name: "McLaren 650S GT3", category: "GT3" },
-    CarEntry { id: "ks_nissan_gtr_gt3", name: "Nissan GT-R GT3", category: "GT3" },
-    CarEntry { id: "bmw_z4_gt3", name: "BMW Z4 GT3", category: "GT3" },
-    // Supercars
-    CarEntry { id: "ks_lamborghini_aventador_sv", name: "Lamborghini Aventador SV", category: "Supercars" },
-    CarEntry { id: "ks_mclaren_p1", name: "McLaren P1", category: "Supercars" },
-    CarEntry { id: "ferrari_laferrari", name: "Ferrari LaFerrari", category: "Supercars" },
-    CarEntry { id: "ks_porsche_918_spyder", name: "Porsche 918 Spyder", category: "Supercars" },
-    CarEntry { id: "bugatti_chiron", name: "Bugatti Chiron", category: "Supercars" },
-    CarEntry { id: "koenigsegg_one", name: "Koenigsegg One:1", category: "Supercars" },
-    CarEntry { id: "pagani_huayra", name: "Pagani Huayra", category: "Supercars" },
-    CarEntry { id: "ks_ferrari_fxx_k", name: "Ferrari FXX K", category: "Supercars" },
-    // Porsche
-    CarEntry { id: "cky_porsche992_gt3rs_2023", name: "Porsche 992 GT3 RS", category: "Porsche" },
-    CarEntry { id: "ks_porsche_911_gt3_rs", name: "Porsche 911 GT3 RS", category: "Porsche" },
-    CarEntry { id: "ks_porsche_911_r", name: "Porsche 911 R", category: "Porsche" },
-    CarEntry { id: "ks_porsche_991_turbo_s", name: "Porsche 991 Turbo S", category: "Porsche" },
-    // JDM
-    CarEntry { id: "ks_toyota_supra_mkiv", name: "Toyota Supra MK4", category: "JDM" },
-    CarEntry { id: "ks_nissan_skyline_r34", name: "Nissan Skyline R34 GT-R", category: "JDM" },
-    CarEntry { id: "ks_mazda_rx7_spirit_r", name: "Mazda RX-7 Spirit R", category: "JDM" },
-    CarEntry { id: "ks_toyota_ae86", name: "Toyota AE86", category: "JDM" },
-    CarEntry { id: "ks_nissan_gtr", name: "Nissan GT-R R35", category: "JDM" },
-    // Classics / Fun
-    CarEntry { id: "ks_ferrari_f2004", name: "Ferrari F2004", category: "Classics" },
-    CarEntry { id: "ks_ferrari_250_gto", name: "Ferrari 250 GTO", category: "Classics" },
-    CarEntry { id: "shelby_cobra_427sc", name: "Shelby Cobra 427 SC", category: "Classics" },
-    CarEntry { id: "ks_ford_gt40", name: "Ford GT40", category: "Classics" },
-    CarEntry { id: "ks_mazda_787b", name: "Mazda 787B", category: "Classics" },
-];
-
-// ─── All Track IDs ───────────────────────────────────────────────────────────
-// Auto-populated from Pod 8 filesystem. Display names derived from folder ID.
-
-const ALL_TRACK_IDS: &[&str] = &[
-    "ADT", "acu_yasmarina", "albert-park_acu", "bahrain", "baku_2022",
-    "china-gp", "cota", "daytona_2017", "drift", "fn_losail",
-    "haruna", "imola", "india", "interlagos", "isle_of_man",
-    "jeddah21", "kari_motor_speedway", "ks_barcelona", "ks_black_cat_county",
-    "ks_brands_hatch", "ks_drag", "ks_highlands", "ks_laguna_seca",
-    "ks_monza66", "ks_nordschleife", "ks_nurburgring", "ks_red_bull_ring",
-    "ks_silverstone", "ks_silverstone1967", "ks_vallelunga", "ks_zandvoort",
-    "lasvegas23", "madras_international_circuit", "magione", "monaco", "monza",
-    "mugello", "phillip_island_2013", "phillip_island_circuit", "rt_suzuka",
-    "shibuya-hachiko drift", "shuto_revival_project_beta", "singapore", "spa",
-    "spielberg", "sx_lemans", "trento-bondone", "vrc_mexico",
-    "yas_marina_circuit-day", "yas_marina_circuit-night",
-];
-
-// ─── All Car IDs ─────────────────────────────────────────────────────────────
-
-// All 325 drivable cars scanned from Pod 8 (traffic AI cars excluded)
-const ALL_CAR_IDS: &[&str] = &[
-    "660_series_ha23v_ce28", "ApexGP", "Gravel_Mitsubishi_Evo9_R4", "PurSport",
-    "abarth500", "abarth500_s1", "acme_hyundai_i20_rally1_22", "acra_suzuki_swift_proto2",
-    "aegis_mitsubishi_lancer_evolution_v_gsr", "alfa_romeo_giulietta_qv", "alfa_romeo_giulietta_qv_le", "alm_supra_a60",
-    "amy_ek_cup", "amy_honda_dc2_turbo", "amy_honda_ek9_turbo", "arch_ruf_ctr_1987",
-    "art_diablo_gtr", "art_mazda_fd3s_rx7_black_eagle", "art_nissan_gtr_bcnr33_600r", "art_porsche_911_gt3_996",
-    "art_skyline_r32_gtr", "aston_martin_amr25", "aston_martin_valkyrie_amr_pro_2022", "bati_e46_nspec54",
-    "bati_e46_nspec85", "bati_fd3s_rx7", "bksy_nissan_skyline_r34_vspec", "bksy_nissan_skyline_r34_vspec_ii_nur",
-    "bmw_1m", "bmw_1m_s3", "bmw_m3_e30", "bmw_m3_e30_drift",
-    "bmw_m3_e30_dtm", "bmw_m3_e30_gra", "bmw_m3_e30_s1", "bmw_m3_e92",
-    "bmw_m3_e92_drift", "bmw_m3_e92_s1", "bmw_m3_gt2", "bmw_m8_LMC",
-    "bmw_z4", "bmw_z4_drift", "bmw_z4_gt3", "bmw_z4_s1",
-    "bugatti_chiron", "cf_ferrari_296_gt3", "cky_lamborghini_revuelto", "cky_porsche992_gt3rs_2023",
-    "ddm_daihatsu_copen_street", "ddm_honda_civic_fd2", "ddm_honda_s2000_ap1", "ddm_mazda_fc3s_re",
-    "ddm_mazda_rx7_infini_fc3s", "ddm_mitsubishi_evo_iv_gsr", "ddm_mugen_civic_aero_ek9", "ddm_nissan_silvia_s14k",
-    "ddm_nissan_silvia_s14k_opt", "ddm_nissan_silvia_s15", "ddm_nissan_skyline_bnr32", "ddm_nissan_skyline_hr31_house",
-    "ddm_subaru_22b", "ddm_toyota_mr2_sw20", "ddm_toyota_mr2_sw20_shuto", "ddm_toyota_mrs_c_one",
-    "ddm_toyota_mrs_haru", "ddm_toyota_supra_ma70", "ecf_lotus_europa_wolf", "exmods_mercedes_amg_gt_coupe24",
-    "f1_1986_mclaren", "f1_2020_mercedes", "ferrari_296_gts", "ferrari_312t",
-    "ferrari_458", "ferrari_458_gt2", "ferrari_458_s3", "ferrari_599xxevo",
-    "ferrari_f40", "ferrari_f40_s3", "ferrari_laferrari", "ferrari_sf25",
-    "gmp_abflug_s900", "gmp_e60_m5_f10style", "gmp_jzs161_ridox", "gp_2025_a525",
-    "gp_2025_amr25", "gp_2025_c45", "gp_2025_fw47", "gp_2025_mcl39",
-    "gp_2025_rb21", "gp_2025_sf25", "gp_2025_vcarb02", "gp_2025_vf25",
-    "gp_2025_w16", "gt4_toyota_supra", "honda_acty_ha3", "hsrc_subaru_gc8",
-    "j8_ae86_tuned_coupe", "j8_eunos_roadster_tuned", "j8_mitsubishi_gto_twin_turbo_91", "j8_mitsubishi_gto_twin_turbo_91_haru_spec",
-    "j8_toyota_celica_tuned", "j8_toyota_mr2_sw20", "koenigsegg_one", "koenigsegg_one_nr",
-    "koenigsegg_one_p", "koenigsegg_one_t", "ks_abarth500_assetto_corse", "ks_abarth_595ss",
-    "ks_abarth_595ss_s1", "ks_abarth_595ss_s2", "ks_alfa_33_stradale", "ks_alfa_giulia_qv",
-    "ks_alfa_mito_qv", "ks_alfa_romeo_155_v6", "ks_alfa_romeo_4c", "ks_alfa_romeo_gta",
-    "ks_audi_a1s1", "ks_audi_r18_etron_quattro", "ks_audi_r8_lms", "ks_audi_r8_lms_2016",
-    "ks_audi_r8_plus", "ks_audi_sport_quattro", "ks_audi_sport_quattro_rally", "ks_audi_sport_quattro_s1",
-    "ks_audi_tt_cup", "ks_audi_tt_vln", "ks_bmw_m235i_racing", "ks_bmw_m4",
-    "ks_bmw_m4_akrapovic", "ks_corvette_c7_stingray", "ks_corvette_c7r", "ks_ferrari_250_gto",
-    "ks_ferrari_288_gto", "ks_ferrari_312_67", "ks_ferrari_330_p4", "ks_ferrari_488_challenge_evo",
-    "ks_ferrari_488_gt3", "ks_ferrari_488_gt3_2020", "ks_ferrari_488_gtb", "ks_ferrari_812_superfast",
-    "ks_ferrari_f138", "ks_ferrari_f2004", "ks_ferrari_fxx_k", "ks_ferrari_sf15t",
-    "ks_ferrari_sf70h", "ks_ford_escort_mk1", "ks_ford_gt40", "ks_ford_mustang_2015",
-    "ks_glickenhaus_scg003", "ks_lamborghini_aventador_sv", "ks_lamborghini_countach", "ks_lamborghini_countach_s1",
-    "ks_lamborghini_gallardo_sl", "ks_lamborghini_gallardo_sl_s3", "ks_lamborghini_huracan_gt3", "ks_lamborghini_huracan_performante",
-    "ks_lamborghini_huracan_st", "ks_lamborghini_miura_sv", "ks_lamborghini_sesto_elemento", "ks_lotus_25",
-    "ks_lotus_3_eleven", "ks_lotus_72d", "ks_maserati_250f_12cyl", "ks_maserati_250f_6cyl",
-    "ks_maserati_alfieri", "ks_maserati_gt_mc_gt4", "ks_maserati_levante", "ks_maserati_mc12_gt1",
-    "ks_maserati_quattroporte", "ks_mazda_787b", "ks_mazda_miata", "ks_mazda_mx5_cup",
-    "ks_mazda_mx5_nd", "ks_mazda_rx7_spirit_r", "ks_mazda_rx7_tuned", "ks_mclaren_570s",
-    "ks_mclaren_650_gt3", "ks_mclaren_f1_gtr", "ks_mclaren_p1", "ks_mclaren_p1_gtr",
-    "ks_mercedes_190_evo2", "ks_mercedes_amg_gt3", "ks_mercedes_c9", "ks_nissan_370z",
-    "ks_nissan_gtr", "ks_nissan_gtr_gt3", "ks_nissan_skyline_r34", "ks_pagani_huayra_bc",
-    "ks_porsche_718_boxster_s", "ks_porsche_718_boxster_s_pdk", "ks_porsche_718_cayman_s", "ks_porsche_718_spyder_rs",
-    "ks_porsche_908_lh", "ks_porsche_911_carrera_rsr", "ks_porsche_911_gt1", "ks_porsche_911_gt3_cup_2017",
-    "ks_porsche_911_gt3_r_2016", "ks_porsche_911_gt3_rs", "ks_porsche_911_r", "ks_porsche_911_rsr_2017",
-    "ks_porsche_917_30", "ks_porsche_917_k", "ks_porsche_918_spyder", "ks_porsche_919_hybrid_2015",
-    "ks_porsche_919_hybrid_2016", "ks_porsche_935_78_moby_dick", "ks_porsche_962c_longtail", "ks_porsche_962c_shorttail",
-    "ks_porsche_991_carrera_s", "ks_porsche_991_turbo_s", "ks_porsche_cayenne", "ks_porsche_cayman_gt4_clubsport",
-    "ks_porsche_cayman_gt4_std", "ks_porsche_macan", "ks_porsche_panamera", "ks_praga_r1",
-    "ks_ruf_rt12r", "ks_ruf_rt12r_awd", "ks_toyota_ae86", "ks_toyota_ae86_drift",
-    "ks_toyota_ae86_tuned", "ks_toyota_celica_st185", "ks_toyota_gt86", "ks_toyota_supra_mkiv",
-    "ks_toyota_supra_mkiv_drift", "ks_toyota_supra_mkiv_tuned", "ks_toyota_ts040", "ktm_xbow_r",
-    "lk_nissan_180sx_96", "lotus_2_eleven", "lotus_2_eleven_gt4", "lotus_49",
-    "lotus_98t", "lotus_elise_sc", "lotus_elise_sc_s1", "lotus_elise_sc_s2",
-    "lotus_evora_gtc", "lotus_evora_gte", "lotus_evora_gte_carbon", "lotus_evora_gx",
-    "lotus_evora_s", "lotus_evora_s_s2", "lotus_exige_240", "lotus_exige_240_s3",
-    "lotus_exige_s", "lotus_exige_s_roadster", "lotus_exige_scura", "lotus_exige_v6_cup",
-    "lotus_exos_125", "lotus_exos_125_s1", "ltkaeri_honda_s2000_gt1_amuse", "mclaren_mcl38",
-    "mclaren_mcl39", "mclaren_mp412c", "mclaren_mp412c_gt3", "mercedes_g65_amg",
-    "mercedes_sls", "mercedes_sls_gt3", "mercedes_w16", "naz_jza80_ridox_modern",
-    "naz_porsche_924_tuned", "nissan_skyline_r34_omori_factory_s1", "nissan_skyline_r34_v-specperformance", "nohesi_bmw_m2_f87_comp",
-    "nohesi_bmw_m3_e92_adro", "nohesi_chevrolet_corvette_c6", "nohesi_g82_comp_coupe", "nohesi_lamborghini_huracan_lp610",
-    "nohesi_lamborghini_urus_performante_vlct", "nohesi_lexus_lfa_nurburgring", "nohesi_mclaren_600lt_novitec", "nohesi_mclaren_720s_hjckd",
-    "nohesi_mercedes_brabus_gt600", "nohesi_mercedes_gt63", "nohesi_realistic_audi_rs3_saloon_vlct", "nohesi_skyline_r34",
-    "nohesi_toyota_supra_mk4", "nohesituned_dodge_viper",
-    "ohyeah2389_modkart_dd2", "ohyeah2389_modkart_ka100sr", "ohyeah2389_modkart_lo206", "ohyeah2389_modkart_rokshifter",
-    "p3_mitsubishi_evo8", "p4-5_2011", "pagani_huayra", "pagani_zonda_r",
-    "pear_nissan_silvia_s13_wangan", "racingbulls_rb02", "red_bull_rb21", "red_bull_rb21_s2",
-    "rize_efini_rx7_fd3s_keisuke_1", "rize_ferrari_f355_challenge_persephone",
-    "rj_honda_civic_eg6_tuned", "rkm_landrover_def",
-    "rss_formula_2000", "rss_formula_2010", "rss_formula_hybrid_2025_alpine", "rss_formula_rss_supreme_25",
-    "rss_gtm_bayer_v8", "rss_gtm_furiano_96_v6", "rss_gtm_hyperion_v8", "rss_gtm_mercer_v8",
-    "rss_gtm_protech_p92_f6", "ruf_yellowbird", "shelby_cobra_427sc", "sl_toyota_supra_mkiv_ridox",
-    "slang_ferrari_f40", "snp_zhonghua_zidantou_wangan_spec", "spear_lamborghini_lp640_veilside", "srp_bcnr33_wangan",
-    "srp_honda_s2000_legendary", "srp_mitsubishi_evo_5_kai", "srp_toyota_supra_mkiv_interceptor", "ste_urus",
-    "sts_e60_m5", "sts_e60_m5_ericsson", "sts_e60_m5_manual", "tatuusfa1",
-    "tmm_skoda_130rs_hillclimb", "toyota_fortuner_2021_legender", "williams_fw47",
-    "wm_mazda_rx7_fd_rgo", "wm_nissan_fairlady_z_s30", "wm_nissan_s15", "wm_porsche_911_930",
-];
+// ─── Display Name ────────────────────────────────────────────────────────────
 
 /// Derive a human-readable name from a folder ID
 pub fn id_to_display_name(id: &str) -> String {
@@ -409,6 +116,8 @@ pub fn id_to_display_name(id: &str) -> String {
         .join(" ")
 }
 
+// ─── Full Catalog ────────────────────────────────────────────────────────────
+
 /// Build the full catalog JSON
 pub fn get_catalog() -> Value {
     let featured_tracks: Vec<Value> = FEATURED_TRACKS
@@ -444,7 +153,7 @@ pub fn get_catalog() -> Value {
         })
         .collect();
 
-    let all_presets: Vec<&PresetEntry> = PRESETS.iter().collect();
+    let all_presets: Vec<&catalog_data::PresetEntry> = PRESETS.iter().collect();
 
     json!({
         "tracks": {
@@ -526,7 +235,7 @@ pub fn get_filtered_catalog(manifest: Option<&ContentManifest>) -> Value {
         .collect();
 
     // Filter presets: car + track must be in manifest; race/trackday require AI lines
-    let filtered_presets: Vec<&PresetEntry> = PRESETS.iter().filter(|p| {
+    let filtered_presets: Vec<&catalog_data::PresetEntry> = PRESETS.iter().filter(|p| {
         if !car_ids.contains(p.car_id) || !track_ids.contains(p.track_id) {
             return false;
         }
@@ -598,6 +307,8 @@ fn enrich_track_entry(entry: &mut Value, track_id: &str, manifest: &ContentManif
     entry["configs"] = json!(configs);
 }
 
+// ─── Launch Validation ───────────────────────────────────────────────────────
+
 /// Validate that a car/track/session_type combo is installed on the pod.
 ///
 /// Returns `Ok(())` if valid, `Err(reason)` if the combo should be rejected.
@@ -640,195 +351,7 @@ pub fn validate_launch_combo(
     Ok(())
 }
 
-// ─── Curated Presets ────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PresetEntry {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub tagline: &'static str,
-    pub car_id: &'static str,
-    pub track_id: &'static str,
-    pub session_type: &'static str,
-    pub difficulty: &'static str,
-    pub category: &'static str,
-    pub duration_hint: &'static str,
-    pub featured: bool,
-}
-
-const PRESETS: &[PresetEntry] = &[
-    // ── Race (5) ────────────────────────────────────────────────────────
-    PresetEntry {
-        id: "gt3-spa-race",
-        name: "GT3 at Spa-Francorchamps",
-        tagline: "Tackle Eau Rouge in a Ferrari 488 GT3 against a full grid",
-        car_id: "ks_ferrari_488_gt3",
-        track_id: "spa",
-        session_type: "race",
-        difficulty: "medium",
-        category: "Race",
-        duration_hint: "~20 min",
-        featured: true,
-    },
-    PresetEntry {
-        id: "f1-monza",
-        name: "F1 at Monza",
-        tagline: "Blast through the Temple of Speed in a Ferrari SF-25",
-        car_id: "ferrari_sf25",
-        track_id: "monza",
-        session_type: "race",
-        difficulty: "hard",
-        category: "Race",
-        duration_hint: "~15 min",
-        featured: true,
-    },
-    PresetEntry {
-        id: "gt3-silverstone",
-        name: "GT3 at Silverstone",
-        tagline: "Push a Mercedes AMG GT3 through high-speed sweepers",
-        car_id: "ks_mercedes_amg_gt3",
-        track_id: "ks_silverstone",
-        session_type: "race",
-        difficulty: "medium",
-        category: "Race",
-        duration_hint: "~20 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "f1-bahrain",
-        name: "F1 at Bahrain",
-        tagline: "Night racing under the lights in a Red Bull RB21",
-        car_id: "red_bull_rb21",
-        track_id: "bahrain",
-        session_type: "race",
-        difficulty: "hard",
-        category: "Race",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "supercars-redbullring",
-        name: "Supercars at Red Bull Ring",
-        tagline: "Unleash an Aventador SV on a short, thrilling circuit",
-        car_id: "ks_lamborghini_aventador_sv",
-        track_id: "ks_red_bull_ring",
-        session_type: "race",
-        difficulty: "easy",
-        category: "Race",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    // ── Casual (5) ──────────────────────────────────────────────────────
-    PresetEntry {
-        id: "nordschleife-tourist",
-        name: "Nordschleife Tourist Drive",
-        tagline: "Explore the legendary Green Hell at your own pace",
-        car_id: "ks_porsche_911_gt3_rs",
-        track_id: "ks_nordschleife",
-        session_type: "practice",
-        difficulty: "easy",
-        category: "Casual",
-        duration_hint: "~30 min",
-        featured: true,
-    },
-    PresetEntry {
-        id: "jdm-touge",
-        name: "AE86 on Mt. Haruna",
-        tagline: "Channel your inner Takumi on the legendary touge",
-        car_id: "ks_toyota_ae86",
-        track_id: "haruna",
-        session_type: "practice",
-        difficulty: "easy",
-        category: "Casual",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "supercar-monaco",
-        name: "McLaren P1 at Monaco",
-        tagline: "Cruise the streets of Monte Carlo in a hypercar",
-        car_id: "ks_mclaren_p1",
-        track_id: "monaco",
-        session_type: "practice",
-        difficulty: "easy",
-        category: "Casual",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "drift-shuto",
-        name: "Supra on Shuto Expressway",
-        tagline: "Drift the Tokyo expressway in a tuned MK4 Supra",
-        car_id: "ks_toyota_supra_mkiv",
-        track_id: "shuto_revival_project_beta",
-        session_type: "practice",
-        difficulty: "easy",
-        category: "Casual",
-        duration_hint: "~30 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "indian-circuit",
-        name: "Ferrari at Madras Motor Race Track",
-        tagline: "Drive a 488 GTB on India's classic racing circuit",
-        car_id: "ks_ferrari_488_gtb",
-        track_id: "madras_international_circuit",
-        session_type: "practice",
-        difficulty: "easy",
-        category: "Casual",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    // ── Challenge (4) ───────────────────────────────────────────────────
-    PresetEntry {
-        id: "hotlap-monza-f1",
-        name: "Hotlap: F2004 at Monza",
-        tagline: "Chase the perfect lap in Schumacher's legendary car",
-        car_id: "ks_ferrari_f2004",
-        track_id: "monza",
-        session_type: "hotlap",
-        difficulty: "hard",
-        category: "Challenge",
-        duration_hint: "~15 min",
-        featured: true,
-    },
-    PresetEntry {
-        id: "hotlap-nurburgring-gt3",
-        name: "Hotlap: Porsche GT3 R at Nurburgring",
-        tagline: "Set a time on the GP circuit in a Porsche GT3 R",
-        car_id: "ks_porsche_911_gt3_r_2016",
-        track_id: "ks_nurburgring",
-        session_type: "hotlap",
-        difficulty: "medium",
-        category: "Challenge",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "timeattack-laguna",
-        name: "Time Attack: MX-5 at Laguna Seca",
-        tagline: "Master the Corkscrew in a nimble Mazda MX-5 Cup",
-        car_id: "ks_mazda_mx5_cup",
-        track_id: "ks_laguna_seca",
-        session_type: "hotlap",
-        difficulty: "medium",
-        category: "Challenge",
-        duration_hint: "~15 min",
-        featured: false,
-    },
-    PresetEntry {
-        id: "nordschleife-challenge",
-        name: "Nordschleife Challenge: 992 GT3 RS",
-        tagline: "Take on the full Nordschleife in a Porsche 992 GT3 RS",
-        car_id: "cky_porsche992_gt3rs_2023",
-        track_id: "ks_nordschleife",
-        session_type: "hotlap",
-        difficulty: "hard",
-        category: "Challenge",
-        duration_hint: "~30 min",
-        featured: false,
-    },
-];
+// ─── Preset Helpers ──────────────────────────────────────────────────────────
 
 fn preset_car_name(car_id: &str) -> &str {
     FEATURED_CARS.iter().find(|c| c.id == car_id).map(|c| c.name).unwrap_or(car_id)
@@ -838,7 +361,7 @@ fn preset_track_name(track_id: &str) -> &str {
     FEATURED_TRACKS.iter().find(|t| t.id == track_id).map(|t| t.name).unwrap_or(track_id)
 }
 
-fn presets_to_json(presets: &[&PresetEntry]) -> Vec<Value> {
+fn presets_to_json(presets: &[&catalog_data::PresetEntry]) -> Vec<Value> {
     presets.iter().map(|p| json!({
         "id": p.id,
         "name": p.name,
@@ -904,310 +427,5 @@ pub fn build_custom_launch_args(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rc_common::types::{ContentManifest, CarManifestEntry, TrackManifestEntry, TrackConfigManifest};
-
-    /// Helper: build a manifest with specific car IDs and track entries
-    fn make_manifest(car_ids: &[&str], tracks: Vec<TrackManifestEntry>) -> ContentManifest {
-        ContentManifest {
-            cars: car_ids.iter().map(|id| CarManifestEntry { id: id.to_string() }).collect(),
-            tracks,
-        }
-    }
-
-    /// Helper: build a track manifest entry
-    fn make_track(id: &str, configs: Vec<(&str, bool, Option<u32>)>) -> TrackManifestEntry {
-        TrackManifestEntry {
-            id: id.to_string(),
-            configs: configs.into_iter().map(|(config, has_ai, pit_count)| {
-                TrackConfigManifest { config: config.to_string(), has_ai, pit_count }
-            }).collect(),
-        }
-    }
-
-    // ── get_filtered_catalog tests ───────────────────────────────────────
-
-    #[test]
-    fn filtered_catalog_none_manifest_returns_full_catalog() {
-        let full = get_catalog();
-        let filtered = get_filtered_catalog(None);
-        assert_eq!(
-            full["cars"]["all"].as_array().unwrap().len(),
-            filtered["cars"]["all"].as_array().unwrap().len(),
-            "None manifest should return full catalog"
-        );
-        assert_eq!(
-            full["tracks"]["all"].as_array().unwrap().len(),
-            filtered["tracks"]["all"].as_array().unwrap().len(),
-        );
-    }
-
-    #[test]
-    fn filtered_catalog_filters_all_cars_to_manifest_only() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3", "ks_ferrari_488_gt3"],
-            vec![],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let all_cars = result["cars"]["all"].as_array().unwrap();
-        assert_eq!(all_cars.len(), 2);
-        let ids: Vec<&str> = all_cars.iter().map(|c| c["id"].as_str().unwrap()).collect();
-        assert!(ids.contains(&"bmw_z4_gt3"));
-        assert!(ids.contains(&"ks_ferrari_488_gt3"));
-    }
-
-    #[test]
-    fn filtered_catalog_filters_all_tracks_to_manifest_only() {
-        let manifest = make_manifest(
-            &[],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let all_tracks = result["tracks"]["all"].as_array().unwrap();
-        assert_eq!(all_tracks.len(), 1);
-        assert_eq!(all_tracks[0]["id"].as_str().unwrap(), "spa");
-    }
-
-    #[test]
-    fn filtered_catalog_featured_cars_also_filtered() {
-        // ferrari_sf25 is in FEATURED_CARS but not in manifest -> excluded
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let featured = result["cars"]["featured"].as_array().unwrap();
-        // bmw_z4_gt3 IS in FEATURED_CARS, so it should appear
-        let ids: Vec<&str> = featured.iter().map(|c| c["id"].as_str().unwrap()).collect();
-        assert!(ids.contains(&"bmw_z4_gt3"), "bmw_z4_gt3 should be in featured");
-        assert!(!ids.contains(&"ferrari_sf25"), "ferrari_sf25 not in manifest");
-    }
-
-    #[test]
-    fn filtered_catalog_track_without_ai_excludes_race_and_trackday() {
-        let manifest = make_manifest(
-            &[],
-            vec![make_track("spa", vec![("", false, Some(24))])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let track = &result["tracks"]["all"].as_array().unwrap()[0];
-        let session_types: Vec<String> = track["available_session_types"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        assert!(session_types.iter().any(|s| s == "practice"));
-        assert!(session_types.iter().any(|s| s == "hotlap"));
-        assert!(!session_types.iter().any(|s| s == "race"), "no AI -> no race");
-        assert!(!session_types.iter().any(|s| s == "trackday"), "no AI -> no trackday");
-    }
-
-    #[test]
-    fn filtered_catalog_track_with_ai_includes_race_and_trackday() {
-        let manifest = make_manifest(
-            &[],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let track = &result["tracks"]["all"].as_array().unwrap()[0];
-        let session_types: Vec<String> = track["available_session_types"]
-            .as_array().unwrap()
-            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        assert!(session_types.iter().any(|s| s == "race"));
-        assert!(session_types.iter().any(|s| s == "trackday"));
-    }
-
-    #[test]
-    fn filtered_catalog_track_includes_pit_count_max_across_configs() {
-        let manifest = make_manifest(
-            &[],
-            vec![make_track("spa", vec![
-                ("", true, Some(20)),
-                ("gp", true, Some(30)),
-            ])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let track = &result["tracks"]["all"].as_array().unwrap()[0];
-        // max_ai = min(max_pit_count - 1, 19) = min(29, 19) = 19
-        assert_eq!(track["max_ai"].as_u64().unwrap(), 19);
-    }
-
-    #[test]
-    fn filtered_catalog_track_pit_count_none_defaults_to_19() {
-        let manifest = make_manifest(
-            &[],
-            vec![make_track("spa", vec![("", true, None)])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let track = &result["tracks"]["all"].as_array().unwrap()[0];
-        assert_eq!(track["max_ai"].as_u64().unwrap(), 19);
-    }
-
-    // ── validate_launch_combo tests ──────────────────────────────────────
-
-    #[test]
-    fn validate_launch_combo_rejects_car_not_in_manifest() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "ferrari_sf25", "spa", "practice");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("car"));
-    }
-
-    #[test]
-    fn validate_launch_combo_rejects_track_not_in_manifest() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "monza", "practice");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("track"));
-    }
-
-    #[test]
-    fn validate_launch_combo_rejects_race_on_track_without_ai() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", false, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("AI"));
-    }
-
-    #[test]
-    fn validate_launch_combo_accepts_valid_combo() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn validate_launch_combo_none_manifest_accepts_anything() {
-        let result = validate_launch_combo(None, "any_car", "any_track", "race");
-        assert!(result.is_ok(), "No manifest = fallback mode, accept anything");
-    }
-
-    // ── Preset tests ────────────────────────────────────────────────────
-
-    #[test]
-    fn catalog_includes_presets() {
-        let catalog = get_catalog();
-        let presets = catalog["presets"].as_array().expect("presets array must exist");
-        assert!(
-            presets.len() >= 13 && presets.len() <= 15,
-            "Expected 13-15 presets, got {}",
-            presets.len()
-        );
-    }
-
-    #[test]
-    fn preset_car_ids_valid() {
-        for preset in PRESETS.iter() {
-            assert!(
-                ALL_CAR_IDS.contains(&preset.car_id),
-                "Preset '{}' has invalid car_id '{}'",
-                preset.id,
-                preset.car_id
-            );
-        }
-    }
-
-    #[test]
-    fn preset_track_ids_valid() {
-        for preset in PRESETS.iter() {
-            assert!(
-                ALL_TRACK_IDS.contains(&preset.track_id),
-                "Preset '{}' has invalid track_id '{}'",
-                preset.id,
-                preset.track_id
-            );
-        }
-    }
-
-    #[test]
-    fn presets_featured_flag() {
-        let featured_count = PRESETS.iter().filter(|p| p.featured).count();
-        assert!(
-            featured_count >= 3 && featured_count <= 4,
-            "Expected 3-4 featured presets, got {}",
-            featured_count
-        );
-    }
-
-    #[test]
-    fn filtered_catalog_filters_presets() {
-        // Manifest with only one car and one track that matches a preset
-        let manifest = make_manifest(
-            &["ks_ferrari_488_gt3"],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let presets = result["presets"].as_array().expect("presets array must exist");
-        // Only gt3-spa-race should match (car=ks_ferrari_488_gt3, track=spa)
-        assert_eq!(presets.len(), 1, "Only one preset should match manifest");
-        assert_eq!(presets[0]["id"].as_str().unwrap(), "gt3-spa-race");
-    }
-
-    #[test]
-    fn preset_race_filtered_no_ai() {
-        // Manifest has the car and track for gt3-spa-race, but track has no AI
-        let manifest = make_manifest(
-            &["ks_ferrari_488_gt3"],
-            vec![make_track("spa", vec![("", false, Some(24))])],
-        );
-        let result = get_filtered_catalog(Some(&manifest));
-        let presets = result["presets"].as_array().expect("presets array must exist");
-        // gt3-spa-race is session_type=race, so it should be excluded when has_ai=false
-        assert!(
-            presets.is_empty(),
-            "Race preset should be excluded when track has no AI, got {} presets",
-            presets.len()
-        );
-    }
-
-    // ── build_custom_launch_args session_type tests ─────────────────────
-
-    #[test]
-    fn test_build_custom_launch_args_includes_session_type() {
-        for session in &["practice", "hotlap", "race", "trackday", "race_weekend"] {
-            let result = build_custom_launch_args(
-                "bmw_z4_gt3", "spa", "Driver", "easy", "auto", "medium", session,
-            );
-            assert_eq!(
-                result["session_type"].as_str().unwrap(),
-                *session,
-                "session_type should be '{}' in output JSON",
-                session
-            );
-        }
-    }
-
-    // ── validate_launch_combo race_weekend tests ────────────────────────
-
-    #[test]
-    fn validate_launch_combo_rejects_race_weekend_without_ai() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", false, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race_weekend");
-        assert!(result.is_err(), "race_weekend should be rejected on track without AI");
-        assert!(result.unwrap_err().contains("AI"), "error should mention AI");
-    }
-
-    #[test]
-    fn validate_launch_combo_accepts_race_weekend_with_ai() {
-        let manifest = make_manifest(
-            &["bmw_z4_gt3"],
-            vec![make_track("spa", vec![("", true, Some(24))])],
-        );
-        let result = validate_launch_combo(Some(&manifest), "bmw_z4_gt3", "spa", "race_weekend");
-        assert!(result.is_ok(), "race_weekend should be accepted on track with AI");
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;
