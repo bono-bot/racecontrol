@@ -1,22 +1,10 @@
 //! Fleet anomaly detection — extracted from fleet_health.rs (Phase 385 ARCH-03).
-//!
-//! Checks 9 anomaly dimensions after each probe cycle:
-//! 1. Build version skew (majority build_id vs outliers)
-//! 2. Clock drift >10s
-//! 3. Guard violation spike (fleet-wide)
-//! 4. Ready delay >60s
-//! 5. App health degradation
-//! 6. Dashboard orphan detection
-//! 7. Mass pod offline
-//! 8. PIN validation failure spike
-//! 9. Bat file hash drift
-//!
-//! Uses static cooldowns (15 min per class) to prevent alert fatigue.
-
+//! Checks 9 anomaly dimensions after each probe cycle (build skew, clock drift,
+//! guard violations, ready delay, app health, dashboard orphans, mass offline,
+//! PIN failure spike, bat hash drift). Uses 15-min cooldowns per alert class.
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use crate::fleet_health::FleetHealthStore;
 use crate::state::AppState;
 

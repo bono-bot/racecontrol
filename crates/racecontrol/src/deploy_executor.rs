@@ -1,13 +1,8 @@
 //! Deploy executor: single-pod deploy logic (download, size-check, swap, verify, rollback).
-
 use std::sync::Arc;
 use std::time::Duration;
-
-use crate::activity_log::log_pod_activity;
-use crate::event_archive;
-use crate::state::AppState;
+use crate::{activity_log::log_pod_activity, event_archive, state::AppState};
 use rc_common::types::DeployState;
-
 use super::{
     exec_on_pod, is_cancelled, is_lock_screen_healthy, is_process_alive, is_ws_connected,
     generate_pod_config, parse_file_size_from_dir, send_deploy_failure_alert, set_deploy_state,
@@ -16,17 +11,8 @@ use super::{
 };
 
 /// Deploy rc-agent to a single pod using self-swap pattern.
-///
-/// This is the main deploy executor. It runs as a tokio::spawn'd background task.
-/// The caller (API endpoint or rolling deploy) should spawn this and return immediately.
-///
-/// Steps:
-/// 1. Validate binary URL is reachable
-/// 2. Download new binary as rc-agent-new.exe
-/// 3. Size check
-/// 4. Write config
-/// 5. Trigger detached self-swap (bat script kills → renames → starts)
-/// 9. Verify health (process + WS + lock screen)
+/// Runs as a tokio::spawn'd background task. Steps: validate URL, download,
+/// size-check, write config, trigger self-swap, verify health.
 pub async fn deploy_pod(
     state: Arc<AppState>,
     pod_id: String,

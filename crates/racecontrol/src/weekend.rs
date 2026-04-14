@@ -74,53 +74,9 @@ impl WeekendManager {
     }
 }
 
-/// Request body for POST /api/v1/games/weekend
-#[derive(Debug, Deserialize)]
-pub struct CreateWeekendRequest {
-    pub pod_ids: Vec<String>,
-    pub track: String,
-    pub car_class: String,
-    #[serde(default = "default_practice_minutes")]
-    pub practice_minutes: u32,
-    #[serde(default = "default_quali_minutes")]
-    pub quali_minutes: u32,
-    #[serde(default = "default_race_laps")]
-    pub race_laps: u32,
-}
-
-fn default_practice_minutes() -> u32 { 10 }
-fn default_quali_minutes() -> u32 { 10 }
-fn default_race_laps() -> u32 { 10 }
-
-/// Summary returned to callers after weekend creation.
-#[derive(Debug, Serialize)]
-pub struct WeekendSummary {
-    pub weekend_id: String,
-    pub ac_session_id: String,
-    pub phase: WeekendPhase,
-    pub track: String,
-    pub car_class: String,
-    pub pod_ids: Vec<String>,
-    pub practice_minutes: u32,
-    pub quali_minutes: u32,
-    pub race_laps: u32,
-}
-
-/// Status snapshot returned by the status endpoint.
-#[derive(Debug, Serialize)]
-pub struct WeekendStatus {
-    pub weekend_id: String,
-    pub current_session: WeekendPhase,
-    pub track: String,
-    pub car_class: String,
-    pub connected_pods: Vec<String>,
-    pub total_pods: usize,
-    pub practice_minutes: u32,
-    pub quali_minutes: u32,
-    pub race_laps: u32,
-    pub phase_changed_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-}
+#[path = "weekend_types.rs"]
+mod weekend_types;
+pub use weekend_types::{CreateWeekendRequest, WeekendSummary, WeekendStatus};
 
 // ─── Core Logic ──────────────────────────────────────────────────────────────
 
@@ -511,42 +467,5 @@ async fn mark_weekend_finished(state: &Arc<AppState>, weekend_id: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_weekend_phase_display() {
-        assert_eq!(WeekendPhase::Practice.to_string(), "practice");
-        assert_eq!(WeekendPhase::Qualifying.to_string(), "qualifying");
-        assert_eq!(WeekendPhase::Race.to_string(), "race");
-        assert_eq!(WeekendPhase::Finished.to_string(), "finished");
-    }
-
-    #[test]
-    fn test_weekend_phase_serde_roundtrip() {
-        let phase = WeekendPhase::Qualifying;
-        let json = serde_json::to_string(&phase).unwrap();
-        assert_eq!(json, "\"qualifying\"");
-        let parsed: WeekendPhase = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, phase);
-    }
-
-    #[test]
-    fn test_create_weekend_request_defaults() {
-        let json = r#"{"pod_ids": ["pod_1"], "track": "monza", "car_class": "ks_ferrari_488_gt3"}"#;
-        let req: CreateWeekendRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.practice_minutes, 10);
-        assert_eq!(req.quali_minutes, 10);
-        assert_eq!(req.race_laps, 10);
-    }
-
-    #[test]
-    fn test_create_weekend_request_custom() {
-        let json = r#"{"pod_ids": ["pod_1", "pod_2"], "track": "spa", "car_class": "ks_porsche_911_gt3_r", "practice_minutes": 15, "quali_minutes": 12, "race_laps": 20}"#;
-        let req: CreateWeekendRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.practice_minutes, 15);
-        assert_eq!(req.quali_minutes, 12);
-        assert_eq!(req.race_laps, 20);
-        assert_eq!(req.pod_ids.len(), 2);
-    }
-}
+#[path = "weekend_tests.rs"]
+mod tests;

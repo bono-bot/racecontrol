@@ -1,55 +1,15 @@
 #![allow(unused_imports)]
 use super::customer_auth::{extract_driver_id, compute_percentile};
 use rand::Rng;
-use axum::{
-    Json, Router,
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{delete, get, post, put},
-};
+use axum::{Json, Router, extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, routing::{delete, get, post, put}};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
-
-use crate::ac_server;
-use crate::accounting;
-use crate::fleet_alert;
-use crate::recovery;
-use crate::cafe;
-use crate::config_push;
-use crate::flags;
-use crate::policy_engine;
-use crate::preset_library;
-use crate::cafe_alerts;
-use crate::cafe_marketing;
-use crate::cafe_promos;
-use crate::auth;
-use crate::whatsapp_alerter;
-use crate::psychology;
+use crate::{ac_server, accounting, fleet_alert, recovery, cafe, config_push, flags, policy_engine, preset_library, cafe_alerts, cafe_marketing, cafe_promos, auth, whatsapp_alerter, psychology, billing, catalog, cloud_sync, fleet_health, fleet_intelligence, process_guard, friends, game_launcher, multiplayer, pod_reservation, reservation, scheduler, wallet, weekend, maintenance_store, venue_shutdown, wol};
 use crate::auth::middleware::{require_staff_jwt, require_role_manager, require_role_superadmin};
 use crate::network_source::require_non_pod_source;
-use crate::billing;
-use crate::catalog;
-use crate::cloud_sync;
-use crate::fleet_health;
-use crate::fleet_intelligence;
-use crate::process_guard;
-use crate::friends;
-use crate::game_launcher;
-use crate::multiplayer;
-use crate::pod_reservation;
-use crate::reservation;
-use crate::scheduler;
-use crate::wallet;
-use crate::weekend;
-use crate::maintenance_store;
 use crate::state::{AppState, VenueConfigSnapshot};
-use crate::venue_shutdown;
-use crate::wol;
-use rc_common::pod_id::normalize_pod_id;
-use rc_common::types::*;
-use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent};
+use rc_common::{pod_id::normalize_pod_id, types::*, protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent}};
 
 pub(crate) async fn customer_session_detail(
     State(state): State<Arc<AppState>>,

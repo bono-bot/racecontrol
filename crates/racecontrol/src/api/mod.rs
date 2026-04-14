@@ -91,6 +91,9 @@ pub mod customer_booking_continue;
 pub mod game_ac_data;
 pub mod billing_summary;
 pub mod ai_training;
+pub mod billing_daily_report;
+pub mod wallet_gateway;
+pub mod pricing_billing_rates;
 
 use axum::Router;
 use std::sync::Arc;

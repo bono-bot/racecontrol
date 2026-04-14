@@ -1,36 +1,21 @@
 //! Game launcher state machine — handle_game_state_update.
-//!
-//! Extracted from game_launcher.rs (Phase 385, v49.0 Architecture Completion).
-//! Processes game state transitions reported by rc-agent: Loading → Running → Stopped.
+//! Extracted from game_launcher.rs (Phase 385). Processes game state transitions
+//! reported by rc-agent: Loading -> Running -> Stopped.
 //! Handles crash recovery, error taxonomy, auto-relaunch, billing completion.
-
 use std::sync::Arc;
-
 use chrono::Utc;
-
-use crate::activity_log::log_pod_activity;
-use crate::billing::PauseReason;
+use crate::{activity_log::log_pod_activity, billing::PauseReason, metrics, state::AppState};
 use crate::game_launcher::{GameTracker, is_stop_guarded};
 use crate::game_launcher_support::{classify_error_taxonomy, extract_launch_fields, log_game_event, send_staff_launch_alert};
-use crate::metrics;
-use crate::state::AppState;
-use rc_common::pod_id::normalize_pod_id;
-use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
-use rc_common::types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType};
+use rc_common::{pod_id::normalize_pod_id, protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent}, types::{BillingSessionStatus, GameLaunchInfo, GameState, SimType}};
 
 /// Called when agent reports a game state update
 pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInfo) {
     let pod_id_normalized = normalize_pod_id(&info.pod_id).unwrap_or_else(|_| info.pod_id.clone());
     let pod_id = &pod_id_normalized;
 
-    // STOP-GUARD (2026-04-12): Suppress zombie non-Idle updates that arrive within
-    // 10 seconds of a StopGame dispatch. The rc-agent sim polling loop (100ms) can
-    // have an in-flight Running update queued just before it processes the stop;
-    // without this guard, that message flows into the non-Idle branch below and
-    // spawns a phantom externally_tracked tracker at line ~1007, then line ~1064
-    // writes pod.game_state = Running, making /fleet/health report the game as
-    // still running for minutes. Issue 4 RCA — see the 2026-04-11 E2E test report.
-    // Idle updates pass through (they're exactly what we want after a stop).
+    // STOP-GUARD: Suppress zombie non-Idle updates within 10s of StopGame dispatch.
+    // Idle updates pass through — they're exactly what we want after a stop.
     if info.game_state != GameState::Idle
         && is_stop_guarded(state, pod_id.as_str(), 10).await
     {
@@ -42,10 +27,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         return;
     }
 
-    // Phase 368: Declare outside lock block so IssueFixed emission can happen after lock drops.
-    // CLAUDE.md: never hold a lock across .await — launch_id captured inside lock, emitted outside.
+    // Phase 368: Declare outside lock so IssueFixed emission can happen after lock drops.
     let mut playable_launch_id: Option<String> = None;
-
     // Update in-memory tracker
     {
         let mut games = state.game_launcher.active_games.write().await;
@@ -111,8 +94,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // games lock dropped here — safe to .await
 
     // Phase 368 Step E: Emit IssueFixed at playable_at transition (LLS-03).
-    // Only fires if this is the first Running event (playable_at was None before the block above).
-    // Terminal-state guard in transition() makes this idempotent (P2-05 race safety).
+    // Only fires on first Running event. Terminal-state guard makes this idempotent.
     if let Some(ref lid) = playable_launch_id {
         if let Some(card) = state.launch_state_machine.transition(
             lid,
