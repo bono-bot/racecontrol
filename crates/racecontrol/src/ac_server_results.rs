@@ -1,15 +1,13 @@
 //! AC server results collection, preset management, and dashboard commands.
 //! Extracted from ac_server.rs (Phase 385, v49.0 Architecture Completion).
 
+use std::path::Path;
 use std::sync::Arc;
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use chrono::Utc;
-use rc_common::protocol::DashboardEvent;
-use serde::{Deserialize, Serialize};
 use crate::state::AppState;
-use crate::ac_server::{AcServerManager, start_ac_server, stop_ac_server};
-use rc_common::protocol::DashboardCommand;
+use crate::ac_server::{start_ac_server, stop_ac_server};
+use rc_common::protocol::{DashboardCommand, DashboardEvent};
 use rc_common::types::*;
 
 // ─── Preset Management ──────────────────────────────────────────────────────
