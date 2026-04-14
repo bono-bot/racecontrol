@@ -89,6 +89,8 @@ pub mod mesh_intelligence_cloud;
 pub mod deploy_audit;
 pub mod customer_booking_continue;
 pub mod game_ac_data;
+pub mod billing_summary;
+pub mod ai_training;
 
 use axum::Router;
 use std::sync::Arc;

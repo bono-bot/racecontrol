@@ -9,24 +9,26 @@
 //! The healer reads the shared EscalatingBackoff from AppState.pod_backoffs for cooldown
 //! gating but does NOT advance the backoff (advancing is pod_monitor's exclusive responsibility).
 //!
-//! ## Module structure (Phase 385, v49.0)
-//!
-//! - `pod_healer_diagnostics` — remote health data collection + verification chain
-//! - `pod_healer_rules` — proactive 5-rule diagnostics for online pods
-//! - `pod_healer_recovery` — graduated 5-step recovery for offline pods
-//! - `pod_healer_ai` — AI escalation + WARN log surge scanner
+//! Sibling modules (extracted for <500 line target):
+//! - pod_healer_diagnostics: data collection, verification chains, heal actions, helpers
+//! - pod_healer_ai: AI escalation, WARN log scanner
+//! - pod_healer_recovery: graduated recovery for offline pods
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
+use serde_json::json;
+
+use crate::activity_log::log_pod_activity;
+use crate::event_archive;
+use crate::pod_healer_diagnostics::{collect_diagnostics, execute_heal_action, is_protected_pid, has_active_billing};
+use crate::pod_healer_ai::{escalate_to_ai, scan_warn_logs};
+use crate::pod_healer_recovery::{run_graduated_recovery, PodRecoveryTracker};
 use crate::state::{AppState, WatchdogState};
+use rc_common::protocol::DashboardEvent;
+use rc_common::recovery::{RecoveryAction, RecoveryAuthority, RecoveryDecision, RecoveryLogger, RECOVERY_LOG_SERVER};
 use rc_common::types::{PodInfo, PodStatus};
-
-// Re-exports used by tests (via `use super::*`)
-#[cfg(test)]
-pub(crate) use crate::pod_healer_ai::parse_ai_action_server;
-
-// ─── Constants ───────────────────────────────────────────────────────────────
 
 pub(crate) const POD_AGENT_PORT: u16 = 8090;
 pub(crate) const POD_AGENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -67,7 +69,7 @@ pub(crate) const DISK_THRESHOLD_PCT: f64 = 90.0;
 /// Memory threshold (MB free) to flag as low memory.
 pub(crate) const MEMORY_LOW_MB: u64 = 2048;
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// --- Types -------------------------------------------------------------------
 
 pub(crate) struct PodDiagnostics {
     pub(crate) stale_sockets: Vec<(u32, String)>, // (PID, state like CLOSE_WAIT)
@@ -85,56 +87,7 @@ pub(crate) struct HealAction {
     pub(crate) reason: String,
 }
 
-// ─── Graduated Recovery Types ────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PodRecoveryStep {
-    /// First offline detection — waiting 30s before acting.
-    Waiting,
-    /// Second cycle — attempt Tier 1 rc-agent restart.
-    TierOneRestart,
-    /// Third cycle — context-aware WoL after Tier 1 fails.
-    WakeOnLan,
-    /// Fourth cycle — escalate to AI.
-    AiEscalation,
-    /// Fifth+ cycle — alert staff.
-    AlertStaff,
-}
-
-/// Per-pod graduated recovery state. Held in a HashMap inside heal_all_pods.
-/// Not shared with AppState — local to the healer loop.
-#[derive(Debug)]
-pub(crate) struct PodRecoveryTracker {
-    pub(crate) step: PodRecoveryStep,
-    pub(crate) first_detected_at: Option<std::time::Instant>,
-    /// CONN-RESIL: Timestamp of last staff alert sent. Used to throttle re-alerts
-    /// to every 15 minutes instead of every 2-minute healer cycle.
-    pub(crate) last_staff_alert_at: Option<std::time::Instant>,
-}
-
-impl PodRecoveryTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            step: PodRecoveryStep::Waiting,
-            first_detected_at: None,
-            last_staff_alert_at: None,
-        }
-    }
-
-    pub(crate) fn reset(&mut self) {
-        self.step = PodRecoveryStep::Waiting;
-        self.first_detected_at = None;
-        self.last_staff_alert_at = None;
-    }
-}
-
-impl Default for PodRecoveryTracker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ─── Spawn ───────────────────────────────────────────────────────────────────
+// --- Spawn -------------------------------------------------------------------
 
 /// Spawn the pod healer background task.
 pub fn spawn(state: Arc<AppState>) {
@@ -165,7 +118,7 @@ pub fn spawn(state: Arc<AppState>) {
     });
 }
 
-// ─── Main Loop ───────────────────────────────────────────────────────────────
+// --- Main Loop ---------------------------------------------------------------
 
 async fn heal_all_pods(
     state: &Arc<AppState>,
@@ -201,26 +154,339 @@ async fn heal_all_pods(
     for pod in active_pods {
         if pod.status == PodStatus::Offline {
             // Offline pod: run graduated recovery instead of proactive diagnostics.
-            crate::pod_healer_recovery::run_graduated_recovery(state, pod, trackers).await;
+            run_graduated_recovery(state, pod, trackers).await;
         } else {
             // Online pod: reset any graduated recovery tracker, then run proactive diagnostics.
             trackers.entry(pod.id.clone()).or_default().reset();
-            if let Err(e) = crate::pod_healer_rules::heal_pod(state, pod).await {
+            if let Err(e) = heal_pod(state, pod).await {
                 tracing::warn!("Pod healer: error checking pod {}: {}", pod.id, e);
             }
         }
     }
 
     // Phase 141: Scan server-side WARN log for surge detection
-    crate::pod_healer_ai::scan_warn_logs(state).await;
+    scan_warn_logs(state).await;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+async fn heal_pod(
+    state: &Arc<AppState>,
+    pod: &PodInfo,
+) -> anyhow::Result<()> {
+    // First verify pod-agent is reachable
+    let ping_url = format!("http://{}:{}/ping", pod.ip_address, POD_AGENT_PORT);
+    let ping = state
+        .http_client
+        .get(&ping_url)
+        .timeout(Duration::from_millis(3000))
+        .send()
+        .await;
 
-/// Check if a pod has an active billing session.
-pub(crate) async fn has_active_billing(state: &Arc<AppState>, pod_id: &str) -> bool {
-    let timers = state.billing.active_timers.read().await;
-    timers.contains_key(pod_id)
+    if ping.is_err() || !ping.as_ref().unwrap().status().is_success() {
+        // Pod-agent unreachable -- pod_monitor handles this case
+        return Ok(());
+    }
+
+    // Skip pods in active recovery cycle -- pod_monitor owns the restart lifecycle
+    let wd_state = {
+        let states = state.pod_watchdog_states.read().await;
+        states.get(&pod.id).cloned().unwrap_or(WatchdogState::Healthy)
+    };
+    if should_skip_for_watchdog_state(&wd_state) {
+        tracing::debug!(
+            "Pod healer: {} in recovery cycle ({:?}) -- skipping diagnostic",
+            pod.id, wd_state
+        );
+        return Ok(());
+    }
+
+    // Skip pods with active deploy -- deploy executor manages lifecycle
+    {
+        let deploy_states = state.pod_deploy_states.read().await;
+        if let Some(deploy_state) = deploy_states.get(&pod.id) {
+            if deploy_state.is_active() {
+                tracing::debug!(
+                    "Pod healer: {} has active deploy ({:?}) -- skipping diagnostic",
+                    pod.id, deploy_state
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // Collect diagnostics
+    let diag = collect_diagnostics(state, &pod.ip_address).await?;
+
+    // Build issue list for potential AI escalation
+    let mut issues: Vec<String> = Vec::new();
+    let mut actions: Vec<HealAction> = Vec::new();
+
+    // --- Rule 1: Stale sockets -----------------------------------------------
+    if !diag.stale_sockets.is_empty() {
+        for (pid, sock_state) in &diag.stale_sockets {
+            if is_protected_pid(state, &pod.ip_address, *pid).await {
+                issues.push(format!(
+                    "Protected process PID {} has {} socket on monitored port",
+                    pid, sock_state
+                ));
+            } else {
+                actions.push(HealAction {
+                    pod_id: pod.id.clone(),
+                    action: "kill_zombie".to_string(),
+                    target: format!("PID {}", pid),
+                    reason: format!("{} socket on lock screen port", sock_state),
+                });
+            }
+        }
+    }
+
+    // --- Rule 2: rc-agent lock screen unresponsive ---------------------------
+    if !diag.rc_agent_healthy {
+        let has_active_ws = {
+            let senders = state.agent_senders.read().await;
+            match senders.get(&pod.id) {
+                Some(sender) => !sender.is_closed(),
+                None => false,
+            }
+        };
+        if has_active_ws {
+            // WS is alive but lock screen HTTP is failing — attempt soft recovery
+            // by commanding the pod to relaunch Edge rather than forcing a full restart.
+            let has_active_billing = has_active_billing(state, &pod.id).await;
+            if has_active_billing {
+                tracing::warn!(
+                    "Pod healer: {} lock screen unresponsive, WS connected, billing active -- skipping relaunch",
+                    pod.id
+                );
+                issues.push(format!(
+                    "Pod {}: lock screen HTTP failed but WS connected + billing active -- no relaunch dispatched",
+                    pod.id
+                ));
+            } else {
+                tracing::info!(
+                    "Pod healer: {} lock screen unresponsive, WS connected -- dispatching ForceRelaunchBrowser",
+                    pod.id
+                );
+                actions.push(HealAction {
+                    pod_id: pod.id.clone(),
+                    action: "relaunch_lock_screen".to_string(),
+                    target: "edge_browser".to_string(),
+                    reason: "Lock screen HTTP check failed, WS connected".to_string(),
+                });
+                issues.push(format!(
+                    "Pod {}: lock screen HTTP failed (WS alive) -- ForceRelaunchBrowser queued",
+                    pod.id
+                ));
+            }
+        } else {
+            let has_active_billing = has_active_billing(state, &pod.id).await;
+            if has_active_billing {
+                issues.push(
+                    "rc-agent lock screen unresponsive but pod has active billing -- NOT flagging restart"
+                        .to_string(),
+                );
+            } else {
+                // No WebSocket, no billing -- this is a genuine rc-agent failure.
+                // Set needs_restart flag so pod_monitor triggers restart on next cycle.
+                // COORD-01: Only flag restart if PodHealer owns rc-agent.exe (or it's unregistered).
+                let is_restart_owner = {
+                    let ownership = state.process_ownership.lock().unwrap_or_else(|e| e.into_inner());
+                    ownership.owner_of("rc-agent.exe").map_or(true, |o| o == RecoveryAuthority::PodHealer)
+                };
+                if is_restart_owner {
+                    let mut needs = state.pod_needs_restart.write().await;
+                    needs.insert(pod.id.clone(), true);
+                } else {
+                    tracing::info!(
+                        target: "pod_healer",
+                        "Pod {} rc-agent.exe not owned by PodHealer — skipping restart flag, deferring to owner",
+                        pod.id
+                    );
+                }
+                tracing::info!(
+                    "Pod healer: {} lock screen unresponsive, no WebSocket -- flagged for restart",
+                    pod.id
+                );
+                log_pod_activity(
+                    state,
+                    &pod.id,
+                    "race_engineer",
+                    "Restart Flagged",
+                    "Lock screen unresponsive + no WebSocket -- deferred to pod_monitor",
+                    "race_engineer",
+                    None,
+                );
+                // Still add to issues for potential AI escalation context
+                issues.push(
+                    "rc-agent lock screen unresponsive (no WebSocket) -- restart flagged for pod_monitor"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    // --- Rule 3: Disk space low ----------------------------------------------
+    if diag.disk_free_pct < (100.0 - DISK_THRESHOLD_PCT) {
+        actions.push(HealAction {
+            pod_id: pod.id.clone(),
+            action: "clear_temp".to_string(),
+            target: "C:\\Users\\*\\AppData\\Local\\Temp\\*".to_string(),
+            reason: format!("Disk only {:.1}% free", diag.disk_free_pct),
+        });
+    }
+
+    // --- Rule 4: Low memory (alert only) -------------------------------------
+    if diag.memory_free_mb < MEMORY_LOW_MB {
+        issues.push(format!(
+            "Low memory: {}MB free / {}MB total",
+            diag.memory_free_mb, diag.memory_total_mb
+        ));
+    }
+
+    // --- Rule 5: Suspicious processes (alert only) ---------------------------
+    if !diag.suspicious_processes.is_empty() {
+        for (name, pid, mem_kb) in &diag.suspicious_processes {
+            issues.push(format!(
+                "Suspicious process: {} (PID {}, {}MB RAM)",
+                name,
+                pid,
+                mem_kb / 1024
+            ));
+        }
+    }
+
+    // Nothing to do
+    if actions.is_empty() && issues.is_empty() {
+        return Ok(());
+    }
+
+    // Check shared backoff before executing heal actions
+    let now = Utc::now();
+    let backoffs = state.pod_backoffs.read().await;
+    let cooldown_ok = match backoffs.get(&pod.id) {
+        Some(backoff) => backoff.ready(now),
+        None => true, // no prior attempts, OK to proceed
+    };
+    drop(backoffs); // release read lock before executing actions
+
+    // Execute auto-heal actions (if cooldown allows)
+    if cooldown_ok && !actions.is_empty() {
+        for action in &actions {
+            // Record this decision to the cascade guard and recovery log before executing.
+            let recovery_action = match action.action.as_str() {
+                "kill_zombie" => RecoveryAction::Kill,
+                _ => RecoveryAction::Restart,
+            };
+            let decision = RecoveryDecision::new(
+                "server",
+                &action.target,
+                RecoveryAuthority::PodHealer,
+                recovery_action,
+                &action.reason,
+            );
+            {
+                let mut guard = state.cascade_guard.lock().unwrap_or_else(|e| e.into_inner());
+                let cascaded = guard.record(&decision);
+                if cascaded {
+                    tracing::error!(
+                        target: "pod_healer",
+                        "Cascade detected — aborting heal cycle for pod {}",
+                        action.pod_id
+                    );
+                    return Ok(());
+                }
+                if guard.is_paused() {
+                    tracing::warn!(
+                        target: "pod_healer",
+                        "Cascade guard paused after recording action — aborting heal for pod {}",
+                        action.pod_id
+                    );
+                    return Ok(());
+                }
+            }
+            // Log to recovery JSONL
+            let logger = RecoveryLogger::new(RECOVERY_LOG_SERVER);
+            let _ = logger.log(&decision);
+
+            tracing::info!(
+                "Pod healer: [{}] {} -> {} ({})",
+                action.pod_id,
+                action.action,
+                action.target,
+                action.reason
+            );
+            let activity_action = match action.action.as_str() {
+                "kill_zombie" => "Zombie Socket Killed",
+                "clear_temp" => "Disk Cleaned",
+                _ => "Auto-Fix Applied",
+            };
+            log_pod_activity(
+                state,
+                &action.pod_id,
+                "race_engineer",
+                activity_action,
+                &action.reason,
+                "race_engineer",
+                None,
+            );
+            event_archive::append_event(&state.db, "pod.recovery", "pod_healer", Some(&action.pod_id), serde_json::json!({
+                "action": action.action,
+                "target": action.target,
+                "reason": action.reason,
+            }), &state.config.venue.venue_id);
+            execute_heal_action(state, &pod.ip_address, action).await;
+        }
+        // NOTE: The healer does NOT call record_attempt() here.
+        // Advancing the backoff is pod_monitor's exclusive responsibility.
+        // The healer only reads backoff.ready() to avoid spamming heal actions.
+    } else if !actions.is_empty() {
+        tracing::info!(
+            "Pod healer: {} has {} pending actions but cooldown not elapsed",
+            pod.id,
+            actions.len()
+        );
+    }
+
+    // Escalate to AI if there are complex issues that rules can't handle
+    // (respects same cooldown as heal actions to prevent spamming)
+    if !issues.is_empty() && state.config.ai_debugger.enabled && cooldown_ok {
+        log_pod_activity(
+            state,
+            &pod.id,
+            "race_engineer",
+            "AI Analysis Requested",
+            &issues.join("; "),
+            "race_engineer",
+            None,
+        );
+        escalate_to_ai(state, pod, &issues, &actions).await;
+
+        // Send email for persistent issues (3+ issues on a single pod)
+        if issues.len() >= 3 {
+            let body = format!(
+                "Pod {} has {} persistent issues requiring attention:\n\n{}\n\nAI analysis was requested. Check dashboard for suggestions.",
+                pod.id,
+                issues.len(),
+                issues
+                    .iter()
+                    .map(|i| format!("- {}", i))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            let subject = format!(
+                "[RacingPoint] Pod {} -- {} issues detected",
+                pod.id,
+                issues.len()
+            );
+            state
+                .email_alerter
+                .write()
+                .await
+                .send_alert(&pod.id, &subject, &body)
+                .await;
+        }
+    }
+
+    Ok(())
 }
 
 /// Returns true if the pod is currently in a watchdog recovery cycle (Restarting or Verifying).
@@ -246,6 +512,7 @@ pub(crate) fn should_skip_for_watchdog_state(wd_state: &WatchdogState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pod_healer_recovery::PodRecoveryStep;
     use crate::state::WatchdogState;
     use chrono::Utc;
 
@@ -321,7 +588,7 @@ mod tests {
         );
     }
 
-    // ─── Phase 185-02: WakeOnLan step and recovery event query tests ──────────
+    // --- Phase 185-02: WakeOnLan step and recovery event query tests ---
 
     #[test]
     fn test_wol_step_exists_in_enum() {
@@ -470,15 +737,9 @@ mod tests {
         let has_active_billing = false;
 
         let should_flag_restart = !rc_agent_healthy && !has_active_ws && !has_active_billing;
-        assert!(
-            !should_flag_restart,
-            "needs_restart should NOT be set when WS is connected"
-        );
+        assert!(!should_flag_restart, "needs_restart should NOT be set when WS is connected");
         let should_relaunch = !rc_agent_healthy && has_active_ws && !has_active_billing;
-        assert!(
-            should_relaunch,
-            "relaunch_lock_screen should be dispatched when WS connected + no billing"
-        );
+        assert!(should_relaunch, "relaunch_lock_screen should be dispatched when WS connected + no billing");
     }
 
     #[test]
@@ -494,64 +755,57 @@ mod tests {
         assert!(!should_relaunch, "no relaunch when billing active");
     }
 
-    // ─── Phase 140-02: parse_ai_action_server tests ───────────────────────────
+    // --- Phase 140-02: parse_ai_action_server tests ---
 
     #[test]
     fn test_parse_ai_action_server_kill_edge() {
         let suggestion = r#"The edge browser is causing issues. {"action":"kill_edge"} Terminate it immediately."#;
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, Some("kill_edge"), "kill_edge action must be parsed");
     }
 
     #[test]
     fn test_parse_ai_action_server_no_action_returns_none() {
         let suggestion = "Reboot the pod and check network connectivity. No specific action needed.";
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, None, "no JSON block must return None");
     }
 
     #[test]
     fn test_parse_ai_action_server_unknown_action_returns_none() {
         let suggestion = r#"Try this: {"action":"reboot_system"} It should fix the issue."#;
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, None, "unknown action must return None (whitelist rejection)");
     }
 
     #[test]
     fn test_parse_ai_action_server_relaunch_lock_screen() {
         let suggestion = r#"Lock screen is stuck. {"action":"relaunch_lock_screen"}"#;
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, Some("relaunch_lock_screen"));
     }
 
     #[test]
     fn test_parse_ai_action_server_clear_temp() {
         let suggestion = r#"Disk space low. {"action":"clear_temp"} This will free up space."#;
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, Some("clear_temp"));
     }
 
     #[test]
     fn test_parse_ai_action_server_malformed_json_returns_none() {
         let suggestion = r#"Suggestion: {action: kill_edge} missing quotes."#;
-        let result = parse_ai_action_server(suggestion);
+        let result = crate::pod_healer_ai::parse_ai_action_server(suggestion);
         assert_eq!(result, None, "malformed JSON must return None");
     }
 
-    // ─── PodRecoveryTracker unit tests ────────────────────────────────────────
+    // --- PodRecoveryTracker unit tests ---
 
     #[test]
     fn tracker_starts_at_waiting() {
         let tracker = PodRecoveryTracker::new();
-        assert_eq!(
-            tracker.step,
-            PodRecoveryStep::Waiting,
-            "new tracker must start at Waiting step"
-        );
-        assert!(
-            tracker.first_detected_at.is_none(),
-            "new tracker must have no first_detected_at"
-        );
+        assert_eq!(tracker.step, PodRecoveryStep::Waiting, "new tracker must start at Waiting step");
+        assert!(tracker.first_detected_at.is_none(), "new tracker must have no first_detected_at");
     }
 
     #[test]
@@ -559,18 +813,9 @@ mod tests {
         let mut tracker = PodRecoveryTracker::new();
         tracker.step = PodRecoveryStep::TierOneRestart;
         tracker.first_detected_at = Some(std::time::Instant::now());
-
         tracker.reset();
-
-        assert_eq!(
-            tracker.step,
-            PodRecoveryStep::Waiting,
-            "reset must restore step to Waiting"
-        );
-        assert!(
-            tracker.first_detected_at.is_none(),
-            "reset must clear first_detected_at"
-        );
+        assert_eq!(tracker.step, PodRecoveryStep::Waiting, "reset must restore step to Waiting");
+        assert!(tracker.first_detected_at.is_none(), "reset must clear first_detected_at");
     }
 
     #[test]
@@ -583,62 +828,40 @@ mod tests {
         let now = std::time::Instant::now();
         let elapsed = now.duration_since(tracker.first_detected_at.unwrap_or(now));
         let should_advance = elapsed >= std::time::Duration::from_secs(30);
-        assert!(
-            should_advance,
-            "elapsed >= 30s must trigger advance to TierOneRestart"
-        );
+        assert!(should_advance, "elapsed >= 30s must trigger advance to TierOneRestart");
         if should_advance {
             tracker.step = PodRecoveryStep::TierOneRestart;
         }
-        assert_eq!(
-            tracker.step,
-            PodRecoveryStep::TierOneRestart,
-            "step must be TierOneRestart after 30s elapsed"
-        );
+        assert_eq!(tracker.step, PodRecoveryStep::TierOneRestart, "step must be TierOneRestart after 30s elapsed");
     }
 
-    // ─── MON-02: Sentry fallback verification ─────────────────────────────────
+    // --- MON-02: Sentry fallback verification ---
 
     #[test]
     fn test_tier_one_restart_is_mon02_sentry_fallback() {
         let mut tracker = PodRecoveryTracker::new();
         tracker.step = PodRecoveryStep::TierOneRestart;
         tracker.step = PodRecoveryStep::WakeOnLan;
-
-        assert_eq!(
-            tracker.step,
-            PodRecoveryStep::WakeOnLan,
-            "MON-02: TierOneRestart must advance to WakeOnLan after sentry exec path"
-        );
+        assert_eq!(tracker.step, PodRecoveryStep::WakeOnLan, "MON-02: TierOneRestart must advance to WakeOnLan");
     }
 
-    // ─── COORD-01: ProcessOwnership unit tests ────────────────────────────────
+    // --- COORD-01: ProcessOwnership unit tests ---
 
     #[test]
     fn test_ownership_check_skips_when_not_owner() {
         use rc_common::recovery::{ProcessOwnership, RecoveryAuthority};
 
         let mut ownership = ProcessOwnership::new();
-        ownership
-            .register("rc-agent.exe", RecoveryAuthority::RcSentry)
-            .expect("register should succeed");
+        ownership.register("rc-agent.exe", RecoveryAuthority::RcSentry).expect("register should succeed");
 
         let owner = ownership.owner_of("rc-agent.exe");
-        assert_eq!(
-            owner,
-            Some(RecoveryAuthority::RcSentry),
-            "owner_of must return RcSentry"
-        );
-        assert_ne!(
-            owner,
-            Some(RecoveryAuthority::PodHealer),
-            "PodHealer must not own rc-agent.exe after RcSentry registration"
-        );
+        assert_eq!(owner, Some(RecoveryAuthority::RcSentry), "owner_of must return RcSentry");
+        assert_ne!(owner, Some(RecoveryAuthority::PodHealer), "PodHealer must not own rc-agent.exe after RcSentry registration");
         let should_skip = owner.map_or(false, |o| o != RecoveryAuthority::PodHealer);
         assert!(should_skip, "PodHealer must skip when rc-agent.exe is owned by RcSentry");
     }
 
-    // ─── COORD-02: RecoveryIntent unit tests ──────────────────────────────────
+    // --- COORD-02: RecoveryIntent unit tests ---
 
     #[test]
     fn test_recovery_intent_prevents_concurrent_action() {
@@ -655,14 +878,7 @@ mod tests {
         store.register(intent);
 
         let found = store.has_active_intent("pod-1", "rc-agent.exe");
-        assert!(
-            found.is_some(),
-            "active intent must be found — concurrent action must be blocked"
-        );
-        assert_eq!(
-            found.unwrap().authority,
-            RecoveryAuthority::RcSentry,
-            "found intent authority must match registered authority"
-        );
+        assert!(found.is_some(), "active intent must be found — concurrent action must be blocked");
+        assert_eq!(found.unwrap().authority, RecoveryAuthority::RcSentry, "found intent authority must match");
     }
 }
