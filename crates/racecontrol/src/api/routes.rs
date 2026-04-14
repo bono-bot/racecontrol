@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::metrics;
+use super::metrics_intel;
 use super::metrics_prometheus;
 use super::metrics_query;
 use super::survival;
@@ -187,7 +188,7 @@ fn public_routes() -> Router<Arc<AppState>> {
         // MMA-v29: Metrics, mesh intelligence, admin, and cameras endpoints moved to staff_routes.
         // These leaked operational data (billing accuracy, incidents, camera topology) publicly.
         // /games/alternatives remains public (customer-facing combo recommendations).
-        .route("/games/alternatives", get(metrics::alternatives_handler))
+        .route("/games/alternatives", get(metrics_intel::alternatives_handler))
         // cameras/health is a simple ok/down proxy — no sensitive data. Needs to be public
         // because the portal page (/portal) fetches it without auth to show camera status dot.
         .route("/cameras/health", get(cameras_health_proxy))
@@ -662,12 +663,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // MMA-v29: Metrics, mesh, admin, cameras moved from public_routes — require staff JWT
         .route("/metrics/launch-stats", get(metrics::launch_stats_handler))
         .route("/metrics/billing-accuracy", get(metrics::billing_accuracy_handler))
-        .route("/metrics/launch-observability", get(metrics::launch_observability_handler))
-        .route("/admin/launch-matrix", get(metrics::launch_matrix_handler))
+        .route("/metrics/launch-observability", get(metrics_intel::launch_observability_handler))
+        .route("/admin/launch-matrix", get(metrics_intel::launch_matrix_handler))
         // DASH-01: Fleet game matrix — which games are installed on which pods
         .route("/fleet/game-matrix", get(game_matrix_handler))
         // DASH-02: Combo reliability list — sortable, flagged if success_rate < 70%
-        .route("/admin/combo-list", get(metrics::combo_list_handler))
+        .route("/admin/combo-list", get(metrics_intel::combo_list_handler))
         // Phase 286: Metrics Query API (QAPI-01..05) — staff-only, business intelligence
         .route("/metrics/query", get(metrics_query::query_handler))
         .route("/metrics/names", get(metrics_query::names_handler))

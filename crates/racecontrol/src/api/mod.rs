@@ -1,5 +1,6 @@
 pub mod debug_launches;
 pub mod metrics;
+pub mod metrics_intel;
 pub mod metrics_prometheus;
 pub mod metrics_query;
 pub mod pods;
