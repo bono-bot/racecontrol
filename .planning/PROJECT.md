@@ -1,5 +1,29 @@
 # Racing Point Operations (Unified)
 
+## Current Milestone: v52.0 Claude Workspace Restructure
+
+**Started:** 2026-04-15
+**Goal:** Consolidate ~14 classes of scattered Claude-side artifacts across 8+ locations into a single canonical workspace repo with deterministic James↔Bono sync verified by `cgp-distribution-probe.js`.
+
+**Source:** `~/.claude/projects/C--Users-bono/memory/project_workspace_restructure.md`
+**Requirements:** `.planning/REQUIREMENTS-v52.md`
+**Phases:** 393-408 (see `.planning/ROADMAP.md` v52.0 section)
+
+**Target features:**
+- Single canonical repo for hooks, scripts, memory files, tests, bootstrap, sync tooling
+- Deterministic James↔Bono parity verified by `cgp-distribution-probe.js` (binary phase-close gate)
+- ARCHITECTURE.md + CONVENTIONS.md answering "where does a new X go?"
+- Secrets boundary preserved (`.env`, keys NEVER in auto-push repo)
+- Bootstrap-new-machine script replaces manual copy from `claude-code-bootstrap/`
+- Per-hook test fixtures under `workspace/tests/`
+
+**Core non-negotiable success criterion:**
+> `cgp-distribution-probe.js` must show 100% parity on cross-platform hooks between James and Bono VPS before every phase is closed. This is the ONLY gate that proves James+Bono are in sync.
+
+**Runs parallel to v49.0** (not blocking). Tracked separately because scope is Claude-side infra, not racecontrol product code.
+
+---
+
 ## Current Milestone: v48.0 Codebase Architecture — Department-Driven Event Mesh
 
 **Started:** 2026-04-13
