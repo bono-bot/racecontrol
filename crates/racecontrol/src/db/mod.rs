@@ -34,9 +34,22 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
     // cloud sync) alongside the single SQLite writer. 10 connections = headroom for 8 pods'
     // dashboard queries + admin + POS without pool exhaustion. Writes are still serialized
     // by SQLite's single-writer — more connections help reads, not writes.
+    //
+    // C1 (ops-audit 2026-04-16): PRAGMA foreign_keys is PER-CONNECTION in SQLite. Running it
+    // once on the pool only affects one connection; the other 9 pool connections silently
+    // operate with FK OFF. Fix: after_connect hook runs the PRAGMAs on every new connection
+    // the pool opens. Journal mode / busy timeout / sync are also per-connection and repeated
+    // here for defense-in-depth, even though journal_mode=WAL is database-global once set.
     let pool = SqlitePoolOptions::new()
         .max_connections(10)
         .max_lifetime(std::time::Duration::from_secs(300))
+        .after_connect(|conn, _meta| Box::pin(async move {
+            sqlx::query("PRAGMA foreign_keys=ON").execute(&mut *conn).await?;
+            sqlx::query("PRAGMA journal_mode=WAL").execute(&mut *conn).await?;
+            sqlx::query("PRAGMA busy_timeout=5000").execute(&mut *conn).await?;
+            sqlx::query("PRAGMA synchronous=NORMAL").execute(&mut *conn).await?;
+            Ok(())
+        }))
         .connect(&url)
         .await?;
 
