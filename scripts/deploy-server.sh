@@ -174,9 +174,10 @@ pass "Downloaded to server (${REMOTE_SIZE} bytes)"
 if [ -n "$LOCAL_SHA256" ]; then
     info "Verifying SHA256 on server..."
     REMOTE_HASH=$(curl -s --max-time 30 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"certutil -hashfile C:/RacingPoint/racecontrol-new.exe SHA256 | findstr /v hash | findstr /v Cert"}' 2>/dev/null || echo "")
-    REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d '[:space:]' | head -c 64)
+    REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d ' \t\r\n' | grep -oE '[a-fA-F0-9]{64}' | head -1 | tr 'A-F' 'a-f')
     if [ -n "$REMOTE_HASH" ] && [ "$LOCAL_SHA256" != "$REMOTE_HASH" ]; then
         fail "SHA256 mismatch! Local=${LOCAL_SHA256:0:12}... Remote=${REMOTE_HASH:0:12}... — binary corrupted during transfer."
     elif [ -n "$REMOTE_HASH" ]; then
