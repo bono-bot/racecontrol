@@ -656,6 +656,22 @@ pub async fn run(
                                 if stable_since.elapsed() >= Duration::from_secs(1) {
                                     state.ac_status_stable_since = None;
 
+                                    // ZERO-LAPS FIX (2026-04-15, PoE on Pod 8):
+                                    // Unconditional trace of state-machine inputs so future
+                                    // debugging has ground-truth visibility. Evidence from iter 3
+                                    // on commit a6e2e026 in worktree: `ZL-SKIP-ARM` at T+3s,
+                                    // `ZL-STABLE: status=Live` at T+5s, 994s driving survival vs
+                                    // 27s kill baseline on unpatched 1136fd1a.
+                                    // Rule: feedback_diagnostic_logs_on_state_machine_fix.md
+                                    let _zl_live = matches!(conn.launch_state, LaunchState::Live);
+                                    tracing::info!(
+                                        target: LOG_TARGET,
+                                        "ZL-STABLE: status={:?} exit_grace_armed={} launch_state_is_live={}",
+                                        status,
+                                        conn.exit_grace_armed,
+                                        _zl_live
+                                    );
+
                                     if status == AcStatus::Live {
                                         // AC False-Live guard (BILL-01/02): AC reports Live during menus/replays.
                                         // Require speed > 0 OR |steer| > 0.02 within 5s before billing starts.
@@ -702,12 +718,26 @@ pub async fn run(
                                         // Off: clear False-Live guard, arm 30s grace timer
                                         conn.ac_live_since = None;
                                         conn.ac_live_has_input = false;
+                                        // ZERO-LAPS FIX STRATEGY B (2026-04-15, Pod 8 canary verified):
+                                        // Only arm the exit-grace timer if we've already seen Live.
+                                        // The initial Off during AC's asset load (CSP shaders, track
+                                        // splines, car physics LUTs) is a LOADING signal — not an
+                                        // exit signal. Before this gate, the timer armed at T+3s,
+                                        // fired at T+33s, and killed playable sessions regardless
+                                        // of whether AC had since reached Live. Gating on
+                                        // launch_state::Live means we only treat Off as "game exiting"
+                                        // after confirming the game actually started.
+                                        // Evidence: iters 0-2 on 1136fd1a all died at 27-28s;
+                                        // iter 3 on commit a6e2e026 ran 994s without kill.
                                         // EXIT-GRACE-GUARD-1/2: verified — crash recovery blocks exit grace (RECOVER-07)
-                                        if !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
-                                            tracing::info!(target: LOG_TARGET, "AcStatus::Off detected — arming 30s exit grace timer (AC)");
+                                        let in_live = matches!(conn.launch_state, LaunchState::Live);
+                                        if in_live && !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
+                                            tracing::info!(target: LOG_TARGET, "AcStatus::Off detected (post-Live) — arming 30s exit grace timer (AC)");
                                             conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
                                             conn.exit_grace_armed = true;
                                             conn.exit_grace_sim_type = Some(rc_common::types::SimType::AssettoCorsa);
+                                        } else if !in_live {
+                                            tracing::info!(target: LOG_TARGET, "ZL-SKIP-ARM: AcStatus::Off detected but launch_state is not Live yet — not arming grace timer");
                                         }
                                     } else {
                                         // Other statuses (e.g. Pause): send immediately
