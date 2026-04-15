@@ -230,9 +230,18 @@ info "Swapping binary..."
 SWAP=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe & echo SWAPPED"}' 2>/dev/null || echo "")
+    -d '{"cmd":"move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe && echo SWAPPED || echo SWAP_FAILED_EL=!errorlevel!"}' 2>/dev/null || echo "")
 if ! echo "$SWAP" | grep -q "SWAPPED"; then
-    fail "Swap failed: $SWAP"
+    fail "Swap failed (likely file lock from respawned racecontrol.exe): $SWAP"
+fi
+# Post-swap sanity: verify racecontrol.exe on disk now matches the staged SHA256
+SWAP_VERIFY=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"certutil -hashfile C:/RacingPoint/racecontrol.exe SHA256"}' 2>/dev/null || echo "")
+POST_SWAP_SHA256=$(echo "$SWAP_VERIFY" | grep -oE '[a-f0-9]{64}' | head -1)
+if [ -n "$LOCAL_SHA256" ] && [ -n "$POST_SWAP_SHA256" ] && [ "$LOCAL_SHA256" != "$POST_SWAP_SHA256" ]; then
+    fail "Post-swap SHA256 mismatch: on-disk=${POST_SWAP_SHA256:0:16}... local=${LOCAL_SHA256:0:16}... — swap silently failed or was reverted by respawner"
 fi
 pass "Binary swapped (rollback: racecontrol-prev.exe)"
 
