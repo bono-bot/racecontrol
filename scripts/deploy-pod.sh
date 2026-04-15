@@ -25,6 +25,18 @@ SERVE_PORT=18889
 BINARY_DIR="${BINARY_DIR:-$(cd "${SCRIPT_DIR}/../racingpoint/deploy-staging" 2>/dev/null && pwd || echo "$HOME/racingpoint/deploy-staging")}"
 BINARY_DIR="${BINARY_DIR:-$HOME/racingpoint/deploy-staging}"
 
+# SEC-EXEC-02: rc-sentry /exec requires X-Service-Key header. Must be the pod's
+# current RCSENTRY_SERVICE_KEY env var value. /ping is public and does NOT need it.
+# Pod-fleet current key (as of 2026-04-15 audit): 478a3688339737fb5945f9b89d8bb533f2569fe0b1fea46b504656eee455b9ab
+# Override with: SENTRY_KEY="..." ./deploy-pod.sh ...
+SENTRY_KEY="${SENTRY_KEY:-}"
+if [ -z "$SENTRY_KEY" ]; then
+    echo "ERROR: SENTRY_KEY env var not set. Export the pod rc-sentry service key before running."
+    echo "  Discover it via: ssh User@<pod_tailscale_ip> 'set RCSENTRY_SERVICE_KEY'"
+    exit 1
+fi
+AUTH_HEADER="X-Service-Key: ${SENTRY_KEY}"
+
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 pass() { echo -e "  ${GREEN}OK${NC}    $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}  $1"; FAILURES=$((FAILURES+1)); }
@@ -107,6 +119,7 @@ deploy_pod() {
     # Download
     info "$POD_NAME: Downloading rc-agent.exe..."
     DL=$(curl -s --max-time 120 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d "{\"cmd\":\"curl -s -o C:/RacingPoint/rc-agent-new.exe http://${JAMES_IP}:${SERVE_PORT}/rc-agent.exe && for %f in (C:/RacingPoint/rc-agent-new.exe) do echo SIZE=%~zf\"}" 2>/dev/null || echo "")
     DL_SIZE=$(echo "$DL" | grep -oP 'SIZE=\K[0-9]+' || echo "0")
@@ -119,6 +132,7 @@ deploy_pod() {
     # SHA256 verification: compare staged binary hash with downloaded binary on pod
     info "$POD_NAME: Verifying SHA256..."
     REMOTE_HASH=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"certutil -hashfile C:/RacingPoint/rc-agent-new.exe SHA256 | findstr /v hash | findstr /v Cert"}' 2>/dev/null || echo "")
     REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d '[:space:]' | head -c 64)
@@ -126,6 +140,7 @@ deploy_pod() {
         fail "$POD_NAME: SHA256 mismatch! Local=${LOCAL_SHA256:0:12}... Remote=${REMOTE_HASH:0:12}..."
         # Clean up bad download
         curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "$AUTH_HEADER" \
             -H "Content-Type: application/json" \
             -d '{"cmd":"del C:/RacingPoint/rc-agent-new.exe 2>nul"}' > /dev/null 2>&1
         return
@@ -138,6 +153,7 @@ deploy_pod() {
     # Clear sentinel files before deploy (PP-06: MAINTENANCE_MODE blocks pods silently)
     info "$POD_NAME: Clearing sentinel files..."
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH C:\\RacingPoint\\rcagent-restart-sentinel.txt 2>nul & echo CLEARED"}' > /dev/null 2>&1
 
@@ -145,12 +161,14 @@ deploy_pod() {
     # Sentinel auto-expires after 10 min — watchdogs must check file age, not just existence
     OTA_EPOCH=$(date +%s)
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d "{\"cmd\":\"echo ${OTA_EPOCH} > C:\\\\RacingPoint\\\\OTA_DEPLOYING & echo SENTINEL_SET\"}" > /dev/null 2>&1
 
     # Stop rc-agent (kill bat wrapper first to prevent auto-relaunch, then kill process)
     info "$POD_NAME: Stopping rc-agent..."
     curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"taskkill /F /FI \"WINDOWTITLE eq RC*Agent*\" 2>nul & taskkill /F /IM rc-agent.exe 2>nul & echo KILLED"}' > /dev/null 2>&1
     sleep 3
@@ -158,11 +176,13 @@ deploy_pod() {
     # Preserve rollback binary before swap
     info "$POD_NAME: Preserving rollback binary..."
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"if exist C:\\RacingPoint\\rc-agent.exe (copy /Y C:\\RacingPoint\\rc-agent.exe C:\\RacingPoint\\rc-agent-prev.exe >nul & echo PRESERVED) else (echo SKIP)"}' > /dev/null 2>&1
 
     # Swap
     SWAP=$(curl -s --max-time 15 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"move /Y C:/RacingPoint/rc-agent-new.exe C:/RacingPoint/rc-agent.exe & echo SWAPPED"}' 2>/dev/null || echo "")
     if ! echo "$SWAP" | grep -q "SWAPPED"; then
@@ -175,6 +195,7 @@ deploy_pod() {
     if [ -f "${BINARY_DIR}/start-rcagent.bat" ]; then
         local BAT_DL
         BAT_DL=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "$AUTH_HEADER" \
             -H "Content-Type: application/json" \
             -d "{\"cmd\":\"curl -s -o C:/RacingPoint/start-rcagent.bat http://${JAMES_IP}:${SERVE_PORT}/start-rcagent.bat & echo BAT_SYNCED\"}" 2>/dev/null || echo "")
         if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
@@ -185,6 +206,7 @@ deploy_pod() {
     fi
     if [ -f "${BINARY_DIR}/start-rcsentry.bat" ]; then
         BAT_DL=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+            -H "$AUTH_HEADER" \
             -H "Content-Type: application/json" \
             -d "{\"cmd\":\"curl -s -o C:/RacingPoint/start-rcsentry.bat http://${JAMES_IP}:${SERVE_PORT}/start-rcsentry.bat & echo BAT_SYNCED\"}" 2>/dev/null || echo "")
         if echo "$BAT_DL" | grep -q "BAT_SYNCED"; then
@@ -196,6 +218,7 @@ deploy_pod() {
 
     # Start
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"start \"rc-agent\" C:/RacingPoint/start-rcagent.bat & echo STARTED"}' > /dev/null 2>&1
 
@@ -216,11 +239,13 @@ deploy_pod() {
 
     # Clear OTA_DEPLOYING sentinel (F15)
     curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"del /Q C:\\RacingPoint\\OTA_DEPLOYING 2>nul & echo OTA_CLEARED"}' > /dev/null 2>&1
 
     # Verify Session 1 context (PP-01: Session 0 kills all GUI)
     SESSION_CHECK=$(curl -s --max-time 10 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+        -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
         -d '{"cmd":"tasklist /V /FO CSV | findstr rc-agent"}' 2>/dev/null || echo "")
     if echo "$SESSION_CHECK" | grep -qi "services"; then
