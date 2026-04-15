@@ -1,0 +1,55 @@
+total 120
+drwxr-xr-x  2 root root  4096 Apr 14 13:27 .
+drwxr-xr-x 25 root root 20480 Apr 15 21:49 ..
+-rwxr-xr-x  1 root root   975 Apr  4 01:23 cgp-cleanup.js
+-rwxr-xr-x  1 root root  3398 Apr  4 01:23 cgp-enforce.js
+-rwxr-xr-x  1 root root  4516 Apr  4 01:23 cgp-session-inject.js
+-rwxr-xr-x  1 root root  5368 Apr 12 21:40 gsd-check-update.js
+-rwxr-xr-x  1 root root  6362 Apr 12 21:40 gsd-context-monitor.js
+-rwxr-xr-x  1 root root  1197 Apr 12 21:40 gsd-phase-boundary.sh
+-rwxr-xr-x  1 root root  3490 Apr 12 21:40 gsd-prompt-guard.js
+-rwxr-xr-x  1 root root  2675 Apr 12 21:40 gsd-read-guard.js
+-rwxr-xr-x  1 root root  1090 Apr 12 21:40 gsd-session-state.sh
+-rwxr-xr-x  1 root root  5274 Apr 12 21:40 gsd-statusline.js
+-rwxr-xr-x  1 root root  2059 Apr 12 21:40 gsd-validate-commit.sh
+-rwxr-xr-x  1 root root  3353 Apr 12 21:40 gsd-workflow-guard.js
+-rwxr-xr-x  1 root root  1748 Apr  4 01:23 memory-commit-reminder.js
+-rwxr-xr-x  1 root root  4559 Apr  3 17:38 memory-staleness-check.js
+-rwxr-xr-x  1 root root  6679 Apr 14 13:27 partner-memory-live.js
+-rwxr-xr-x  1 root root  4763 Apr 14 13:04 partner-memory-push.js
+-rwxr-xr-x  1 root root  3545 Apr 14 13:04 partner-memory-read.js
+---SHAS---
+968f0a8d1bfaacb9b163c1e33aec4e17451e7a05158c1867419fc9e9ad236a27  /root/.claude/hooks/cgp-cleanup.js
+/root/.claude/hooks/cgp-cleanup.js 975 1775246023
+1dcc3ed899c544c17e8d163b7734c1bdc8c81978511bd4bef922dd4a11cd0d9e  /root/.claude/hooks/cgp-enforce.js
+/root/.claude/hooks/cgp-enforce.js 3398 1775246021
+6c0873c35be64649dca6b55adb3fde402b334a201459695ad601028bd10a1f72  /root/.claude/hooks/cgp-session-inject.js
+/root/.claude/hooks/cgp-session-inject.js 4516 1775246022
+373450862734fee2baeea6cfc379033132dbc84801a16a3b8494e2aba7165bca  /root/.claude/hooks/gsd-check-update.js
+/root/.claude/hooks/gsd-check-update.js 5368 1776010239
+d1c175836437d14a82bc93fcc90b42f9a573e491d3f2b119f2f6b2710b240cf2  /root/.claude/hooks/gsd-context-monitor.js
+/root/.claude/hooks/gsd-context-monitor.js 6362 1776010239
+6e15fd4919ac91bb9e5d6f810b0f788ed5eba125821d283a99d25c9ec411d7aa  /root/.claude/hooks/gsd-phase-boundary.sh
+/root/.claude/hooks/gsd-phase-boundary.sh 1197 1776010239
+c20524c50188ff7702314e8f80364fd84edb65ff03a9f2ed2a47fca9f11f8e28  /root/.claude/hooks/gsd-prompt-guard.js
+/root/.claude/hooks/gsd-prompt-guard.js 3490 1776010239
+5d57fa3835f4f41c68cd8c80c1cc0acab8a50dd9d99d92f19981c5062d0d26f2  /root/.claude/hooks/gsd-read-guard.js
+/root/.claude/hooks/gsd-read-guard.js 2675 1776010239
+1b8fa8cdcac0e2b7364543bd3b937ca4a2e5aa8253a5754efd0ee836b0946cf9  /root/.claude/hooks/gsd-session-state.sh
+/root/.claude/hooks/gsd-session-state.sh 1090 1776010239
+32ecf694a42ae89e9895bfb57fe93e989ecd59011d33da9f98300ecfe756127c  /root/.claude/hooks/gsd-statusline.js
+/root/.claude/hooks/gsd-statusline.js 5274 1776010239
+1faac54d5fba92a5475cb2fa7787cdf68dcf26a7d596a0d3d2fe7af003166a75  /root/.claude/hooks/gsd-validate-commit.sh
+/root/.claude/hooks/gsd-validate-commit.sh 2059 1776010239
+d21c7f7b6a0d007d3d4feeb358d3240fdf47cfe80a81c230b1562b03d534cde2  /root/.claude/hooks/gsd-workflow-guard.js
+/root/.claude/hooks/gsd-workflow-guard.js 3353 1776010239
+194075368ca45eb73748a286a0a12663e48d8bad23e03db080cf33289b147966  /root/.claude/hooks/memory-commit-reminder.js
+/root/.claude/hooks/memory-commit-reminder.js 1748 1775246024
+e01ec716e9f3d673858189a45d31974f864868fda58f1bff5a6c775a442db73e  /root/.claude/hooks/memory-staleness-check.js
+/root/.claude/hooks/memory-staleness-check.js 4559 1775218083
+bb368eef054286cb523da0479d65cc3de2554ff3835f57abe8be6bf718481d66  /root/.claude/hooks/partner-memory-live.js
+/root/.claude/hooks/partner-memory-live.js 6679 1776153477
+da655747f288bd8fb7e303b5556f0eaf49c682d19cecc8b29ec88fad7b8bb405  /root/.claude/hooks/partner-memory-push.js
+/root/.claude/hooks/partner-memory-push.js 4763 1776152091
+1fc2dc6be1a50edd733be621ed81380b863458d938ca3fce43bd8eda4f4ead57  /root/.claude/hooks/partner-memory-read.js
+/root/.claude/hooks/partner-memory-read.js 3545 1776152091

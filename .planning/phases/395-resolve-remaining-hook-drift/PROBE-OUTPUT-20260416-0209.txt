@@ -1,0 +1,87 @@
+=== CGP Distribution Probe ===
+Timestamp: 2026-04-15T20:39:50.045Z
+
+[James] enumerating... 27 files
+[Bono VPS] enumerating... 17 files
+[Bootstrap/vps] enumerating... 5 files
+[Bootstrap/win] enumerating... 5 files
+
+=== Comparison (size in bytes, "--" = missing) ===
+Hook                               | James          | Bono VPS       | Bootstrap/vps  | Bootstrap/win 
+------------------------------------------------------------------------------------------------------
+backlog-enforce.js                 | 5085b          | --             | --             | --            
+build-solutions-index.js           | 6927b          | --             | --             | --            
+capability-scan.js                 | 3750b          | --             | --             | --            
+cgp-cleanup.js                     | 975b           | 975b           | 975b           | 975b          
+cgp-enforce.js                     | 3440b          | 3398b          | 3440b          | 3440b         
+cgp-session-inject.js              | 7027b          | 4516b          | 6914b          | 6914b         
+g9-auto-detect.js                  | 5284b          | --             | 5284b          | 5284b         
+g9-session-end.js                  | 3300b          | --             | --             | --            
+g9-startup-check.js                | 2581b          | --             | --             | --            
+git-partner-check.js               | 4678b          | --             | --             | --            
+gsd-check-update.js                | 4310b          | 5368b          | --             | --            
+gsd-context-monitor.js             | 6051b          | 6362b          | --             | --            
+gsd-phase-boundary.sh              | --             | 1197b          | --             | --            
+gsd-prompt-guard.js                | 3438b          | 3490b          | --             | --            
+gsd-read-guard.js                  | --             | 2675b          | --             | --            
+gsd-session-state.sh               | --             | 1090b          | --             | --            
+gsd-statusline.js                  | 4704b          | 5274b          | --             | --            
+gsd-validate-commit.sh             | --             | 2059b          | --             | --            
+gsd-workflow-guard.js              | 3357b          | 3353b          | --             | --            
+memory-commit-reminder.js          | 1748b          | 1748b          | --             | --            
+memory-staleness-check.js          | 4503b          | 4559b          | --             | --            
+partner-memory-live.js             | 6679b          | 6679b          | --             | --            
+partner-memory-push.js             | 4763b          | 4763b          | --             | --            
+partner-memory-read.js             | 3545b          | 3545b          | --             | --            
+phase-gap-check.js                 | 3547b          | --             | --             | --            
+pre-flight-file-read.js            | 5266b          | --             | 5266b          | 5266b         
+screenshot-enforce.js              | 7665b          | --             | --             | --            
+secret-redact.js                   | 3176b          | --             | --             | --            
+self-audit-inject.js               | 4416b          | --             | --             | --            
+solutions-lookup.js                | 2787b          | --             | --             | --            
+token-budget-alert.js              | 2903b          | --             | --             | --            
+
+=== Summary ===
+Parity: 7 | Drift: 8 | Only-on-one-target: 16
+
+DRIFT (same name, different sizes — investigate):
+  cgp-enforce.js -> James:3440 Bono VPS:3398 Bootstrap/vps:3440 Bootstrap/win:3440
+  cgp-session-inject.js -> James:7027 Bono VPS:4516 Bootstrap/vps:6914 Bootstrap/win:6914
+  gsd-check-update.js -> James:4310 Bono VPS:5368 Bootstrap/vps:-- Bootstrap/win:--
+  gsd-context-monitor.js -> James:6051 Bono VPS:6362 Bootstrap/vps:-- Bootstrap/win:--
+  gsd-prompt-guard.js -> James:3438 Bono VPS:3490 Bootstrap/vps:-- Bootstrap/win:--
+  gsd-statusline.js -> James:4704 Bono VPS:5274 Bootstrap/vps:-- Bootstrap/win:--
+  gsd-workflow-guard.js -> James:3357 Bono VPS:3353 Bootstrap/vps:-- Bootstrap/win:--
+  memory-staleness-check.js -> James:4503 Bono VPS:4559 Bootstrap/vps:-- Bootstrap/win:--
+
+ONLY-ON-ONE-TARGET (intentional for James-only tooling, flag unexpected):
+  backlog-enforce.js
+  build-solutions-index.js
+  capability-scan.js
+  g9-session-end.js
+  g9-startup-check.js
+  git-partner-check.js
+  gsd-phase-boundary.sh
+  gsd-read-guard.js
+  gsd-session-state.sh
+  gsd-validate-commit.sh
+  phase-gap-check.js
+  screenshot-enforce.js
+  secret-redact.js
+  self-audit-inject.js
+  solutions-lookup.js
+  token-budget-alert.js
+
+=== Phase 395 Fresh Probe Header ===
+IST timestamp: 2026-04-16 02:09 IST
+James-side file count: 27
+Bono-side file count: 17
+Intersection: 13
+Union count: 31 (27 + 4 Bono-only)
+Drifted files: 8 (6 known from 394 SUMMARY + cgp-enforce + cgp-session-inject)
+New drift beyond known 6: NONE
+CGP files still drifted: expected per D-35 (no disk writes by 394)
+D-28 halt check: NOT TRIGGERED (no new drift, CGP drift is pre-existing and resolved in memory only)
+
+James-only (14): backlog-enforce.js, build-solutions-index.js, capability-scan.js, g9-auto-detect.js, g9-session-end.js, g9-startup-check.js, git-partner-check.js, phase-gap-check.js, pre-flight-file-read.js, screenshot-enforce.js, secret-redact.js, self-audit-inject.js, solutions-lookup.js, token-budget-alert.js
+Bono-only (4): gsd-phase-boundary.sh, gsd-read-guard.js, gsd-session-state.sh, gsd-validate-commit.sh
