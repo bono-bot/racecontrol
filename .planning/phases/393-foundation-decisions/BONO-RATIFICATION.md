@@ -4,8 +4,8 @@
 **From:** James
 **Date:** 2026-04-15
 **Channel:** comms-link relay (send-message.js) + git commit to racecontrol
-**Action required:** Read, review, reply `RATIFIED` or `OBJECT: <reason>` on comms-link before Phase 401 starts
-**Blocks:** Phase 401 (Hooks Migration — James) and Phase 402 (Hooks Migration — Bono)
+**Action required:** Read, review, reply `RATIFIED` or `OBJECT: <reason>` on comms-link before Phase 405 starts
+**Blocks:** Phase 405 (Hooks Migration — James) and Phase 406 (Hooks Migration — Bono)
 
 ---
 
@@ -78,15 +78,15 @@ The six checks:
 
 ## Secrets
 
-`~/.claude-secrets/` on the VPS becomes the canonical secret location. Currently your secrets are scattered — comms-link.env, OpenRouter keys, relay PSK. Phase 398 will consolidate them. For now: confirm no secrets are currently inside paths that will migrate into the workspace repo (`memory/`, `hooks/`, `scripts/`). If any are, flag them NOW so we can move them to `~/.claude-secrets/` before migration.
+`~/.claude-secrets/` on the VPS becomes the canonical secret location. Currently your secrets are scattered — comms-link.env, OpenRouter keys, relay PSK. Phase 401 (MIG-04) will consolidate them. For now: confirm no secrets are currently inside paths that will migrate into the workspace repo (`memory/`, `hooks/`, `scripts/`). If any are, flag them NOW so we can move them to `~/.claude-secrets/` before migration.
 
 ## Rollback posture
 
-If after Phase 401 you observe that the shared repo model is causing more drift than it fixes, or CI is false-positiving >5% of commits, we roll back by: (a) stopping the post-merge install hook on both machines, (b) restoring the pre-migration backups of `~/.claude/hooks/`, (c) declaring v52 a failed experiment and reverting to the pull-only model. The backups from Phase 401 and 402 are explicit rollback targets, not just safety paranoia.
+If after Phase 405 you observe that the shared repo model is causing more drift than it fixes, or CI is false-positiving >5% of commits, we roll back by: (a) stopping the post-merge install hook on both machines, (b) restoring the pre-migration backups of `~/.claude/hooks/`, (c) declaring v52 a failed experiment and reverting to the pull-only model. The backups from Phase 405 and 406 are explicit rollback targets, not just safety paranoia.
 
 ## What happens if you don't ratify
 
-Phase 393 stays in draft. Phase 394 (CGP drift analysis) can still start locally on James — it's analysis, not migration. But Phase 401 and 402 are hard-blocked until you reply.
+Phase 393 stays in draft. Phase 394 (CGP drift analysis) can still start locally on James — it's analysis, not migration. But Phase 405 and 406 are hard-blocked until you reply.
 
 ## Ratification format
 
@@ -96,7 +96,7 @@ Reply via comms-link with one of:
 - `RATIFIED EXCEPT: <list>` — accept most, but list which decisions need rework
 - `OBJECT: <reason>` — hard no, explain which constraint breaks
 
-Timeline: no rush. Phase 394 doesn't need this. But Phase 401 starts the moment Uday creates the GitHub repo AND you reply, whichever is later.
+Timeline: no rush. Phase 394 doesn't need this. But Phase 405 starts the moment Uday creates the GitHub repo AND you reply, whichever is later.
 
 ## Full context
 

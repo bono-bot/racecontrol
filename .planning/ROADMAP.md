@@ -1961,54 +1961,69 @@ Wave 1: Deploy & Verify (383)
 4. No Claude session needs to ask "where should I put this script?"
 5. Drift cannot accumulate silently because `verify-parity.sh` runs pre-commit
 
-### Phases (393 → 408)
+### Phases (393 → 412)
+
+Restructured 2026-04-16 based on decisions locked in Phase 393 (8 foundation decisions) and Phase 394 (superset-wins canonical files + deferred drift). Key changes from initial 16-phase plan: split FND-02 (drift) across 394/395, split FND-04 (skeleton) across 397/398, added MIG-04 (secrets boundary per D-6) and MIG-05 (agents+commands per D-8), broke out Uday repo-creation gate + CI workflow as explicit phase 397. Net: +4 phases (20 total).
 
 | # | Phase | Reqs | Goal |
 |---|---|---|---|
-| 393 | Foundation Decisions | FND-01 | Answer 8 open questions: repo name, init strategy, secret boundary, Bono authority, bootstrap fate, CI, session state, subagent audit |
-| 394 | 1/1 | Complete    | 2026-04-15 |
-| 395 | Write Architecture Docs | FND-03 | `ARCHITECTURE.md` + `CONVENTIONS.md` — the rules the migration follows |
-| 396 | Init Workspace Skeleton | FND-04 | Create workspace repo + auto-push + `.gitignore` blocking secrets; verify probe runs from skeleton |
-| 397 | Migrate Scripts/Probes | MIG-01 | Move `memory/scripts/cgp-distribution-probe.js` → `workspace/scripts/`; update references |
-| 398 | Migrate Memory Files | MIG-02 | Dry-run branch; move `memory/*.md`; update auto-memory path in global CLAUDE.md in same commit |
-| 399 | Hook Tests Fixtures | MIG-03 | Create `workspace/tests/` with per-hook test fixtures; pre-flight-file-read 4-case test first |
-| 400 | Sync Tooling | HOOK-01 | Write `install-hooks.sh` + `verify-parity.sh`; test on Git Bash and bash |
-| 401 | Hooks Migration — James | HOOK-02 | Backup; split cross-platform/windows-only/linux-only; install on James; probe green |
-| 402 | Hooks Migration — Bono | HOOK-03 | Backup Bono hooks; Bono pulls + runs `install-hooks.sh`; per-file decision for any new drift |
-| 403 | Parity Verification Gate | HOOK-04 | Cross-machine probe run — James + Bono + bootstrap all show 100% parity on cross-platform. THIS PHASE IS THE SYNC PROOF. |
-| 404 | Settings Migration | CLN-01 | Extract `workspace/settings/base.json`; machine-specific `settings.local.json`; `install-settings.sh` merge logic |
-| 405 | Bootstrap Consolidation | CLN-02 | Move `claude-code-bootstrap/` → `workspace/bootstrap/`; update onboarding docs; delete old dir |
-| 406 | Protocol Doc Pointers | CLN-03 | Decide pointer vs cached copy for CGP.md / MMA.md; update all CLAUDE.md references to canonical location |
-| 407 | Decommission Old Paths | CLN-04 | Remove `claude-code-bootstrap/`; archive old memory git history as tag; update `docs/ARCHITECTURE.md` |
-| 408 | Milestone Close | CLN-05 | Final parity audit; `MIGRATION-LOG.md`; Bono sign-off via comms-link; close v52.0 |
+| 393 | Foundation Decisions | FND-01 | 8 decisions locked: repo (`workspace` under Uday GitHub), layout (typed folders), branch model (main + wip/*, squash-merge, 24h GC), install model (copy not symlink), CI gate (6 checks), secrets (`~/.claude-secrets/` NEW), session state (outside repo), agents+commands (join workspace) |
+| 394 | Resolve CGP Drift (superset files) | FND-02a | Canonicalize `cgp-enforce.js` + `cgp-session-inject.js` per-hunk via James superset-wins; memory-only, no disk writes. **✓ COMPLETE 2026-04-15** |
+| 395 | Resolve Remaining Hook Drift + Classify Single-Machine Hooks | FND-02b | Canonicalize 6 deferred drifted files (gsd-check-update, gsd-context-monitor, gsd-prompt-guard, gsd-statusline, gsd-workflow-guard, memory-staleness-check); classify 16 James-only + 4 Bono-only hooks into cross-platform / windows-only / linux-only buckets. Produces the manifest Phase 404 install.sh consumes. |
+| 396 | Architecture + Conventions Docs | FND-03 | Formalize `ARCHITECTURE.md` + `CONVENTIONS.md` from 393 drafts. Every convention names its mechanical enforcer or gets deleted. |
+| 397 | Uday Repo Gate + CI Workflow + Pre-commit | FND-04a | **HUMAN GATE:** verify Uday created `workspace` repo under his GitHub account + added `james-racingpoint` + `bono-racingpoint` as push collaborators. Then write `.github/workflows/ci.yml` (6 checks from D-5) and `sync/pre-commit` (secret scan blocklist). |
+| 398 | Init Workspace Skeleton | FND-04b | Clone fresh `workspace` repo; write `.gitignore` (.env, secrets, session state); commit skeleton; run `cgp-distribution-probe.js` from skeleton → must be green on empty state before any migration. |
+| 399 | Migrate Scripts/Probes | MIG-01 | Move `memory/scripts/cgp-distribution-probe.js` + `openrouter-key-recovery.js` → `workspace/scripts/`; grep-update every reader. |
+| 400 | Migrate Memory + Create memory/INDEX.md | MIG-02 | Dry-run branch; move `memory/*.md` → `workspace/memory/`; create `memory/INDEX.md` (CI check #6 enforces orphan-free); update auto-memory path in global CLAUDE.md in same commit. |
+| 401 | Secrets Boundary Migration → ~/.claude-secrets/ | MIG-04 | Per D-6: move `comms-link.env`, OpenRouter keys, PSK, relay keys from `~/.claude/` into `~/.claude-secrets/` on BOTH James and Bono; grep-update every reader; verify `.gitignore` + pre-commit blocklist prevent re-drift. |
+| 402 | Migrate Agents + Slash Commands | MIG-05 | Per D-8: move `~/.claude/agents/` → `workspace/agents/` and `~/.claude/commands/` → `workspace/commands/`; update install.sh manifest to cover both. |
+| 403 | Hook Tests Fixtures | MIG-03 | Per-hook fixtures in `workspace/tests/`: pre-flight-file-read 4-case, g9-auto-detect, backlog-enforce, cgp-enforce, cgp-session-inject. Built from 394+395 canonical text. |
+| 404 | Sync Tooling: install.sh + verify-parity.sh | HOOK-01 | Consumes 395 classification manifest. Idempotent copy from workspace → `~/.claude/`. Tests on Git Bash (Windows) AND bash (Linux). Triggers from post-merge git hook. |
+| 405 | Hooks Migration — James | HOOK-02 | Backup `~/.claude/hooks/` → `.backup-v52/`; run `sync/install.sh` from workspace; probe 100% parity on cross-platform. |
+| 406 | Hooks Migration — Bono + Offline Bare Mirror | HOOK-03 | Bono backs up own hooks, pulls workspace, runs install.sh. Set up `bono-vps:/root/workspace-mirror.git` bare mirror + post-receive hook per D-1 offline fallback. |
+| 407 | Parity Verification Gate | HOOK-04 | Cross-machine probe run: James + Bono + fresh bootstrap clone all show 100% parity on cross-platform hooks. **THIS PHASE IS THE SYNC PROOF.** |
+| 408 | Settings Migration | CLN-01 | Extract shared `workspace/settings/base.json`; per-machine `settings.local.json`; `install-settings.sh` merge logic that doesn't clobber local overrides. |
+| 409 | Bootstrap Consolidation | CLN-02 | Move `claude-code-bootstrap/{vps,windows}/` → `workspace/bootstrap/`. Update onboarding docs. (Agents/commands already migrated in 402 — this phase is JUST bootstrap scripts.) |
+| 410 | Protocol Doc Pointers | CLN-03 | Decide pointer vs cached copy for CGP.md / MMA.md; update all CLAUDE.md references to canonical workspace location. |
+| 411 | Decommission Old Paths | CLN-04 | Remove `claude-code-bootstrap/`; archive old memory git history as read-only tag; update `docs/ARCHITECTURE.md`. |
+| 412 | Milestone Close | CLN-05 | Final parity audit across James + Bono + fresh bootstrap; `MIGRATION-LOG.md`; Bono sign-off via comms-link; close v52.0. |
 
 ### Session Discipline
 
 **ONE phase per session, maximum.** Each session reads `memory/project_workspace_restructure.md` for context, reads the phase's PLAN.md for immediate work, executes, runs the probe, updates SUMMARY.md, writes a handoff naming the next phase's entry conditions, stops. Do not stack phases.
 
-### Bono Coordination (MUST happen before Phase 401)
+### Hard Blockers
 
-Before any hook migration, Bono partner AI needs to (1) review canonical decisions on drifted files, (2) acknowledge sync contract, (3) stage backup of its current hook set. Mechanism: decision doc committed to memory (auto-pushes to Bono backup) OR explicit comms-link message before Phase 401 kickoff.
+- **Phase 397 is a human gate:** Uday must create the `workspace` repo + add collaborators before 397 can close. 398+ blocked until 397 green.
+- **Phases 405-406 require Bono ratification** of the Phase 393 decisions (currently pending via comms-link INBOX `68d453f`). Without ratification, 405 (James hook migration) may proceed in read-only mode but 406 (Bono hook migration) cannot start.
+
+### Bono Coordination
+
+Before any hook migration (405+), Bono needs to (1) review canonical decisions on drifted files from 394+395, (2) acknowledge sync contract + decisions from 393, (3) stage backup of its current hook set. Mechanism: decision doc committed to memory (auto-pushes to Bono backup) + explicit comms-link ratification message before 405 kickoff.
 
 ### v52.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 393. Foundation Decisions | 0/TBD | Not started | - |
-| 394. Resolve CGP Drift | 0/TBD | Not started | - |
-| 395. Write Architecture Docs | 0/TBD | Not started | - |
-| 396. Init Workspace Skeleton | 0/TBD | Not started | - |
-| 397. Migrate Scripts/Probes | 0/TBD | Not started | - |
-| 398. Migrate Memory Files | 0/TBD | Not started | - |
-| 399. Hook Tests Fixtures | 0/TBD | Not started | - |
-| 400. Sync Tooling | 0/TBD | Not started | - |
-| 401. Hooks Migration — James | 0/TBD | Not started | - |
-| 402. Hooks Migration — Bono | 0/TBD | Not started | - |
-| 403. Parity Verification Gate | 0/TBD | Not started | - |
-| 404. Settings Migration | 0/TBD | Not started | - |
-| 405. Bootstrap Consolidation | 0/TBD | Not started | - |
-| 406. Protocol Doc Pointers | 0/TBD | Not started | - |
-| 407. Decommission Old Paths | 0/TBD | Not started | - |
-| 408. Milestone Close | 0/TBD | Not started | - |
+| 393. Foundation Decisions | 0/0 | Locked (awaiting Bono ratification) | 2026-04-15 (draft) |
+| 394. Resolve CGP Drift (superset files) | 1/1 | ✓ Complete | 2026-04-15 |
+| 395. Resolve Remaining Hook Drift + Classify | 0/TBD | Not started | - |
+| 396. Architecture + Conventions Docs | 0/TBD | Not started | - |
+| 397. Uday Repo Gate + CI Workflow + Pre-commit | 0/TBD | Blocked on Uday repo creation | - |
+| 398. Init Workspace Skeleton | 0/TBD | Blocked on 397 | - |
+| 399. Migrate Scripts/Probes | 0/TBD | Not started | - |
+| 400. Migrate Memory + INDEX.md | 0/TBD | Not started | - |
+| 401. Secrets Boundary Migration | 0/TBD | Not started | - |
+| 402. Migrate Agents + Slash Commands | 0/TBD | Not started | - |
+| 403. Hook Tests Fixtures | 0/TBD | Not started | - |
+| 404. Sync Tooling | 0/TBD | Not started | - |
+| 405. Hooks Migration — James | 0/TBD | Blocked on Bono ratification | - |
+| 406. Hooks Migration — Bono + Bare Mirror | 0/TBD | Blocked on 405 + Bono ratification | - |
+| 407. Parity Verification Gate | 0/TBD | Not started | - |
+| 408. Settings Migration | 0/TBD | Not started | - |
+| 409. Bootstrap Consolidation | 0/TBD | Not started | - |
+| 410. Protocol Doc Pointers | 0/TBD | Not started | - |
+| 411. Decommission Old Paths | 0/TBD | Not started | - |
+| 412. Milestone Close | 0/TBD | Not started | - |
 
-*v52.0 defined: 2026-04-15. Parallel to v49.0 (not blocking). Core gate: `cgp-distribution-probe.js` 100% parity on cross-platform hooks.*
+*v52.0 defined: 2026-04-15. Restructured 2026-04-16 (Option A: +4 phases for secrets/agents/repo-gate/drift-remainder). Parallel to v49.0 (not blocking). Core gate: `cgp-distribution-probe.js` 100% parity on cross-platform hooks.*

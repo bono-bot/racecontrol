@@ -28,16 +28,20 @@ Any requirement that breaks one of these is invalid.
 
 ### Foundation & Decisions (FND)
 
-- [ ] **FND-01**: Decide repo name, init strategy (rename memory repo vs fresh), secret boundary, Bono authority model (pull-only vs bidirectional)
-- [ ] **FND-02**: Resolve existing CGP drift on `cgp-enforce.js` and `cgp-session-inject.js` BEFORE canonical migration (do not migrate drift)
-- [ ] **FND-03**: Write `ARCHITECTURE.md` + `CONVENTIONS.md` — the rules the whole migration follows
-- [ ] **FND-04**: Initialize workspace repo skeleton with auto-push to Bono VPS + GitHub mirror, verify `.gitignore` blocks secrets
+- [x] **FND-01**: Decide repo name, init strategy (rename memory repo vs fresh), secret boundary, Bono authority model (pull-only vs bidirectional). **✓ Locked Phase 393 (2026-04-15):** `workspace` repo under Uday GitHub, bidirectional peer model, `~/.claude-secrets/` explicit, 6-check CI gate, squash-merge + 24h wip GC.
+- [x] **FND-02a**: Resolve existing CGP drift on `cgp-enforce.js` and `cgp-session-inject.js` (superset files). **✓ Complete Phase 394 (2026-04-15):** James superset-wins for both files. Canonical text in `memory/decision_cgp_drift_resolution.md`.
+- [ ] **FND-02b**: Resolve 6 remaining drifted hooks (gsd-check-update, gsd-context-monitor, gsd-prompt-guard, gsd-statusline, gsd-workflow-guard, memory-staleness-check) + classify 16 James-only + 4 Bono-only hooks into cross-platform / windows-only / linux-only buckets. Produces install.sh manifest.
+- [ ] **FND-03**: Write `ARCHITECTURE.md` + `CONVENTIONS.md` — the rules the whole migration follows. Every convention names its mechanical enforcer or gets deleted.
+- [ ] **FND-04a**: Uday repo creation gate (human action) + write `.github/workflows/ci.yml` with 6 checks (node --check, bash -n, parity probe, secret scan, file size, orphan check) + `sync/pre-commit` hook.
+- [ ] **FND-04b**: Clone fresh `workspace` repo; `.gitignore` blocks secrets + session state; commit skeleton; first `cgp-distribution-probe.js` run from skeleton must be green on empty state.
 
 ### Low-Risk Migration (MIG)
 
-- [ ] **MIG-01**: Migrate `memory/scripts/cgp-distribution-probe.js` → `workspace/scripts/` and update references
-- [ ] **MIG-02**: Migrate memory files to `workspace/memory/` via dry-run branch; update auto-memory path in global CLAUDE.md in same commit
+- [ ] **MIG-01**: Migrate `memory/scripts/cgp-distribution-probe.js` + key recovery scripts → `workspace/scripts/` and update references
+- [ ] **MIG-02**: Migrate memory files to `workspace/memory/` via dry-run branch; create `memory/INDEX.md` (CI check #6 enforces orphan-free); update auto-memory path in global CLAUDE.md in same commit
 - [ ] **MIG-03**: Create `workspace/tests/` with one test per canonical hook (pre-flight-file-read, g9-auto-detect, backlog-enforce, cgp-enforce, cgp-session-inject)
+- [ ] **MIG-04**: Secrets boundary migration — move `comms-link.env`, OpenRouter keys, PSK, relay keys from `~/.claude/` into `~/.claude-secrets/` on BOTH machines; grep-update every reader; verify `.gitignore` + pre-commit blocklist prevent re-drift
+- [ ] **MIG-05**: Migrate `~/.claude/agents/` → `workspace/agents/` and `~/.claude/commands/` → `workspace/commands/` per D-8; update install.sh manifest
 
 ### Hook Sync (HOOK)
 
@@ -81,21 +85,27 @@ Per source doc §"Open questions for next session's planning phase":
 
 ## Traceability (filled by roadmap)
 
-| REQ-ID | Phase |
-|---|---|
-| FND-01 | 393 |
-| FND-02 | 394 |
-| FND-03 | 395 |
-| FND-04 | 396 |
-| MIG-01 | 397 |
-| MIG-02 | 398 |
-| MIG-03 | 399 |
-| HOOK-01 | 400 |
-| HOOK-02 | 401 |
-| HOOK-03 | 402 |
-| HOOK-04 | 403 |
-| CLN-01 | 404 |
-| CLN-02 | 405 |
-| CLN-03 | 406 |
-| CLN-04 | 407 |
-| CLN-05 | 408 |
+Restructured 2026-04-16 (Option A: +4 phases — 395 drift-remainder, 397 repo-gate+CI split, 401 secrets split, 402 agents/commands).
+
+| REQ-ID | Phase | Status |
+|---|---|---|
+| FND-01 | 393 | Locked (awaiting Bono ratification) |
+| FND-02a | 394 | ✓ Complete 2026-04-15 |
+| FND-02b | 395 | Not started |
+| FND-03 | 396 | Not started |
+| FND-04a | 397 | Blocked on Uday repo creation |
+| FND-04b | 398 | Blocked on 397 |
+| MIG-01 | 399 | Not started |
+| MIG-02 | 400 | Not started |
+| MIG-04 | 401 | Not started |
+| MIG-05 | 402 | Not started |
+| MIG-03 | 403 | Not started |
+| HOOK-01 | 404 | Not started |
+| HOOK-02 | 405 | Blocked on Bono ratification |
+| HOOK-03 | 406 | Blocked on 405 + Bono ratification |
+| HOOK-04 | 407 | Not started |
+| CLN-01 | 408 | Not started |
+| CLN-02 | 409 | Not started |
+| CLN-03 | 410 | Not started |
+| CLN-04 | 411 | Not started |
+| CLN-05 | 412 | Not started |

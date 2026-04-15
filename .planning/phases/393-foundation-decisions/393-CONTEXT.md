@@ -108,7 +108,7 @@ Green → fast-forward/squash to `main`, wip deletes. Red → wip stays, never i
 | Contents | API keys, PSK, comms-link.env, OpenRouter keys, etc. |
 | In-repo status | Hard exclusion via `.gitignore` + pre-commit blocklist |
 | Sync | Never — each machine manages its own secrets |
-| Migration | Phase 398 moves existing scattered secrets from `~/.claude/` into `~/.claude-secrets/` |
+| Migration | Phase 401 (MIG-04) moves existing scattered secrets from `~/.claude/` into `~/.claude-secrets/` |
 
 ### 7. Session State (Ephemeral)
 
@@ -116,7 +116,7 @@ Green → fast-forward/squash to `main`, wip deletes. Red → wip stays, never i
 
 ### 8. Subagents + Slash Commands
 
-**Join the workspace.** `~/.claude/agents/` → `workspace/agents/`. `~/.claude/commands/` → `workspace/commands/`. Same reasoning as hooks: one place per type. Migration in Phase 405 (Bootstrap Consolidation) alongside `claude-code-bootstrap/`.
+**Join the workspace.** `~/.claude/agents/` → `workspace/agents/`. `~/.claude/commands/` → `workspace/commands/`. Same reasoning as hooks: one place per type. Migration in Phase 402 (MIG-05) — split out as its own phase during 2026-04-16 restructure because agents/commands are first-class workspace tenants, not a bootstrap sub-task.
 
 ---
 
@@ -134,11 +134,16 @@ Green → fast-forward/squash to `main`, wip deletes. Red → wip stays, never i
 
 Deferred to later phases because each benefits from local context:
 
-- **Phase 394 (Resolve CGP Drift):** three-way diff of `cgp-enforce.js` and `cgp-session-inject.js` across James, Bono, bootstrap. Winner per file.
-- **Phase 395 (Architecture Docs):** `ARCHITECTURE.md` + `CONVENTIONS.md` final text — this phase drafts them, Phase 395 formalizes.
-- **Phase 397–399 (Migration):** which files move when, dry-run branch strategy, test fixtures.
-- **Phase 400–403 (Hook Migration):** actual canonical hook set, per-machine install, parity verification.
-- **Phase 404–408 (Cleanup):** settings extraction, bootstrap consolidation, decommission.
+- **Phase 394 (Resolve CGP Drift — superset files):** three-way diff of `cgp-enforce.js` and `cgp-session-inject.js` across James, Bono, bootstrap. Winner per file. **✓ Complete 2026-04-15.**
+- **Phase 395 (Resolve Remaining Drift + Classify):** 6 deferred drifted files + classify 16 James-only + 4 Bono-only hooks into install.sh manifest buckets.
+- **Phase 396 (Architecture Docs):** `ARCHITECTURE.md` + `CONVENTIONS.md` final text — this phase drafts them, 396 formalizes.
+- **Phase 397 (Uday Repo Gate + CI + Pre-commit):** human gate + write `.github/workflows/ci.yml` + `sync/pre-commit`.
+- **Phase 398 (Init Skeleton):** clone fresh repo, `.gitignore`, first green probe.
+- **Phase 399-403 (Migration):** scripts/probes (399), memory+INDEX (400), secrets (401), agents+commands (402), test fixtures (403).
+- **Phase 404-407 (Hook Migration):** sync tooling (404), James install (405), Bono install + bare mirror (406), parity verification gate (407).
+- **Phase 408-412 (Cleanup):** settings (408), bootstrap (409), protocol pointers (410), decommission (411), milestone close (412).
+
+*Restructured 2026-04-16: see ROADMAP.md v52.0 section for full 20-phase map.*
 
 Phase 393 locks the **frame** — repo, layout, branch model, gate contract, install model. Everything else hangs off this frame.
 
@@ -147,7 +152,7 @@ Phase 393 locks the **frame** — repo, layout, branch model, gate contract, ins
 ## Blockers Before Phase 394 Can Start
 
 1. **Uday approval** to create `workspace` repo under his GitHub account and add `james-racingpoint` + `bono-racingpoint` as collaborators with push access. One-pager at `TOPOLOGY-FOR-UDAY.md`.
-2. **Bono ratification** of peer model + gate contract via comms-link. Draft at `BONO-RATIFICATION.md`. Must arrive before Phase 401 touches his hooks.
+2. **Bono ratification** of peer model + gate contract via comms-link. Draft at `BONO-RATIFICATION.md`. Must arrive before Phase 405 touches his hooks (renumbered from 401 during 2026-04-16 restructure).
 
 Both blockers are parallel — neither depends on the other. Phase 394 (CGP drift resolution) can start locally on James before either arrives, since it's analysis + decision work, not migration.
 
