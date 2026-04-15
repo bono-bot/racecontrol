@@ -2007,7 +2007,7 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 |-------|----------------|--------|-----------|
 | 393. Foundation Decisions | 0/0 | Locked (awaiting Bono ratification) | 2026-04-15 (draft) |
 | 394. Resolve CGP Drift (superset files) | 1/1 | ✓ Complete | 2026-04-15 |
-| 395. Resolve Remaining Hook Drift + Classify | 0/TBD | Not started | - |
+| 395. Resolve Remaining Hook Drift + Classify | 1/1 | ✓ Complete | 2026-04-16 |
 | 396. Architecture + Conventions Docs | 0/TBD | Not started | - |
 | 397. Uday Repo Gate + CI Workflow + Pre-commit | 0/TBD | Blocked on Uday repo creation | - |
 | 398. Init Workspace Skeleton | 0/TBD | Blocked on 397 | - |
