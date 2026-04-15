@@ -1,10 +1,11 @@
 ---
 phase: 396
 slug: architecture-conventions-docs
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-04-16
+signed_off: 2026-04-16
 ---
 
 # Phase 396 — Validation Strategy
@@ -86,4 +87,54 @@ created: 2026-04-16
 - [ ] Feedback latency < 5s (bash grep on <500-line files)
 - [ ] `nyquist_compliant: true` set in frontmatter after Wave 0 executes
 
-**Approval:** pending
+**Approval:** approved
+
+---
+
+## Sign-Off Block (Phase 396 close)
+
+**Date:** 2026-04-16
+**Verified by:** verify-396.sh (deterministic, 13 checks)
+**Result:** 13 passed / 0 failed / 0 pending
+
+### verify-396.sh output (captured verbatim)
+
+```
+[1/13] Both files exist (gating)
+  PASS: CONVENTIONS.md + ARCHITECTURE.md exist
+[2/13] Line cap (<= 500)
+  PASS: CONVENTIONS.md=59 lines, ARCHITECTURE.md=109 lines
+[3/13] Guiding principle verbatim in both
+  PASS: guiding principle present in both docs
+[4/13] Deferred Rules section present in CONVENTIONS.md
+  PASS: Deferred Rules section present
+[5/13] All 8 rules demoted to Deferred
+  PASS: Deferred Rules contains 8 rows
+[6/13] Every Deferred row cites phase 397-412
+  PASS: Deferred Rules cites 8 creating-phase references (>=8)
+[7/13] ARCHITECTURE.md has >= 11 artifact-type rows
+  PASS: ARCHITECTURE.md has 11 DEFERRED rows (>=11)
+[8/13] Every ARCHITECTURE decision table row is [DEFERRED — Phase N] or header
+  PASS: no orphan decision table rows
+[9/13] No stray live Enforcer citations
+  PASS: no live Enforcer: lines in either doc
+[10/13] D-12 footer present in both
+  PASS: D-12 footer present in both docs
+[11/13] Rule #9 (canonical-source marker) NOT added per D-05
+  PASS: CONVENTIONS.md contains no canonical-source marker
+[12/13] 393 back-references
+  PASS: ARCHITECTURE.md=4 (>=3), CONVENTIONS.md=4 (>=2) '(Phase 393' cites
+[13/13] ARCHITECTURE.md has '## Adding a New Artifact Type' section
+  PASS: Adding a New Artifact Type section present
+
+======================================
+Phase 396 Verification: 13 passed / 0 failed / 0 pending
+======================================
+```
+
+### Manual-only items
+
+- Prose quality of "Why this structure?" framing — reviewed against 393-CONTEXT tone, acceptable. The ARCHITECTURE.md "Google Drive Analogy" section carries the Phase 393 §Rationale-Notes register (neutral origin + authority lineage) without embellishment.
+- Google Drive analogy attribution — present at ARCHITECTURE.md "The Google Drive Analogy" section, verbatim Uday quote attributed to Uday Singh, 2026-04-15 with `(captured in Phase 393)` parenthetical.
+
+**Phase 396 validation: COMPLETE.**
