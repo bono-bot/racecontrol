@@ -32,6 +32,17 @@ HEALTH_PORT=8080
 SERVE_PORT=18888
 BINARY_DIR="${BINARY_DIR:-$HOME/racingpoint/deploy-staging}"
 
+# SEC-EXEC-02: rc-sentry /exec requires X-Service-Key header.
+# Server rc-sentry key lives in C:\RacingPoint\racecontrol.toml on .23.
+# Override with: SENTRY_KEY="..." ./deploy-server.sh
+SENTRY_KEY="${SENTRY_KEY:-}"
+if [ -z "$SENTRY_KEY" ]; then
+    echo "ERROR: SENTRY_KEY env var not set. Export the server rc-sentry service key before running."
+    echo "  Discover it via: ssh ADMIN@100.125.108.37 'type C:\\RacingPoint\\racecontrol.toml | findstr sentry'"
+    exit 1
+fi
+AUTH_HEADER="X-Service-Key: ${SENTRY_KEY}"
+
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 pass() { echo -e "  ${GREEN}OK${NC}    $1"; }
 fail() { echo -e "  ${RED}FAIL${NC}  $1"; exit 1; }
@@ -72,6 +83,16 @@ if [ "$SENTRY" != "pong" ]; then
     fail "rc-sentry unreachable at ${SERVER_IP}:${SENTRY_PORT}. Cannot deploy without it."
 fi
 pass "rc-sentry reachable"
+
+# Authed preflight: verify SENTRY_KEY actually works against /exec (E: /ping was cosmetic)
+AUTH_TEST=$(curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"echo AUTH_OK"}' 2>/dev/null || echo "")
+if ! echo "$AUTH_TEST" | grep -q "AUTH_OK"; then
+    fail "SENTRY_KEY auth failed against /exec. Response: $AUTH_TEST. Check key matches server's racecontrol.toml."
+fi
+pass "rc-sentry /exec authenticated"
 
 # ─── Gate 2: Binary exists and is valid ──────────────────────────────
 if [ ! -f "${BINARY_DIR}/racecontrol.exe" ]; then
@@ -123,7 +144,7 @@ fi
 # ─── Gate 5: Record pre-deploy build_id ──────────────────────────────
 info "Recording pre-deploy server state..."
 PRE_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
-PRE_BUILD=$(echo "$PRE_HEALTH" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+PRE_BUILD=$(echo "$PRE_HEALTH" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
 echo -e "  ${CYAN}>>>${NC}   Pre-deploy build_id: ${PRE_BUILD}"
 
 # ─── Step 1: Serve binary via HTTP ───────────────────────────────────
@@ -138,10 +159,12 @@ pass "HTTP server started (PID ${HTTP_PID})"
 # ─── Step 2: Download binary to server via rc-sentry ─────────────────
 info "Downloading racecontrol.exe to server..."
 DL_RESULT=$(curl -s --max-time 120 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d "{\"cmd\":\"curl -s -o C:/RacingPoint/racecontrol-new.exe http://${JAMES_IP}:${SERVE_PORT}/racecontrol.exe && for %f in (C:/RacingPoint/racecontrol-new.exe) do echo SIZE=%~zf\"}" 2>/dev/null || echo "")
+    -d "{\"cmd\":\"curl -s -o C:/RacingPoint/racecontrol-new.exe http://${JAMES_IP}:${SERVE_PORT}/racecontrol.exe & for %f in (C:/RacingPoint/racecontrol-new.exe) do echo SIZE=%~zf\"}" 2>/dev/null || echo "")
 
-REMOTE_SIZE=$(echo "$DL_RESULT" | grep -oP 'SIZE=\K[0-9]+' || echo "0")
+REMOTE_SIZE=$(echo "$DL_RESULT" | sed -n 's/.*SIZE=\([0-9][0-9]*\).*/\1/p' | head -1)
+REMOTE_SIZE="${REMOTE_SIZE:-0}"
 if [ "$REMOTE_SIZE" -lt 1000000 ]; then
     fail "Download failed or file too small (${REMOTE_SIZE} bytes on server, expected ~${LOCAL_SIZE})"
 fi
@@ -166,6 +189,7 @@ fi
 # ─── Step 2c: Clear sentinel files ────────────────────────────────────
 info "Clearing sentinel files on server..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"del /Q C:\\RacingPoint\\MAINTENANCE_MODE C:\\RacingPoint\\GRACEFUL_RELAUNCH 2>nul & echo CLEARED"}' > /dev/null 2>&1
 
@@ -175,10 +199,12 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
 # Solution: disable watchdog → kill process → swap → restart → re-enable
 info "Disabling watchdog to prevent restart race..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
 # Also write a deploy sentinel to block any remaining watchdog instance
 curl -s --max-time 5 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"echo DEPLOYING > C:\\RacingPoint\\DEPLOY_IN_PROGRESS & echo SENTINEL_SET"}' > /dev/null 2>&1
 pass "Watchdog disabled + deploy sentinel set"
@@ -186,6 +212,7 @@ pass "Watchdog disabled + deploy sentinel set"
 # ─── Step 3b: Stop racecontrol via bat window kill ────────────────────
 info "Stopping racecontrol (killing bat wrapper + process)..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"taskkill /F /FI \"WINDOWTITLE eq RaceControl*\" 2>nul & taskkill /F /IM racecontrol.exe 2>nul & echo STOPPED"}' > /dev/null 2>&1
 sleep 3
@@ -194,11 +221,13 @@ pass "racecontrol stopped"
 # ─── Step 4: Preserve rollback binary, then swap ─────────────────────
 info "Preserving rollback binary (racecontrol-prev.exe)..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"if exist C:\\RacingPoint\\racecontrol.exe (copy /Y C:\\RacingPoint\\racecontrol.exe C:\\RacingPoint\\racecontrol-prev.exe >nul & echo PRESERVED) else (echo SKIP)"}' > /dev/null 2>&1
 
 info "Swapping binary..."
 SWAP=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe & echo SWAPPED"}' 2>/dev/null || echo "")
 if ! echo "$SWAP" | grep -q "SWAPPED"; then
@@ -209,12 +238,14 @@ pass "Binary swapped (rollback: racecontrol-prev.exe)"
 # ─── Step 5: Start racecontrol ──────────────────────────────────────
 info "Starting racecontrol..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
 
 # ─── Step 5b: Re-enable watchdog + clear deploy sentinel ────────────
 info "Re-enabling watchdog..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 pass "Watchdog re-enabled"
@@ -225,7 +256,7 @@ for i in $(seq 1 12); do
     sleep 5
     HEALTH_BODY=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
     if echo "$HEALTH_BODY" | grep -q '"status":"ok"'; then
-        ACTUAL_BUILD=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+        ACTUAL_BUILD=$(echo "$HEALTH_BODY" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
 
         if [ -n "$EXPECTED_BUILD_ID" ] && [ "$ACTUAL_BUILD" != "$EXPECTED_BUILD_ID" ]; then
             echo ""
@@ -281,19 +312,22 @@ echo ""
 echo -e "${RED}Server did not come up after 60 seconds — auto-rollback...${NC}"
 # Re-enable watchdog even on failure (always-do cleanup)
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 info "Rolling back to racecontrol-prev.exe..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"taskkill /F /IM racecontrol.exe 2>nul & ping -n 3 127.0.0.1 >nul & move /Y C:\\RacingPoint\\racecontrol-prev.exe C:\\RacingPoint\\racecontrol.exe 2>nul & echo ROLLED_BACK"}' > /dev/null 2>&1
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
+    -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
 sleep 10
 ROLLBACK_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
 if echo "$ROLLBACK_HEALTH" | grep -q '"status":"ok"'; then
-    ROLLBACK_BUILD=$(echo "$ROLLBACK_HEALTH" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+    ROLLBACK_BUILD=$(echo "$ROLLBACK_HEALTH" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
     echo -e "${YELLOW}Rollback OK — server on previous build: ${ROLLBACK_BUILD}${NC}"
 else
     echo -e "${RED}CRITICAL: Rollback failed. Manual: ssh ADMIN@100.125.108.37${NC}"

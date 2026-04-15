@@ -121,8 +121,9 @@ deploy_pod() {
     DL=$(curl -s --max-time 120 "http://${POD_IP}:${SENTRY_PORT}/exec" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
-        -d "{\"cmd\":\"curl -s -o C:/RacingPoint/rc-agent-new.exe http://${JAMES_IP}:${SERVE_PORT}/rc-agent.exe && for %f in (C:/RacingPoint/rc-agent-new.exe) do echo SIZE=%~zf\"}" 2>/dev/null || echo "")
-    DL_SIZE=$(echo "$DL" | grep -oP 'SIZE=\K[0-9]+' || echo "0")
+        -d "{\"cmd\":\"curl -s -o C:/RacingPoint/rc-agent-new.exe http://${JAMES_IP}:${SERVE_PORT}/rc-agent.exe & for %f in (C:/RacingPoint/rc-agent-new.exe) do echo SIZE=%~zf\"}" 2>/dev/null || echo "")
+    DL_SIZE=$(echo "$DL" | sed -n 's/.*SIZE=\([0-9][0-9]*\).*/\1/p' | head -1)
+    DL_SIZE="${DL_SIZE:-0}"
     if [ "$DL_SIZE" -lt 500000 ]; then
         fail "$POD_NAME: Download failed (${DL_SIZE} bytes)"
         return
@@ -225,7 +226,7 @@ deploy_pod() {
     # Verify: ping + build_id
     sleep 5
     HEALTH_BODY=$(curl -s --max-time 5 "http://${POD_IP}:8090/health" 2>/dev/null || echo "")
-    ACTUAL_BUILD=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "")
+    ACTUAL_BUILD=$(echo "$HEALTH_BODY" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
 
     if [ -z "$ACTUAL_BUILD" ]; then
         info "$POD_NAME: rc-agent not yet responding (may need more time)"
