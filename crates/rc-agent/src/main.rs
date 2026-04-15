@@ -406,6 +406,48 @@ static PANIC_LOCK_STATE: OnceLock<std::sync::Arc<std::sync::Mutex<lock_screen::L
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // INTROSPECTION FAST-PATH (2026-04-16): --version / --build-id / --help must
+    // work on ANY host (including the build machine AI-SERVER) without triggering
+    // the MMA-F03 allowlist guard, Session 0 check, singleton mutex, SEH handler,
+    // panic hook, or any disk/network side effect. Previously, `rc-agent.exe
+    // --version` on AI-SERVER hit the allowlist at ~line 595 and exited with
+    // "not in pod allowlist" before printing anything, meaning build_id could
+    // only be read from a running pod /health endpoint — breaking cross-host
+    // binary traceability at build time. These flags are read-only; the
+    // pod-only runtime invariants (HID, FFB, lock-screen, port 8090) only need
+    // to hold when we actually start the agent, not when we ask who it is.
+    {
+        let args: Vec<String> = std::env::args().collect();
+        for arg in args.iter().skip(1) {
+            match arg.as_str() {
+                "--version" | "-V" => {
+                    println!("rc-agent {} (build {})", env!("CARGO_PKG_VERSION"), BUILD_ID);
+                    return Ok(());
+                }
+                "--build-id" => {
+                    println!("{}", BUILD_ID);
+                    return Ok(());
+                }
+                "--help" | "-h" => {
+                    println!("rc-agent — RacingPoint pod telemetry bridge");
+                    println!("Build:   {}", BUILD_ID);
+                    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+                    println!();
+                    println!("Introspective flags (exit before startup, work on any host):");
+                    println!("  --version, -V   Print version and build ID");
+                    println!("  --build-id      Print build ID only (no formatting)");
+                    println!("  --help, -h      Print this help");
+                    println!();
+                    println!("With no flags, rc-agent runs the full pod agent.");
+                    println!("Singleton mutex, Session 0 check, and MMA-F03 host");
+                    println!("allowlist (SIM1-SIM8, POS1) apply to the runtime path only.");
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+    }
+
     // CRASH-DIAG: Catch Windows SEH exceptions (access violations, stack overflow)
     // that bypass Rust's panic hook. Logs to file before process terminates.
     #[cfg(windows)]
