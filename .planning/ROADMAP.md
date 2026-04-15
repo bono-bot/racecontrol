@@ -1923,6 +1923,56 @@ Wave 1: Deploy & Verify (383)
 
 ---
 
+### Phase 392.1: P0 Zero-Laps 3-Layer Fix + Folded C1 FK-PRAGMA Deploy (INSERTED 2026-04-16)
+
+**Goal:** Restore lap recording end-to-end on per-minute sessions. Root cause confirmed from 2026-04-16 Pod 8 jsonl log + DB probe: per-minute tier `min_duration_secs` ~60s < fastest F2004 Spa lap ~105s, so AC session ends before emitting any lap. DB evidence: `laps=0`, `lap_rejections=0` — events never reach the DB layer (not a rejection path). Folds the C1 FK-PRAGMA source fix (d24b17f7) into the same binary swap window since both require a racecontrol rebuild + server+cloud swap.
+**Depends on:** Phase 383 (v48 deploy pipeline baseline)
+**Executor:** James (venue), Bono (cloud)
+**Requirements:** URGENT P0 — Uday #1 priority, 30 days on-site with zero laps recorded
+
+**Scope — 3 layers:**
+
+1. **Layer 1 (ship-now):** Raise per-minute tier `min_duration_secs` from ~60 → ≥120. Target store: `pricing_rules` table OR `billing_config.toml` (confirm which during planning). Files to audit: `billing_start.rs`, `billing_start_validate.rs`, `pricing_billing_rates.rs`, `billing_pricing.rs`. **DEPLOY PARITY:** server .23 + Bono VPS.
+2. **Layer 2 (kiosk UX warning):** Tier selector shows *"Track X × Car Y needs ≥ N min for 1 lap. Your N-min session will not register a lap."* Requires per-track × per-car reference lap times — data source unknown, flagged NOT TESTED.
+3. **Layer 3 (server grace window):** `billing_timer_expiry.rs` lap-aware grace — extend per-minute expiry by `fastest_lap × 1.5`. Requires reference lap data model + MMA audit (cross-system: billing touches wallet debit).
+
+**Folded — C1 FK-PRAGMA deploy (d24b17f7):**
+
+- Pre-start cleanup SQL (venue then cloud):
+  1. `DELETE FROM billing_events WHERE billing_session_id NOT IN (SELECT id FROM billing_sessions);`
+  2. `DELETE FROM billing_sessions WHERE pricing_tier_id NOT IN (SELECT id FROM pricing_tiers);`
+- Deploy order: venue cleanup → venue swap → cloud cleanup → cloud swap. Cloud second so venue's FK-enforced writes can't push fresh orphans into cloud mid-window.
+- Post-start verify: `PRAGMA foreign_keys = 1` via a SECOND pool connection (first conn may be cached).
+- Orphan counts = 0 on both environments.
+- Rollback snapshots captured 2026-04-16 ~04:18 UTC:
+  - Venue: `C:/RacingPoint/backups/racecontrol-pre-c1-20260416.db` (176,910,336 B)
+  - Cloud: `/root/racecontrol/backups/racecontrol-pre-c1-20260416.db` (172,019,712 B)
+
+**Success criteria (6 checks):**
+
+1. Staff runs 2-min per-minute session on Pod 8 with Brands Hatch Indy + road car
+2. Row in `laps` table within 10s of session end
+3. Authenticated `GET /api/v1/laps` from James .27 (NOT SSH curl on server) returns the row
+4. `PRAGMA foreign_keys = 1` on server .23 AND Bono VPS via 2nd pool connection
+5. Orphan counts = 0 on both environments
+6. No regression in wallet/membership billing flows
+
+**NOT TESTED (carry into execution):**
+
+- Other FK-declaring tables (`billing_rates`, `wallet_transactions`, `drivers`, `laps`, `sessions`, `pricing_tiers`) — may have their own orphans we haven't swept
+- Live UPDATE code paths touching deleted orphan rows — sqlx will now return FK errors instead of swallowing
+- Per-track × per-car fastest-lap reference data source for Layer 2/3 — does it exist? where?
+
+**OUT OF SCOPE (file as separate phases post-ship):**
+
+- Strategy-B `launch_state_is_live` tracking bug (gate works by accident)
+- Server ↔ agent `launch_id` protocol mismatch (server 43e35dc7 predates agent builds)
+- Old-build `1136fd1a` exit-grace fleet rollout
+
+**Plans:** TBD
+
+---
+
 ### v49.0 Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -1937,6 +1987,7 @@ Wave 1: Deploy & Verify (383)
 | 390. Spectator Displays + Cloud | 0/TBD | Not started | - |
 | 391. Digital Staff Operations | 0/TBD | Not started | - |
 | 392. Unified Readiness Review | 0/TBD | Not started | - |
+| 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/0 | Not planned (URGENT) | - |
 
 *v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
 *Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*

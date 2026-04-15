@@ -106,6 +106,10 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
+## Roadmap Evolution
+
+- Phase 392.1 inserted after Phase 392: P0 zero-laps 3-layer fix + folded C1 FK-PRAGMA deploy (URGENT, 2026-04-16). Manual insert — `/gsd:insert-phase` parser cannot read racecontrol `### Phase N:` nested heading format, returns `found:false` on all phases 1-393. Parser fix deferred as separate side-task.
+
 ## Key Lesson: sed vs Edit Tool
 
 **NEVER use sed for multi-line Rust file modifications.** sed silently empties files when encountering certain patterns (happened twice with pod_healer.rs). Use the Edit tool for all code modifications — it validates changes and reports errors instead of silently corrupting.
