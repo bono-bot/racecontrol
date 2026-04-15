@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: completed
-last_updated: "2026-04-15T18:13:20.152Z"
+last_updated: "2026-04-15T22:26:57.148Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 4
@@ -19,11 +19,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 394 — resolve-cgp-drift
+**Current focus:** Phase 396 — architecture-conventions-docs
 
 ## Current Phase
 
-**Phase:** 394
+**Phase:** 396
 **Status:** Milestone complete
 **Last activity:** 2026-04-15
 
