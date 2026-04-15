@@ -1970,7 +1970,7 @@ Restructured 2026-04-16 based on decisions locked in Phase 393 (8 foundation dec
 | 393 | Foundation Decisions | FND-01 | 8 decisions locked: repo (`workspace` under Uday GitHub), layout (typed folders), branch model (main + wip/*, squash-merge, 24h GC), install model (copy not symlink), CI gate (6 checks), secrets (`~/.claude-secrets/` NEW), session state (outside repo), agents+commands (join workspace) |
 | 394 | Resolve CGP Drift (superset files) | FND-02a | Canonicalize `cgp-enforce.js` + `cgp-session-inject.js` per-hunk via James superset-wins; memory-only, no disk writes. **✓ COMPLETE 2026-04-15** |
 | 395 | Resolve Remaining Hook Drift + Classify Single-Machine Hooks | FND-02b | Canonicalize 6 deferred drifted files (gsd-check-update, gsd-context-monitor, gsd-prompt-guard, gsd-statusline, gsd-workflow-guard, memory-staleness-check); classify 16 James-only + 4 Bono-only hooks into cross-platform / windows-only / linux-only buckets. Produces the manifest Phase 404 install.sh consumes. |
-| 396 | Architecture + Conventions Docs | Complete    | 2026-04-15 |
+| 396 | Architecture + Conventions Docs | FND-03 | Formalize `ARCHITECTURE.md` + `CONVENTIONS.md` from 393 drafts. Every rule names its mechanical enforcer or gets deleted. **✓ COMPLETE 2026-04-16** |
 | 397 | Uday Repo Gate + CI Workflow + Pre-commit | FND-04a | **HUMAN GATE:** verify Uday created `workspace` repo under his GitHub account + added `james-racingpoint` + `bono-racingpoint` as push collaborators. Then write `.github/workflows/ci.yml` (6 checks from D-5) and `sync/pre-commit` (secret scan blocklist). |
 | 398 | Init Workspace Skeleton | FND-04b | Clone fresh `workspace` repo; write `.gitignore` (.env, secrets, session state); commit skeleton; run `cgp-distribution-probe.js` from skeleton → must be green on empty state before any migration. |
 | 399 | Migrate Scripts/Probes | MIG-01 | Move `memory/scripts/cgp-distribution-probe.js` + `openrouter-key-recovery.js` → `workspace/scripts/`; grep-update every reader. |
@@ -2092,7 +2092,7 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 | 393. Foundation Decisions | 0/0 | Locked (awaiting Bono ratification) | 2026-04-15 (draft) |
 | 394. Resolve CGP Drift (superset files) | 1/1 | ✓ Complete | 2026-04-15 |
 | 395. Resolve Remaining Hook Drift + Classify | 1/1 | ✓ Complete | 2026-04-16 |
-| 396. Architecture + Conventions Docs | 0/TBD | Not started | - |
+| 396. Architecture + Conventions Docs | 1/1 | ✓ Complete | 2026-04-16 |
 | 397. Uday Repo Gate + CI Workflow + Pre-commit | 0/TBD | Blocked on Uday repo creation | - |
 | 398. Init Workspace Skeleton | 0/TBD | Blocked on 397 | - |
 | 399. Migrate Scripts/Probes | 0/TBD | Not started | - |
