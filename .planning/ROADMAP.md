@@ -1966,7 +1966,7 @@ Wave 1: Deploy & Verify (383)
 | # | Phase | Reqs | Goal |
 |---|---|---|---|
 | 393 | Foundation Decisions | FND-01 | Answer 8 open questions: repo name, init strategy, secret boundary, Bono authority, bootstrap fate, CI, session state, subagent audit |
-| 394 | Resolve CGP Drift | FND-02 | Diff + canonicalize `cgp-enforce.js` and `cgp-session-inject.js` across James and Bono; pick winner per file; do NOT migrate drift into canonical |
+| 394 | 1/1 | Complete   | 2026-04-15 |
 | 395 | Write Architecture Docs | FND-03 | `ARCHITECTURE.md` + `CONVENTIONS.md` — the rules the migration follows |
 | 396 | Init Workspace Skeleton | FND-04 | Create workspace repo + auto-push + `.gitignore` blocking secrets; verify probe runs from skeleton |
 | 397 | Migrate Scripts/Probes | MIG-01 | Move `memory/scripts/cgp-distribution-probe.js` → `workspace/scripts/`; update references |

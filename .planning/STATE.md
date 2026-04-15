@@ -1,16 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v49.0
-milestone_name: Unified RaceControl Operations
-current_plan: Phase 383-385 in progress
+milestone: v40.0
+milestone_name: Game Launch Reliability
 status: executing
-stopped_at: "Phase 385 ARCH-03 — 6 file splits shipped (billing, game_launcher, ws, cafe, cloud_sync, ac_server). James rebuilt server (58fee487, 9/9 pods). Lap verification pending. pod_healer + auth splits deferred (use Edit tool not sed)."
-last_updated: "2026-04-14T12:00:00.000Z"
+last_updated: "2026-04-15T18:09:51.270Z"
+last_activity: 2026-04-15
 progress:
-  total_phases: 10
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
 ---
 
 # Project State
@@ -20,13 +19,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** v49.0 Phase 385 architecture. 6 splits shipped. James rebuilt venue server — lap fix is live, awaiting customer verification. pod_healer + auth splits next.
+**Current focus:** Phase 394 — resolve-cgp-drift
 
 ## Current Phase
 
 **Phase:** 383-385 (overlapping — deploy + lap fix + architecture)
-**Status:** Executing
-**Last activity:** 2026-04-14 — 7 commits pushed to main this session
+**Status:** Executing Phase 394
+**Last activity:** 2026-04-15
 
 ## Progress
 
@@ -65,6 +64,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Session Commits (7 this session, 14 total milestone)
 
 ### This session
+
 1. `2599ea9f` — fix(rc-agent): ADAPTER-SWAP-06 port separation
 2. `58fee487` — fix(tests): align 4 CI-failing tests
 3. `6a51f410` — **billing.rs split** (9,142→386, 5 modules)
@@ -83,19 +83,26 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Resume Plan (Next Session)
 
 ### Priority 1: Verify laps
+
 ```bash
+
 # Check laps table directly
+
 ssh bono@100.82.33.94 "powershell -Command \"(Invoke-WebRequest -Uri 'http://192.168.31.23:8080/api/v1/public/leaderboard' -UseBasicParsing).Content\""
 ```
+
 If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream phases.
 
 ### Priority 2: Continue ARCH-03 splits
+
 **Use Edit tool, NOT sed** for pod_healer.rs — sed corrupted the file twice.
+
 - pod_healer.rs (2,525): Make types pub first, then extract diagnostics + repair
 - auth/mod.rs (2,444): Extract OTP + PIN modules into auth/ submodules
 - multiplayer.rs (1,749), config.rs (1,749), fleet_health.rs (1,652)
 
 ### Priority 3: If laps verified
+
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
