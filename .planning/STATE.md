@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-last_updated: "2026-04-15T18:09:51.270Z"
+status: completed
+last_updated: "2026-04-15T18:13:20.152Z"
 last_activity: 2026-04-15
 progress:
   total_phases: 4
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Phase
 
-**Phase:** 383-385 (overlapping — deploy + lap fix + architecture)
-**Status:** Executing Phase 394
+**Phase:** 394
+**Status:** Milestone complete
 **Last activity:** 2026-04-15
 
 ## Progress
