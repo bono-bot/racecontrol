@@ -90,7 +90,7 @@ fi
 
 echo "[5/13] All 8 rules demoted to Deferred"
 if [ "$CONV_OK" -eq 1 ]; then
-  COUNT=$(awk '/^## Deferred Rules/,/^## [^#]/' "$CONV" | grep -cE '^\| [1-8] ')
+  COUNT=$(awk '/^## Deferred Rules/{flag=1;next} /^## /{flag=0} flag' "$CONV" | grep -cE '^\| [1-8] ')
   if [ "$COUNT" -eq 8 ]; then
     pass "Deferred Rules contains 8 rows"
   else
@@ -102,7 +102,7 @@ fi
 
 echo "[6/13] Every Deferred row cites phase 397-412"
 if [ "$CONV_OK" -eq 1 ]; then
-  COUNT=$(awk '/^## Deferred Rules/,/^## [^#]/' "$CONV" | grep -cE '(Phase|phase) (39[7-9]|4[0-1][0-9])')
+  COUNT=$(awk '/^## Deferred Rules/{flag=1;next} /^## /{flag=0} flag' "$CONV" | grep -cE '(Phase|phase) (39[7-9]|4[0-1][0-9])')
   if [ "$COUNT" -ge 8 ]; then
     pass "Deferred Rules cites >=8 creating phases ($COUNT)"
   else
