@@ -1988,6 +1988,90 @@ Restructured 2026-04-16 based on decisions locked in Phase 393 (8 foundation dec
 | 411 | Decommission Old Paths | CLN-04 | Remove `claude-code-bootstrap/`; archive old memory git history as read-only tag; update `docs/ARCHITECTURE.md`. |
 | 412 | Milestone Close | CLN-05 | Final parity audit across James + Bono + fresh bootstrap; `MIGRATION-LOG.md`; Bono sign-off via comms-link; close v52.0. |
 
+### Phase Details (393 → 412)
+
+> Headings below mirror the table above for `gsd-tools` parser compatibility. Goal text is the source of truth in the table.
+
+#### Phase 393: Foundation Decisions
+
+**Goal:** 8 decisions locked — repo, layout, branch model, install model, CI gate, secrets, session state, agents+commands. FND-01.
+
+#### Phase 394: Resolve CGP Drift (superset files)
+
+**Goal:** Canonicalize `cgp-enforce.js` + `cgp-session-inject.js` per-hunk via James superset-wins. FND-02a. ✓ COMPLETE 2026-04-15.
+
+#### Phase 395: Resolve Remaining Hook Drift + Classify Single-Machine Hooks
+
+**Goal:** Canonicalize 6 deferred drifted files + classify 16 James-only + 4 Bono-only hooks. Produces Phase 404 install manifest. FND-02b.
+
+#### Phase 396: Architecture + Conventions Docs
+
+**Goal:** Formalize `ARCHITECTURE.md` + `CONVENTIONS.md` from 393 drafts. Every convention names its mechanical enforcer or gets deleted. FND-03.
+
+#### Phase 397: Uday Repo Gate + CI Workflow + Pre-commit
+
+**Goal:** HUMAN GATE — Uday creates `workspace` repo + adds collaborators. Write `.github/workflows/ci.yml` (6 checks) + `sync/pre-commit` secret scan. FND-04a.
+
+#### Phase 398: Init Workspace Skeleton
+
+**Goal:** Clone fresh `workspace` repo; write `.gitignore`; commit skeleton; run `cgp-distribution-probe.js` green on empty state before migration. FND-04b.
+
+#### Phase 399: Migrate Scripts/Probes
+
+**Goal:** Move `memory/scripts/cgp-distribution-probe.js` + `openrouter-key-recovery.js` → `workspace/scripts/`; grep-update every reader. MIG-01.
+
+#### Phase 400: Migrate Memory + Create memory/INDEX.md
+
+**Goal:** Dry-run branch; move `memory/*.md` → `workspace/memory/`; create `memory/INDEX.md` (CI check #6 orphan-free); update auto-memory path. MIG-02.
+
+#### Phase 401: Secrets Boundary Migration → ~/.claude-secrets/
+
+**Goal:** Per D-6 — move `comms-link.env`, OpenRouter keys, PSK, relay keys from `~/.claude/` into `~/.claude-secrets/` on BOTH James and Bono. MIG-04.
+
+#### Phase 402: Migrate Agents + Slash Commands
+
+**Goal:** Per D-8 — move `~/.claude/agents/` → `workspace/agents/` and `~/.claude/commands/` → `workspace/commands/`; update install.sh manifest. MIG-05.
+
+#### Phase 403: Hook Tests Fixtures
+
+**Goal:** Per-hook fixtures in `workspace/tests/`: pre-flight-file-read, g9-auto-detect, backlog-enforce, cgp-enforce, cgp-session-inject. Built from 394+395 canonical text. MIG-03.
+
+#### Phase 404: Sync Tooling: install.sh + verify-parity.sh
+
+**Goal:** Consumes 395 classification manifest. Idempotent copy workspace → `~/.claude/`. Tests on Git Bash + bash. Triggers from post-merge git hook. HOOK-01.
+
+#### Phase 405: Hooks Migration — James
+
+**Goal:** Backup `~/.claude/hooks/` → `.backup-v52/`; run `sync/install.sh` from workspace; probe 100% parity on cross-platform. HOOK-02.
+
+#### Phase 406: Hooks Migration — Bono + Offline Bare Mirror
+
+**Goal:** Bono backs up hooks, pulls workspace, runs install.sh. Set up `bono-vps:/root/workspace-mirror.git` bare mirror + post-receive hook per D-1. HOOK-03.
+
+#### Phase 407: Parity Verification Gate
+
+**Goal:** Cross-machine probe: James + Bono + fresh bootstrap clone all show 100% parity on cross-platform hooks. **THIS PHASE IS THE SYNC PROOF.** HOOK-04.
+
+#### Phase 408: Settings Migration
+
+**Goal:** Extract shared `workspace/settings/base.json`; per-machine `settings.local.json`; `install-settings.sh` merge logic that doesn't clobber local overrides. CLN-01.
+
+#### Phase 409: Bootstrap Consolidation
+
+**Goal:** Move `claude-code-bootstrap/{vps,windows}/` → `workspace/bootstrap/`. Update onboarding docs. (Agents/commands already migrated in 402.) CLN-02.
+
+#### Phase 410: Protocol Doc Pointers
+
+**Goal:** Decide pointer vs cached copy for CGP.md / MMA.md; update all CLAUDE.md references to canonical workspace location. CLN-03.
+
+#### Phase 411: Decommission Old Paths
+
+**Goal:** Remove `claude-code-bootstrap/`; archive old memory git history as read-only tag; update `docs/ARCHITECTURE.md`. CLN-04.
+
+#### Phase 412: Milestone Close
+
+**Goal:** Final parity audit across James + Bono + fresh bootstrap; `MIGRATION-LOG.md`; Bono sign-off via comms-link; close v52.0. CLN-05.
+
 ### Session Discipline
 
 **ONE phase per session, maximum.** Each session reads `memory/project_workspace_restructure.md` for context, reads the phase's PLAN.md for immediate work, executes, runs the probe, updates SUMMARY.md, writes a handoff naming the next phase's entry conditions, stops. Do not stack phases.
