@@ -37,7 +37,7 @@ if [ "${SENTRY_KEY:-}" = "auto" ] || [ -z "${SENTRY_KEY:-}" ]; then
   echo "Reading key from server racecontrol.toml..."
   SENTRY_KEY=$(ssh -o ConnectTimeout=5 "$TOML_HOST" \
     "findstr sentry_service_key C:\\RacingPoint\\racecontrol.toml" 2>/dev/null | \
-    grep -oP '"\K[^"]+' | head -1)
+    sed -n 's/.*"\([^"]*\)".*/\1/p' | head -1)
   if [ -z "$SENTRY_KEY" ]; then
     echo "FAIL: Could not read sentry_service_key from server"
     FAIL=$((FAIL + 1))
@@ -48,18 +48,24 @@ fi
 
 KEY_MISMATCHES=0
 for pod_ip in "${PODS[@]}"; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 --max-time 5 \
+  # Bug E fix: /ping is public (always 200) — use /exec with benign command to test key
+  AUTH_RESULT=$(curl -s --connect-timeout 3 --max-time 5 \
     -H "X-Service-Key: ${SENTRY_KEY}" \
-    "http://${pod_ip}:8091/ping" 2>/dev/null || echo "000")
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"echo AUTH_OK"}' \
+    "http://${pod_ip}:8091/exec" 2>/dev/null || echo "")
 
-  if [ "$STATUS" = "200" ]; then
-    echo "  ${pod_ip}: KEY_OK"
-  elif [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
-    echo "  ${pod_ip}: KEY_MISMATCH (HTTP ${STATUS})"
+  if echo "$AUTH_RESULT" | grep -q "AUTH_OK"; then
+    echo "  ${pod_ip}: KEY_OK (authed exec)"
+  elif echo "$AUTH_RESULT" | grep -qi "blocked\|unauthorized\|forbidden"; then
+    echo "  ${pod_ip}: KEY_MISMATCH"
     KEY_MISMATCHES=$((KEY_MISMATCHES + 1))
-  else
-    echo "  ${pod_ip}: UNREACHABLE (HTTP ${STATUS})"
+  elif [ -z "$AUTH_RESULT" ]; then
+    echo "  ${pod_ip}: UNREACHABLE"
     # Not a key failure — pod may not be booted yet
+  else
+    echo "  ${pod_ip}: KEY_MISMATCH (unexpected: ${AUTH_RESULT:0:60})"
+    KEY_MISMATCHES=$((KEY_MISMATCHES + 1))
   fi
 done
 
