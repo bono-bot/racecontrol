@@ -115,3 +115,7 @@ tests/e2e/playwright/.auth-state.json
 
 # Rotated log backups
 *.log.prev
+# Knowledge graph — generated artifacts (rebuild with scripts/knowledge-graph/)
+.planning/knowledge-graph/cache/
+.planning/knowledge-graph/graph.json
+.planning/knowledge-graph/fix-history.json
