@@ -534,5 +534,45 @@ pub(crate) async fn migrate_marketing(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    // ─── Phase 386: Business Expenses (Autonomous Pricing Engine) ──────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS business_expenses (
+            id TEXT PRIMARY KEY DEFAULT 'current',
+            rent_paise INTEGER NOT NULL DEFAULT 0,
+            salaries_paise INTEGER NOT NULL DEFAULT 0,
+            utilities_paise INTEGER NOT NULL DEFAULT 0,
+            marketing_paise INTEGER NOT NULL DEFAULT 0,
+            cafe_inventory_paise INTEGER NOT NULL DEFAULT 0,
+            equipment_paise INTEGER NOT NULL DEFAULT 0,
+            misc_paise INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed with known venue costs (₹4.62L/month from MEMORY)
+    sqlx::query(
+        "INSERT OR IGNORE INTO business_expenses (id, rent_paise, salaries_paise, utilities_paise, marketing_paise, cafe_inventory_paise)
+         VALUES ('current', 1600000, 800000, 600000, 1500000, 120000)"
+    )
+    .execute(pool)
+    .await?;
+
+    // Pricing engine history — tracks every engine-generated recommendation
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS pricing_engine_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tier_id TEXT NOT NULL,
+            old_price_paise INTEGER NOT NULL,
+            new_price_paise INTEGER NOT NULL,
+            reason TEXT,
+            applied BOOLEAN DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
