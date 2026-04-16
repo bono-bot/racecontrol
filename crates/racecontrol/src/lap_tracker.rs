@@ -220,8 +220,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     }
 
     // LAP-02: check per-track minimum lap time floor — flag suspicious fast laps for staff review
-    if let Some(min_ms) = catalog::get_min_lap_time_ms_for_track(&normalized_track) {
-        if lap.lap_time_ms < min_ms {
+    if let Some(min_ms) = catalog::get_min_lap_time_ms_for_track(&normalized_track)
+        && lap.lap_time_ms < min_ms {
             let _ = sqlx::query("UPDATE laps SET review_required = 1 WHERE id = ?")
                 .bind(&lap.id)
                 .execute(&mut *tx)
@@ -231,7 +231,6 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
                 lap.id, normalized_track, lap.lap_time_ms, min_ms
             );
         }
-    }
 
     // 2. Check and update personal best for this driver+track+car+sim_type
     // PBs are scoped by sim_type — an F1 25 PB on monza is separate from an AC PB.
@@ -472,8 +471,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     psychology::update_driving_passport(state, &lap.driver_id, &normalized_track, &lap.car, lap.lap_time_ms as i64).await;
 
     // Phase 14: Auto-enter into matching hotlap events
-    if suspect_flag == 0 {
-        if let Some(ref class) = car_class {
+    if suspect_flag == 0
+        && let Some(ref class) = car_class {
             auto_enter_event(
                 &state.db,
                 Some(lap.id.as_str()),
@@ -489,7 +488,6 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
             )
             .await;
         }
-    }
 
     is_record
 }

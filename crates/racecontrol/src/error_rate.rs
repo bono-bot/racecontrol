@@ -75,11 +75,10 @@ impl<S: Subscriber> Layer<S> for ErrorCountLayer {
         if state.timestamps.len() >= state.config.threshold {
             // Check cooldown
             let cooldown = Duration::from_secs(state.config.cooldown_secs);
-            if let Some(last) = state.last_alerted {
-                if now.duration_since(last) < cooldown {
+            if let Some(last) = state.last_alerted
+                && now.duration_since(last) < cooldown {
                     return; // still in cooldown
                 }
-            }
 
             // Fire alert — broadcast send (CRITICAL: on_event is sync)
             if self.alert_tx.send(()).is_ok() {
@@ -116,13 +115,11 @@ pub async fn error_rate_alerter_task(
         match alert_rx.recv().await {
             Ok(()) => {
                 let subject = "RaceControl: High Error Rate Alert";
-                let body = format!(
-                    "RaceControl error rate threshold exceeded.\n\n\
+                let body = "RaceControl error rate threshold exceeded.\n\n\
                      The server has logged an unusual number of errors in a short time window.\n\
                      Please check the structured logs at logs/racecontrol-*.jsonl on the server.\n\n\
                      Run: jq 'select(.level == \"ERROR\")' logs/racecontrol-$(date +%%Y-%%m-%%d).jsonl\n\n\
-                     — James Vowles (automated alert)"
-                );
+                     — James Vowles (automated alert)".to_string();
 
                 for alerter in &mut alerters {
                     alerter.send_alert("server", subject, &body).await;

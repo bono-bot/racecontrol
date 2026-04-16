@@ -12,11 +12,10 @@ static WS_AUTH_FAILURES: std::sync::LazyLock<Mutex<HashMap<String, (u32, Instant
 /// Check if a WS source is locked out from auth failures. Returns true if locked out.
 pub(crate) fn ws_auth_locked_out(source: &str) -> bool {
     let map = WS_AUTH_FAILURES.lock().unwrap_or_else(|p| p.into_inner());
-    if let Some((count, first_failure)) = map.get(source) {
-        if first_failure.elapsed() < Duration::from_secs(300) && *count >= 5 {
+    if let Some((count, first_failure)) = map.get(source)
+        && first_failure.elapsed() < Duration::from_secs(300) && *count >= 5 {
             return true;
         }
-    }
     false
 }
 
@@ -62,8 +61,8 @@ pub(crate) fn verify_ws_token(state: &AppState, token: &Option<String>) -> bool 
 /// Phase 306: Authenticate a pod WS connection.
 /// Tries JWT first (steady-state), then PSK (bootstrap).
 pub(crate) fn authenticate_agent_ws(state: &AppState, params: &WsAuthParams) -> Result<AgentAuthResult, String> {
-    if let Some(ref jwt_token) = params.jwt {
-        if !jwt_token.is_empty() {
+    if let Some(ref jwt_token) = params.jwt
+        && !jwt_token.is_empty() {
             let prev_secret = state.config.auth.jwt_secret_previous.as_deref();
             match crate::auth::middleware::decode_pod_jwt(
                 jwt_token,
@@ -79,7 +78,6 @@ pub(crate) fn authenticate_agent_ws(state: &AppState, params: &WsAuthParams) -> 
                 Err(e) => return Err(format!("Invalid pod JWT: {}", e)),
             }
         }
-    }
     let psk_ok = match &state.config.cloud.terminal_secret {
         None => true,
         Some(s) if s.is_empty() => true,

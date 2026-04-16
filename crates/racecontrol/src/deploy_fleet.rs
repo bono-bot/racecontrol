@@ -171,7 +171,7 @@ pub async fn deploy_rolling(
             failed
         );
 
-        let retry_pod_ids: Vec<String> = failed.drain(..).collect();
+        let retry_pod_ids: Vec<String> = std::mem::take(&mut failed);
         for retry_id in &retry_pod_ids {
             let retry_ip = {
                 let pods = state.pods.read().await;

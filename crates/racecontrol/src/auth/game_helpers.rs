@@ -97,7 +97,7 @@ pub(crate) async fn launch_or_assist(
     .flatten()
     .map(|(alloc, driven)| {
         let remaining = (alloc as u32).saturating_sub(driven as u32);
-        (remaining + 59) / 60 // round up to nearest minute
+        remaining.div_ceil(60) // round up to nearest minute
     })
     .unwrap_or(60);
 

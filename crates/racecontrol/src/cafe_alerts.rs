@@ -54,8 +54,8 @@ pub async fn check_low_stock_alerts(db: &SqlitePool, config: &Config, item_id: &
     }
 
     // 3. Cooldown check
-    if let Some(last_at_str) = &last_alert_at {
-        if let Ok(last_at) =
+    if let Some(last_at_str) = &last_alert_at
+        && let Ok(last_at) =
             chrono::NaiveDateTime::parse_from_str(last_at_str, "%Y-%m-%d %H:%M:%S")
         {
             let elapsed = (chrono::Utc::now().naive_utc() - last_at).num_seconds();
@@ -69,7 +69,6 @@ pub async fn check_low_stock_alerts(db: &SqlitePool, config: &Config, item_id: &
                 return;
             }
         }
-    }
 
     // 4. Fetch item name for message formatting
     let name: Option<(String,)> = sqlx::query_as("SELECT name FROM cafe_items WHERE id = ?")

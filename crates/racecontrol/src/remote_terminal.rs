@@ -104,7 +104,7 @@ async fn poll_and_execute(
         // Mark as running
         let _ = state
             .http_client
-            .post(&format!("{}/terminal/commands/{}/result", cloud_url, cmd.id))
+            .post(format!("{}/terminal/commands/{}/result", cloud_url, cmd.id))
             .header("x-terminal-secret", secret)
             .json(&json!({
                 "exit_code": null,
@@ -160,7 +160,7 @@ async fn poll_and_execute(
         // Post result back to cloud
         let post_result = state
             .http_client
-            .post(&format!("{}/terminal/commands/{}/result", cloud_url, cmd.id))
+            .post(format!("{}/terminal/commands/{}/result", cloud_url, cmd.id))
             .header("x-terminal-secret", secret)
             .json(&json!({
                 "exit_code": exit_code,

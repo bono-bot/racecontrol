@@ -72,8 +72,8 @@ pub(crate) async fn cleanup_on_disconnect(
         .contains_key(pod_id.as_str());
 
     // Mark pod offline on ungraceful disconnect (WebSocket dropped without Disconnect message)
-    if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str()) {
-        if pod.status != rc_common::types::PodStatus::Offline
+    if let Some(pod) = state.pods.write().await.get_mut(pod_id.as_str())
+        && pod.status != rc_common::types::PodStatus::Offline
             && pod.status != rc_common::types::PodStatus::Disabled
         {
             tracing::warn!("Pod {} WebSocket dropped without Disconnect (conn_id={}) — marking Offline", pod_id, conn_id);
@@ -87,7 +87,6 @@ pub(crate) async fn cleanup_on_disconnect(
             }
             let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
         }
-    }
 
     // MMA-P1-FIX: Sync offline status to DB — preserves disabled/maintenance
     if let Err(e) = sqlx::query(

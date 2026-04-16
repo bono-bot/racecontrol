@@ -199,12 +199,11 @@ pub(crate) async fn send_security_alert(config: &Config, pod_id: &str, message: 
     // Debounce check
     {
         let mut map = SECURITY_ALERT_DEBOUNCE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(last) = map.get(pod_id) {
-            if last.elapsed().as_secs() < SECURITY_ALERT_COOLDOWN_SECS {
+        if let Some(last) = map.get(pod_id)
+            && last.elapsed().as_secs() < SECURITY_ALERT_COOLDOWN_SECS {
                 tracing::debug!(target: "whatsapp_alerter", "Security alert for pod {} suppressed (cooldown)", pod_id);
                 return;
             }
-        }
         map.insert(pod_id.to_string(), Instant::now());
     }
 
@@ -318,8 +317,8 @@ pub async fn whatsapp_alerter_task(
 
             _ = tokio::time::sleep(Duration::from_secs(60)) => {
                 // Periodic check: resolve error rate if no signal for 5 minutes
-                if let Some(last_signal) = p0.error_rate_last_signal {
-                    if p0.error_rate_since.is_some() && last_signal.elapsed() > Duration::from_secs(300) {
+                if let Some(last_signal) = p0.error_rate_last_signal
+                    && p0.error_rate_since.is_some() && last_signal.elapsed() > Duration::from_secs(300) {
                         let duration_mins = p0.error_rate_since.unwrap().elapsed().as_secs() / 60;
                         let msg = format!(
                             "[RP RESOLVED] High Error Rate cleared. No threshold breach for 5 minutes. Duration: {}m. {}",
@@ -330,11 +329,10 @@ pub async fn whatsapp_alerter_task(
                         p0.error_rate_since = None;
                         p0.error_rate_last_signal = None;
                     }
-                }
 
                 // PIN rotation check: once per 24 hours (ADMIN-06)
                 let should_check_pin = p0.last_pin_rotation_check
-                    .map_or(true, |t| t.elapsed() > Duration::from_secs(86400));
+                    .is_none_or(|t| t.elapsed() > Duration::from_secs(86400));
                 if should_check_pin {
                     check_pin_rotation_age(&state, &mut p0).await;
                 }

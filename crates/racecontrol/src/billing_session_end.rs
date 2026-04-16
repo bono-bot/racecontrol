@@ -22,15 +22,14 @@ pub async fn end_billing_session_public(
     end_reason: Option<&str>,
 ) -> bool {
     let ended = end_billing_session(state, session_id, end_status).await;
-    if ended {
-        if let Some(reason) = end_reason {
+    if ended
+        && let Some(reason) = end_reason {
             let _ = sqlx::query("UPDATE billing_sessions SET end_reason = ? WHERE id = ?")
                 .bind(reason)
                 .bind(session_id)
                 .execute(&state.db)
                 .await;
         }
-    }
     ended
 }
 
@@ -47,8 +46,8 @@ pub(crate) async fn end_billing_session(
         .find(|(_, t)| t.session_id == session_id)
         .map(|(k, _)| k.clone());
 
-    if let Some(pod_id) = pod_id {
-        if let Some(timer) = timers.get_mut(&pod_id) {
+    if let Some(pod_id) = pod_id
+        && let Some(timer) = timers.get_mut(&pod_id) {
             // FSM-01: gate every status mutation through validate_transition
             let event = match end_status {
                 BillingSessionStatus::Completed => crate::billing_fsm::BillingEvent::End,
@@ -228,8 +227,8 @@ pub(crate) async fn end_billing_session(
                 .ok()
                 .flatten();
 
-                if let Some((driver_id, Some(debit), wallet_owner)) = wallet_info {
-                    if debit > 0 {
+                if let Some((driver_id, Some(debit), wallet_owner)) = wallet_info
+                    && debit > 0 {
                         let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
                         // L2-01 fix: handle refund failure explicitly
                         match crate::wallet::refund(
@@ -245,7 +244,6 @@ pub(crate) async fn end_billing_session(
                             Err(e) => tracing::error!("CRITICAL: cancel refund FAILED for session {} ({}p): {}", session_id, debit, e),
                         }
                     }
-                }
 
                 // FATM-09: Restore any coupon reserved for this session back to 'available'
                 match crate::api::routes::restore_coupon_on_cancel(&state.db, session_id).await {
@@ -329,7 +327,6 @@ pub(crate) async fn end_billing_session(
             }
             return true;
         }
-    }
 
     // ─── Fallback: orphaned session in DB but no in-memory timer ─────────
     // This happens when racecontrol restarts while a session was active.

@@ -395,13 +395,12 @@ async fn post_violation(
 
 fn log_james_event(event: &str) {
     use std::io::Write;
-    if let Ok(meta) = std::fs::metadata(LOG_FILE) {
-        if meta.len() > MAX_LOG_BYTES {
+    if let Ok(meta) = std::fs::metadata(LOG_FILE)
+        && meta.len() > MAX_LOG_BYTES {
             let old_path = format!("{}.old", LOG_FILE);
             let _ = std::fs::rename(LOG_FILE, &old_path);
             // New file will be created by OpenOptions below
         }
-    }
     let line = format!("[{}] {}\n", Utc::now().to_rfc3339(), event);
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)

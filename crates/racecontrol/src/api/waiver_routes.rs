@@ -82,7 +82,7 @@ pub(crate) async fn list_waivers(
     match rows {
         Ok(waivers) => {
             let list: Vec<Value> = waivers.iter().map(|w| {
-                let is_minor = w.4.as_ref().map_or(false, |dob| {
+                let is_minor = w.4.as_ref().is_some_and(|dob| {
                     chrono::NaiveDate::parse_from_str(dob, "%Y-%m-%d")
                         .map(|d| (chrono::Utc::now().date_naive() - d).num_days() / 365 < 18)
                         .unwrap_or(false)

@@ -59,8 +59,8 @@ pub fn spawn(state: Arc<AppState>) {
             let mut status = state.backup_status.write().await;
             status.staleness_hours = Some(staleness);
             // Try to find the newest file and populate last_backup_at
-            if let Ok(newest) = find_newest_backup_file(&backup_dir) {
-                if let Some(path) = newest {
+            if let Ok(newest) = find_newest_backup_file(&backup_dir)
+                && let Some(path) = newest {
                     status.last_backup_file = Some(path.clone());
                     // Estimate last_backup_at from staleness
                     let ago_secs = (staleness * 3600.0) as u64;
@@ -72,7 +72,6 @@ pub fn spawn(state: Arc<AppState>) {
                         .to_string();
                     status.last_backup_at = Some(ist);
                 }
-            }
         }
 
         let interval_secs = state.config.backup.interval_secs;

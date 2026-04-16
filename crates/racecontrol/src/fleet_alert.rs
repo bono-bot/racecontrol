@@ -44,8 +44,8 @@ pub async fn post_fleet_alert(
     Json(req): Json<FleetAlertRequest>,
 ) -> StatusCode {
     // MMA-C4: Validate service key — prevent unauthenticated LAN alert spam
-    if let Some(expected_key) = &state.config.pods.sentry_service_key {
-        if !expected_key.is_empty() {
+    if let Some(expected_key) = &state.config.pods.sentry_service_key
+        && !expected_key.is_empty() {
             let provided = headers
                 .get("x-service-key")
                 .and_then(|v| v.to_str().ok())
@@ -59,7 +59,6 @@ pub async fn post_fleet_alert(
                 return StatusCode::UNAUTHORIZED;
             }
         }
-    }
     // Rate limit: reject if within cooldown window of last alert
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -183,11 +183,10 @@ pub async fn upload_item_image(
         })?;
 
     // Delete old image if present (ignore errors)
-    if let Some(old_path) = old_image {
-        if !old_path.is_empty() {
+    if let Some(old_path) = old_image
+        && !old_path.is_empty() {
             let _ = tokio::fs::remove_file(format!("./data/cafe-images/{}", old_path)).await;
         }
-    }
 
     // Update DB
     sqlx::query(

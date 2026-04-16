@@ -292,26 +292,25 @@ fn parse_file_list(body: &str) -> Vec<NvrFileInfo> {
         }
 
         // Parse "items[N].key=value" format
-        if let Some(rest) = line.strip_prefix("items[") {
-            if let Some(dot_pos) = rest.find("].") {
+        if let Some(rest) = line.strip_prefix("items[")
+            && let Some(dot_pos) = rest.find("].") {
                 let idx: usize = rest[..dot_pos].parse().unwrap_or(0);
                 let kv = &rest[dot_pos + 2..];
 
                 // Ensure we have a builder for this index
                 while files.len() + (if current.is_some() { 1 } else { 0 }) <= idx {
-                    if let Some(builder) = current.take() {
-                        if let Some(info) = builder.build() {
+                    if let Some(builder) = current.take()
+                        && let Some(info) = builder.build() {
                             files.push(info);
                         }
-                    }
                     current = Some(NvrFileInfoBuilder::default());
                 }
                 if current.is_none() {
                     current = Some(NvrFileInfoBuilder::default());
                 }
 
-                if let Some(ref mut builder) = current {
-                    if let Some((key, value)) = kv.split_once('=') {
+                if let Some(ref mut builder) = current
+                    && let Some((key, value)) = kv.split_once('=') {
                         match key {
                             "FilePath" => builder.file_path = Some(value.to_string()),
                             "Channel" => builder.channel = value.parse().ok(),
@@ -322,17 +321,14 @@ fn parse_file_list(body: &str) -> Vec<NvrFileInfo> {
                             _ => {}
                         }
                     }
-                }
             }
-        }
     }
 
     // Don't forget the last builder
-    if let Some(builder) = current {
-        if let Some(info) = builder.build() {
+    if let Some(builder) = current
+        && let Some(info) = builder.build() {
             files.push(info);
         }
-    }
 
     files
 }

@@ -114,11 +114,10 @@ pub(crate) async fn validate_and_calc_coupon(
     }
 
     // Check min_spend
-    if let Some(min) = coupon.6 {
-        if price_paise < min {
+    if let Some(min) = coupon.6
+        && price_paise < min {
             return Err(format!("Minimum spend of {} credits required", min / 100));
         }
-    }
 
     // Check first_session_only
     if coupon.7 {

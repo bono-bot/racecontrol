@@ -83,15 +83,14 @@ fn extract_staff_claims<B>(state: &Arc<AppState>, req: &Request<B>) -> Result<St
     )
     .or_else(|_| {
         // Fall back to previous secret if configured
-        if let Some(ref prev_secret) = state.config.auth.jwt_secret_previous {
-            if !prev_secret.is_empty() {
+        if let Some(ref prev_secret) = state.config.auth.jwt_secret_previous
+            && !prev_secret.is_empty() {
                 return jsonwebtoken::decode::<StaffClaims>(
                     token,
                     &DecodingKey::from_secret(prev_secret.as_bytes()),
                     &Validation::default(),
                 );
             }
-        }
         Err(jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken))
     })
     .map_err(|_| ())?;
@@ -299,8 +298,8 @@ pub fn decode_pod_jwt(
     match result {
         Ok(data) => Ok(data.claims),
         Err(primary_err) => {
-            if let Some(prev) = prev_secret {
-                if !prev.is_empty() {
+            if let Some(prev) = prev_secret
+                && !prev.is_empty() {
                     return jsonwebtoken::decode::<PodClaims>(
                         token,
                         &DecodingKey::from_secret(prev.as_bytes()),
@@ -309,7 +308,6 @@ pub fn decode_pod_jwt(
                     .map(|d| d.claims)
                     .map_err(|_| format!("Pod JWT decode failed (both secrets): {}", primary_err));
                 }
-            }
             Err(format!("Pod JWT decode failed: {}", primary_err))
         }
     }

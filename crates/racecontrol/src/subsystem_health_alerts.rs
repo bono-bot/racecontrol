@@ -19,11 +19,10 @@ pub(super) fn should_alert(subsystem: &str, error_code: &str) -> bool {
     // Evict old entries
     map.retain(|_, v| v.elapsed() < Duration::from_secs(DEDUP_WINDOW_SECS));
 
-    if let Some(last) = map.get(&key) {
-        if last.elapsed() < Duration::from_secs(DEDUP_WINDOW_SECS) {
+    if let Some(last) = map.get(&key)
+        && last.elapsed() < Duration::from_secs(DEDUP_WINDOW_SECS) {
             return false; // suppressed
         }
-    }
     map.insert(key, Instant::now());
     true
 }

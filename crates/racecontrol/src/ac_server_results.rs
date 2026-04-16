@@ -403,7 +403,7 @@ pub async fn collect_results(
                     let mut sorted = ai_laps.clone();
                     sorted.sort_unstable();
                     let mid = sorted.len() / 2;
-                    let median = if sorted.len() % 2 == 0 {
+                    let median = if sorted.len().is_multiple_of(2) {
                         (sorted[mid - 1] + sorted[mid]) / 2
                     } else {
                         sorted[mid]

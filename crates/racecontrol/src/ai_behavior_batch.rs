@@ -58,7 +58,7 @@ impl AiLapSample {
         let mut sorted = self.lap_times_ms.clone();
         sorted.sort_unstable();
         let mid = sorted.len() / 2;
-        if sorted.len() % 2 == 0 {
+        if sorted.len().is_multiple_of(2) {
             Some((sorted[mid - 1] + sorted[mid]) / 2)
         } else {
             Some(sorted[mid])
@@ -105,11 +105,10 @@ pub async fn collect_ai_behavior_samples(
     flags: &HashMap<String, crate::flags::FeatureFlagRow>,
 ) {
     // Feature flag kill-switch
-    if let Some(flag) = flags.get("phase365_mma_batch") {
-        if !flag.enabled {
+    if let Some(flag) = flags.get("phase365_mma_batch")
+        && !flag.enabled {
             return;
         }
-    }
 
     // Collect AI lap times: AI cars have empty guid AND best_lap > 0 AND laps_completed >= 3
     let ai_laps: Vec<i64> = results

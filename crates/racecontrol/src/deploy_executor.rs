@@ -204,7 +204,7 @@ async fn deploy_pod_inner(
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
 
-    if pod_number >= 1 && pod_number <= 8 {
+    if (1..=8).contains(&pod_number) {
         let config_content = generate_pod_config(pod_number);
         let write_url = format!("http://{}:{}/write", pod_ip, POD_AGENT_PORT);
         let write_result = state

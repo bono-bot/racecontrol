@@ -62,8 +62,8 @@ pub async fn metric_alert_task(state: Arc<AppState>) {
             }
 
             let now = Instant::now();
-            if let Some(&last) = last_fired.get(&rule.name) {
-                if now.duration_since(last) < cooldown {
+            if let Some(&last) = last_fired.get(&rule.name)
+                && now.duration_since(last) < cooldown {
                     tracing::debug!(
                         target: LOG_TARGET,
                         "rule '{}' cooldown active, suppressing alert",
@@ -71,7 +71,6 @@ pub async fn metric_alert_task(state: Arc<AppState>) {
                     );
                     continue;
                 }
-            }
             last_fired.insert(rule.name.clone(), now);
 
             // Use the most significant value for the message

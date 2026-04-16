@@ -99,8 +99,8 @@ pub(crate) async fn cleanup_stale_sessions(state: &Arc<AppState>) {
 
     // Refund wallet for sessions being cancelled (BILL-13 kiosk path)
     for (session_id, driver_id, wallet_debit_paise, wallet_owner, _pod_id) in &sessions_to_cancel {
-        if let Some(debit) = wallet_debit_paise {
-            if *debit > 0 {
+        if let Some(debit) = wallet_debit_paise
+            && *debit > 0 {
                 let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
                 match crate::wallet::credit(
                     state,
@@ -121,7 +121,6 @@ pub(crate) async fn cleanup_stale_sessions(state: &Arc<AppState>) {
                     ),
                 }
             }
-        }
     }
 
     // Cancel only the sessions that were not extended

@@ -264,7 +264,7 @@ async fn get_setting(state: &AppState, key: &str) -> Option<String> {
         .ok()
         .flatten()
         .map(|r| r.0)
-        .or_else(|| {
+        .or({
             // Fallback: try kiosk_settings (blocking, but these are fast lookups)
             None
         })

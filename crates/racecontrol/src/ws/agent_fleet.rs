@@ -14,11 +14,10 @@ fn check_sentinel_cooldown(key: &str) -> bool {
     const COOLDOWN_SECS: u64 = 300;
     let mut map = SENTINEL_ALERT_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
     let now = Instant::now();
-    if let Some(last) = map.get(key) {
-        if now.duration_since(*last).as_secs() < COOLDOWN_SECS {
+    if let Some(last) = map.get(key)
+        && now.duration_since(*last).as_secs() < COOLDOWN_SECS {
             return false;
         }
-    }
     map.insert(key.to_string(), now);
     true
 }
@@ -58,8 +57,8 @@ pub(crate) async fn handle_startup_report(
         tracing::warn!("Pod {} BOOT WARNING: remote ops port 8090 NOT bound!", pod_id);
     }
     // MI hardening: Session 0 detection
-    if let Some(session) = windows_session_id {
-        if session == 0 {
+    if let Some(session) = windows_session_id
+        && session == 0 {
             tracing::error!(
                 target: "fleet-anomaly",
                 "SESSION_0: Pod {} rc-agent running in Session 0 (Services) — ALL GUI features broken (Edge, overlay, game launch, blanking)",
@@ -74,7 +73,6 @@ pub(crate) async fn handle_startup_report(
                 crate::whatsapp_alerter::send_whatsapp(&config, &msg).await;
             });
         }
-    }
     log_pod_activity(
         state, pod_id, "system", "Startup Report",
         &format!("v{} uptime={}s hash={} crash_recovery={} repairs={:?}",
@@ -147,14 +145,14 @@ pub(crate) async fn handle_hardware_disconnect(
 
     let has_active_billing = {
         let timers = state.billing.active_timers.read().await;
-        timers.get(pod_id).map_or(false, |t| {
+        timers.get(pod_id).is_some_and(|t| {
             matches!(t.status, BillingSessionStatus::Active)
         })
     };
     if has_active_billing {
         let mut timers = state.billing.active_timers.write().await;
-        if let Some(timer) = timers.get_mut(pod_id) {
-            if timer.status == BillingSessionStatus::Active {
+        if let Some(timer) = timers.get_mut(pod_id)
+            && timer.status == BillingSessionStatus::Active {
                 timer.status = BillingSessionStatus::PausedGamePause;
                 timer.pause_count += 1;
                 tracing::info!(
@@ -162,7 +160,6 @@ pub(crate) async fn handle_hardware_disconnect(
                     pod_id, device
                 );
             }
-        }
         drop(timers);
     }
 

@@ -38,11 +38,10 @@ impl Gallery {
 
         for entry in entries.iter() {
             let sim = cosine_similarity(query, &entry.embedding);
-            if sim > self.threshold {
-                if best.as_ref().map_or(true, |(_, _, best_sim)| sim > *best_sim) {
+            if sim > self.threshold
+                && best.as_ref().is_none_or(|(_, _, best_sim)| sim > *best_sim) {
                     best = Some((entry.person_id, entry.person_name.clone(), sim));
                 }
-            }
         }
 
         best

@@ -150,12 +150,11 @@ pub fn allow_cloud_venue_write() -> bool {
 /// The dangerous default "racingpoint-jwt-change-me-in-production" is treated as unset.
 fn resolve_jwt_secret(config_value: &str) -> String {
     // 1. Environment variable takes priority
-    if let Ok(key) = std::env::var("RACECONTROL_JWT_SECRET") {
-        if !key.is_empty() {
+    if let Ok(key) = std::env::var("RACECONTROL_JWT_SECRET")
+        && !key.is_empty() {
             tracing::info!("Using JWT secret from RACECONTROL_JWT_SECRET env var");
             return key;
         }
-    }
     // 2. Config file value (if not the dangerous default and not empty)
     if config_value != "racingpoint-jwt-change-me-in-production" && !config_value.is_empty() {
         return config_value.to_string();
@@ -250,8 +249,8 @@ impl Config {
         //      where CWD is not guaranteed to match the install directory)
         //   3. /etc/racecontrol/ (Linux/VPS deployments)
         let mut paths: Vec<String> = vec!["racecontrol.toml".to_string()];
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(exe_dir) = exe_path.parent() {
                 let exe_cfg = exe_dir.join("racecontrol.toml");
                 let exe_cfg_str = exe_cfg.to_string_lossy().into_owned();
                 // Only add if different from CWD-relative (avoid duplicate on happy path)
@@ -259,7 +258,6 @@ impl Config {
                     paths.push(exe_cfg_str);
                 }
             }
-        }
         paths.push("/etc/racecontrol/racecontrol.toml".to_string());
 
         for path in &paths {
@@ -309,7 +307,7 @@ impl Config {
             }
         }
         // OBS-02: No config file found — emit structured warn (eprintln always, tracing if initialized)
-        let msg = format!("[config_fallback] field=config_file source=racecontrol.toml fallback=Config::default() — config file not found, using defaults");
+        let msg = "[config_fallback] field=config_file source=racecontrol.toml fallback=Config::default() — config file not found, using defaults".to_string();
         eprintln!("{}", msg);
         tracing::warn!(target: "state", field = "config_file", source = "racecontrol.toml", fallback = "Config::default()", "config file not found, using defaults");
         Self::default_config()
@@ -383,49 +381,42 @@ impl Config {
         // JWT secret is handled specially via resolve_jwt_secret (supports auto-generation)
         self.auth.jwt_secret = resolve_jwt_secret(&self.auth.jwt_secret);
 
-        if let Ok(val) = std::env::var("RACECONTROL_ADMIN_PIN_HASH") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_ADMIN_PIN_HASH")
+            && !val.is_empty() {
                 tracing::info!("Overriding admin_pin_hash from RACECONTROL_ADMIN_PIN_HASH env var");
                 self.auth.admin_pin_hash = Some(val);
             }
-        }
 
-        if let Ok(val) = std::env::var("RACECONTROL_TERMINAL_SECRET") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_TERMINAL_SECRET")
+            && !val.is_empty() {
                 tracing::info!("Overriding terminal_secret from RACECONTROL_TERMINAL_SECRET env var");
                 self.cloud.terminal_secret = Some(val);
             }
-        }
-        if let Ok(val) = std::env::var("RACECONTROL_RELAY_SECRET") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_RELAY_SECRET")
+            && !val.is_empty() {
                 tracing::info!("Overriding relay_secret from RACECONTROL_RELAY_SECRET env var");
                 self.bono.relay_secret = Some(val);
             }
-        }
-        if let Ok(val) = std::env::var("RACECONTROL_EVOLUTION_API_KEY") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_EVOLUTION_API_KEY")
+            && !val.is_empty() {
                 tracing::info!("Overriding evolution_api_key from RACECONTROL_EVOLUTION_API_KEY env var");
                 self.auth.evolution_api_key = Some(val);
             }
-        }
-        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_CLIENT_SECRET") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_CLIENT_SECRET")
+            && !val.is_empty() {
                 tracing::info!("Overriding gmail.client_secret from RACECONTROL_GMAIL_CLIENT_SECRET env var");
                 self.gmail.client_secret = Some(val);
             }
-        }
-        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_REFRESH_TOKEN") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_GMAIL_REFRESH_TOKEN")
+            && !val.is_empty() {
                 tracing::info!("Overriding gmail.refresh_token from RACECONTROL_GMAIL_REFRESH_TOKEN env var");
                 self.gmail.refresh_token = Some(val);
             }
-        }
-        if let Ok(val) = std::env::var("RACECONTROL_SYNC_HMAC_KEY") {
-            if !val.is_empty() {
+        if let Ok(val) = std::env::var("RACECONTROL_SYNC_HMAC_KEY")
+            && !val.is_empty() {
                 tracing::info!("Overriding sync_hmac_key from RACECONTROL_SYNC_HMAC_KEY env var");
                 self.cloud.sync_hmac_key = Some(val);
             }
-        }
     }
 }
 

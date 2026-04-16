@@ -77,7 +77,7 @@ pub async fn handle_spectator(socket: WebSocket, state: Arc<AppState>) {
                     if let rc_common::protocol::DashboardEvent::Telemetry(frame) = event {
                         let normalized = frame.normalized_car_position.unwrap_or(0.0);
                         // Only track pods with valid position data
-                        if normalized >= 0.0 && normalized <= 1.0 {
+                        if (0.0..=1.0).contains(&normalized) {
                             let pos = SpectatorCarPosition {
                                 pod_id: frame.pod_id.clone(),
                                 pod_number: frame.pod_id
@@ -137,11 +137,10 @@ pub async fn handle_spectator(socket: WebSocket, state: Arc<AppState>) {
                             track_id: track.clone(),
                             has_outline: true,
                         };
-                        if let Ok(json) = serde_json::to_string(&change_msg) {
-                            if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                        if let Ok(json) = serde_json::to_string(&change_msg)
+                            && ws_sender.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }
-                        }
                     }
 
                     let msg = SpectatorMessage::CarPositions {
@@ -150,11 +149,10 @@ pub async fn handle_spectator(socket: WebSocket, state: Arc<AppState>) {
                         timestamp: chrono::Utc::now().to_rfc3339(),
                     };
 
-                    if let Ok(json) = serde_json::to_string(&msg) {
-                        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                    if let Ok(json) = serde_json::to_string(&msg)
+                        && ws_sender.send(Message::Text(json.into())).await.is_err() {
                             break;
                         }
-                    }
                 }
                 _ = &mut stop_rx => break,
             }

@@ -39,19 +39,19 @@ pub use hardware::{
 const DEFAULT_RETENTION_DAYS: u32 = 30;
 
 /// Maximum buffer size before forced flush.
-pub(self) const BUFFER_FLUSH_SIZE: usize = 50;
+ const BUFFER_FLUSH_SIZE: usize = 50;
 
 /// Flush interval in milliseconds.
-pub(self) const FLUSH_INTERVAL_MS: u64 = 1000;
+ const FLUSH_INTERVAL_MS: u64 = 1000;
 
 /// Minimum interval between samples from the same pod (10 Hz cap).
-pub(self) const MIN_SAMPLE_INTERVAL_MS: i64 = 100;
+ const MIN_SAMPLE_INTERVAL_MS: i64 = 100;
 
 /// Rows deleted per batch during nightly cleanup.
-pub(self) const CLEANUP_BATCH_SIZE: i64 = 1000;
+ const CLEANUP_BATCH_SIZE: i64 = 1000;
 
 /// Sleep between cleanup batches (ms).
-pub(self) const CLEANUP_BATCH_SLEEP_MS: u64 = 100;
+ const CLEANUP_BATCH_SLEEP_MS: u64 = 100;
 
 // ─── Database Initialization ────────────────────────────────────────────────
 

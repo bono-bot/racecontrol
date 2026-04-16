@@ -279,9 +279,8 @@ async fn append_pod_result(
     result: PodDeployResult,
 ) {
     let mut guard = session_lock.write().await;
-    if let Some(ref mut s) = *guard {
-        if wave_idx < s.waves.len() {
+    if let Some(ref mut s) = *guard
+        && wave_idx < s.waves.len() {
             s.waves[wave_idx].pod_results.push(result);
         }
-    }
 }

@@ -56,11 +56,10 @@ pub(crate) async fn check_terminal_auth(state: &AppState, headers: &axum::http::
     // 1. Check PIN session token (x-terminal-session header)
     if let Some(token) = headers.get("x-terminal-session").and_then(|v| v.to_str().ok()) {
         let sessions = state.terminal_sessions.read().await;
-        if let Some(expiry) = sessions.get(token) {
-            if *expiry > chrono::Utc::now() {
+        if let Some(expiry) = sessions.get(token)
+            && *expiry > chrono::Utc::now() {
                 return Ok(());
             }
-        }
     }
 
     // 2. Check legacy shared secret (x-terminal-secret header — for cloud polling)

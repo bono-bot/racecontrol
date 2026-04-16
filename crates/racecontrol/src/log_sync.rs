@@ -34,7 +34,7 @@ async fn log_sync_task() {
         let hour = now_ist.hour();
         let today = now_ist.format("%Y-%m-%d").to_string();
 
-        if hour < 2 || hour >= 4 {
+        if !(2..4).contains(&hour) {
             continue; // Outside sync window
         }
 

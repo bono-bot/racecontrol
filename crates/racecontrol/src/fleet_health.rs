@@ -306,9 +306,9 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                 // The StartupReport path can only SET crash_loop (uptime always <30s at boot).
                 // This probe-based clearing provides the self-healing path:
                 // if the pod has been stable for 5+ minutes, it's no longer crash-looping.
-                if store.crash_loop {
-                    if let Some(uptime) = uptime_secs {
-                        if uptime >= 300 {
+                if store.crash_loop
+                    && let Some(uptime) = uptime_secs
+                        && uptime >= 300 {
                             store.crash_loop = false;
                             store.startup_timestamps.clear();
                             tracing::info!(
@@ -317,8 +317,6 @@ pub fn start_probe_loop(state: Arc<AppState>) {
                                 pod_id, uptime
                             );
                         }
-                    }
-                }
             }
 
             // ── Fleet anomaly detection (Phase 310+) ────────────────────────

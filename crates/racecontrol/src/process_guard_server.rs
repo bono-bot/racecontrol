@@ -29,15 +29,14 @@ fn log_server_guard_event(line: &str) {
     const GUARD_LOG: &str = r"C:\RacingPoint\process-guard.log";
     const MAX_LOG_BYTES: u64 = 512 * 1024;
 
-    if let Ok(meta) = std::fs::metadata(GUARD_LOG) {
-        if meta.len() >= MAX_LOG_BYTES {
+    if let Ok(meta) = std::fs::metadata(GUARD_LOG)
+        && meta.len() >= MAX_LOG_BYTES {
             // Truncate to 0 bytes before appending (rotation)
             let _ = std::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
                 .open(GUARD_LOG);
         }
-    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

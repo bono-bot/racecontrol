@@ -32,6 +32,12 @@ pub struct NonceStore {
 
 const TTL_SECS: u64 = 300; // 5 minutes
 
+impl Default for NonceStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NonceStore {
     pub fn new() -> Self {
         Self {

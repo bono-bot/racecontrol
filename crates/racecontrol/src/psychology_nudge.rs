@@ -112,8 +112,8 @@ pub(super) async fn drain_notification_queue(state: &Arc<AppState>) -> anyhow::R
         };
 
         // 3. Check WhatsApp budget before sending
-        if channel == NotificationChannel::Whatsapp {
-            if is_whatsapp_budget_exceeded(state, &driver_id).await {
+        if channel == NotificationChannel::Whatsapp
+            && is_whatsapp_budget_exceeded(state, &driver_id).await {
                 let _ = sqlx::query(
                     "UPDATE nudge_queue SET status = 'throttled', error_text = 'daily budget exceeded' WHERE id = ?"
                 )
@@ -123,7 +123,6 @@ pub(super) async fn drain_notification_queue(state: &Arc<AppState>) -> anyhow::R
                 tracing::info!("[psychology] throttled WhatsApp nudge {} for driver {}", nudge_id, driver_id);
                 continue;
             }
-        }
 
         // 4. Resolve message content from template + payload
         let message = resolve_template(&template, &payload_json);

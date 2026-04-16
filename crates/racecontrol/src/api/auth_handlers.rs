@@ -209,8 +209,8 @@ pub(crate) async fn kiosk_redeem_pin(
             prune_pin_lockout_entries(&mut lockout_map);
         }
 
-        if let Some(entry) = lockout_map.get_mut(&client_ip) {
-            if let Some(locked_until) = entry.locked_until {
+        if let Some(entry) = lockout_map.get_mut(&client_ip)
+            && let Some(locked_until) = entry.locked_until {
                 let now = std::time::Instant::now();
                 if now < locked_until {
                     let remaining = locked_until.duration_since(now);
@@ -232,7 +232,6 @@ pub(crate) async fn kiosk_redeem_pin(
                     entry.locked_until = None;
                 }
             }
-        }
     }
 
     match reservation::redeem_pin(&state, &req.pin).await {

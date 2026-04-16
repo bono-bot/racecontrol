@@ -115,7 +115,7 @@ pub async fn get_pending_tokens(state: &Arc<AppState>) -> Vec<AuthTokenInfo> {
 
     let mut tokens = Vec::new();
     for r in rows {
-        let duration_minutes = r.9.unwrap_or_else(|| {
+        let duration_minutes = r.9.unwrap_or({
             // Can't do async here, use a default
             0
         });

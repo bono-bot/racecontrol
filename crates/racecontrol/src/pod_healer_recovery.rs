@@ -163,7 +163,7 @@ pub(crate) async fn run_graduated_recovery(
     }
     tracing::debug!(pod_id = %pod.id, "pod_healer: SF-05 coordination check passed, proceeding with recovery");
 
-    let tracker = trackers.entry(pod.id.clone()).or_insert_with(PodRecoveryTracker::new);
+    let tracker = trackers.entry(pod.id.clone()).or_default();
     let now_instant = std::time::Instant::now();
 
     match tracker.step {
@@ -210,8 +210,8 @@ pub(crate) async fn run_graduated_recovery(
             // COORD-01: ProcessOwnership enforcement
             {
                 let ownership = state.process_ownership.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(owner) = ownership.owner_of("rc-agent.exe") {
-                    if owner != RecoveryAuthority::PodHealer {
+                if let Some(owner) = ownership.owner_of("rc-agent.exe")
+                    && owner != RecoveryAuthority::PodHealer {
                         tracing::info!(
                             target: "pod_healer",
                             "Pod {} rc-agent.exe owned by {:?}, not PodHealer — skipping Tier 1 restart, advancing to AI escalation",
@@ -220,7 +220,6 @@ pub(crate) async fn run_graduated_recovery(
                         tracker.step = PodRecoveryStep::AiEscalation;
                         return;
                     }
-                }
             }
 
             let decision = RecoveryDecision::new(

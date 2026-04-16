@@ -191,6 +191,12 @@ pub struct SurvivalReportIngester {
     reports: HashMap<String, SurvivalReport>,
 }
 
+impl Default for SurvivalReportIngester {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SurvivalReportIngester {
     pub fn new() -> Self {
         Self {

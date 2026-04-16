@@ -75,11 +75,10 @@ impl WhatsAppEscalation {
     /// Inserts/updates the timestamp if not a duplicate.
     fn is_duplicate(&self, incident_id: &str) -> bool {
         let mut map = self.dedup.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(last_sent) = map.get(incident_id) {
-            if last_sent.elapsed() < Duration::from_secs(DEDUP_TTL_SECS) {
+        if let Some(last_sent) = map.get(incident_id)
+            && last_sent.elapsed() < Duration::from_secs(DEDUP_TTL_SECS) {
                 return true; // suppress
             }
-        }
         map.insert(incident_id.to_string(), Instant::now());
         false
     }

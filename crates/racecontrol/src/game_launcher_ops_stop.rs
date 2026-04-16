@@ -89,12 +89,11 @@ pub async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                     // GSTATE-03: On successful ACK, remove tracker immediately (don't wait for agent Idle report)
                     {
                         let mut games = state.game_launcher.active_games.write().await;
-                        if let Some(tracker) = games.get(&*pod_id_owned) {
-                            if tracker.game_state == GameState::Stopping {
+                        if let Some(tracker) = games.get(&*pod_id_owned)
+                            && tracker.game_state == GameState::Stopping {
                                 games.remove(&*pod_id_owned);
                                 tracing::info!("GSTATE-03: Cleared GameTracker for pod {} after successful stop ACK", pod_id);
                             }
-                        }
                     }
                     // GSTATE-03: Update pod info to reflect no active game
                     {
@@ -259,8 +258,8 @@ pub async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             let mut games = state_clone.game_launcher.active_games.write().await;
-            if let Some(tracker) = games.get_mut(&pod_id_timeout) {
-                if tracker.game_state == GameState::Stopping {
+            if let Some(tracker) = games.get_mut(&pod_id_timeout)
+                && tracker.game_state == GameState::Stopping {
                     tracker.game_state = GameState::Error;
                     tracker.error_message = Some("Stop timed out (30s)".to_string());
                     let info = tracker.to_info();
@@ -270,7 +269,6 @@ pub async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                     }
                     tracing::warn!("game state: Stopping timed out on pod {}", pod_id_timeout);
                 }
-            }
         });
     }
 }

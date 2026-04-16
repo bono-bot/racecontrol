@@ -98,12 +98,11 @@ pub(crate) async fn handle_expired_sessions(
                     .await;
 
                 // If this was the last split, end the reservation
-                if current_split >= total_splits {
-                    if let Some((_, Some(res_id))) = &split_info {
+                if current_split >= total_splits
+                    && let Some((_, Some(res_id))) = &split_info {
                         let _ = crate::pod_reservation::end_reservation(state, res_id).await;
                         tracing::info!("Last split completed — reservation {} ended", res_id);
                     }
-                }
             } else {
                 // Full session ended — pod returns to idle
                 let _ = sender

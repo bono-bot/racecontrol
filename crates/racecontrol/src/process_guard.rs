@@ -35,7 +35,7 @@ pub fn machine_type_for_id(machine_id: &str) -> Option<&'static str> {
         id if id.starts_with("pod-") => {
             let num_str = &id[4..]; // everything after "pod-"
             let n: u32 = num_str.parse().ok()?;
-            if n >= 1 && n <= 8 {
+            if (1..=8).contains(&n) {
                 Some("pod")
             } else {
                 None

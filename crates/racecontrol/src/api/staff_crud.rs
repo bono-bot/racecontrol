@@ -188,11 +188,10 @@ pub(crate) async fn update_staff(
     }
 
     // Validate role if provided
-    if let Some(ref role) = req.role {
-        if !["staff", "cashier", "manager", "superadmin"].contains(&role.as_str()) {
+    if let Some(ref role) = req.role
+        && !["staff", "cashier", "manager", "superadmin"].contains(&role.as_str()) {
             return Json(json!({ "error": format!("Invalid role: {}. Must be one of: staff, cashier, manager, superadmin", role) })).into_response();
         }
-    }
 
     // Build dynamic UPDATE
     let mut sets: Vec<String> = Vec::new();

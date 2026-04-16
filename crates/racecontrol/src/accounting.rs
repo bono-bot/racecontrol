@@ -74,8 +74,8 @@ pub async fn post_journal_entry(
 
     // C38 audit fix: Idempotency check — reject duplicate reference_ids for wallet transactions
     // Prevents replay attacks that could cause double top-ups or debits
-    if let Some(ref_id) = reference_id {
-        if !ref_id.is_empty() {
+    if let Some(ref_id) = reference_id
+        && !ref_id.is_empty() {
             let existing: Option<(String,)> = sqlx::query_as(
                 "SELECT id FROM journal_entries WHERE reference_id = ? AND reference_type = ? LIMIT 1",
             )
@@ -99,7 +99,6 @@ pub async fn post_journal_entry(
                 ));
             }
         }
-    }
 
     // Use a transaction to ensure header + all lines are atomic
     let mut tx = state.db.begin().await

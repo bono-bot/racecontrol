@@ -39,7 +39,7 @@ pub async fn send_staff_launch_alert(
 
     // Access Evolution API config (same pattern as billing.rs WhatsApp receipt)
     let (evo_url, evo_key, evo_instance) = match &state.config.auth {
-        ref auth => match (auth.evolution_url.as_deref(), auth.evolution_api_key.as_deref(), auth.evolution_instance.as_deref()) {
+        auth => match (auth.evolution_url.as_deref(), auth.evolution_api_key.as_deref(), auth.evolution_instance.as_deref()) {
             (Some(url), Some(key), Some(inst)) => (url.to_string(), key.to_string(), inst.to_string()),
             _ => {
                 tracing::warn!("LAUNCH-15: Evolution API not configured — skipping WhatsApp staff alert for pod {}", pod_id);
@@ -121,8 +121,8 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             // GAME-05 fix: use last_state_change (if available) or launched_at + game duration
             // to avoid force-erroring long-running games. Only timeout Stopping if the game
             // has been in Stopping state for >60s (not since launch).
-            if tracker.game_state == GameState::Stopping {
-                if let Some(launched_at) = tracker.launched_at {
+            if tracker.game_state == GameState::Stopping
+                && let Some(launched_at) = tracker.launched_at {
                     let since_launch = now.signed_duration_since(launched_at).num_seconds();
                     // GAME-05 MMA iter2: two tiers —
                     // 1) Short-lived (30-90s since launch): likely reconstructed post-restart
@@ -132,7 +132,6 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                         timed_out.push((pod_id.clone(), tracker.sim_type, 30));
                     }
                 }
-            }
         }
     }
 
@@ -141,12 +140,11 @@ pub async fn check_game_health(state: &Arc<AppState>) {
     if !needs_launched_at.is_empty() {
         let mut games = state.game_launcher.active_games.write().await;
         for pod_id in &needs_launched_at {
-            if let Some(tracker) = games.get_mut(pod_id) {
-                if tracker.game_state == GameState::Launching && tracker.launched_at.is_none() {
+            if let Some(tracker) = games.get_mut(pod_id)
+                && tracker.game_state == GameState::Launching && tracker.launched_at.is_none() {
                     tracker.launched_at = Some(now);
                     tracing::warn!("GSTATE-01: Backfilled launched_at for pod {} (was None, likely from reconnect)", pod_id);
                 }
-            }
         }
     }
 
@@ -182,7 +180,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
         }
 
         // Log (legacy table)
-        log_game_event(&state, &pod_id, &sim_type.to_string(), "timeout", None, None).await;
+        log_game_event(state, &pod_id, &sim_type.to_string(), "timeout", None, None).await;
 
         // Rich timeout event recording
         {

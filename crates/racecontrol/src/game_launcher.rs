@@ -121,6 +121,12 @@ pub struct LaunchSpanSnapshot {
     pub outcome: String,
 }
 
+impl Default for GameManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameManager {
     pub fn new() -> Self {
         Self {

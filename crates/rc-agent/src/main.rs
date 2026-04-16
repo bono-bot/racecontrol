@@ -65,7 +65,6 @@ mod inactivity_monitor;
 mod session_enforcer;
 mod iracing_checks;
 mod steam_checks;
-mod launch_verifier;
 mod mdns_discovery;
 mod off_track_blanking;
 mod off_track_detector;

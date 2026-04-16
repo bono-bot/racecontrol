@@ -360,6 +360,12 @@ pub struct BillingManager {
     pub driver_billing_locks: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
+impl Default for BillingManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BillingManager {
     pub fn new() -> Self {
         Self {

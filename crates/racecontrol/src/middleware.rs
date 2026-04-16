@@ -32,11 +32,10 @@ pub async fn jwt_error_to_401(
 
     if parts.status == axum::http::StatusCode::OK && is_json {
         let body_bytes = axum::body::to_bytes(body, 1024 * 64).await.unwrap_or_default();
-        if let Ok(s) = std::str::from_utf8(&body_bytes) {
-            if s.contains("JWT decode error") || s.contains("Missing Authorization") {
+        if let Ok(s) = std::str::from_utf8(&body_bytes)
+            && (s.contains("JWT decode error") || s.contains("Missing Authorization")) {
                 parts.status = axum::http::StatusCode::UNAUTHORIZED;
             }
-        }
         return axum::response::Response::from_parts(parts, axum::body::Body::from(body_bytes));
     }
 
@@ -81,8 +80,8 @@ pub async fn kiosk_proxy(
     // - P1: Validate redirect target starts with "/" (prevent open redirect via //evil.com)
     // - P2: Use temporary redirect (307, not 308) — avoid permanent cache in kiosk Edge
     // - P2: Exact path segment match (not starts_with) — prevent /kiosk/billing-old matching
-    if is_kiosk {
-        if let Some(after_kiosk) = path_and_query.strip_prefix("/kiosk") {
+    if is_kiosk
+        && let Some(after_kiosk) = path_and_query.strip_prefix("/kiosk") {
             // Extract just the path portion (before any query string) for matching
             let path_part = after_kiosk.split('?').next().unwrap_or(after_kiosk);
             // Exact match: path must be exactly a dashboard path OR dashboard path + "/"
@@ -94,7 +93,6 @@ pub async fn kiosk_proxy(
                 return axum::response::Redirect::temporary(after_kiosk).into_response();
             }
         }
-    }
 
     // PERMANENT FIX (Unified Protocol): For paths not explicitly in WEB_DASHBOARD_PATHS
     // and not /kiosk*, try the web dashboard (port 3200) first. If it returns 404,
@@ -119,13 +117,11 @@ pub async fn kiosk_proxy(
     let mut proxy_headers = reqwest::header::HeaderMap::new();
     for (key, val) in req.headers() {
         let name = key.as_str();
-        if name != "host" && name != "connection" {
-            if let Ok(k) = reqwest::header::HeaderName::from_bytes(key.as_ref()) {
-                if let Ok(v) = reqwest::header::HeaderValue::from_bytes(val.as_bytes()) {
+        if name != "host" && name != "connection"
+            && let Ok(k) = reqwest::header::HeaderName::from_bytes(key.as_ref())
+                && let Ok(v) = reqwest::header::HeaderValue::from_bytes(val.as_bytes()) {
                     proxy_headers.insert(k, v);
                 }
-            }
-        }
     }
 
     let body_bytes = match axum::body::to_bytes(req.into_body(), 10_000_000).await {
@@ -306,7 +302,7 @@ pub fn security_headers_layer() -> HelmetLayer {
     layer
         .enable(csp)
         .enable(XFrameOptions::Deny)
-        .enable(tower_helmet::header::XContentTypeOptions::default())
+        .enable(tower_helmet::header::XContentTypeOptions)
         .enable(hsts);
     layer
 }

@@ -95,8 +95,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
 
     // Phase 368 Step E: Emit IssueFixed at playable_at transition (LLS-03).
     // Only fires on first Running event. Terminal-state guard makes this idempotent.
-    if let Some(ref lid) = playable_launch_id {
-        if let Some(card) = state.launch_state_machine.transition(
+    if let Some(ref lid) = playable_launch_id
+        && let Some(card) = state.launch_state_machine.transition(
             lid,
             rc_common::protocol::LaunchState::IssueFixed,
             None,
@@ -114,7 +114,6 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                 sm.dismiss(&lid_owned).await;
             });
         }
-    }
 
     // Update pod info
     {
@@ -210,8 +209,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     // during initial launch (driving_seconds < 120) — crash relaunches skip.
     if info.game_state == GameState::Running && info.sim_type == SimType::AssettoCorsa {
         let mut timers = state.billing.active_timers.write().await;
-        if let Some(timer) = timers.get_mut(pod_id) {
-            if timer.status == BillingSessionStatus::Active && timer.driving_seconds < 120 {
+        if let Some(timer) = timers.get_mut(pod_id)
+            && timer.status == BillingSessionStatus::Active && timer.driving_seconds < 120 {
                 tracing::info!(
                     "AC timer sync: resetting billing timer for session {} on pod {} (was {}s)",
                     timer.session_id, pod_id, timer.driving_seconds
@@ -227,7 +226,6 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                 .execute(&state.db)
                 .await;
             }
-        }
     }
 
     // ─── Race Engineer: Auto-relaunch on crash if billing is active ────
@@ -363,7 +361,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                 sm as u32
                             } else {
                                 let remaining = (allocated as u32).saturating_sub(driven as u32);
-                                (remaining + 59) / 60 // ceiling division
+                                remaining.div_ceil(60) // ceiling division
                             }
                         });
 
@@ -442,8 +440,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
 
                     // Pause billing so customer doesn't pay for downtime
                     let mut timers = state.billing.active_timers.write().await;
-                    if let Some(timer) = timers.get_mut(pod_id) {
-                        if timer.status == BillingSessionStatus::Active {
+                    if let Some(timer) = timers.get_mut(pod_id)
+                        && timer.status == BillingSessionStatus::Active {
                             timer.status = BillingSessionStatus::PausedCrashRecovery;
                             timer.pause_reason = crate::billing::PauseReason::CrashRecovery;
                             timer.last_paused_at = Some(Utc::now());
@@ -453,7 +451,6 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                                 pod_id
                             );
                         }
-                    }
                     drop(timers);
 
                     // LAUNCH-15: WhatsApp staff alert — notify staff that automation failed

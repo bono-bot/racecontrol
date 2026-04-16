@@ -96,10 +96,10 @@ pub(crate) async fn customer_passport(
     for (track, car, first_driven, best_lap, lap_count) in &entries {
         let te = track_data.entry(track.clone()).or_insert((0, i64::MAX, first_driven.clone()));
         te.0 += lap_count;
-        if let Some(bl) = best_lap { if *bl < te.1 { te.1 = *bl; } }
+        if let Some(bl) = best_lap && *bl < te.1 { te.1 = *bl; }
         let ce = car_data.entry(car.clone()).or_insert((0, i64::MAX, first_driven.clone()));
         ce.0 += lap_count;
-        if let Some(bl) = best_lap { if *bl < ce.1 { ce.1 = *bl; } }
+        if let Some(bl) = best_lap && *bl < ce.1 { ce.1 = *bl; }
     }
 
     // Get featured catalog data
@@ -229,7 +229,6 @@ pub(crate) async fn customer_passport(
     .flatten();
 
     let (streak_weeks, longest_streak, last_visit_date, grace_expires_date) = streak_data
-        .map(|(c, l, lv, ge)| (c, l, lv, ge))
         .unwrap_or((0, 0, None, None));
 
     Json(json!({
@@ -238,7 +237,7 @@ pub(crate) async fn customer_passport(
                 "total_driven": driven_tracks.len(),
                 "total_available": featured_tracks.len(),
                 "tiers": {
-                    "starter": track_tiers.get(0),
+                    "starter": track_tiers.first(),
                     "explorer": track_tiers.get(1),
                     "legend": track_tiers.get(2)
                 },
@@ -248,7 +247,7 @@ pub(crate) async fn customer_passport(
                 "total_driven": driven_cars.len(),
                 "total_available": featured_cars.len(),
                 "tiers": {
-                    "starter": car_tiers.get(0),
+                    "starter": car_tiers.first(),
                     "explorer": car_tiers.get(1),
                     "legend": car_tiers.get(2)
                 },

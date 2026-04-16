@@ -121,7 +121,7 @@ pub(crate) async fn get_events(
                 .map(|(id, event_type, source, pod, timestamp, payload)| {
                     // Parse payload TEXT back to JSON Value — avoids double-encoding (Pitfall 5)
                     let payload_val: Value = serde_json::from_str(&payload)
-                        .unwrap_or_else(|_| Value::String(payload));
+                        .unwrap_or(Value::String(payload));
                     json!({
                         "id": id,
                         "event_type": event_type,

@@ -128,8 +128,8 @@ pub(crate) fn check_staff_login_lockout(ip: std::net::IpAddr) -> Option<u64> {
         let cutoff = std::time::Instant::now() - std::time::Duration::from_secs(STAFF_LOGIN_LOCKOUT_SECS + 60);
         map.retain(|_, v| v.last_attempt > cutoff);
     }
-    if let Some(entry) = map.get_mut(&ip) {
-        if let Some(locked_until) = entry.locked_until {
+    if let Some(entry) = map.get_mut(&ip)
+        && let Some(locked_until) = entry.locked_until {
             let now = std::time::Instant::now();
             if now < locked_until {
                 return Some(locked_until.duration_since(now).as_secs());
@@ -138,7 +138,6 @@ pub(crate) fn check_staff_login_lockout(ip: std::net::IpAddr) -> Option<u64> {
             entry.fail_count = 0;
             entry.locked_until = None;
         }
-    }
     None
 }
 

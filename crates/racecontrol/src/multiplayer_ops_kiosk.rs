@@ -48,7 +48,7 @@ pub async fn book_multiplayer_kiosk(
     experience_id: Option<&str>,
     custom: Option<(String, String, String)>,
 ) -> Result<KioskMultiplayerResult, String> {
-    if pod_count < 2 || pod_count > 8 {
+    if !(2..=8).contains(&pod_count) {
         return Err("Pod count must be between 2 and 8".to_string());
     }
 

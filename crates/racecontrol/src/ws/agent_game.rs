@@ -19,12 +19,11 @@ pub(crate) async fn handle_telemetry(
     registered_pod_id: &Option<String>,
 ) {
     let mut frame = frame.clone();
-    if let Some(expected) = registered_pod_id {
-        if frame.pod_id != *expected {
+    if let Some(expected) = registered_pod_id
+        && frame.pod_id != *expected {
             tracing::warn!("Telemetry pod_id spoof: conn={} frame={} — overriding", expected, frame.pod_id);
             frame.pod_id = expected.clone();
         }
-    }
     crate::ac_camera::on_telemetry(state, &frame).await;
     let _ = state
         .dashboard_tx
@@ -33,12 +32,11 @@ pub(crate) async fn handle_telemetry(
         let _ = tx.try_send(frame.clone());
     }
     // GLD-C-02: Record 1s coverage bucket.
-    if let Ok(mut timers) = state.billing.active_timers.try_write() {
-        if let Some(timer) = timers.get_mut(&frame.pod_id) {
+    if let Ok(mut timers) = state.billing.active_timers.try_write()
+        && let Some(timer) = timers.get_mut(&frame.pod_id) {
             let elapsed = timer.elapsed_seconds;
             timer.telemetry_seconds_covered.insert(elapsed);
         }
-    }
 }
 
 /// Handle AgentMessage::LapCompleted.
@@ -295,14 +293,13 @@ pub(crate) async fn handle_game_crashed(
     // CRASH-02: Auto-pause billing on game crash
     if billing_active {
         let mut timers = state.billing.active_timers.write().await;
-        if let Some(timer) = timers.get_mut(pod_id) {
-            if timer.status == BillingSessionStatus::Active {
+        if let Some(timer) = timers.get_mut(pod_id)
+            && timer.status == BillingSessionStatus::Active {
                 timer.status = BillingSessionStatus::PausedGamePause;
                 timer.pause_seconds = 0;
                 timer.pause_count += 1;
                 tracing::info!("Billing auto-paused on crash for pod {}", pod_id);
             }
-        }
     }
 
     // RESIL-06: Record crash event and check if pod should be flagged for maintenance.

@@ -191,8 +191,8 @@ pub(crate) async fn create_debug_incident(
     // directly linked to the incident in the DB (MMA R4-1 fix: broken correlation chain)
     let correlation_id = id.clone();
     let mut tier_diagnosis_sent = false;
-    if category != "pod_offline" {
-    if let Some(ref pid) = body.pod_id {
+    if category != "pod_offline"
+    && let Some(ref pid) = body.pod_id {
         let agent_senders = state.agent_senders.read().await;
         if let Some(sender) = agent_senders.get(pid) {
             let diag_req = CoreToAgentMessage::DiagnosticRequest {
@@ -214,7 +214,6 @@ pub(crate) async fn create_debug_incident(
             }
         }
         drop(agent_senders);
-    }
     } // end category != "pod_offline" guard
 
     // ─── AUTO-FIX: If category has a suggested action AND pod is selected, apply immediately ──

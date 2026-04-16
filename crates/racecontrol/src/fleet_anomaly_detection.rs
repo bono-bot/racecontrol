@@ -85,11 +85,10 @@ pub(crate) async fn detect_fleet_anomalies(
     {
         let mut build_counts: HashMap<&str, Vec<&str>> = HashMap::new();
         for (pod_id, store) in fleet.iter() {
-            if store.http_reachable {
-                if let Some(ref bid) = store.build_id {
+            if store.http_reachable
+                && let Some(ref bid) = store.build_id {
                     build_counts.entry(bid.as_str()).or_default().push(pod_id.as_str());
                 }
-            }
         }
 
         if build_counts.len() > 1 {
@@ -140,8 +139,8 @@ pub(crate) async fn detect_fleet_anomalies(
         let mut drifted: Vec<(&str, i64)> = Vec::new();
 
         for (pod_id, store) in fleet.iter() {
-            if let Some(drift) = store.clock_drift_secs {
-                if drift.abs() > CLOCK_DRIFT_THRESHOLD_SECS {
+            if let Some(drift) = store.clock_drift_secs
+                && drift.abs() > CLOCK_DRIFT_THRESHOLD_SECS {
                     drifted.push((pod_id.as_str(), drift));
                     tracing::warn!(
                         target: "fleet-anomaly",
@@ -149,7 +148,6 @@ pub(crate) async fn detect_fleet_anomalies(
                         pod_id, drift, CLOCK_DRIFT_THRESHOLD_SECS
                     );
                 }
-            }
         }
 
         if !drifted.is_empty() && now_ts - LAST_DRIFT_ALERT.load(Ordering::Relaxed) > COOLDOWN_SECS {
@@ -458,11 +456,10 @@ pub(crate) async fn detect_fleet_anomalies(
         static LAST_BAT_ALERT: AtomicI64 = AtomicI64::new(0);
         let mut bat_hashes: HashMap<&str, Vec<&str>> = HashMap::new();
         for (pod_id, store) in fleet.iter() {
-            if store.http_reachable {
-                if let Some(ref hash) = store.bat_sha256 {
+            if store.http_reachable
+                && let Some(ref hash) = store.bat_sha256 {
                     bat_hashes.entry(hash.as_str()).or_default().push(pod_id.as_str());
                 }
-            }
         }
 
         if bat_hashes.len() > 1 {

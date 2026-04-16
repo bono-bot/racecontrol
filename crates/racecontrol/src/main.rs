@@ -225,8 +225,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Bind Bono relay endpoint on Tailscale IP (optional — only if configured)
-    if let Some(ts_ip) = state.config.bono.tailscale_bind_ip.clone() {
-        if state.config.bono.enabled {
+    if let Some(ts_ip) = state.config.bono.tailscale_bind_ip.clone()
+        && state.config.bono.enabled {
             let relay_port = state.config.bono.relay_port;
             let ts_addr = format!("{}:{}", ts_ip, relay_port);
             let relay_router = bono_relay::build_relay_router(state.clone());
@@ -247,7 +247,6 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
         }
-    }
 
     // Build router
     let app = build_router(state.clone());

@@ -125,11 +125,6 @@ pub async fn redeem_pin(state: &Arc<AppState>, pin: &str) -> Result<Value, Redee
         tracing::warn!("Experience {} has no pricing_tier_id — using default", experience_id);
         // Fallback to default but log it as a warning (B3 fix: visibility)
         RedeemPinError::infra("Experience configuration error — please see reception".to_string())
-    })
-    .or_else(|e| {
-        // If we want to gracefully degrade rather than fail, fall back
-        // For now, let it error out so staff notices the config issue
-        Err(e)
     })?;
 
     // 7. Create pod_reservation with retry for TOCTOU race (B6 fix)

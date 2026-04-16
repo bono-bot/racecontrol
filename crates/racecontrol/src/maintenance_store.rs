@@ -118,7 +118,7 @@ pub async fn insert_event(pool: &SqlitePool, event: &MaintenanceEvent) -> anyhow
     let resolution_str = event
         .resolution_method
         .as_ref()
-        .map(|r| serde_json::to_string(r))
+        .map(serde_json::to_string)
         .transpose()?;
     let metadata_str = serde_json::to_string(&event.metadata)?;
 
@@ -180,16 +180,14 @@ pub async fn query_events(
     for row in rows {
         let evt = row_to_event(row)?;
         // Apply optional filters
-        if let Some(pid) = pod_id {
-            if evt.pod_id != Some(pid) {
+        if let Some(pid) = pod_id
+            && evt.pod_id != Some(pid) {
                 continue;
             }
-        }
-        if let Some(ref s) = since {
-            if evt.detected_at < *s {
+        if let Some(ref s) = since
+            && evt.detected_at < *s {
                 continue;
             }
-        }
         events.push(evt);
     }
     Ok(events)
@@ -233,8 +231,8 @@ pub async fn get_summary(pool: &SqlitePool) -> anyhow::Result<MaintenanceSummary
         *by_type.entry(type_label).or_default() += 1;
 
         // MTTR
-        if let (Some(det), Some(res)) = (&row.detected_at_str, &row.resolved_at_str) {
-            if let (Ok(d), Ok(r)) = (
+        if let (Some(det), Some(res)) = (&row.detected_at_str, &row.resolved_at_str)
+            && let (Ok(d), Ok(r)) = (
                 DateTime::parse_from_rfc3339(det),
                 DateTime::parse_from_rfc3339(res),
             ) {
@@ -244,14 +242,12 @@ pub async fn get_summary(pool: &SqlitePool) -> anyhow::Result<MaintenanceSummary
                     resolved_count += 1;
                 }
             }
-        }
 
         // Self-heal
-        if let Some(ref rm) = row.resolution_method {
-            if let Ok(ResolutionMethod::AutoHealed(_)) = serde_json::from_str(rm) {
+        if let Some(ref rm) = row.resolution_method
+            && let Ok(ResolutionMethod::AutoHealed(_)) = serde_json::from_str(rm) {
                 self_heal_count += 1;
             }
-        }
     }
 
     let mttr_minutes = if resolved_count > 0 {
@@ -295,12 +291,12 @@ pub async fn insert_task(pool: &SqlitePool, task: &MaintenanceTask) -> anyhow::R
     let before_str = task
         .before_metrics
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()?;
     let after_str = task
         .after_metrics
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()?;
 
     sqlx::query(

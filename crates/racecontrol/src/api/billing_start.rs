@@ -85,11 +85,10 @@ pub(crate) async fn start_billing_inner(
     };
 
     // FATM-02: Idempotency check
-    if let Some(ref key) = input.idempotency_key {
-        if let Some(replay) = check_idempotency(&state, key).await {
+    if let Some(ref key) = input.idempotency_key
+        && let Some(replay) = check_idempotency(&state, key).await {
             return replay;
         }
-    }
 
     // BATOM-02: Pre-validate in-memory maps
     if let Err(e) = check_pod_not_active(&state, &input.pod_id).await {
@@ -175,8 +174,8 @@ pub(crate) async fn start_billing_inner(
             }
             Err(e) => return Json(json!({ "error": e })),
         }
-    } else if let Some(staff_disc) = input.staff_discount_paise {
-        if staff_disc > 0 && staff_disc <= base_price_paise {
+    } else if let Some(staff_disc) = input.staff_discount_paise
+        && staff_disc > 0 && staff_disc <= base_price_paise {
             applied_discount_paise += staff_disc;
             let staff_desc = input.discount_reason.clone().unwrap_or("Staff discount".to_string());
             applied_discount_reason = Some(match applied_discount_reason {
@@ -184,7 +183,6 @@ pub(crate) async fn start_billing_inner(
                 None => staff_desc,
             });
         }
-    }
 
     let original_price_paise = input.custom_price_paise.map(|p| p as i64).unwrap_or(tier.price_paise);
     let mut final_price_paise = original_price_paise - applied_discount_paise;

@@ -43,6 +43,12 @@ jobs:
       - name: Test rc-agent
         run: cargo test -p rc-agent-crate
 
+      - name: Test racecontrol
+        run: cargo test -p racecontrol-crate
+
+      - name: Clippy (all workspace)
+        run: cargo clippy --workspace -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
+
       - name: Build rc-agent (minimal features)
         run: cargo build -p rc-agent-crate --no-default-features
 

@@ -196,17 +196,17 @@ pub async fn resend_otp(state: &Arc<AppState>, phone: &str) -> Result<OtpSendRes
                     otp.clone()
                 } else {
                     // Almost expired — generate new
-                    let new_otp = generate_and_store_otp(state, &driver_id).await?;
-                    new_otp
+                    
+                    generate_and_store_otp(state, &driver_id).await?
                 }
             } else {
-                let new_otp = generate_and_store_otp(state, &driver_id).await?;
-                new_otp
+                
+                generate_and_store_otp(state, &driver_id).await?
             }
         }
         _ => {
-            let new_otp = generate_and_store_otp(state, &driver_id).await?;
-            new_otp
+            
+            generate_and_store_otp(state, &driver_id).await?
         }
     };
 

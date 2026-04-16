@@ -63,11 +63,10 @@ pub(crate) async fn customer_generate_referral_code(
     .ok()
     .flatten();
 
-    if let Some((Some(code),)) = &existing {
-        if !code.is_empty() {
+    if let Some((Some(code),)) = &existing
+        && !code.is_empty() {
             return Json(json!({ "referral_code": code }));
         }
-    }
 
     // Generate 6-char alphanumeric code from UUID
     let code = format!("RP{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..6].to_uppercase());

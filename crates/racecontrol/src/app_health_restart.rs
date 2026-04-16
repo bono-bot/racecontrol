@@ -171,9 +171,9 @@ pub(crate) async fn maybe_restart_app(state: &AppState, app: &str) {
     }
 
     // Billing safety check before restarting kiosk
-    if app == "kiosk" {
-        if let Ok(active) = check_active_billing(state).await {
-            if active {
+    if app == "kiosk"
+        && let Ok(active) = check_active_billing(state).await
+            && active {
                 tracing::warn!(
                     target: "app_health_monitor",
                     "Skipping kiosk restart — active billing sessions detected"
@@ -187,8 +187,6 @@ pub(crate) async fn maybe_restart_app(state: &AppState, app: &str) {
                 }
                 return;
             }
-        }
-    }
 
     // Execute restart via pm2
     tracing::warn!(

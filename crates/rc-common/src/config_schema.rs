@@ -18,16 +18,13 @@ fn default_schema_version() -> u32 { 1 }
 /// - POS: Point-of-sale terminal (billing, kiosk, mesh intelligence — no game hardware)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NodeType {
+    #[default]
     Pod,
     Pos,
 }
 
-impl Default for NodeType {
-    fn default() -> Self {
-        NodeType::Pod
-    }
-}
 
 impl std::fmt::Display for NodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -310,21 +307,17 @@ impl MmaConfig {
 
         let today = chrono::Utc::now().date_naive();
 
-        if let Some(ref end_str) = self.training_end {
-            if let Ok(end_date) = chrono::NaiveDate::parse_from_str(end_str, "%Y-%m-%d") {
-                if today > end_date {
+        if let Some(ref end_str) = self.training_end
+            && let Ok(end_date) = chrono::NaiveDate::parse_from_str(end_str, "%Y-%m-%d")
+                && today > end_date {
                     return false;
                 }
-            }
-        }
 
-        if let Some(ref start_str) = self.training_start {
-            if let Ok(start_date) = chrono::NaiveDate::parse_from_str(start_str, "%Y-%m-%d") {
-                if today < start_date {
+        if let Some(ref start_str) = self.training_start
+            && let Ok(start_date) = chrono::NaiveDate::parse_from_str(start_str, "%Y-%m-%d")
+                && today < start_date {
                     return false;
                 }
-            }
-        }
 
         true
     }

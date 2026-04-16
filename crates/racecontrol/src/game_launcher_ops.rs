@@ -58,8 +58,8 @@ pub async fn launch_game(
         .map_err(|e| { tracing::warn!("Launch rejected for pod {}: {}", pod_id, e); e })?;
 
     // Validate launch combo against pod's content manifest (only if JSON parsed OK)
-    if let Some(ref args_json) = launch_args {
-        if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) {
+    if let Some(ref args_json) = launch_args
+        && let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) {
             let car = args.get("car").and_then(|v| v.as_str()).unwrap_or("");
             let track = args.get("track").and_then(|v| v.as_str()).unwrap_or("");
             let session_type = args.get("session_type").and_then(|v| v.as_str()).unwrap_or("");
@@ -69,7 +69,6 @@ pub async fn launch_game(
                 return Err(reason);
             }
         }
-    }
 
     // STATE-03: Feature flag check — game_launch must be enabled (default: enabled)
     {
@@ -188,8 +187,8 @@ pub async fn launch_game(
     // LIFE-04/LAUNCH-05: Check if a game is currently launching, running, or stopping (avoid double-launch)
     {
         let games = state.game_launcher.active_games.read().await;
-        if let Some(tracker) = games.get(pod_id) {
-            if matches!(tracker.game_state, GameState::Launching | GameState::Running | GameState::Stopping) {
+        if let Some(tracker) = games.get(pod_id)
+            && matches!(tracker.game_state, GameState::Launching | GameState::Running | GameState::Stopping) {
                 let msg = if tracker.game_state == GameState::Stopping {
                     format!("game still stopping on pod {}", pod_id)
                 } else {
@@ -197,7 +196,6 @@ pub async fn launch_game(
                 };
                 return Err(msg);
             }
-        }
     }
 
     log_pod_activity(state, pod_id, "game", "Game Launching", &format!("{}", sim_type), "core", None);
@@ -307,7 +305,7 @@ pub async fn launch_game(
     // Extract duration_minutes from billing timer for SessionEnforcer (Forza GAME-03 fix)
     let duration_minutes = {
         let timers = state.billing.active_timers.read().await;
-        timers.get(pod_id).map(|t| (t.remaining_seconds() / 60).max(1) as u32)
+        timers.get(pod_id).map(|t| (t.remaining_seconds() / 60).max(1))
     };
     let launch_inner = launcher.make_launch_message(sim_type, launch_args, duration_minutes, launch_id.clone());
     let launch_msg = CoreMessage::wrap(launch_inner);

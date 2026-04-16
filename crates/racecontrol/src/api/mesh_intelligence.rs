@@ -78,13 +78,11 @@ pub(crate) async fn pipeline_status() -> Json<serde_json::Value> {
             Ok(mut entries) => {
                 let mut items = vec![];
                 while let Ok(Some(entry)) = entries.next_entry().await {
-                    if entry.path().extension().map_or(false, |e| e == "json") {
-                        if let Ok(content) = tokio::fs::read_to_string(entry.path()).await {
-                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if entry.path().extension().is_some_and(|e| e == "json")
+                        && let Ok(content) = tokio::fs::read_to_string(entry.path()).await
+                            && let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                                 items.push(val);
                             }
-                        }
-                    }
                 }
                 items
             }

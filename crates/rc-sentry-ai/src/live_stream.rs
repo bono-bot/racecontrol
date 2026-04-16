@@ -200,7 +200,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
         "height": height
     });
     if socket
-        .send(Message::Text(init_msg.to_string().into()))
+        .send(Message::Text(init_msg.to_string()))
         .await
         .is_err()
     {
@@ -215,8 +215,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
             let _ = socket
                 .send(Message::Text(
                     serde_json::json!({"type":"error","msg":"invalid RTSP URL"})
-                        .to_string()
-                        .into(),
+                        .to_string(),
                 ))
                 .await;
             return;
@@ -236,8 +235,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
             let _ = socket
                 .send(Message::Text(
                     serde_json::json!({"type":"error","msg":"RTSP connection failed"})
-                        .to_string()
-                        .into(),
+                        .to_string(),
                 ))
                 .await;
             return;
@@ -320,7 +318,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
                         // If WS can't keep up, disconnect rather than buffer unbounded.
                         let send_result = tokio::time::timeout(
                             WS_SEND_TIMEOUT,
-                            socket.send(Message::Binary(msg.into())),
+                            socket.send(Message::Binary(msg)),
                         ).await;
 
                         match send_result {
@@ -345,7 +343,7 @@ async fn ws_live_stream(mut socket: WebSocket, rtsp_url: String, rtsp_url_safe: 
                         tracing::warn!(error = %e, channel, "RTSP stream error");
                         let _ = socket.send(Message::Text(
                             serde_json::json!({"type":"error","msg":"stream error"})
-                                .to_string().into()
+                                .to_string()
                         )).await;
                         break;
                     }

@@ -96,8 +96,7 @@ pub fn id_to_display_name(id: &str) -> String {
         .unwrap_or(id);
 
     stripped
-        .replace('_', " ")
-        .replace('-', " ")
+        .replace(['_', '-'], " ")
         .split_whitespace()
         .map(|word| {
             // Keep ALL-CAPS words (e.g. "GT3", "BMW", "LMS")
@@ -286,12 +285,11 @@ fn enrich_track_entry(entry: &mut Value, track_id: &str, manifest: &ContentManif
     // max_ai = min(max_pit_count - 1, MAX_AI_SINGLE_PLAYER)
     // Default to MAX_AI_SINGLE_PLAYER if all configs have pit_count=None
     let max_pit_count = track_manifest
-        .map(|t| {
+        .and_then(|t| {
             t.configs.iter()
                 .filter_map(|c| c.pit_count)
                 .max()
-        })
-        .flatten();
+        });
 
     let max_ai = match max_pit_count {
         Some(pits) => std::cmp::min(pits.saturating_sub(1), MAX_AI_SINGLE_PLAYER),
@@ -336,14 +334,13 @@ pub fn validate_launch_combo(
             None => return Err(format!("track '{}' not installed on pod", track_id)),
             Some(t) => {
                 // For race/trackday, require AI lines
-                if matches!(session_type, "race" | "trackday" | "race_weekend") {
-                    if !t.configs.iter().any(|c| c.has_ai) {
+                if matches!(session_type, "race" | "trackday" | "race_weekend")
+                    && !t.configs.iter().any(|c| c.has_ai) {
                         return Err(format!(
                             "track '{}' has no AI lines — cannot use session type '{}'",
                             track_id, session_type
                         ));
                     }
-                }
             }
         }
     }

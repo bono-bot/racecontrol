@@ -126,12 +126,11 @@ pub async fn broadcast_promo(
             let mut map = BROADCAST_COOLDOWN
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            if let Some(last) = map.get(&row.id) {
-                if last.elapsed().as_secs() < BROADCAST_COOLDOWN_SECS {
+            if let Some(last) = map.get(&row.id)
+                && last.elapsed().as_secs() < BROADCAST_COOLDOWN_SECS {
                     skipped_cooldown += 1;
                     continue;
                 }
-            }
             // Record this attempt before sending so concurrent requests don't
             // duplicate sends even if the Evolution call is slow.
             map.insert(row.id.clone(), Instant::now());

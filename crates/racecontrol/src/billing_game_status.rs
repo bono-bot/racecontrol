@@ -384,8 +384,8 @@ async fn handle_crashed_waiting_entry(
         .await
         .ok()
         .flatten();
-        if let Some((debit_paise, wallet_owner)) = debit_row {
-            if debit_paise > 0 {
+        if let Some((debit_paise, wallet_owner)) = debit_row
+            && debit_paise > 0 {
                 let refund_target = wallet_owner.as_deref().unwrap_or(&pre_driver_id);
                 match crate::wallet::credit(
                     state,
@@ -406,7 +406,6 @@ async fn handle_crashed_waiting_entry(
                     ),
                 }
             }
-        }
         tracing::warn!(
             "BILL-13: Pre-committed session cancelled_no_playable: pod={} session={} (game died before PlayableSignal)",
             pod_id, pre_session_id

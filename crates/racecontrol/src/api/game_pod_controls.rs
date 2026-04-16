@@ -128,11 +128,10 @@ pub(crate) async fn get_pod_assist_state(
     // Also send QueryAssistState to agent for background refresh
     // (next time PWA opens the drawer, cache will be even fresher)
     let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(&pod_id) {
-        if let Err(e) = tx.send(CoreMessage::wrap(CoreToAgentMessage::QueryAssistState)).await {
+    if let Some(tx) = senders.get(&pod_id)
+        && let Err(e) = tx.send(CoreMessage::wrap(CoreToAgentMessage::QueryAssistState)).await {
             tracing::warn!("Failed to send QueryAssistState to {}: {}", pod_id, e);
         }
-    }
 
     match cached {
         Some(s) => Json(json!({

@@ -137,8 +137,8 @@ pub(crate) async fn upsert_wallet_transactions(state: &Arc<AppState>, txns: &[Va
         .ok()
         .flatten();
 
-        if let (Some((txn_bal,)), Some((wallet_bal,))) = (txn_balance, wallet_balance) {
-            if txn_bal != wallet_bal {
+        if let (Some((txn_bal,)), Some((wallet_bal,))) = (txn_balance, wallet_balance)
+            && txn_bal != wallet_bal {
                 tracing::warn!(
                     driver_id = %did,
                     wallet_balance = wallet_bal,
@@ -147,7 +147,6 @@ pub(crate) async fn upsert_wallet_transactions(state: &Arc<AppState>, txns: &[Va
                     "Wallet balance discrepancy detected in shadow verification"
                 );
             }
-        }
     }
     total
 }

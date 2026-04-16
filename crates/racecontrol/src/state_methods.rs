@@ -16,7 +16,7 @@ impl AppState {
     /// get `screen_blanking_enabled=true`; all others get `false`.
     pub async fn broadcast_settings(&self, settings: &HashMap<String, String>) {
         let blanking_pods = settings.get("screen_blanking_pods")
-            .or_else(|| None) // check DB value below
+            .or(None) // check DB value below
             .cloned();
 
         // If not in the provided settings, check DB
@@ -48,8 +48,8 @@ impl AppState {
                 pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
             } else {
                 // Apply per-pod blanking override
-                if let Some(ref pod_list) = blanking_pods {
-                    if !pod_list.trim().is_empty() {
+                if let Some(ref pod_list) = blanking_pods
+                    && !pod_list.trim().is_empty() {
                         let pod_number = pods.get(pod_id).map(|p| p.number);
                         let is_blanking_pod = pod_number.map(|n| {
                             pod_list.split(',')
@@ -60,7 +60,6 @@ impl AppState {
                             pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
                         }
                     }
-                }
             }
 
             let msg = CoreToAgentMessage::SettingsUpdated { settings: pod_settings };
@@ -73,7 +72,7 @@ impl AppState {
         let mut pod_settings = settings.clone();
 
         let blanking_pods = settings.get("screen_blanking_pods").cloned()
-            .or_else(|| {
+            .or({
                 // We can't do async in or_else, so just return None
                 None
             });
@@ -95,8 +94,8 @@ impl AppState {
             .map(|v| v == "true")
             .unwrap_or(false);
 
-        if let Some(ref pod_list) = blanking_pods {
-            if !pod_list.trim().is_empty() {
+        if let Some(ref pod_list) = blanking_pods
+            && !pod_list.trim().is_empty() {
                 let is_blanking_pod = pod_list.split(',')
                     .any(|s| s.trim().parse::<u32>().ok() == Some(pod_number));
 
@@ -104,7 +103,6 @@ impl AppState {
                     pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
                 }
             }
-        }
 
         pod_settings
     }

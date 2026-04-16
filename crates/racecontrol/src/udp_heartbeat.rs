@@ -74,7 +74,7 @@ async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
         }
         match bound {
             Some(s) => s,
-            None => return Err(last_err.unwrap().into()),
+            None => return Err(last_err.unwrap()),
         }
     };
     tracing::info!("UDP heartbeat listener started on port {}", HEARTBEAT_PORT);
@@ -191,8 +191,8 @@ async fn check_stale_pods(
 
             // Mark pod offline immediately (much faster than pod_monitor)
             let mut pods = state.pods.write().await;
-            if let Some(pod) = pods.get_mut(&pod_id) {
-                if pod.status != PodStatus::Disabled && pod.status != PodStatus::Offline {
+            if let Some(pod) = pods.get_mut(&pod_id)
+                && pod.status != PodStatus::Disabled && pod.status != PodStatus::Offline {
                     pod.status = PodStatus::Offline;
                     pod.driving_state = Some(DrivingState::NoDevice);
 
@@ -205,7 +205,6 @@ async fn check_stale_pods(
 
                     let _ = state.dashboard_tx.send(DashboardEvent::PodUpdate(pod.clone()));
                 }
-            }
         }
     }
 }

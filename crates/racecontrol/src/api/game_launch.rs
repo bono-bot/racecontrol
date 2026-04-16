@@ -106,7 +106,7 @@ pub(crate) async fn launch_game(
             // Non-split: use remaining time with ceiling division
             Some((allocated, driven, _)) => {
                 let remaining_secs = (*allocated as u32).saturating_sub(*driven as u32);
-                (remaining_secs + 59) / 60  // ceiling division — AC never expires before billing
+                remaining_secs.div_ceil(60)  // ceiling division — AC never expires before billing
             }
             None => 60,
         };

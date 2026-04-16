@@ -54,8 +54,8 @@ pub(crate) async fn handle_register(
     {
         let mut cooldown = REGISTER_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
         let now = Instant::now();
-        if let Some(last) = cooldown.get(&canonical_id) {
-            if now.duration_since(*last).as_secs() < REGISTER_COOLDOWN_SECS {
+        if let Some(last) = cooldown.get(&canonical_id)
+            && now.duration_since(*last).as_secs() < REGISTER_COOLDOWN_SECS {
                 tracing::warn!(
                     target: "fleet-health",
                     "Register throttled for {} — {}ms since last register (reconnect storm protection)",
@@ -64,7 +64,6 @@ pub(crate) async fn handle_register(
                 );
                 return false; // caller should `continue`
             }
-        }
         cooldown.insert(canonical_id.clone(), now);
     }
 
@@ -125,7 +124,7 @@ pub(crate) async fn handle_register(
         match db_result {
             Ok(_) => {}
             Err(ref e) => {
-                let is_unique = matches!(e, sqlx::Error::Database(db_err) if db_err.code().map_or(false, |c| c == "2067"));
+                let is_unique = matches!(e, sqlx::Error::Database(db_err) if db_err.code().is_some_and(|c| c == "2067"));
                 if is_unique {
                     tracing::error!(
                         "Pod {} registration rejected: number {} conflicts with another pod — rolling back in-memory",
@@ -159,15 +158,13 @@ pub(crate) async fn handle_register(
     )
     .fetch_all(&state.db)
     .await
-    {
-        if !rows.is_empty() {
+        && !rows.is_empty() {
             let settings: std::collections::HashMap<String, String> =
                 rows.into_iter().collect();
             let pod_settings = state.settings_for_pod(&settings, pod_info.number).await;
             let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::SettingsUpdated { settings: pod_settings })).await;
             tracing::info!("Sent initial kiosk settings to pod {}", pod_info.number);
         }
-    }
 
     // Phase 306 WSAUTH-01/04: Issue JWT after PSK bootstrap.
     if !jwt_issued_for_conn.load(std::sync::atomic::Ordering::Relaxed) {
@@ -320,8 +317,8 @@ async fn resync_billing(
         // Resume PausedDisconnect timer — pod is back online
         {
             let mut timers = state.billing.active_timers.write().await;
-            if let Some(timer) = timers.get_mut(canonical_id) {
-                if timer.status == rc_common::types::BillingSessionStatus::PausedDisconnect {
+            if let Some(timer) = timers.get_mut(canonical_id)
+                && timer.status == rc_common::types::BillingSessionStatus::PausedDisconnect {
                     timer.status = rc_common::types::BillingSessionStatus::Active;
                     timer.offline_since = None;
                     timer.pause_seconds = 0;
@@ -330,7 +327,6 @@ async fn resync_billing(
                         session_id, canonical_id
                     );
                 }
-            }
         }
         let _ = cmd_tx.send(CoreMessage::wrap(CoreToAgentMessage::BillingStarted {
             billing_session_id: session_id.clone(),
@@ -375,12 +371,11 @@ pub(crate) async fn handle_heartbeat(
 ) {
     let hb_pod_id = normalize_pod_id(&pod_info.id).unwrap_or_else(|_| pod_info.id.clone());
     // Kimi-004: Verify heartbeat sender matches this connection's registered pod
-    if let Some(expected) = registered_pod_id {
-        if &hb_pod_id != expected {
+    if let Some(expected) = registered_pod_id
+        && &hb_pod_id != expected {
             tracing::warn!("Heartbeat pod_id mismatch: conn registered as {} but sent heartbeat for {}", expected, hb_pod_id);
             return;
         }
-    }
     let mut pods = state.pods.write().await;
     let updated = if let Some(existing) = pods.get_mut(&hb_pod_id) {
         existing.ip_address = pod_info.ip_address.clone();
@@ -423,7 +418,7 @@ pub(crate) async fn handle_heartbeat(
     if let Some(reported_gs) = pod_info.game_state {
         let has_active_billing = {
             let timers = state.billing.active_timers.read().await;
-            timers.get(&hb_pod_id).map_or(false, |t| {
+            timers.get(&hb_pod_id).is_some_and(|t| {
                 matches!(t.status, BillingSessionStatus::Active)
             })
         };
@@ -441,11 +436,10 @@ pub(crate) async fn handle_heartbeat(
                 );
                 {
                     let mut timers = state.billing.active_timers.write().await;
-                    if let Some(timer) = timers.get_mut(&hb_pod_id) {
-                        if timer.status == BillingSessionStatus::Active {
+                    if let Some(timer) = timers.get_mut(&hb_pod_id)
+                        && timer.status == BillingSessionStatus::Active {
                             timer.status = BillingSessionStatus::PausedGamePause;
                         }
-                    }
                 }
                 state.phantom_billing_start.write().await.remove(&hb_pod_id);
             }
@@ -458,8 +452,8 @@ pub(crate) async fn handle_heartbeat(
     }
 
     // RESIL-08: Clock drift detection
-    if let Some(ref agent_ts_str) = pod_info.agent_timestamp {
-        if let Ok(agent_time) = chrono::DateTime::parse_from_rfc3339(agent_ts_str) {
+    if let Some(ref agent_ts_str) = pod_info.agent_timestamp
+        && let Ok(agent_time) = chrono::DateTime::parse_from_rfc3339(agent_ts_str) {
             let server_time = chrono::Utc::now();
             let drift_secs = (server_time - agent_time.with_timezone(&chrono::Utc)).num_seconds();
             let abs_drift = drift_secs.unsigned_abs();
@@ -473,5 +467,4 @@ pub(crate) async fn handle_heartbeat(
             let store = fleet.entry(hb_pod_id.clone()).or_default();
             store.clock_drift_secs = Some(drift_secs);
         }
-    }
 }

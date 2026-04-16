@@ -383,8 +383,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         {
             // Re-acquire lock briefly to check/set warning flag
             let mut timers = state.billing.active_timers.write().await;
-            if let Some(timer) = timers.get_mut(pod_id.as_str()) {
-                if balance <= timer.low_balance_warning_paise as i64 && !timer.low_balance_warned {
+            if let Some(timer) = timers.get_mut(pod_id.as_str())
+                && balance <= timer.low_balance_warning_paise as i64 && !timer.low_balance_warned {
                     timer.low_balance_warned = true;
                     tracing::info!(
                         "Low balance warning: session {} (pod {}), wallet balance {}p",
@@ -392,7 +392,6 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     );
                     // TODO: Send WS event to kiosk for audible alert
                 }
-            }
         }
     }
 

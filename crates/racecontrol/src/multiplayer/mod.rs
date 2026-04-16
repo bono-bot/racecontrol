@@ -174,8 +174,8 @@ pub async fn book_multiplayer(
         let friendship: Option<(String,)> = sqlx::query_as(
             "SELECT id FROM friendships WHERE driver_a_id = ? AND driver_b_id = ?",
         )
-        .bind(&a)
-        .bind(&b)
+        .bind(a)
+        .bind(b)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;
@@ -193,11 +193,10 @@ pub async fn book_multiplayer(
         .await
         .map_err(|e| format!("DB error: {}", e))?;
 
-        if let Some((pres,)) = presence {
-            if pres.as_deref() != Some("online") {
+        if let Some((pres,)) = presence
+            && pres.as_deref() != Some("online") {
                 return Err(format!("Friend {} is not online", friend_id));
             }
-        }
     }
 
     // Validate host wallet

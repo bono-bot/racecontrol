@@ -53,15 +53,14 @@ pub(crate) async fn probe_app(
                         let mut error = None;
 
                         // Content assertion: pages_available < pages_expected = degraded
-                        if let (Some(avail), Some(expected)) = (pages_available, pages_expected) {
-                            if avail < expected && status == "ok" {
+                        if let (Some(avail), Some(expected)) = (pages_available, pages_expected)
+                            && avail < expected && status == "ok" {
                                 status = "degraded".to_string();
                                 error = Some(format!(
                                     "Missing pages: {}/{} available",
                                     avail, expected
                                 ));
                             }
-                        }
 
                         // Response time SLA: slow response
                         if response_ms > RESPONSE_TIME_SLA_MS && status == "ok" {
@@ -127,8 +126,8 @@ pub(crate) async fn probe_app(
     };
 
     // Deep health probe (only if URL provided and basic health is ok/slow)
-    if let Some(deep) = deep_url {
-        if entry.status == "ok" || entry.status == "slow" {
+    if let Some(deep) = deep_url
+        && (entry.status == "ok" || entry.status == "slow") {
             match probe_deep(client, deep).await {
                 Ok((passed, semantic)) => {
                     entry.deep_check_passed = Some(passed);
@@ -149,7 +148,6 @@ pub(crate) async fn probe_app(
                 }
             }
         }
-    }
 
     entry
 }

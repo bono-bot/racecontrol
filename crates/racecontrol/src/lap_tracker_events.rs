@@ -12,7 +12,7 @@ const F1_2010_POINTS: [i64; 10] = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 /// Return F1 points for a given finishing position.
 /// DNF drivers, positions outside 1-10, and positions < 1 all receive 0 points.
 pub fn f1_points_for_position(position: i64, dnf: bool) -> i64 {
-    if dnf || position < 1 || position > 10 {
+    if dnf || !(1..=10).contains(&position) {
         return 0;
     }
     F1_2010_POINTS[(position - 1) as usize]
@@ -60,12 +60,11 @@ pub async fn auto_enter_event(
         .await
         .unwrap_or(None);
 
-        if let Some((existing_ms,)) = existing {
-            if existing_ms <= lap_time_ms as i64 {
+        if let Some((existing_ms,)) = existing
+            && existing_ms <= lap_time_ms as i64 {
                 // Existing entry is faster or equal -- skip
                 continue;
             }
-        }
 
         // Compute badge from reference_time_ms
         let badge: Option<&str> = match reference_time_ms {

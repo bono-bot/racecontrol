@@ -34,11 +34,10 @@ impl AuditWriter {
 
         let handle = tokio::spawn(async move {
             // Ensure parent directory exists
-            if let Some(parent) = Path::new(&path).parent() {
-                if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            if let Some(parent) = Path::new(&path).parent()
+                && let Err(e) = tokio::fs::create_dir_all(parent).await {
                     tracing::warn!(error = %e, path = %path, "failed to create audit log directory");
                 }
-            }
 
             // Open file in append mode (create if not exists)
             let mut file = match tokio::fs::OpenOptions::new()

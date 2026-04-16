@@ -22,7 +22,7 @@ use super::{
 pub(super) async fn compute_fleet_deploy_status(state: &Arc<AppState>) -> FleetDeployStatus {
     let manifest = load_manifest().await;
     let manifest_missing = manifest.is_none();
-    let manifest_stale = manifest.as_ref().map(|m| is_manifest_stale(m)).unwrap_or(false);
+    let manifest_stale = manifest.as_ref().map(is_manifest_stale).unwrap_or(false);
     let expected_build = manifest.as_ref().map(|m| m.expected_build_id.clone());
 
     // Read fleet health snapshot (clone quickly, drop lock)
@@ -123,14 +123,13 @@ pub(super) async fn compute_fleet_deploy_status(state: &Arc<AppState>) -> FleetD
         issues.push("Deploy manifest is stale (>24h old) — may not reflect current expected state".to_string());
     }
 
-    if !server_current && expected_build.is_some() {
-        if let Some(ref expected) = expected_build {
+    if !server_current && expected_build.is_some()
+        && let Some(ref expected) = expected_build {
             issues.push(format!(
                 "Server build mismatch: running {} but manifest expects {}",
                 truncate_build_id(SERVER_BUILD_ID), truncate_build_id(expected)
             ));
         }
-    }
 
     if !pods_unknown_build.is_empty() {
         issues.push(format!(
@@ -174,14 +173,13 @@ pub(super) async fn compute_fleet_deploy_status(state: &Arc<AppState>) -> FleetD
     // --- Cloud health probe (MI Gap 1-2) ---
     let (cloud_build_id, cloud_reachable, cloud_in_sync) = probe_cloud_health(state).await;
     if cloud_reachable {
-        if !cloud_in_sync {
-            if let Some(ref cb) = cloud_build_id {
+        if !cloud_in_sync
+            && let Some(ref cb) = cloud_build_id {
                 issues.push(format!(
                     "Cloud build diverged: cloud={} venue={} — rebuild cloud racecontrol binary",
                     truncate_build_id(cb), truncate_build_id(SERVER_BUILD_ID)
                 ));
             }
-        }
     } else if state.config.cloud.enabled && state.config.cloud.api_url.is_some() {
         issues.push("Cloud racecontrol unreachable — cannot verify build sync".to_string());
     }

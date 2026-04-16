@@ -89,7 +89,7 @@ pub(crate) async fn start_ac_lan_for_group(
 
         // Build human entry slots
         let mut entry_slots = Vec::new();
-        for (_i, (driver_id, pod_id)) in members.iter().enumerate() {
+        for (driver_id, pod_id) in members.iter() {
             let (dname, dguid) = get_driver_entry_info(state, driver_id).await;
             entry_slots.push(rc_common::types::AcEntrySlot {
                 car_model: car.clone(),
@@ -217,7 +217,7 @@ pub(crate) async fn start_ac_lan_for_group(
                 let _ = sender
                     .send(rc_common::protocol::CoreMessage::wrap(
                         rc_common::protocol::CoreToAgentMessage::LaunchGame {
-                            sim_type: sim_type.clone(),
+                            sim_type,
                             launch_args: Some(launch_args),
                             force_clean: false,
                             duration_minutes: None,

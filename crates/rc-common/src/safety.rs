@@ -407,8 +407,8 @@ impl IdempotencyTracker {
         let now = Instant::now();
 
         // Check if already seen and not expired
-        if let Some(recorded_at) = seen.get(key) {
-            if now.duration_since(*recorded_at).as_secs() < self.ttl_secs {
+        if let Some(recorded_at) = seen.get(key)
+            && now.duration_since(*recorded_at).as_secs() < self.ttl_secs {
                 tracing::debug!(
                     target: LOG_TARGET,
                     key = %key,
@@ -419,7 +419,6 @@ impl IdempotencyTracker {
                 return true; // Duplicate
             }
             // Expired — fall through to re-record
-        }
 
         // Record and cleanup — MMA audit fix: always prune expired entries first
         // (prevents evicting live keys during anomaly storms when map > 500)

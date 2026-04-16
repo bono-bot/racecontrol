@@ -11,8 +11,10 @@ use rc_common::types::TelemetryFrame;
 /// Camera switching strategy inspired by VMS Connect
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CameraMode {
     /// Follow the car closest to crossing the finish line, cycle after crossing
+    #[default]
     ClosestCycle,
     /// Always follow the leader (fastest lap overall)
     Leader,
@@ -24,11 +26,6 @@ pub enum CameraMode {
     Off,
 }
 
-impl Default for CameraMode {
-    fn default() -> Self {
-        CameraMode::ClosestCycle
-    }
-}
 
 // ─── Camera State ────────────────────────────────────────────────────────────
 
@@ -69,6 +66,12 @@ const CYCLE_INTERVAL_SECS: u64 = 12;
 const BATTLE_SPEED_DIFF: f32 = 15.0;
 // Stale data threshold (seconds) — pods not heard from in this time are excluded
 const STALE_THRESHOLD_SECS: u64 = 10;
+
+impl Default for CameraController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl CameraController {
     pub fn new() -> Self {
@@ -162,15 +165,14 @@ impl CameraController {
             CameraMode::Off => None,
         };
 
-        if let Some(ref focus) = new_focus {
-            if current_focus.as_deref() != Some(&focus.pod_id) {
+        if let Some(ref focus) = new_focus
+            && current_focus.as_deref() != Some(&focus.pod_id) {
                 let mut cf = self.current_focus.write().await;
                 *cf = Some(focus.pod_id.clone());
                 let mut fs = self.focus_since.write().await;
                 *fs = now;
                 return new_focus;
             }
-        }
 
         None
     }

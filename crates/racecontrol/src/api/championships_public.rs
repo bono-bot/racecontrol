@@ -268,8 +268,8 @@ pub(crate) async fn public_championship_standings(
                 "results": [],
             })
         });
-        if let Some(driver_id) = driver_id {
-            if let Some(results) = entry.get_mut("results").and_then(|v| v.as_array_mut()) {
+        if let Some(driver_id) = driver_id
+            && let Some(results) = entry.get_mut("results").and_then(|v| v.as_array_mut()) {
                 results.push(json!({
                     "driver_id": driver_id,
                     "points": points,
@@ -277,7 +277,6 @@ pub(crate) async fn public_championship_standings(
                     "result_status": result_status,
                 }));
             }
-        }
     }
     let rounds: Vec<Value> = rounds_map.into_values().collect();
 

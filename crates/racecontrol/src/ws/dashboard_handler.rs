@@ -144,11 +144,10 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
             if let DashboardEvent::RecordBroken { ref track, ref sim_type, .. } = event {
                 let key = (track.clone(), sim_type.clone());
                 let now = Instant::now();
-                if let Some(last) = record_debounce.get(&key) {
-                    if now.duration_since(*last).as_secs() < 1 {
+                if let Some(last) = record_debounce.get(&key)
+                    && now.duration_since(*last).as_secs() < 1 {
                         continue;
                     }
-                }
                 record_debounce.insert(key, now);
             }
 
@@ -282,8 +281,8 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                             // The running deploy_pod() task checks is_cancelled() at each step
                             // and exits early if it finds a Failed state.
                             let mut deploy_states = cmd_state.pod_deploy_states.write().await;
-                            if let Some(ds) = deploy_states.get(pod_id) {
-                                if ds.is_active() {
+                            if let Some(ds) = deploy_states.get(pod_id)
+                                && ds.is_active() {
                                     let cancel_state = rc_common::types::DeployState::Failed {
                                         reason: "Cancelled by staff".to_string(),
                                     };
@@ -302,7 +301,6 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
                                         pod_id
                                     );
                                 }
-                            }
                         }
                         _ => {
                             billing::handle_dashboard_command(&cmd_state, cmd).await;

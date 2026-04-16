@@ -43,6 +43,12 @@ pub struct LobbyManager {
     lobbies: RwLock<HashMap<String, LobbyInstance>>,
 }
 
+impl Default for LobbyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LobbyManager {
     pub fn new() -> Self {
         Self {

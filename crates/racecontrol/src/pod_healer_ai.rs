@@ -182,8 +182,8 @@ pub(crate) fn parse_ai_action_server(suggestion: &str) -> Option<&'static str> {
     let bytes = suggestion.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{' {
-            if let Some(end) = suggestion[i..].find('}') {
+        if bytes[i] == b'{'
+            && let Some(end) = suggestion[i..].find('}') {
                 let candidate = &suggestion[i..=i + end];
                 if let Ok(block) = serde_json::from_str::<ActionBlock>(candidate) {
                     let action = match block.action.as_str() {
@@ -199,7 +199,6 @@ pub(crate) fn parse_ai_action_server(suggestion: &str) -> Option<&'static str> {
                     }
                 }
             }
-        }
         i += 1;
     }
     None
@@ -245,13 +244,11 @@ pub(crate) async fn scan_warn_logs(state: &Arc<AppState>) {
                 return false;
             }
             // Parse timestamp to check rolling window
-            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(ts_str) = entry.get("timestamp").and_then(|v| v.as_str()) {
-                    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line)
+                && let Some(ts_str) = entry.get("timestamp").and_then(|v| v.as_str())
+                    && let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
                         return ts.with_timezone(&Utc) >= cutoff;
                     }
-                }
-            }
             false
         })
         .map(|s| s.to_string())

@@ -28,11 +28,10 @@ const MIN_SAMPLES_PER_TUPLE: i64 = 10;
 
 /// Read OpenRouter API key: OPENROUTER_KEY env var first, then data/openrouter-mma-key.txt.
 fn read_openrouter_key() -> Option<String> {
-    if let Ok(k) = std::env::var("OPENROUTER_KEY") {
-        if !k.is_empty() {
+    if let Ok(k) = std::env::var("OPENROUTER_KEY")
+        && !k.is_empty() {
             return Some(k);
         }
-    }
     let path = std::path::Path::new("data/openrouter-mma-key.txt");
     std::fs::read_to_string(path)
         .ok()

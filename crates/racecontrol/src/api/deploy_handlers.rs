@@ -116,8 +116,8 @@ pub(crate) async fn deploy_single_pod(
     // Check for concurrent deploy in progress
     {
         let deploy_states = state.pod_deploy_states.read().await;
-        if let Some(ds) = deploy_states.get(&pod_id) {
-            if ds.is_active() {
+        if let Some(ds) = deploy_states.get(&pod_id)
+            && ds.is_active() {
                 return (
                     axum::http::StatusCode::CONFLICT,
                     Json(json!({
@@ -127,7 +127,6 @@ pub(crate) async fn deploy_single_pod(
                     })),
                 );
             }
-        }
     }
 
     // Spawn deploy as background task (non-blocking)
@@ -241,9 +240,9 @@ pub(crate) async fn fleet_deploy_handler(
     let session_lock = std::sync::Arc::clone(&state.fleet_deploy_session);
     let deploy_id = {
         let mut guard = session_lock.write().await;
-        if let Some(ref existing) = *guard {
-            if existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Running
-                || existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Pending
+        if let Some(ref existing) = *guard
+            && (existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Running
+                || existing.overall_status == crate::fleet_deploy::DeployOverallStatus::Pending)
             {
                 return (
                     axum::http::StatusCode::CONFLICT,
@@ -253,7 +252,6 @@ pub(crate) async fn fleet_deploy_handler(
                     })),
                 );
             }
-        }
         // Create new session and store it
         let new_session = crate::fleet_deploy::create_session(&req, &claims.sub);
         let id = new_session.deploy_id.clone();
@@ -341,8 +339,8 @@ pub(crate) async fn ota_deploy_handler(
     };
 
     // Check if a pipeline is already running
-    if let Some(record) = ota_pipeline::load_pipeline_state() {
-        if !record.state.is_terminal() {
+    if let Some(record) = ota_pipeline::load_pipeline_state()
+        && !record.state.is_terminal() {
             return (
                 axum::http::StatusCode::CONFLICT,
                 Json(json!({
@@ -351,7 +349,6 @@ pub(crate) async fn ota_deploy_handler(
                 })),
             );
         }
-    }
 
     // Phase 307 AUDIT-03: Log deploy initiation for hash chain coverage
     let deploy_version = manifest.release.version.clone();

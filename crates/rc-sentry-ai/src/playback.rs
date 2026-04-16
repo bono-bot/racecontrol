@@ -123,7 +123,7 @@ async fn stream_handler(
 
     // Proxy the NVR response body as a byte stream without buffering
     let stream = response.bytes_stream().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("NVR stream error: {e}"))
+        std::io::Error::other(format!("NVR stream error: {e}"))
     });
 
     axum::response::Response::builder()

@@ -89,12 +89,11 @@ pub async fn seed_pods_on_startup(state: &Arc<AppState>) {
     if !db_names.is_empty() {
         let mut pods = state.pods.write().await;
         for (id, db_name) in &db_names {
-            if let Some(pod) = pods.get_mut(id) {
-                if pod.name != *db_name {
+            if let Some(pod) = pods.get_mut(id)
+                && pod.name != *db_name {
                     tracing::info!("Pod {} name overridden from DB: {} → {}", id, pod.name, db_name);
                     pod.name = db_name.clone();
                 }
-            }
         }
     }
 
@@ -219,17 +218,13 @@ pub fn cleanup_old_logs(log_dir: &std::path::Path) {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log") {
-                if let Ok(meta) = entry.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        if modified < cutoff {
-                            if std::fs::remove_file(&path).is_ok() {
+            if (name.ends_with(".jsonl") || name.contains(".jsonl.") || name.ends_with(".log"))
+                && let Ok(meta) = entry.metadata()
+                    && let Ok(modified) = meta.modified()
+                        && modified < cutoff
+                            && std::fs::remove_file(&path).is_ok() {
                                 eprintln!("Cleaned old log: {}", path.display());
                             }
-                        }
-                    }
-                }
-            }
         }
     }
 }

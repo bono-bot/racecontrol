@@ -50,8 +50,8 @@ pub async fn run(
                 }
 
                 // Rate limit check: skip if alert sent for this camera within window
-                if let Some(last_ts) = last_alert.get(&event.camera) {
-                    if last_ts.elapsed() < rate_limit_duration {
+                if let Some(last_ts) = last_alert.get(&event.camera)
+                    && last_ts.elapsed() < rate_limit_duration {
                         tracing::debug!(
                             camera = %event.camera,
                             remaining_secs = (rate_limit_duration - last_ts.elapsed()).as_secs(),
@@ -59,7 +59,6 @@ pub async fn run(
                         );
                         continue;
                     }
-                }
 
                 // Save face crop as JPEG using spawn_blocking for file I/O
                 let crop_dir = face_crop_dir.clone();

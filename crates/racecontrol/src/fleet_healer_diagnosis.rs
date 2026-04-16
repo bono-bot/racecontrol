@@ -247,15 +247,14 @@ impl DiagnosticFingerprinter {
         // Try to parse JSON to check session ID
         if let Ok(info) = serde_json::from_str::<Value>(stdout) {
             // Check if running in Session 0 (services) — should be Session 1 (console)
-            if let Some(session_id) = info.get("SessionId").and_then(|v| v.as_i64()) {
-                if session_id == 0 {
+            if let Some(session_id) = info.get("SessionId").and_then(|v| v.as_i64())
+                && session_id == 0 {
                     symptoms.push(Symptom {
                         category: "wrong_session".to_string(),
                         detail: "rc-agent running in Session 0 (should be Session 1)".to_string(),
                         severity: "critical".to_string(),
                     });
                 }
-            }
         }
     }
 }
@@ -283,6 +282,12 @@ pub struct FleetPattern {
     pub affected_pods: Vec<String>,
     /// When the pattern was detected.
     pub detected_at: DateTime<Utc>,
+}
+
+impl Default for FleetPatternDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FleetPatternDetector {

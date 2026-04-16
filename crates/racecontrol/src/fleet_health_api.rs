@@ -127,11 +127,10 @@ pub async fn fleet_health_handler(
     // RESIL-07: Return cached response if fresh (< 5s old)
     {
         let cache = FLEET_HEALTH_CACHE.read().await;
-        if let (Some(ref cached), ts) = *cache {
-            if ts.elapsed().as_secs() < FLEET_HEALTH_CACHE_TTL_SECS {
+        if let (Some(ref cached), ts) = *cache
+            && ts.elapsed().as_secs() < FLEET_HEALTH_CACHE_TTL_SECS {
                 return Json(cached.clone());
             }
-        }
     }
 
     // Bug #9: Acquire and release each lock sequentially to avoid holding 4 read locks.

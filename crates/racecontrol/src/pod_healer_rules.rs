@@ -63,15 +63,14 @@ pub(crate) async fn heal_pod(
     // Skip pods with active deploy -- deploy executor manages lifecycle
     {
         let deploy_states = state.pod_deploy_states.read().await;
-        if let Some(deploy_state) = deploy_states.get(&pod.id) {
-            if deploy_state.is_active() {
+        if let Some(deploy_state) = deploy_states.get(&pod.id)
+            && deploy_state.is_active() {
                 tracing::debug!(
                     "Pod healer: {} has active deploy ({:?}) -- skipping diagnostic",
                     pod.id, deploy_state
                 );
                 return Ok(());
             }
-        }
     }
 
     // Collect diagnostics
@@ -149,7 +148,7 @@ pub(crate) async fn heal_pod(
                 // COORD-01: Only flag restart if PodHealer owns rc-agent.exe.
                 let is_restart_owner = {
                     let ownership = state.process_ownership.lock().unwrap_or_else(|e| e.into_inner());
-                    ownership.owner_of("rc-agent.exe").map_or(true, |o| o == RecoveryAuthority::PodHealer)
+                    ownership.owner_of("rc-agent.exe").is_none_or(|o| o == RecoveryAuthority::PodHealer)
                 };
                 if is_restart_owner {
                     let mut needs = state.pod_needs_restart.write().await;

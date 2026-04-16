@@ -25,11 +25,10 @@ pub async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Res
         .unwrap_or("");
 
     // Skip if local is newer or equal
-    if let Some((Some(ref local_ts),)) = local_updated {
-        if local_ts.as_str() >= cloud_updated {
+    if let Some((Some(ref local_ts),)) = local_updated
+        && local_ts.as_str() >= cloud_updated {
             return Ok(());
         }
-    }
 
     // Encrypt incoming PII before storing
     let incoming_name = driver.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
@@ -57,15 +56,14 @@ pub async fn upsert_driver(state: &Arc<AppState>, driver: &Value) -> anyhow::Res
 
     // Clear customer_id from any other driver row to avoid UNIQUE constraint violation.
     // Cloud is authoritative: if it says this driver owns this customer_id, release it elsewhere.
-    if let Some(cid) = driver.get("customer_id").and_then(|v| v.as_str()) {
-        if !cid.is_empty() {
+    if let Some(cid) = driver.get("customer_id").and_then(|v| v.as_str())
+        && !cid.is_empty() {
             sqlx::query("UPDATE drivers SET customer_id = NULL WHERE customer_id = ? AND id != ?")
                 .bind(cid)
                 .bind(id)
                 .execute(&state.db)
                 .await?;
         }
-    }
 
     // Upsert — cloud wins for customer-owned fields, preserve local-only fields (otp_code etc.)
     // PII stored in _enc/_hash columns only; plaintext columns set to NULL.

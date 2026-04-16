@@ -58,7 +58,7 @@ pub async fn query_ollama(
         .build()
         .unwrap_or_default();
     let resp = client
-        .post(&format!("{}/api/chat", url))
+        .post(format!("{}/api/chat", url))
         .json(&json!({
             "model": model,
             "messages": messages,
@@ -105,11 +105,10 @@ pub(crate) fn read_openrouter_key() -> Option<String> {
         }
     }
     // Fallback: env var
-    if let Ok(k) = std::env::var("OPENROUTER_KEY") {
-        if !k.is_empty() {
+    if let Ok(k) = std::env::var("OPENROUTER_KEY")
+        && !k.is_empty() {
             return Some(k);
         }
-    }
     None
 }
 

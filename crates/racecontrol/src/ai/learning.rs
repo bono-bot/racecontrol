@@ -75,8 +75,8 @@ pub(crate) async fn find_similar_pairs(
     // Build SQL with LIKE conditions using parameterized bindings
     let like_clauses: Vec<String> = sorted_words
         .iter()
-        .enumerate()
-        .map(|(_, _)| "(CASE WHEN query_keywords LIKE ? THEN 1 ELSE 0 END)".to_string())
+        
+        .map(|_| "(CASE WHEN query_keywords LIKE ? THEN 1 ELSE 0 END)".to_string())
         .collect();
 
     let score_expr = like_clauses.join(" + ");

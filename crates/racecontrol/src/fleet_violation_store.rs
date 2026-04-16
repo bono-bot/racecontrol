@@ -76,25 +76,23 @@ impl ViolationStore {
         // Dedup: for "reported" violations, increment existing entry's count
         if v.action_taken == "reported" {
             let fp = Self::fingerprint(&v);
-            if let Some(&idx) = self.dedup_index.get(&fp) {
-                if let Some(existing) = self.entries.get_mut(idx) {
+            if let Some(&idx) = self.dedup_index.get(&fp)
+                && let Some(existing) = self.entries.get_mut(idx) {
                     existing.consecutive_count = existing.consecutive_count.saturating_add(1);
                     existing.timestamp = v.timestamp; // update to latest sighting
                     return;
                 }
-            }
             // New fingerprint — track index AFTER push_back (done below)
         }
 
         self.entries.push_back(v);
 
         // Update dedup index for the newly pushed entry (if "reported")
-        if let Some(last) = self.entries.back() {
-            if last.action_taken == "reported" {
+        if let Some(last) = self.entries.back()
+            && last.action_taken == "reported" {
                 let fp = Self::fingerprint(last);
                 self.dedup_index.insert(fp, self.entries.len() - 1);
             }
-        }
     }
 
     /// Record a scan failure (not a violation — tracked separately for OTA gating).

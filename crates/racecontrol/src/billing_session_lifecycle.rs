@@ -103,8 +103,8 @@ async fn set_billing_status(
         .find(|(_, t)| t.session_id == session_id)
         .map(|(k, _)| k.clone());
 
-    if let Some(pod_id) = pod_id {
-        if let Some(timer) = timers.get_mut(&pod_id) {
+    if let Some(pod_id) = pod_id
+        && let Some(timer) = timers.get_mut(&pod_id) {
             // FSM-01: gate every status mutation through validate_transition
             let event = match new_status {
                 BillingSessionStatus::PausedManual => crate::billing_fsm::BillingEvent::PauseManual,
@@ -170,7 +170,6 @@ async fn set_billing_status(
                 .dashboard_tx
                 .send(DashboardEvent::BillingSessionChanged(info));
         }
-    }
 }
 
 // ─── Update Driving State ───────────────────────────────────────────────────
@@ -318,8 +317,8 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
     }
 
     // Create pod reservation for split sessions
-    if data.split_count > 1 {
-        if let Ok(reservation_id) = crate::pod_reservation::create_reservation(state, &data.driver_id, &data.pod_id).await {
+    if data.split_count > 1
+        && let Ok(reservation_id) = crate::pod_reservation::create_reservation(state, &data.driver_id, &data.pod_id).await {
             let _ = sqlx::query(
                 "UPDATE billing_sessions SET reservation_id = ? WHERE id = ?",
             )
@@ -332,7 +331,6 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
                 reservation_id, data.split_count, data.pod_id
             );
         }
-    }
 
     // Notify agent (snapshot sender before dropping read lock)
     let sender = {

@@ -198,7 +198,7 @@ fn validate_response(probe_name: &str, body: &str) -> (bool, Option<String>) {
             }
         }
         "config_api" => {
-            if json.is_object() && !json.as_object().map_or(true, |m| m.is_empty()) {
+            if json.is_object() && !json.as_object().is_none_or(|m| m.is_empty()) {
                 (true, None)
             } else {
                 (false, Some("config returned empty object".to_string()))

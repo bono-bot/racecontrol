@@ -109,7 +109,7 @@ pub async fn run(
             }
             Err(e) => {
                 consecutive_decode_errors += 1;
-                if consecutive_decode_errors <= 3 || consecutive_decode_errors % 100 == 0 {
+                if consecutive_decode_errors <= 3 || consecutive_decode_errors.is_multiple_of(100) {
                     tracing::warn!(
                         camera = %camera_name,
                         error = %e,

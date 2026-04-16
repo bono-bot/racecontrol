@@ -39,11 +39,10 @@ pub async fn list_active_promos(
         .into_iter()
         .filter_map(|p| {
             // Check time window: if both start and end are set, must be within window
-            if let (Some(start), Some(end)) = (&p.start_time, &p.end_time) {
-                if !time_in_window(&now_ist, start, end) {
+            if let (Some(start), Some(end)) = (&p.start_time, &p.end_time)
+                && !time_in_window(&now_ist, start, end) {
                     return None;
                 }
-            }
             let config: serde_json::Value = serde_json::from_str(&p.config)
                 .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
             let time_label = match (&p.start_time, &p.end_time) {
@@ -97,14 +96,13 @@ pub async fn create_cafe_promo(
 
     // Validate time window: if both start and end are provided, start must be before end
     // (overnight promos like 22:00-02:00 are allowed — only reject identical times)
-    if let (Some(start), Some(end)) = (&req.start_time, &req.end_time) {
-        if start == end {
+    if let (Some(start), Some(end)) = (&req.start_time, &req.end_time)
+        && start == end {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "start_time and end_time must be different"})),
             ));
         }
-    }
 
     let id = Uuid::new_v4().to_string();
     let config_str = serde_json::to_string(&req.config).map_err(|e| {
@@ -194,14 +192,13 @@ pub async fn update_cafe_promo(
     }
 
     // Validate time window when both times are provided in this update
-    if let (Some(start), Some(end)) = (&req.start_time, &req.end_time) {
-        if start == end {
+    if let (Some(start), Some(end)) = (&req.start_time, &req.end_time)
+        && start == end {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(json!({"error": "start_time and end_time must be different"})),
             ));
         }
-    }
 
     set_clauses.push("updated_at = datetime('now')".to_string());
 

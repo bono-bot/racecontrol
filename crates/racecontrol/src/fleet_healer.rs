@@ -276,8 +276,8 @@ impl FleetHealerOrchestrator {
 
                     // FH-08: Isolate if not deterministic
                     let needs_isolation = fix_type_str != "Deterministic";
-                    if needs_isolation {
-                        if let Err(e) = PodIsolation::isolate(pod_number).await {
+                    if needs_isolation
+                        && let Err(e) = PodIsolation::isolate(pod_number).await {
                             tracing::warn!(
                                 target: LOG_TARGET,
                                 action_id = %action_id,
@@ -287,7 +287,6 @@ impl FleetHealerOrchestrator {
                             );
                             continue;
                         }
-                    }
 
                     // FH-05: Dispatch
                     let result = RepairDispatcher::dispatch(pod_number, &repair).await;

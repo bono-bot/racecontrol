@@ -80,12 +80,9 @@ pub async fn create_rule_handler(
     .execute(&state.db)
     .await;
 
-    match insert_result {
-        Err(e) => {
-            tracing::error!(target: LOG_TARGET, "create_rule insert error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "database error" })));
-        }
-        Ok(_) => {}
+    if let Err(e) = insert_result {
+        tracing::error!(target: LOG_TARGET, "create_rule insert error: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "database error" })));
     }
 
     // Re-select the inserted row

@@ -80,12 +80,11 @@ pub async fn policy_engine_task(state: Arc<AppState>) {
 
             // Cooldown check
             let now = std::time::Instant::now();
-            if let Some(&last) = last_fired.get(&rule.id) {
-                if now.duration_since(last) < cooldown {
+            if let Some(&last) = last_fired.get(&rule.id)
+                && now.duration_since(last) < cooldown {
                     tracing::debug!(target: LOG_TARGET, "rule '{}' in cooldown, suppressing", rule.name);
                     continue;
                 }
-            }
             last_fired.insert(rule.id.clone(), now);
 
             tracing::warn!(

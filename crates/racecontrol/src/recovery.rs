@@ -40,12 +40,10 @@ impl RecoveryEventStore {
         let cutoff = since_secs.map(|s| Utc::now() - chrono::Duration::seconds(s as i64));
         self.events.iter()
             .filter(|e| {
-                if let Some(ref pid) = pod_id {
-                    if e.pod_id != *pid { return false; }
-                }
-                if let Some(ref cut) = cutoff {
-                    if e.timestamp < *cut { return false; }
-                }
+                if let Some(pid) = pod_id
+                    && e.pod_id != pid { return false; }
+                if let Some(ref cut) = cutoff
+                    && e.timestamp < *cut { return false; }
                 true
             })
             .cloned()

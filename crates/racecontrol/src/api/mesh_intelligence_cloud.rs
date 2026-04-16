@@ -290,7 +290,7 @@ async fn parse_and_persist_fallback_laps(
             session_id: session_id.to_string(),
             driver_id: fields[1].to_string(),
             pod_id,
-            sim_type: sim_type.clone(),
+            sim_type,
             track: fields[3].to_string(),
             car: fields[2].to_string(),
             lap_number,

@@ -342,36 +342,31 @@ pub(crate) fn validate_splits_and_duration(
     input: &BillingStartInput,
     tier_duration_minutes: i64,
 ) -> Result<(u32, u32), Json<Value>> {
-    if let Some(sc) = input.split_count {
-        if sc > 0 && input.split_duration_minutes.unwrap_or(1) == 0 {
+    if let Some(sc) = input.split_count
+        && sc > 0 && input.split_duration_minutes.unwrap_or(1) == 0 {
             return Err(Json(json!({ "error": "Split duration must be greater than 0 minutes" })));
         }
-    }
-    if let Some(dur) = input.custom_duration_minutes {
-        if dur > 1440 {
+    if let Some(dur) = input.custom_duration_minutes
+        && dur > 1440 {
             return Err(Json(json!({ "error": "Custom duration cannot exceed 24 hours (1440 minutes)" })));
         }
-    }
 
     // P0 zero-laps fix: per-minute tier (duration_minutes=0) with an explicit
     // custom duration must be at least 3 minutes so customers can complete a lap.
     // None = open-ended per-minute billing (count-up mode, valid).
     const PER_MINUTE_MIN_DURATION: u32 = 3;
-    if tier_duration_minutes == 0 {
-        if let Some(custom) = input.custom_duration_minutes {
-            if custom < PER_MINUTE_MIN_DURATION {
+    if tier_duration_minutes == 0
+        && let Some(custom) = input.custom_duration_minutes
+            && custom < PER_MINUTE_MIN_DURATION {
                 return Err(Json(json!({
                     "error": format!("Per-minute sessions require a minimum of {} minutes", PER_MINUTE_MIN_DURATION),
                     "minimum_minutes": PER_MINUTE_MIN_DURATION,
                 })));
             }
-        }
-    }
-    if let Some(dur) = input.split_duration_minutes {
-        if dur > 1440 {
+    if let Some(dur) = input.split_duration_minutes
+        && dur > 1440 {
             return Err(Json(json!({ "error": "Split duration cannot exceed 24 hours (1440 minutes)" })));
         }
-    }
 
     let final_split_count = input.split_count.unwrap_or(1);
     let allocated_seconds: u32 = if let Some(split_dur) = input.split_duration_minutes.filter(|_| final_split_count > 1) {

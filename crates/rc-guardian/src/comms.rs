@@ -261,14 +261,14 @@ pub async fn try_acquire_guardian_lock(_config: &GuardianConfig) -> bool {
         .await
     {
         Ok(resp) if resp.status().is_success() => {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                if let Some(messages) = body.as_array() {
+            if let Ok(body) = resp.json::<serde_json::Value>().await
+                && let Some(messages) = body.as_array() {
                     for msg_val in messages {
                         if let (Some(msg_type), Some(timestamp_str)) = (
                             msg_val.get("type").and_then(|v| v.as_str()),
                             msg_val.get("timestamp").and_then(|v| v.as_str()),
-                        ) {
-                            if msg_type == "guardian_acting" {
+                        )
+                            && msg_type == "guardian_acting" {
                                 // Check if recent (within 5 minutes)
                                 if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
                                     let age = chrono::Utc::now() - ts.to_utc();
@@ -281,10 +281,8 @@ pub async fn try_acquire_guardian_lock(_config: &GuardianConfig) -> bool {
                                     }
                                 }
                             }
-                        }
                     }
                 }
-            }
         }
         Ok(_) | Err(_) => {
             // Can't check — proceed optimistically

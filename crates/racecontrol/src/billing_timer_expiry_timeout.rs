@@ -316,8 +316,8 @@ pub(crate) async fn handle_launch_timeouts(
                     .await
                     .ok()
                     .flatten();
-                    if let Some((debit_paise, wallet_owner)) = debit_row {
-                        if debit_paise > 0 {
+                    if let Some((debit_paise, wallet_owner)) = debit_row
+                        && debit_paise > 0 {
                             let refund_target = wallet_owner.as_deref().unwrap_or(&timed_out_entry.driver_id);
                             match crate::wallet::credit(
                                 state, refund_target, debit_paise, "refund_session",
@@ -335,7 +335,6 @@ pub(crate) async fn handle_launch_timeouts(
                                 ),
                             }
                         }
-                    }
                 } else {
                     // PIN auth path — no DB record exists yet, create cancelled_no_playable record
                     let session_id = uuid::Uuid::new_v4().to_string();

@@ -140,8 +140,8 @@ pub async fn refresh_rate_tiers(state: &Arc<AppState>) {
     .fetch_all(&state.db)
     .await;
 
-    if let Ok(rows) = rows {
-        if !rows.is_empty() {
+    if let Ok(rows) = rows
+        && !rows.is_empty() {
             let tiers: Vec<BillingRateTier> = rows
                 .into_iter()
                 .map(|(order, name, thresh, rate, sim_str)| {
@@ -158,7 +158,6 @@ pub async fn refresh_rate_tiers(state: &Arc<AppState>) {
             *state.billing.rate_tiers.write().await = tiers;
             tracing::info!("Billing rate tiers refreshed from DB");
         }
-    }
 }
 
 // ─── Session Cost Calculation ──────────────────────────────────────────────
@@ -262,7 +261,7 @@ pub fn compute_per_minute_refund(wallet_debit_paise: i64, _total_debited_paise: 
 }
 
 /// Get tiers for a specific game. Falls back to universal tiers if no game-specific tiers exist.
-pub fn get_tiers_for_game<'a>(tiers: &'a [BillingRateTier], sim_type: Option<rc_common::types::SimType>) -> Vec<&'a BillingRateTier> {
+pub fn get_tiers_for_game(tiers: &[BillingRateTier], sim_type: Option<rc_common::types::SimType>) -> Vec<&BillingRateTier> {
     let game_specific: Vec<_> = tiers.iter()
         .filter(|t| sim_type.is_some() && t.sim_type == sim_type)
         .collect();

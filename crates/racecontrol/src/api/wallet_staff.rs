@@ -145,8 +145,8 @@ pub(crate) async fn topup_wallet(
 
     // SEC-05: Staff self-top-up block — cashier/manager cannot top up their own wallet.
     // Superadmin is exempt (audit trail exists for all transactions).
-    if let Some(ref ext) = claims {
-        if ext.0.sub == driver_id && ext.0.role != "superadmin" {
+    if let Some(ref ext) = claims
+        && ext.0.sub == driver_id && ext.0.role != "superadmin" {
             tracing::warn!(
                 staff_id = %ext.0.sub,
                 target_driver = %driver_id,
@@ -155,7 +155,6 @@ pub(crate) async fn topup_wallet(
             );
             return Json(json!({ "error": "Staff cannot top up their own wallet. Contact a superadmin." }));
         }
-    }
 
     // FATM-02: Idempotency check for topup
     if let Some(ref key) = req.idempotency_key {
@@ -258,8 +257,8 @@ pub(crate) async fn topup_wallet(
             .await
             .unwrap_or(None);
 
-            if let Some((Some(phone),)) = phone {
-                if !phone.is_empty() {
+            if let Some((Some(phone),)) = phone
+                && !phone.is_empty() {
                     let bonus_text = if receipt_bonus > 0 {
                         format!(" (+{} bonus credits)", receipt_bonus / 100)
                     } else {
@@ -274,7 +273,6 @@ pub(crate) async fn topup_wallet(
                     );
                     whatsapp_alerter::send_whatsapp_to(&receipt_state.config, &phone, &msg).await;
                 }
-            }
         });
     }
 

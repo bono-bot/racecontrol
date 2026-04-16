@@ -51,8 +51,8 @@ pub async fn run(
 
                 // Cross-camera dedup check
                 let now = Instant::now();
-                if let Some(last) = dedup_map.get(&event.person_id) {
-                    if now.duration_since(*last) < dedup_window {
+                if let Some(last) = dedup_map.get(&event.person_id)
+                    && now.duration_since(*last) < dedup_window {
                         tracing::debug!(
                             person_id = event.person_id,
                             person_name = %event.person_name,
@@ -61,7 +61,6 @@ pub async fn run(
                         );
                         continue;
                     }
-                }
 
                 // Compute IST day boundary (UTC+5:30)
                 let ist_offset = chrono::FixedOffset::east_opt(5 * 3600 + 1800)

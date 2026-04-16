@@ -42,11 +42,10 @@ pub async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
                         let fail = AiChannelMessage::AuthFailed {
                             reason: "Invalid secret".to_string(),
                         };
-                        if let Ok(json) = serde_json::to_string(&fail) {
-                            if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                        if let Ok(json) = serde_json::to_string(&fail)
+                            && let Err(e) = ws_sender.send(Message::Text(json.into())).await {
                                 tracing::warn!("[ws] AI channel: failed to send AuthFailed response: {}", e);
                             }
-                        }
                         tracing::warn!("AI channel: auth failed for {}", identity);
                         return;
                     }
@@ -68,11 +67,10 @@ pub async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
     let auth_ok = AiChannelMessage::AuthOk {
         identity: identity.clone(),
     };
-    if let Ok(json) = serde_json::to_string(&auth_ok) {
-        if ws_sender.send(Message::Text(json.into())).await.is_err() {
+    if let Ok(json) = serde_json::to_string(&auth_ok)
+        && ws_sender.send(Message::Text(json.into())).await.is_err() {
             return;
         }
-    }
 
     tracing::info!("AI channel: {} authenticated", identity);
 
@@ -126,11 +124,10 @@ pub async fn handle_ai(socket: WebSocket, state: Arc<AppState>) {
     // Spawn task to forward mpsc messages to WebSocket
     let send_task = tokio::spawn(async move {
         while let Some(msg) = msg_rx.recv().await {
-            if let Ok(json) = serde_json::to_string(&msg) {
-                if ws_sender.send(Message::Text(json.into())).await.is_err() {
+            if let Ok(json) = serde_json::to_string(&msg)
+                && ws_sender.send(Message::Text(json.into())).await.is_err() {
                     break;
                 }
-            }
         }
     });
 

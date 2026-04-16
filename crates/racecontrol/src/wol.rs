@@ -78,7 +78,7 @@ pub async fn restart_pod(http_client: &reqwest::Client, ip: &str) -> Result<Stri
 }
 
 pub(crate) fn parse_mac(mac: &str) -> Result<[u8; 6]> {
-    let parts: Vec<&str> = mac.split(|c| c == ':' || c == '-').collect();
+    let parts: Vec<&str> = mac.split([':', '-']).collect();
     if parts.len() != 6 {
         return Err(anyhow!("Invalid MAC address: {}", mac));
     }

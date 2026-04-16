@@ -164,16 +164,14 @@ impl GuardianConfig {
         if let Ok(v) = std::env::var("GUARDIAN_COMMS_LINK_URL") {
             config.comms_link_url = v;
         }
-        if let Ok(v) = std::env::var("GUARDIAN_POLL_INTERVAL") {
-            if let Ok(n) = v.parse() {
+        if let Ok(v) = std::env::var("GUARDIAN_POLL_INTERVAL")
+            && let Ok(n) = v.parse() {
                 config.poll_interval_secs = n;
             }
-        }
-        if let Ok(v) = std::env::var("GUARDIAN_DEAD_MAN_THRESHOLD") {
-            if let Ok(n) = v.parse() {
+        if let Ok(v) = std::env::var("GUARDIAN_DEAD_MAN_THRESHOLD")
+            && let Ok(n) = v.parse() {
                 config.dead_man_threshold = n;
             }
-        }
         if let Ok(v) = std::env::var("GUARDIAN_EVOLUTION_URL") {
             config.evolution_api_url = v;
         }

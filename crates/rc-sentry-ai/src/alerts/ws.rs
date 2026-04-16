@@ -44,7 +44,7 @@ async fn handle_socket(
                         continue;
                     }
                 };
-                if socket.send(Message::Text(json.into())).await.is_err() {
+                if socket.send(Message::Text(json)).await.is_err() {
                     tracing::info!("alert WS client disconnected (send error)");
                     break;
                 }

@@ -29,7 +29,7 @@ pub async fn extend_billing_session(
                 let current_cost = t.current_cost(&rate_tiers);
                 let ext_rate = current_cost.rate_per_min_paise;
                 let cost = (ext_rate * additional_seconds as i64 + 30) / 60;
-                (k.clone(), cost, t.driving_seconds, t.status.clone())
+                (k.clone(), cost, t.driving_seconds, t.status)
             });
         (
             entry.as_ref().map(|(k, _, _, _)| k.clone()),
@@ -143,8 +143,8 @@ pub async fn extend_billing_session(
         .await
         .ok()
         .flatten();
-        if let Some((balance,)) = balance_row {
-            if balance < 0 {
+        if let Some((balance,)) = balance_row
+            && balance < 0 {
                 tracing::error!(
                     "RESIL-05: Negative wallet balance detected: driver={}, balance={}",
                     driver_id, balance
@@ -155,7 +155,6 @@ pub async fn extend_billing_session(
                 );
                 crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
             }
-        }
     }
 
     // Phase 2: ONLY after successful commit, update in-memory timer

@@ -50,6 +50,12 @@ pub struct AcServerManager {
     pub instances: RwLock<HashMap<String, AcServerInstance>>,
 }
 
+impl Default for AcServerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AcServerManager {
     pub fn new() -> Self {
         Self {

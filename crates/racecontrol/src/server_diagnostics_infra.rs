@@ -25,7 +25,7 @@ pub(super) async fn check_pos_reachable(_state: &AppState) {
         }
         _ => {
             // Try Tailscale fallback
-            let ts_url = format!("http://100.95.211.1:8090/health");
+            let ts_url = "http://100.95.211.1:8090/health".to_string();
             match client.get(&ts_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     tracing::debug!(target: LOG_TARGET, "POS health OK (Tailscale, LAN refused)");
@@ -140,12 +140,11 @@ pub(super) async fn check_internet_connectivity(_state: &AppState) {
 
     let mut any_ok = false;
     for url in &endpoints {
-        if let Ok(resp) = client.get(*url).send().await {
-            if resp.status().is_success() || resp.status().as_u16() == 204 {
+        if let Ok(resp) = client.get(*url).send().await
+            && (resp.status().is_success() || resp.status().as_u16() == 204) {
                 any_ok = true;
                 break;
             }
-        }
     }
 
     if !any_ok {

@@ -384,8 +384,8 @@ pub(crate) async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Resul
     .fetch_all(&state.db)
     .await;
 
-    if let Ok(rows) = drift_events {
-        if !rows.is_empty() {
+    if let Ok(rows) = drift_events
+        && !rows.is_empty() {
             let items: Vec<serde_json::Value> = rows.iter()
                 .filter_map(|r| serde_json::from_str(&r.0).ok())
                 .collect();
@@ -393,7 +393,6 @@ pub(crate) async fn collect_push_payload(state: &Arc<AppState>) -> anyhow::Resul
             payload["content_drift_events"] = serde_json::json!(items);
             has_data = true;
         }
-    }
 
     // Phase 301: Push metrics_rollups (operational metrics) since last push (SYNC-03)
     // Do NOT include id (AUTOINCREMENT) — target DB assigns its own

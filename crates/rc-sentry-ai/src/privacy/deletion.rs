@@ -91,8 +91,8 @@ pub async fn delete_person_handler(
 
     // Delete face crop images for this person
     let crop_dir = std::path::Path::new(&state.face_crop_dir);
-    if crop_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(crop_dir) {
+    if crop_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(crop_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.contains(&format!("person_{pid}_")) || name.contains(&format!("person-{pid}-")) {
@@ -100,7 +100,6 @@ pub async fn delete_person_handler(
                 }
             }
         }
-    }
 
     let pid = person_id_i64;
     match db_result {

@@ -60,7 +60,7 @@ pub(super) async fn transfer_jsonl_to_remote(
         .arg("-o").arg("BatchMode=yes")
         .arg("-o").arg("ConnectTimeout=10")
         .arg(&remote_host)
-        .arg(&format!("mkdir -p {}", remote_path))
+        .arg(format!("mkdir -p {}", remote_path))
         .output()
         .await;
 
@@ -117,7 +117,7 @@ pub(super) async fn transfer_jsonl_to_remote(
         .arg("-o").arg("BatchMode=yes")
         .arg("-o").arg("ConnectTimeout=10")
         .arg(&remote_host)
-        .arg(&format!("sha256sum {}/{}", remote_path, filename))
+        .arg(format!("sha256sum {}/{}", remote_path, filename))
         .output()
         .await;
 

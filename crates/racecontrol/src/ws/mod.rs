@@ -82,7 +82,7 @@ pub async fn agent_ws(
         Ok(auth_result) => Ok(ws.on_upgrade(move |socket| handle_agent(socket, state, auth_result))),
         Err(reason) => {
             tracing::warn!("WS agent connection rejected — {}", reason);
-            if params.jwt.as_ref().map_or(false, |j| !j.is_empty()) {
+            if params.jwt.as_ref().is_some_and(|j| !j.is_empty()) {
                 let state_clone = state.clone();
                 let reason_clone = reason.clone();
                 tokio::spawn(async move {
@@ -166,11 +166,10 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>, auth_result: Agen
                 cmd = cmd_rx.recv() => {
                     match cmd {
                         Some(wrapped) => {
-                            if let Ok(json) = serde_json::to_string(&wrapped) {
-                                if let Err(e) = ws_sender.send(Message::Text(json.into())).await {
+                            if let Ok(json) = serde_json::to_string(&wrapped)
+                                && let Err(e) = ws_sender.send(Message::Text(json.into())).await {
                                     tracing::warn!("WS send failed (conn_id={}): {} — continuing", conn_id, e);
                                 }
-                            }
                         }
                         None => break,
                     }

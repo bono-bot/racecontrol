@@ -68,7 +68,7 @@ pub(crate) fn compute_split_options(total_minutes: u32) -> Vec<serde_json::Value
 
     // Find all valid splits where sub-session >= 10 min
     for count in 2..=6 {
-        if total_minutes % count == 0 {
+        if total_minutes.is_multiple_of(count) {
             let sub = total_minutes / count;
             if sub >= 10 {
                 options.push(json!({
@@ -279,8 +279,8 @@ pub(crate) async fn stop_billing(
             .ok()
             .flatten();
 
-            if let Some((driver_id, Some(debit), wallet_owner)) = &refund_info {
-                if *debit > 0 {
+            if let Some((driver_id, Some(debit), wallet_owner)) = &refund_info
+                && *debit > 0 {
                     let refund_target = wallet_owner.as_deref().unwrap_or(driver_id.as_str());
                     match crate::wallet::credit(
                         &state,
@@ -301,7 +301,6 @@ pub(crate) async fn stop_billing(
                         ),
                     }
                 }
-            }
 
             // Update DB directly (session is not in active_timers)
             let _ = sqlx::query(
@@ -313,7 +312,7 @@ pub(crate) async fn stop_billing(
             .await;
 
             // Remove from in-memory waiting_for_game map
-            if let Some((_, ref _driver_id, _, _wallet_owner)) = refund_info.as_ref().map(|r| (&id, &r.0, r.1, &r.2)) {
+            if let Some((_, _driver_id, _, _wallet_owner)) = refund_info.as_ref().map(|r| (&id, &r.0, r.1, &r.2)) {
                 // Find pod_id from DB
                 let pod_id_opt: Option<String> = sqlx::query_scalar(
                     "SELECT pod_id FROM billing_sessions WHERE id = ?",
@@ -476,13 +475,13 @@ pub(crate) async fn extend_billing(
         .unwrap_or(600) as u32;
 
     // BILL-04: Validate additional_seconds is a multiple of 60 and within bounds (60..=3600)
-    if additional_seconds < 60 || additional_seconds > 3600 {
+    if !(60..=3600).contains(&additional_seconds) {
         return Json(json!({
             "ok": false,
             "error": format!("additional_seconds must be between 60 and 3600, got {}", additional_seconds)
         }));
     }
-    if additional_seconds % 60 != 0 {
+    if !additional_seconds.is_multiple_of(60) {
         return Json(json!({
             "ok": false,
             "error": format!("additional_seconds must be a multiple of 60, got {}", additional_seconds)

@@ -76,8 +76,8 @@ async fn check_all_pods(
             first_stale_at.remove(&pod.id);
             // Pod is healthy -- reset shared backoff if it had prior failures
             let mut backoffs = state.pod_backoffs.write().await;
-            if let Some(backoff) = backoffs.get_mut(&pod.id) {
-                if backoff.attempt() > 0 {
+            if let Some(backoff) = backoffs.get_mut(&pod.id)
+                && backoff.attempt() > 0 {
                     let attempt_count = backoff.attempt();
                     backoff.reset();
                     tracing::info!(
@@ -111,20 +111,18 @@ async fn check_all_pods(
                              WHERE problem_key = ?2 AND resolved_at IS NULL"
                         )
                         .bind(&now)
-                        .bind(&format!("pod_offline:{}", pod_id_for_resolve))
+                        .bind(format!("pod_offline:{}", pod_id_for_resolve))
                         .execute(&db)
                         .await;
-                        if let Ok(r) = result {
-                            if r.rows_affected() > 0 {
+                        if let Ok(r) = result
+                            && r.rows_affected() > 0 {
                                 tracing::info!(
                                     "MI Bridge: Resolved {} pod_offline incident(s) for {}",
                                     r.rows_affected(), pod_id_for_resolve
                                 );
                             }
-                        }
                     });
                 }
-            }
             drop(backoffs);
 
             // Reset WatchdogState to Healthy on natural recovery (fresh heartbeat)
@@ -250,8 +248,8 @@ async fn check_all_pods(
         // Skip pods with active deploy (deploy executor manages lifecycle)
         {
             let deploy_states = state.pod_deploy_states.read().await;
-            if let Some(deploy_state) = deploy_states.get(&pod.id) {
-                if deploy_state.is_active() {
+            if let Some(deploy_state) = deploy_states.get(&pod.id)
+                && deploy_state.is_active() {
                     tracing::debug!(
                         "Pod {} has active deploy ({:?}) -- skipping watchdog",
                         pod.id,
@@ -259,7 +257,6 @@ async fn check_all_pods(
                     );
                     continue;
                 }
-            }
         }
 
         // Check shared backoff -- is it ready for another attempt?

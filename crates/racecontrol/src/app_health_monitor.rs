@@ -124,10 +124,10 @@ pub fn spawn(state: Arc<AppState>) {
             interval.tick().await;
             cycle_count += 1;
 
-            let run_deep = cycle_count % DEEP_PROBE_EVERY_N_CYCLES == 0;
+            let run_deep = cycle_count.is_multiple_of(DEEP_PROBE_EVERY_N_CYCLES);
 
             // Reset WS churn counters every 60s (every 2nd cycle)
-            if cycle_count % 2 == 0 {
+            if cycle_count.is_multiple_of(2) {
                 let (connects, disconnects) = crate::ws::dashboard_ws_churn();
                 if connects > 10 || disconnects > 10 {
                     tracing::warn!(
@@ -292,15 +292,14 @@ pub fn spawn(state: Arc<AppState>) {
                             .bind(&problem_key)
                             .execute(&db)
                             .await;
-                            if let Ok(r) = result {
-                                if r.rows_affected() > 0 {
+                            if let Ok(r) = result
+                                && r.rows_affected() > 0 {
                                     tracing::info!(
                                         target: "app_health_monitor",
                                         "MI BRIDGE: Resolved {} open incident(s) for {}",
                                         r.rows_affected(), problem_key
                                     );
                                 }
-                            }
                         });
                     }
                 }

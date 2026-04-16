@@ -134,11 +134,10 @@ impl DeployAwarenessState {
     /// Check if we should alert for a given issue key (respects cooldown).
     fn should_alert(&mut self, issue_key: &str) -> bool {
         let now = Instant::now();
-        if let Some(last) = self.alerted_issues.get(issue_key) {
-            if now.duration_since(*last) < self.alert_cooldown {
+        if let Some(last) = self.alerted_issues.get(issue_key)
+            && now.duration_since(*last) < self.alert_cooldown {
                 return false;
             }
-        }
         self.alerted_issues.insert(issue_key.to_string(), now);
         true
     }
@@ -199,8 +198,8 @@ pub(super) async fn count_server_restarts_1h() -> RestartCount {
 
         // Try to parse timestamp from the start of the line
         // Format 1: "2026-03-30 13:40:23 | ..." (IST local time)
-        if line.len() >= 19 {
-            if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&line[..19], "%Y-%m-%d %H:%M:%S") {
+        if line.len() >= 19
+            && let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&line[..19], "%Y-%m-%d %H:%M:%S") {
                 // Interpret as IST (server local time)
                 let ist_dt = naive.and_local_timezone(ist_offset);
                 if let chrono::LocalResult::Single(dt) = ist_dt {
@@ -211,7 +210,6 @@ pub(super) async fn count_server_restarts_1h() -> RestartCount {
                     }
                 }
             }
-        }
     }
     RestartCount::Count(count)
 }
@@ -289,7 +287,7 @@ pub fn spawn(state: Arc<AppState>) {
                         "fleet",
                         RecoveryAuthority::PodHealer,
                         RecoveryAction::AlertStaff,
-                        &format!("deploy_awareness: {}", issue),
+                        format!("deploy_awareness: {}", issue),
                     );
                     let _ = logger.log(&decision);
                     tracing::warn!(target: LOG_TARGET, issue = %issue, "New deployment issue detected");
@@ -310,7 +308,7 @@ pub fn spawn(state: Arc<AppState>) {
                         "fleet",
                         RecoveryAuthority::PodHealer,
                         RecoveryAction::AlertStaff,
-                        &format!("deploy_awareness RESOLVED: {}", prev_key),
+                        format!("deploy_awareness RESOLVED: {}", prev_key),
                     );
                     let _ = logger.log(&decision);
                     tracing::info!(target: LOG_TARGET, issue = %prev_key, "Deployment issue resolved");

@@ -194,8 +194,8 @@ pub fn load_pipeline_state() -> Option<DeployRecord> {
 /// Check if a previous pipeline was interrupted (non-terminal state on startup).
 /// If found, logs a warning and marks it as interrupted.
 pub fn check_interrupted_pipeline() {
-    if let Some(mut record) = load_pipeline_state() {
-        if !record.state.is_terminal() {
+    if let Some(mut record) = load_pipeline_state()
+        && !record.state.is_terminal() {
             tracing::warn!(
                 state = ?record.state,
                 version = %record.manifest_version,
@@ -208,7 +208,6 @@ pub fn check_interrupted_pipeline() {
                 tracing::error!("Failed to persist interrupted pipeline state: {e}");
             }
         }
-    }
 }
 
 // ── Standing Rules Gate (SR-04) ─────────────────────────────────────────────

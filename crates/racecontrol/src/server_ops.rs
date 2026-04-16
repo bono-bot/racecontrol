@@ -240,11 +240,10 @@ async fn read_file(Query(q): Query<PathQuery>) -> Result<impl IntoResponse, (Sta
         return Err((StatusCode::BAD_REQUEST, "Not a file".into()));
     }
 
-    if let Ok(meta) = path.metadata() {
-        if meta.len() > 50 * 1024 * 1024 {
+    if let Ok(meta) = path.metadata()
+        && meta.len() > 50 * 1024 * 1024 {
             return Err((StatusCode::BAD_REQUEST, "File too large (>50MB)".into()));
         }
-    }
 
     match fs::read(&path) {
         Ok(bytes) => {
@@ -392,13 +391,12 @@ struct WriteRequest {
 async fn write_file(Json(req): Json<WriteRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let path = PathBuf::from(&req.path);
 
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
+    if let Some(parent) = path.parent()
+        && !parent.exists() {
             fs::create_dir_all(parent).map_err(|e| {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create parent dirs: {}", e))
             })?;
         }
-    }
 
     let bytes = if req.base64 {
         use std::io::Read;
@@ -459,11 +457,10 @@ async fn detect_local_ip() -> Option<String> {
     let output = cmd.output().await.ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     for line in text.lines() {
-        if line.contains("IPv4") && line.contains("192.168.") {
-            if let Some(ip) = line.split(':').last() {
+        if line.contains("IPv4") && line.contains("192.168.")
+            && let Some(ip) = line.split(':').next_back() {
                 return Some(ip.trim().to_string());
             }
-        }
     }
     None
 }

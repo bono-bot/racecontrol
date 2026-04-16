@@ -166,7 +166,7 @@ pub fn is_tailscale_ip(ip: &str) -> bool {
     }
     let first: u8 = parts[0].parse().unwrap_or(0);
     let second: u8 = parts[1].parse().unwrap_or(0);
-    first == 100 && second >= 64 && second <= 127
+    first == 100 && (64..=127).contains(&second)
 }
 
 /// Returns true if a `SocketAddr`'s IP is in the Tailscale range.

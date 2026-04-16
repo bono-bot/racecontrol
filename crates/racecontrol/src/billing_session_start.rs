@@ -112,19 +112,16 @@ pub async fn start_billing_session(
         .unwrap_or_else(|| "Unknown".to_string());
 
     // N8: Validate split params — reject 0-minute splits
-    if let Some(sc) = split_count {
-        if sc > 0 && split_duration_minutes.unwrap_or(1) == 0 {
+    if let Some(sc) = split_count
+        && sc > 0 && split_duration_minutes.unwrap_or(1) == 0 {
             return Err("Split duration must be greater than 0 minutes".to_string());
         }
-    }
 
     // Kimi-002: Validate duration bounds before arithmetic (prevent u32 overflow)
-    if let Some(dur) = custom_duration_minutes {
-        if dur > 1440 { return Err("Custom duration cannot exceed 24 hours (1440 minutes)".to_string()); }
-    }
-    if let Some(dur) = split_duration_minutes {
-        if dur > 1440 { return Err("Split duration cannot exceed 24 hours (1440 minutes)".to_string()); }
-    }
+    if let Some(dur) = custom_duration_minutes
+        && dur > 1440 { return Err("Custom duration cannot exceed 24 hours (1440 minutes)".to_string()); }
+    if let Some(dur) = split_duration_minutes
+        && dur > 1440 { return Err("Split duration cannot exceed 24 hours (1440 minutes)".to_string()); }
 
     // Calculate allocated seconds — use split duration for split sessions
     let allocated_seconds = if let Some(split_dur) = split_duration_minutes.filter(|_| split_count.unwrap_or(1) > 1) {
@@ -166,15 +163,14 @@ pub async fn start_billing_session(
         .await
         .ok()
         .flatten();
-        if let Some((balance,)) = balance_row {
-            if balance < 0 {
+        if let Some((balance,)) = balance_row
+            && balance < 0 {
                 tracing::error!(
                     "RESIL-05: Blocking session start — wallet has negative balance: driver={}, balance_paise={}",
                     driver_id, balance
                 );
                 return Err("Wallet has negative balance — contact staff".to_string());
             }
-        }
     }
 
     // Create billing session in DB

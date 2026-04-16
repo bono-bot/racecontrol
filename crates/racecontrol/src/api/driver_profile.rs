@@ -44,7 +44,7 @@ pub(crate) async fn get_driver_full_profile(
     .await
     .unwrap_or((false, None, None, None, None, None, false));
 
-    let is_minor = c.9.as_ref().map_or(false, |dob| {
+    let is_minor = c.9.as_ref().is_some_and(|dob| {
         chrono::NaiveDate::parse_from_str(dob, "%Y-%m-%d")
             .map(|date| (chrono::Utc::now().date_naive() - date).num_days() / 365 < 18)
             .unwrap_or(false)

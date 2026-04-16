@@ -112,8 +112,8 @@ pub(crate) async fn customer_book_session(
     let mut applied_coupon_id: Option<String> = None;
     let mut applied_discount_reason: Option<String> = None;
 
-    if !is_trial {
-        if let Some(ref code) = req.coupon_code {
+    if !is_trial
+        && let Some(ref code) = req.coupon_code {
             match validate_and_calc_coupon(&state, code, &driver_id, base_price_paise).await {
                 Ok(cd) => {
                     applied_discount_paise = cd.discount_paise;
@@ -123,7 +123,6 @@ pub(crate) async fn customer_book_session(
                 Err(e) => return Json(json!({ "error": e })),
             }
         }
-    }
 
     let final_price_paise = base_price_paise - applied_discount_paise;
 
@@ -364,8 +363,8 @@ pub(crate) async fn customer_end_reservation(
             .ok()
             .flatten();
 
-            if let Some((allocated, driving, Some(debit))) = billing {
-                if debit > 0 && driving < allocated {
+            if let Some((allocated, driving, Some(debit))) = billing
+                && debit > 0 && driving < allocated {
                     let remaining = allocated - driving;
                     let refund_amount = (remaining * debit) / allocated;
                     if refund_amount > 0 {
@@ -379,7 +378,6 @@ pub(crate) async fn customer_end_reservation(
                         .await;
                     }
                 }
-            }
 
             billing::end_billing_session_public(&state, &session_id, rc_common::types::BillingSessionStatus::EndedEarly, None).await;
         }

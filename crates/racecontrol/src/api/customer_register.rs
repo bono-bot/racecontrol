@@ -94,21 +94,18 @@ pub(crate) async fn customer_register(
         Ok(n) => n,
         Err(e) => return Json(json!({ "error": e })),
     };
-    if let Some(ref email) = req.email {
-        if let Err(e) = crate::input_validation::validate_email(email) {
+    if let Some(ref email) = req.email
+        && let Err(e) = crate::input_validation::validate_email(email) {
             return Json(json!({ "error": e }));
         }
-    }
-    if let Some(ref phone) = req.guardian_phone {
-        if let Err(e) = crate::input_validation::validate_phone(phone) {
+    if let Some(ref phone) = req.guardian_phone
+        && let Err(e) = crate::input_validation::validate_phone(phone) {
             return Json(json!({ "error": format!("Guardian phone: {}", e) }));
         }
-    }
-    if let Some(ref phone) = req.phone {
-        if let Err(e) = crate::input_validation::validate_phone(phone) {
+    if let Some(ref phone) = req.phone
+        && let Err(e) = crate::input_validation::validate_phone(phone) {
             return Json(json!({ "error": e }));
         }
-    }
 
     // Parse and validate DOB
     let dob = match chrono::NaiveDate::parse_from_str(&req.dob, "%Y-%m-%d") {
@@ -124,11 +121,10 @@ pub(crate) async fn customer_register(
     }
 
     // Guardian required for minors (12-17)
-    if age < 18 {
-        if req.guardian_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
+    if age < 18
+        && req.guardian_name.as_ref().is_none_or(|n| n.trim().is_empty()) {
             return Json(json!({ "error": "Guardian name required for customers under 18" }));
         }
-    }
 
     // Check for duplicate name + DOB (same person already registered)
     let duplicate: Option<(String,)> = sqlx::query_as(
@@ -254,11 +250,10 @@ pub(crate) async fn venue_register(
         return Json(json!({ "error": "Minimum age is 5 years" }));
     }
 
-    if age < 18 {
-        if req.guardian_name.as_ref().map_or(true, |n| n.trim().is_empty()) {
+    if age < 18
+        && req.guardian_name.as_ref().is_none_or(|n| n.trim().is_empty()) {
             return Json(json!({ "error": "Guardian name required for customers under 18" }));
         }
-    }
 
     // Duplicate check
     let duplicate: Option<(String, Option<String>)> = sqlx::query_as(

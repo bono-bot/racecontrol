@@ -152,7 +152,7 @@ pub fn try_acquire_sentinel(
     };
 
     let json = serde_json::to_string(&sentinel)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
 
     // Attempt atomic creation — if file doesn't exist, this is the fast path
     match OpenOptions::new().write(true).create_new(true).open(path) {
@@ -167,11 +167,10 @@ pub fn try_acquire_sentinel(
     }
 
     // File exists — check if held by another layer
-    if let Some(existing) = read_sentinel_file(path) {
-        if !existing.is_expired() {
+    if let Some(existing) = read_sentinel_file(path)
+        && !existing.is_expired() {
             return Ok(false); // Valid sentinel held by another layer
         }
-    }
 
     // Expired or corrupt — remove and re-acquire atomically
     // The remove + create_new sequence has a tiny window, but if another process

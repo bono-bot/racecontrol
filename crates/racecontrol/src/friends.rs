@@ -32,8 +32,8 @@ pub async fn send_friend_request(
     let existing: Option<(String,)> = sqlx::query_as(
         "SELECT id FROM friendships WHERE driver_a_id = ? AND driver_b_id = ?",
     )
-    .bind(&a)
-    .bind(&b)
+    .bind(a)
+    .bind(b)
     .fetch_optional(&state.db)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
@@ -123,8 +123,8 @@ pub async fn accept_friend_request(
         "INSERT OR IGNORE INTO friendships (id, driver_a_id, driver_b_id, request_id) VALUES (?, ?, ?, ?)",
     )
     .bind(&friendship_id)
-    .bind(&a)
-    .bind(&b)
+    .bind(a)
+    .bind(b)
     .bind(request_id)
     .execute(&state.db)
     .await
@@ -164,8 +164,8 @@ pub async fn remove_friend(
 ) -> Result<(), String> {
     let (a, b) = canonical_pair(driver_id, friend_driver_id);
     let result = sqlx::query("DELETE FROM friendships WHERE driver_a_id = ? AND driver_b_id = ?")
-        .bind(&a)
-        .bind(&b)
+        .bind(a)
+        .bind(b)
         .execute(&state.db)
         .await
         .map_err(|e| format!("DB error: {}", e))?;

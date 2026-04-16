@@ -121,14 +121,13 @@ async fn check_stale_sockets(
         // netstat output: Proto LocalAddr ForeignAddr State PID
         if parts.len() >= 5 {
             let state_str = parts[3].to_string();
-            if let Ok(pid) = parts[4].parse::<u32>() {
-                if pid > 0 && (state_str == "CLOSE_WAIT" || state_str == "TIME_WAIT") {
+            if let Ok(pid) = parts[4].parse::<u32>()
+                && pid > 0 && (state_str == "CLOSE_WAIT" || state_str == "TIME_WAIT") {
                     // Deduplicate by PID
                     if !results.iter().any(|(p, _): &(u32, String)| *p == pid) {
                         results.push((pid, state_str));
                     }
                 }
-            }
         }
     }
 
@@ -146,17 +145,15 @@ async fn check_disk_space(
     // CSV output: Node,FreeSpace,Size
     for line in output.lines() {
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() >= 3 {
-            if let (Ok(free), Ok(total)) = (
+        if parts.len() >= 3
+            && let (Ok(free), Ok(total)) = (
                 parts[1].trim().parse::<f64>(),
                 parts[2].trim().parse::<f64>(),
-            ) {
-                if total > 0.0 {
+            )
+                && total > 0.0 {
                     let pct_free = (free / total) * 100.0;
                     return Ok((pct_free,));
                 }
-            }
-        }
     }
 
     Ok((100.0,)) // assume OK if parse fails
@@ -173,14 +170,13 @@ async fn check_memory(
     // CSV: Node,FreePhysicalMemory,TotalVisibleMemorySize (in KB)
     for line in output.lines() {
         let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() >= 3 {
-            if let (Ok(free_kb), Ok(total_kb)) = (
+        if parts.len() >= 3
+            && let (Ok(free_kb), Ok(total_kb)) = (
                 parts[1].trim().parse::<u64>(),
                 parts[2].trim().parse::<u64>(),
             ) {
                 return Ok((free_kb / 1024, total_kb / 1024)); // convert to MB
             }
-        }
     }
 
     Ok((8192, 32768)) // default: assume 8GB free / 32GB total
@@ -321,12 +317,10 @@ pub(crate) async fn is_protected_pid(state: &Arc<AppState>, pod_ip: &str, pid: u
     match exec_on_pod(state, pod_ip, &cmd).await {
         Ok(output) => {
             let name = output
-                .lines()
-                .filter(|l| !l.trim().is_empty() && !l.contains("Node"))
-                .next()
+                .lines().find(|l| !l.trim().is_empty() && !l.contains("Node"))
                 .map(|l| {
                     l.split(',')
-                        .last()
+                        .next_back()
                         .unwrap_or("")
                         .trim()
                         .to_lowercase()

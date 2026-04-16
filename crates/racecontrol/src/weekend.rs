@@ -66,6 +66,12 @@ pub struct WeekendManager {
     pub weekends: RwLock<HashMap<String, WeekendState>>,
 }
 
+impl Default for WeekendManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WeekendManager {
     pub fn new() -> Self {
         Self {
@@ -366,8 +372,8 @@ async fn poll_session_transitions(
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
                     // acServer /INFO returns { "session": N, ... } where N is 0-indexed session
                     // 0 = first session (Practice), 1 = Qualifying, 2 = Race
-                    if let Some(session_idx) = body.get("session").and_then(|v| v.as_u64()).map(|v| v as u32) {
-                        if last_session_index != Some(session_idx) {
+                    if let Some(session_idx) = body.get("session").and_then(|v| v.as_u64()).map(|v| v as u32)
+                        && last_session_index != Some(session_idx) {
                             last_session_index = Some(session_idx);
                             let new_phase = match session_idx {
                                 0 => WeekendPhase::Practice,
@@ -377,7 +383,6 @@ async fn poll_session_transitions(
                             };
                             update_weekend_phase(&state, &weekend_id, new_phase).await;
                         }
-                    }
 
                     // Update connected pods from acServer /INFO
                     // The "clients" field tells us how many are connected

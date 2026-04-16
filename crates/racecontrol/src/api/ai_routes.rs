@@ -287,7 +287,7 @@ pub(crate) async fn ai_diagnose(
                  VALUES (?, 'venue', 'diagnostic', ?, ?, ?, 'diagnose')"
             )
             .bind(&id)
-            .bind(&context_parts.join("\n"))
+            .bind(context_parts.join("\n"))
             .bind(&suggestion)
             .bind(&model)
             .execute(db)
