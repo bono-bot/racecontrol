@@ -2175,6 +2175,14 @@ Y=50
 WIDTH=200
 HEIGHT=80
 VISIBLE=1
+
+[RACECONTROL]
+ACTIVE=1
+X=0
+Y=0
+WIDTH=1
+HEIGHT=1
+VISIBLE=0
 ";
     let mut file = std::fs::File::create(&apps_ini_path)?;
     // AC INI files on Windows require CRLF line endings
