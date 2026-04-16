@@ -865,5 +865,15 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // Hide legacy package tiers from customer display — per-minute is the only model now.
+    // These rows remain for snap-pricing reference (best_rate_for_minutes uses hardcoded prices).
+    // Also hide the E2E test tier from customer-facing display.
+    let _ = sqlx::query(
+        "UPDATE pricing_tiers SET is_active = 0 WHERE id IN ('tier_30min', 'tier_60min') \
+         OR name LIKE 'E2E%'",
+    )
+    .execute(pool)
+    .await;
+
     Ok(())
 }
