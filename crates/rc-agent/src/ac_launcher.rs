@@ -2237,9 +2237,20 @@ fn ensure_python_ini_racecontrol() -> Result<()> {
         }
     }
 
-    // If Documents python.ini doesn't exist at all, the install dir copy is used.
-    // We already ensured the install dir copy has [RACECONTROL] above.
-    // If neither exists, AC creates python.ini on first run — we'll catch it next launch.
+    // If neither python.ini exists, create Documents one with essential apps enabled.
+    // Without this, the RaceControl plugin never loads and zero laps are recorded.
+    if !docs_cfg.exists() && !install_cfg.exists() {
+        if let Some(parent) = docs_cfg.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = "[RACECONTROL]\r\nACTIVE=1\r\n[SECTORS]\r\nACTIVE=1\r\n[SPEEDOMETER]\r\nACTIVE=1\r\n[LAPTIME]\r\nACTIVE=1\r\n";
+        std::fs::write(&docs_cfg, content)?;
+        tracing::info!(
+            target: LOG_TARGET,
+            "Created python.ini with [RACECONTROL] at {} (neither Documents nor install copy existed)",
+            docs_cfg.display()
+        );
+    }
 
     Ok(())
 }
