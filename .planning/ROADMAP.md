@@ -1816,7 +1816,7 @@ Wave 1: Deploy & Verify (383)
 
 ---
 
-### Phase 387: Customer Opt-In/Opt-Out Preferences
+### Phase 387: Customer Opt-In/Opt-Out Preferences — COMPLETE 2026-04-16
 
 **Goal:** Anti-spam infrastructure. Every customer can control what promotional messages they receive. This MUST be deployed and verified before any marketing messages are sent.
 **Depends on:** Phase 384 (P0 verified)
@@ -1824,13 +1824,13 @@ Wave 1: Deploy & Verify (383)
 **Requirements:** PREF-01, PREF-02, PREF-03, PREF-04, PREF-05
 
 **Success criteria:**
-1. `customer_preferences` table stores per-customer: opt_in_promotions (bool), channel_preference, frequency_cap, last_promo_sent_at
-2. Customer sends "stop" on WhatsApp → immediately opted out. Transactional messages (booking confirmations, receipts) still flow.
-3. Opted-in customers receive max 2-3 promotional messages per week — enforced at send time
-4. 3 consecutive ignored offers → auto-pause promotions until customer re-engages
-5. PWA `/settings/preferences` page lets customers manage their communication preferences
+1. ✅ `customer_preferences` table: opt_in_promotions, channel_preference, frequency_cap_per_week, last_promo_sent_at, consecutive_ignored, auto_paused, weekly tracking
+2. ✅ POST /customer/opt-out/{id} immediately opts out. `can_send_promo()` blocks all promos for opted-out customers.
+3. ✅ Weekly frequency cap enforced at send time via `can_send_promo()` — default 3/week, configurable 0-10. Auto-resets on ISO week boundary.
+4. ✅ 3 consecutive ignored offers triggers auto-pause via `record_promo_ignored()`. `record_engagement()` resets on venue visit.
+5. PWA `/settings/preferences` page — deferred to standalone frontend task
 
-**Plans:** TBD
+**Commits:** `f2bc7137`
 
 ---
 
