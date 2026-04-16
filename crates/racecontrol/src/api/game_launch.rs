@@ -248,6 +248,19 @@ pub(crate) async fn launch_game(
             })
     };
 
+    // DB-2 FIX: Extract car/track from launch_args BEFORE moving into cmd.
+    // These are used to update billing_sessions after successful launch.
+    let (launch_car, launch_track) = {
+        let args_parsed: serde_json::Value = launch_args
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or(serde_json::Value::Object(Default::default()));
+        (
+            args_parsed.get("car").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            args_parsed.get("track").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        )
+    };
+
     let cmd = rc_common::protocol::DashboardCommand::LaunchGame {
         pod_id: pod_id.to_string(),
         sim_type,
@@ -256,6 +269,25 @@ pub(crate) async fn launch_game(
 
     match game_launcher::handle_dashboard_command(&state, cmd).await {
         Ok(()) => {
+            // DB-2 FIX: Update billing_sessions with car/track/sim_type on successful launch.
+            // Previously only launch_or_assist() (PIN auth flow) wrote these fields.
+            // The /games/launch path (kiosk game selection, admin dashboard) skipped the update,
+            // leaving car/track/sim_type NULL for most sessions.
+            {
+                let _ = sqlx::query(
+                    "UPDATE billing_sessions SET car = ?, track = ?, sim_type = ? \
+                     WHERE pod_id = ? AND status IN ('active', 'waiting_for_game') \
+                     AND car IS NULL \
+                     ORDER BY created_at DESC LIMIT 1",
+                )
+                .bind(&launch_car)
+                .bind(&launch_track)
+                .bind(sim_type_str)
+                .bind(pod_id)
+                .execute(&state.db)
+                .await;
+            }
+
             // CLOSED-LOOP: Per-launch verification from the pod's game tracker.
             // Previous implementation used a global AtomicBool (last_launch_verified) that
             // returned stale results from prior launches on ANY pod — causing verified=true

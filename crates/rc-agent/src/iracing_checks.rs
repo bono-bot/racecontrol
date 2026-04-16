@@ -28,6 +28,7 @@ const IRACING_EXE_NAMES: &[&str] = &[
 const IRACING_INSTALL_PATHS: &[&str] = &[
     r"C:\Program Files (x86)\iRacing",
     r"C:\Program Files\iRacing",
+    r"C:\Program Files (x86)\Steam\steamapps\common\iRacing",
 ];
 
 /// Pre-launch readiness check for iRacing (GAME-05).

@@ -78,49 +78,57 @@ pub fn pre_launch_checks() -> Result<(), String> {
 
     // Check 3: No orphan game processes running — auto-cleanup before failing
     // LAUNCH-FIX-3: Kill orphans automatically instead of just reporting them
+    // GL-9: EA Anti-Cheat can respawn F1_25.exe after kill — retry up to 3 times
     {
         use sysinfo::System;
-        let mut sys = System::new();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let known = all_game_process_names();
-        let mut orphans: Vec<(u32, String)> = Vec::new();
-        for (_pid, proc) in sys.processes() {
-            let pname = proc.name().to_string_lossy().to_string();
-            for name in known {
-                if pname.eq_ignore_ascii_case(name) {
-                    orphans.push((_pid.as_u32(), pname.clone()));
-                    break;
-                }
-            }
-        }
+        const MAX_KILL_ATTEMPTS: u32 = 3;
 
-        if !orphans.is_empty() {
-            tracing::warn!(target: LOG_TARGET, "LAUNCH-FIX-3: Found {} orphan game process(es), auto-cleaning", orphans.len());
-            for (pid, name) in &orphans {
-                tracing::info!(target: LOG_TARGET, "Killing orphan {} (PID {})", name, pid);
-                if let Err(e) = kill_process(*pid) {
-                    return Err(format!(
-                        "orphan game process {} (PID {}) still running after cleanup attempt: {}",
-                        name, pid, e
-                    ));
-                }
-            }
-            // Re-verify after cleanup
-            std::thread::sleep(std::time::Duration::from_millis(500));
+        for attempt in 1..=MAX_KILL_ATTEMPTS {
+            let mut sys = System::new();
             sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            let mut orphans: Vec<(u32, String)> = Vec::new();
             for (_pid, proc) in sys.processes() {
                 let pname = proc.name().to_string_lossy().to_string();
-                for name in all_game_process_names() {
+                for name in known {
                     if pname.eq_ignore_ascii_case(name) {
-                        return Err(format!(
-                            "orphan game process {} (PID {}) persists after cleanup — manual intervention required",
-                            name,
-                            _pid.as_u32()
-                        ));
+                        orphans.push((_pid.as_u32(), pname.clone()));
+                        break;
                     }
                 }
             }
-            tracing::info!(target: LOG_TARGET, "LAUNCH-FIX-3: All orphan processes cleaned successfully");
+
+            if orphans.is_empty() {
+                if attempt > 1 {
+                    tracing::info!(target: LOG_TARGET, "LAUNCH-FIX-3: All orphan processes cleaned after {} attempt(s)", attempt - 1);
+                }
+                break;
+            }
+
+            tracing::warn!(target: LOG_TARGET, "LAUNCH-FIX-3: Found {} orphan game process(es), attempt {}/{}", orphans.len(), attempt, MAX_KILL_ATTEMPTS);
+            for (pid, name) in &orphans {
+                tracing::info!(target: LOG_TARGET, "Killing orphan {} (PID {})", name, pid);
+                let _ = kill_process(*pid);
+            }
+
+            if attempt == MAX_KILL_ATTEMPTS {
+                // Final verification after last kill attempt
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                for (_pid, proc) in sys.processes() {
+                    let pname = proc.name().to_string_lossy().to_string();
+                    for name in all_game_process_names() {
+                        if pname.eq_ignore_ascii_case(name) {
+                            return Err(format!(
+                                "orphan game process {} (PID {}) persists after {} cleanup attempts — manual intervention required",
+                                name, _pid.as_u32(), MAX_KILL_ATTEMPTS
+                            ));
+                        }
+                    }
+                }
+            } else {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
         }
     }
 
@@ -204,6 +212,7 @@ fn all_game_process_names() -> &'static [&'static str] {
         "iRacingSim64DX11.exe", "iRacingService.exe", "iRacingService64.exe", "iRacingLauncher64.exe",
         "iRacingUI.exe",
         "F1_25.exe", "F1_2025.exe",
+        "EAAntiCheat.GameServiceLauncher.exe", "EADesktop.exe", "EABackgroundService.exe",
         "LMU.exe", "Le Mans Ultimate.exe",
         "ForzaMotorsport.exe",
         "ForzaHorizon5.exe",
