@@ -109,3 +109,9 @@ logs/racecontrol-*.jsonl
 tests/e2e/playwright/pos/.driver-cache.tmp
 tests/e2e/playwright/pos/.jwt-cache.tmp
 tests/e2e/playwright/pos/screenshots/
+
+# Playwright shared auth state (JWT — credential file, never commit)
+tests/e2e/playwright/.auth-state.json
+
+# Rotated log backups
+*.log.prev
