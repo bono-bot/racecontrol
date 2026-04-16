@@ -274,18 +274,21 @@ pub(crate) async fn launch_game(
             // The /games/launch path (kiosk game selection, admin dashboard) skipped the update,
             // leaving car/track/sim_type NULL for most sessions.
             {
-                let _ = sqlx::query(
+                if let Err(e) = sqlx::query(
                     "UPDATE billing_sessions SET car = ?, track = ?, sim_type = ? \
+                     WHERE id = (SELECT id FROM billing_sessions \
                      WHERE pod_id = ? AND status IN ('active', 'waiting_for_game') \
                      AND car IS NULL \
-                     ORDER BY created_at DESC LIMIT 1",
+                     ORDER BY created_at DESC LIMIT 1)",
                 )
                 .bind(&launch_car)
                 .bind(&launch_track)
                 .bind(sim_type_str)
                 .bind(pod_id)
                 .execute(&state.db)
-                .await;
+                .await {
+                    tracing::warn!("DB-2: Failed to update billing_sessions car/track/sim_type for pod {}: {}", pod_id, e);
+                }
             }
 
             // CLOSED-LOOP: Per-launch verification from the pod's game tracker.

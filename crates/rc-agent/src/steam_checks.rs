@@ -152,6 +152,8 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
         sim_type, timeout_secs, expected_exes
     );
 
+    let mut steam_dialog_dismissed = false;
+
     while std::time::Instant::now() < deadline {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
@@ -168,6 +170,18 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
                     );
                     return Ok(pid);
                 }
+            }
+        }
+
+        // GL-8: Detect and dismiss Steam popup dialogs that block game launch.
+        // Steam shows vguiPopupWindow class dialogs for updates, login, DRM checks.
+        // These block the game exe from starting — dismiss them so the game can launch.
+        #[cfg(windows)]
+        if !steam_dialog_dismissed {
+            if dismiss_steam_dialogs() {
+                steam_dialog_dismissed = true;
+                // Don't sleep — immediately re-poll for the game exe
+                continue;
             }
         }
 
@@ -305,6 +319,48 @@ fn check_steam_app_manifest(config: &GameExeConfig) -> Result<(), String> {
     // Not returning Err here — custom Steam library paths exist and we don't want to block
     // valid installs. Game Doctor / the game itself will fail if truly missing.
     Ok(())
+}
+
+/// GL-8: Detect and dismiss Steam popup dialogs (vguiPopupWindow class).
+///
+/// Steam shows dialogs for: update prompts, login required, DRM verification,
+/// "game is already running", and EULA/ToS acceptance. These block the game exe
+/// from launching. We detect them by window class and send WM_CLOSE.
+///
+/// Returns true if a dialog was found and dismissed.
+#[cfg(windows)]
+fn dismiss_steam_dialogs() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use winapi::um::winuser::{EnumWindows, GetClassNameW, PostMessageW, WM_CLOSE, IsWindowVisible};
+    use winapi::shared::windef::HWND;
+    use winapi::shared::minwindef::{BOOL, LPARAM, TRUE, FALSE};
+
+    static FOUND: AtomicBool = AtomicBool::new(false);
+    FOUND.store(false, Ordering::SeqCst);
+
+    unsafe extern "system" fn enum_callback(hwnd: HWND, _lparam: LPARAM) -> BOOL {
+        if unsafe { IsWindowVisible(hwnd) } == 0 {
+            return TRUE; // skip invisible windows
+        }
+        let mut class_buf = [0u16; 256];
+        let len = unsafe { GetClassNameW(hwnd, class_buf.as_mut_ptr(), 256) };
+        if len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+            if class_name == "vguiPopupWindow" {
+                tracing::warn!(
+                    target: "steam-checks",
+                    "GL-8: Detected Steam popup dialog (class=vguiPopupWindow) — sending WM_CLOSE"
+                );
+                unsafe { PostMessageW(hwnd, WM_CLOSE, 0, 0) };
+                FOUND.store(true, Ordering::SeqCst);
+                // Don't return FALSE — there may be multiple dialogs
+            }
+        }
+        TRUE
+    }
+
+    unsafe { EnumWindows(Some(enum_callback), 0); }
+    FOUND.load(Ordering::SeqCst)
 }
 
 #[cfg(test)]
