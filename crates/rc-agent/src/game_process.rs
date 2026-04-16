@@ -382,7 +382,13 @@ impl GameProcess {
                 }
             }
         } else if let Some(pid) = self.pid {
-            is_process_alive(pid)
+            // INV-1: Capture exit code for PID-only processes (Steam URL launches)
+            let (alive, exit_code) = is_process_alive_with_exit(pid);
+            if !alive {
+                self.last_exit_code = exit_code;
+                self.state = GameState::Idle;
+            }
+            alive
         } else {
             false
         }
@@ -467,9 +473,11 @@ pub fn find_game_pid(sim_type: SimType) -> Option<u32> {
     None
 }
 
-/// Platform-specific process alive check
+/// Platform-specific process alive check.
+/// Returns (alive, exit_code) — exit_code is Some when the process has exited.
+/// INV-1: Now returns exit code for PID-only processes (Steam URL launches).
 #[cfg(target_os = "windows")]
-fn is_process_alive(pid: u32) -> bool {
+fn is_process_alive_with_exit(pid: u32) -> (bool, Option<i32>) {
     unsafe {
         let handle = winapi::um::processthreadsapi::OpenProcess(
             winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION,
@@ -477,19 +485,36 @@ fn is_process_alive(pid: u32) -> bool {
             pid,
         );
         if handle.is_null() {
-            return false;
+            return (false, None);
         }
         let mut exit_code: u32 = 0;
         let result =
             winapi::um::processthreadsapi::GetExitCodeProcess(handle, &mut exit_code as *mut u32);
         winapi::um::handleapi::CloseHandle(handle);
-        result != 0 && exit_code == 259 // STILL_ACTIVE
+        if result == 0 {
+            (false, None) // GetExitCodeProcess failed
+        } else if exit_code == 259 {
+            (true, None) // STILL_ACTIVE
+        } else {
+            (false, Some(exit_code as i32))
+        }
     }
+}
+
+/// Backwards-compat wrapper
+#[cfg(target_os = "windows")]
+fn is_process_alive(pid: u32) -> bool {
+    is_process_alive_with_exit(pid).0
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_process_alive_with_exit(pid: u32) -> (bool, Option<i32>) {
+    (std::path::Path::new(&format!("/proc/{}", pid)).exists(), None)
 }
 
 #[cfg(not(target_os = "windows"))]
 fn is_process_alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    is_process_alive_with_exit(pid).0
 }
 
 /// Platform-specific process kill

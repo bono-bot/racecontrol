@@ -301,6 +301,10 @@ export const api = {
       }
     ),
 
+  // Laps — DB query for verification
+  listLaps: (limit = 100) =>
+    fetchApi<{ laps: { id: string; driver_id: string; track: string; car: string; lap_time_ms: number; valid: boolean }[] }>(`/laps?limit=${limit}`),
+
   // Pod Activity Log
   globalActivity: (limit = 100) =>
     fetchApi<PodActivityEntry[]>(`/activity?limit=${limit}`),

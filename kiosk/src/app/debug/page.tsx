@@ -14,6 +14,9 @@ import type {
   DebugActivityData,
   PodActivityEntry,
   PodDiagnosticEvent,
+  Lap,
+  TelemetryFrame,
+  BillingSession,
 } from "@/lib/types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -54,7 +57,7 @@ function getPodLabel(podNumber: number, podId: string, nodeType?: string, name?:
 
 export default function DebugPage() {
   const router = useRouter();
-  const { connected, pods, activityLog, launches, launchNotes, removeLaunch } = useKioskSocket();
+  const { connected, pods, activityLog, launches, launchNotes, removeLaunch, recentLaps, billingTimers, latestTelemetry } = useKioskSocket();
 
   const [staffName, setStaffName] = useState<string | null>(null);
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
@@ -569,6 +572,14 @@ export default function DebugPage() {
 
           {/* ─── Server Logs (collapsible) ─────────────────────── */}
           <ServerLogViewer />
+
+          {/* ─── Lap Health (zero-laps verification) ──────────────── */}
+          <LapHealthPanel
+            wsLaps={recentLaps}
+            billingTimers={billingTimers}
+            latestTelemetry={latestTelemetry}
+            pods={pods}
+          />
 
           {/* ─── Pod Tier Engine Events (v27.0) ────────────────────── */}
           {selectedPodId && (

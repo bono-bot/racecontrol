@@ -152,7 +152,7 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
         sim_type, timeout_secs, expected_exes
     );
 
-    let mut steam_dialog_dismissed = false;
+    let mut dialogs_dismissed: u32 = 0;
 
     while std::time::Instant::now() < deadline {
         let mut sys = System::new();
@@ -165,21 +165,28 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
                     let pid = _pid.as_u32();
                     tracing::info!(
                         target: LOG_TARGET,
-                        "Game window detected: {} (PID {}) for {:?}",
-                        expected, pid, sim_type
+                        "Game window detected: {} (PID {}) for {:?} (dismissed {} Steam dialog(s))",
+                        expected, pid, sim_type, dialogs_dismissed
                     );
                     return Ok(pid);
                 }
             }
         }
 
-        // GL-8: Detect and dismiss Steam popup dialogs that block game launch.
+        // GL-8 + INV-9: Detect and dismiss Steam popup dialogs that block game launch.
         // Steam shows vguiPopupWindow class dialogs for updates, login, DRM checks.
         // These block the game exe from starting — dismiss them so the game can launch.
+        // INV-9: Retry every poll cycle — Steam can show multiple sequential dialogs
+        // (e.g., update prompt → EULA → DRM check). Previously only dismissed once.
         #[cfg(windows)]
-        if !steam_dialog_dismissed {
+        {
             if dismiss_steam_dialogs() {
-                steam_dialog_dismissed = true;
+                dialogs_dismissed += 1;
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "GL-8: Dismissed Steam dialog #{} for {:?} — re-polling immediately",
+                    dialogs_dismissed, sim_type
+                );
                 // Don't sleep — immediately re-poll for the game exe
                 continue;
             }
@@ -196,8 +203,9 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
 
     Err(format!(
         "Game failed to launch - only Steam dialog visible after {}s timeout for {:?}. \
-        Steam may have shown a dialog (DRM check, update, login) instead of launching the game.",
-        timeout_secs, sim_type
+        Steam may have shown a dialog (DRM check, update, login) instead of launching the game. \
+        Dismissed {} dialog(s) during wait.",
+        timeout_secs, sim_type, dialogs_dismissed
     ))
 }
 

@@ -1062,7 +1062,12 @@ pub async fn run(
                         if !still_alive && was_active {
                             state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                             state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
-                            let err_msg = "Game process exited unexpectedly".to_string();
+                            // INV-1: Include exit code when available (is_running() populates last_exit_code via try_wait)
+                            let exit_code = game.last_exit_code;
+                            let err_msg = match exit_code {
+                                Some(code) => format!("Process exited unexpectedly (exit code: {})", code),
+                                None => "Game process exited unexpectedly".to_string(),
+                            };
                             let info = GameLaunchInfo {
                                 pod_id: state.pod_id.clone(),
                                 sim_type: game.sim_type,
@@ -1071,7 +1076,7 @@ pub async fn run(
                                 launched_at: None,
                                 error_message: Some(err_msg.clone()),
                                 diagnostics: None,
-                                exit_code: None,
+                                exit_code,
                                 playable_at: None,
                                 ready_delay_ms: None,
                                 session_id: None, launch_stage: None,

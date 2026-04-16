@@ -5,8 +5,8 @@ REM Add to HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run or Scheduled Task
 
 cd /d C:\RacingPoint\kiosk
 
-set PORT=3300
-set HOSTNAME=0.0.0.0
+set "PORT=3300"
+set "HOSTNAME=0.0.0.0"
 
 REM Kill any existing kiosk process on port 3300
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3300 ^| findstr LISTENING') do (
