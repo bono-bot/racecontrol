@@ -296,7 +296,7 @@ pub async fn start_billing_session(
         max_pause_duration_secs: 600,
         elapsed_seconds: 0,
         pause_seconds: 0,
-        max_session_seconds: if is_per_minute { 10800 } else { allocated_seconds }, // 3hr hard cap for per-minute
+        max_session_seconds: if is_per_minute { 86400 } else { allocated_seconds }, // 24hr safety cap for per-minute (was 3hr, raised for iRacing endurance)
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,

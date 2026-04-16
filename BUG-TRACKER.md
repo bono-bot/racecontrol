@@ -1,7 +1,7 @@
 # Bug Tracker — RaceControl
 
 > **Single source of truth for all known bugs.**
-> Updated: 2026-04-17 03:15 IST | HEAD: `3bb882cc` | Server: `3bb882cc` | Pods 1-8: `3bb882cc` | POS: `408b04c8` (SAC blocked) | VPS: `8a0f82a1`
+> Updated: 2026-04-17 04:00 IST | HEAD: `3bb882cc` | Server: `3bb882cc` | Pods 1-8: `3bb882cc` | POS: `408b04c8` (SAC blocked) | VPS: `8a0f82a1`
 
 ## How to Use
 
@@ -60,18 +60,51 @@
 
 ---
 
-## Wave 2 — Investigation (150 crash events, unknown root causes)
+## Wave 2 — Investigation (281 failure events, reclassified)
 
-> **Do this AFTER Wave 1 deploy.** Crash rates will likely drop once configs are fixed and telemetry works. Re-measure first.
+> **Wave 1 deployed 2026-04-17 03:00 IST.** Post-deploy: 1 transient crash (Pod 6, immediate recovery). Full reclassification below.
 
-| ID | Bug | Count | Severity | Status | Next Step |
-|----|-----|-------|----------|--------|-----------|
-| INV-1 | Generic "exited unexpectedly" (GL-1) | 111 | P2 | NEEDS_INVESTIGATION | Pick 5 most recent, SSH to pod, check Windows Event Viewer + AC log.txt. Classify: GPU crash / content error / memory / unknown. |
-| INV-2 | Launch timeout 120s (GL-2) | 26 | P2 | NEEDS_INVESTIGATION | May be WS latency (935-1628ms on Pods 3-8). Check if timeout events correlate with high round-trip pods. |
-| INV-3 | Exit code 1 (GL-4) | 13 | P2 | NEEDS_INVESTIGATION | AC exit code 1 = content error? Check AC log.txt on Pod 4 (9 of 13 events). |
-| INV-4 | Launch timeout 30s (GL-7) | 8 | P3 | NEEDS_INVESTIGATION | Config: increase timeout? Or fix underlying slow launch. Check if cold-start vs warm-start matters. |
+### 2A: Active Investigation — Root Cause Unknown
 
-**Wave 2 action:** After Wave 1 deploy, query `game_launch_events WHERE created_at > '<wave1_deploy_time>'` to get fresh crash rate. Then investigate remaining failures.
+| ID | Bug | Count | Severity | Pods (top 3) | Status | Analysis | Next Step |
+|----|-----|-------|----------|--------------|--------|----------|-----------|
+| INV-1 | Generic "Game process exited unexpectedly" — no exit code captured | 111 | P2 | Pod 8 (23), Pod 3 (22), Pod 4 (22) | NEEDS_INVESTIGATION | Heartbeat poll path (`event_loop.rs:1065`) detects dead process but doesn't capture exit code (`exit_code: None`). ALL AC except 5 F1 25 on Pod 4. Spike days: Mar 18 (26), Apr 8 (23), Apr 11 (21). **1 post-deploy event** (Pod 6, transient). | **Code fix:** Add `try_wait()` before declaring dead to capture exit code. **Venue:** Check Windows Event Viewer `Application` log for AC crash dumps on Pod 8. Check `%USERPROFILE%\Documents\Assetto Corsa\logs\log.txt` on top 3 pods. |
+| INV-2 | Launch timeout 120s — AC never reaches "Running" state | 26 | P2 | Pod 8 (15), Pod 4 (6), Pod 6 (6) | NEEDS_INVESTIGATION | All Assetto Corsa. Pod 8 dominates (58%). Combined with `timeout` event_type (47 total — same pattern, empty error_message). **Hypothesis:** AC SHM never populates (pre-ZL-1 fix, no plugin loaded). Post-ZL-1 deploy should reduce this — re-measure after venue hours. | **Wait for post-deploy data.** If still occurring: SSH to Pod 8 during AC launch, watch `C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\apps\python\racecontrol\` exists + AC log.txt for plugin load. |
+| INV-3 | Exit code 1 — process exits with known error code | 13 | P2 | Pod 4 (9), Pod 3 (2), Pod 8 (2) | NEEDS_INVESTIGATION | Pod 4: 9/13 are F1 25 (often paired with orphan F1_25.exe crash — F1 25 can't be killed cleanly). Pod 3: 2 are AC Evo (most recent: 2026-04-16). Exit code 1 in AC = content load error (missing track/car/mod). | **Venue:** SSH to Pod 4, check `%LOCALAPPDATA%\F1_25\` for crash logs. For Pod 3 AC Evo: check `%USERPROFILE%\Documents\Assetto Corsa Competizione\logs\` (AC Evo may use ACC paths). |
+| INV-4 | Launch timeout 30s — process starts but never detected as running | 8 | P3 | Pod 6 (2), Pod 3 (2), Pod 7 (2) | NEEDS_INVESTIGATION | AC (6) + EA SPORTS WRC (2). Different from INV-2: shorter timeout suggests process detection failure, not SHM issue. May be cold-start (first launch after boot) vs warm (Steam already running). | **Venue:** Test cold-start launch on Pod 6. If reproducible, check if Steam overlay initialization adds delay. Consider increasing 30s timeout to 60s as config change. |
+
+### 2B: Already Fixed — Historical Events Only
+
+| ID | Bug | Count | Fixed By | Last Event | Notes |
+|----|-----|-------|----------|------------|-------|
+| INV-5 | `session_type="pitlane"` rejected | 23 | Pod 8 incident fix + test (`ac_launcher.rs:3582`) | 2026-04-08 | 20/23 on Pod 8. Kiosk `start_type` leaked into `session_type`. Fixed in kiosk wizard. |
+| INV-6 | `ERROR_INVALID_HANDLE (os error 6)` on `acs.exe` spawn | 9 | `spawn_safe.rs` + `ac_launcher.rs:738` Stdio::null() | 2026-04-07 | Pod 3 (6), Pod 4 (3). FreeConsole() invalidated handles. All pre-fix. |
+| INV-7 | `os error 50` "request not supported" on `acs.exe` spawn | 2 | Same `spawn_safe` fix | 2026-04-07 | Pod 1 (1), Pod 4 (1). Related to console handle state. |
+| INV-8 | Orphan F1_25.exe blocking AC launch | 8 | `bf8a30e4` orphan cleanup (V-2) | 2026-04-16 | ALL Pod 4. F1 25 process resists `taskkill`. Deployed — needs runtime verify (V-2). |
+
+### 2C: New Pattern — Steam Dialog Blocking
+
+| ID | Bug | Count | Severity | Pods | Games | Status | Next Step |
+|----|-----|-------|----------|------|-------|--------|-----------|
+| INV-9 | Steam dialog visible after 60s — game never launches | 15 | P2 | 7 pods (all except Pod 8) | Forza Horizon 5 (5), EA SPORTS WRC (5), Le Mans Ultimate (3), AC Evo (1), F1 25 (1) | NEEDS_INVESTIGATION | Steam shows DRM check, update prompt, or login dialog instead of launching game. Already handled by GL-8 fix (`40968ddc`) for the vguiPopupWindow dismiss — but these 15 events are AFTER GL-8 deploy on some pods. **Venue:** Check Steam auto-login config, disable "Check for game updates" in Steam settings per pod. May need `steam://rungameid/` URI with `-silent` flag. |
+
+### Summary: 281 failure events reclassified
+
+| Category | Events | Status |
+|----------|--------|--------|
+| 2A: Active investigation (INV-1 to INV-4) | 158 | 4 bugs open |
+| 2B: Already fixed (INV-5 to INV-8) | 42 | Historical only |
+| 2C: Steam dialog (INV-9) | 15 | New — investigate |
+| Wave 1 (iRacing config, no exe_path, etc.) | 13 | Tracked in GLC-1/2/3 |
+| Already tracked (V-1 through V-8) | 53 | Deployed, need verify |
+
+**Post-deploy crash rate:** 1 event in ~20 minutes of testing (Pod 6 transient). **Need venue-hours data to measure real post-deploy rate.** Most Wave 2 events are pre-deploy — ZL-1/ZL-2 fixes (telemetry plugin) likely eliminate INV-2 timeouts caused by missing SHM data.
+
+**Wave 2 action plan:**
+1. ~~Query post-deploy crash rate~~ **DONE** — 1 transient event. Need venue hours for meaningful sample.
+2. **Code fix (INV-1):** Add `try_wait()` exit code capture to heartbeat poll path — eliminates the "unknown crash" black hole.
+3. **Venue visit:** Check Event Viewer + AC logs on Pods 3/4/8 for INV-1/INV-3. Check Steam config for INV-9.
+4. **Re-measure after 24h of venue operation** — INV-2 timeouts may self-resolve with ZL-1 plugin fix.
 
 ---
 
@@ -144,3 +177,4 @@ HEAD (3bb882cc) ──── contains all fixes
 |------|---------|-------------|-------------|-------|
 | 2026-04-17 | Created tracker | 0 | 30 | Consolidated from 8 handoff files |
 | 2026-04-17 | Wave 1 deploy | 0 | 0 | Server+Pods 1-8+VPS all on 3bb882cc. ZL-1/ZL-2 DEPLOYED. V-6/V-7/V-8 DEPLOYED. Frontends rebuilt. GLC-1 reclassified (iRacing installed). 4 items need venue visit: laps verification, V-1 to V-5 runtime checks, crash rate re-measure. |
+| 2026-04-17 | Wave 2 investigation | 0 | 1 | 281 failure events reclassified into 9 bugs (INV-1 to INV-9). 42 events already fixed (INV-5 to INV-8). New: INV-9 Steam dialog blocking (15 events, 5 games, 7 pods). INV-1 needs code fix (exit code capture). INV-2 likely self-resolves with ZL-1 plugin. Post-deploy: 1 transient crash only. |

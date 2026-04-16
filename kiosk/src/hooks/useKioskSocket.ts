@@ -76,6 +76,8 @@ export function useKioskSocket() {
   // Phase 368: Live Launch Status cards
   const [launches, setLaunches] = useState<Map<string, LaunchStatusCard>>(new Map());
   const [launchNotes, setLaunchNotes] = useState<Map<string, LaunchNoteEvent[]>>(new Map());
+  // Command error feedback from server
+  const [commandErrors, setCommandErrors] = useState<{ command: string; pod_id: string; error: string }[]>([]);
 
   const sendCommand = useCallback(
     (command: string, data: Record<string, unknown>) => {
@@ -350,6 +352,15 @@ export function useKioskSocket() {
             });
             break;
           }
+          case "command_error": {
+            const err = msg.data as { command: string; pod_id: string; error: string };
+            setCommandErrors((prev) => [...prev, err]);
+            // Auto-clear after 10 seconds
+            setTimeout(() => {
+              setCommandErrors((prev) => prev.filter((e) => e !== err));
+            }, 10_000);
+            break;
+          }
         }
       } catch (e) {
         console.warn("[Kiosk] Parse error:", e);
@@ -454,5 +465,6 @@ export function useKioskSocket() {
     launches,
     launchNotes,
     removeLaunch,
+    commandErrors,
   };
 }

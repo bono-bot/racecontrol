@@ -1517,6 +1517,14 @@ pub enum DashboardEvent {
 
     /// Phase 368 D-04: Staff added an append-only note to a launch card.
     LaunchNoteAdded(LaunchNoteEvent),
+
+    /// Error feedback for a dashboard command (staff sees toast on kiosk/dashboard).
+    /// Sent when StartBilling, EndBilling, or other WS commands fail server-side.
+    CommandError {
+        command: String,
+        pod_id: String,
+        error: String,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)

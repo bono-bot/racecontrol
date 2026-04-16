@@ -36,7 +36,8 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
             split_duration_minutes,
         } => {
             let pod_id = normalize_pod_id(&pod_id).unwrap_or(pod_id);
-            let _ = start_billing_session(
+            let pod_id_for_err = pod_id.clone();
+            if let Err(e) = start_billing_session(
                 state,
                 pod_id,
                 driver_id,
@@ -47,7 +48,15 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
                 split_count,
                 split_duration_minutes,
             )
-            .await;
+            .await
+            {
+                tracing::warn!("StartBilling failed for {}: {}", pod_id_for_err, e);
+                let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                    command: "start_billing".to_string(),
+                    pod_id: pod_id_for_err,
+                    error: e,
+                });
+            }
         }
         DashboardCommand::PauseBilling {
             billing_session_id,
@@ -63,12 +72,26 @@ pub async fn handle_dashboard_command(state: &Arc<AppState>, cmd: DashboardComma
         DashboardCommand::EndBilling {
             billing_session_id,
         } => {
-            end_billing_session(state, &billing_session_id, BillingSessionStatus::EndedEarly).await;
+            if !end_billing_session(state, &billing_session_id, BillingSessionStatus::EndedEarly).await {
+                tracing::warn!("EndBilling failed for session {}", billing_session_id);
+                let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                    command: "end_billing".to_string(),
+                    pod_id: String::new(),
+                    error: format!("Failed to end session {} — session may already be finalized", billing_session_id),
+                });
+            }
         }
         DashboardCommand::CancelBilling {
             billing_session_id,
         } => {
-            end_billing_session(state, &billing_session_id, BillingSessionStatus::Cancelled).await;
+            if !end_billing_session(state, &billing_session_id, BillingSessionStatus::Cancelled).await {
+                tracing::warn!("CancelBilling failed for session {}", billing_session_id);
+                let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                    command: "cancel_billing".to_string(),
+                    pod_id: String::new(),
+                    error: format!("Failed to cancel session {} — session may already be finalized", billing_session_id),
+                });
+            }
         }
         DashboardCommand::ExtendBilling {
             billing_session_id,
@@ -271,8 +294,8 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         max_pause_duration_secs: 600,
         elapsed_seconds: 0,
         pause_seconds: 0,
-        // Per-minute: 3hr hard cap. Package: allocated time.
-        max_session_seconds: if is_per_minute { 10800 } else { data.allocated_seconds },
+        // Per-minute: 24hr safety cap (was 3hr, raised for iRacing endurance). Package: allocated time.
+        max_session_seconds: if is_per_minute { 86400 } else { data.allocated_seconds },
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,

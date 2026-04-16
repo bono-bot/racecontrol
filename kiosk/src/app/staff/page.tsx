@@ -72,6 +72,7 @@ export default function StaffTerminal() {
     clearPendingSplitContinuation,
     acServerInfo,
     multiplayerGroup,
+    commandErrors,
   } = useKioskSocket();
 
   // ─── Panel State ──────────────────────────────────────────────────────
@@ -115,6 +116,14 @@ export default function StaffTerminal() {
     const interval = setInterval(fetchRecentSessions, 30000);
     return () => clearInterval(interval);
   }, [fetchRecentSessions, staffName]);
+
+  // Surface server-side command errors as toasts
+  useEffect(() => {
+    if (commandErrors.length === 0) return;
+    for (const err of commandErrors) {
+      toastError(`${err.command} failed: ${err.error}`);
+    }
+  }, [commandErrors, toastError]);
 
   // Fetch pod inventory when a pod is selected; refresh every 30s (INV-03, SC-3)
   useEffect(() => {
@@ -250,6 +259,7 @@ export default function StaffTerminal() {
   };
 
   const handleEndSession = (billingSessionId: string) => {
+    if (!window.confirm("End this session? The customer will be charged for time used.")) return;
     sendCommand("end_billing", { billing_session_id: billingSessionId });
     closePanel();
   };
@@ -296,6 +306,7 @@ export default function StaffTerminal() {
   };
 
   const handleRestartPod = async (podId: string) => {
+    if (!window.confirm(`Restart ${podId}? Active sessions will be interrupted.`)) return;
     try {
       await api.restartPod(podId);
     } catch (err) {
