@@ -306,69 +306,96 @@
         assert_eq!(refund_3, 0);
     }
 
-    // ── compute_session_cost with non-retroactive 3-tier pricing ──────
+    // ── compute_session_cost with snap-to-package pricing ──────
 
-    fn test_tiers() -> Vec<BillingRateTier> {
-        default_billing_rate_tiers()
-    }
+    fn test_tiers() -> Vec<BillingRateTier> { default_billing_rate_tiers() }
 
     #[test]
     fn cost_zero_seconds() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(0, &tiers);
+        let cost = compute_session_cost(0, &test_tiers());
         assert_eq!(cost.total_paise, 0);
         assert_eq!(cost.rate_per_min_paise, 2500);
         assert_eq!(cost.tier_name, "Standard");
         assert_eq!(cost.minutes_to_next_tier, Some(30));
     }
-
     #[test]
-    fn cost_15_minutes_standard_tier() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(900, &tiers); // 15 min
-        assert_eq!(cost.total_paise, 37500); // 15 * 2500
-        assert_eq!(cost.rate_per_min_paise, 2500);
-        assert_eq!(cost.tier_name, "Standard");
-        assert_eq!(cost.minutes_to_next_tier, Some(15));
-    }
-
-    #[test]
-    fn cost_29_59_standard_tier() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(1799, &tiers); // 29:59
-        assert_eq!(cost.tier_name, "Standard");
-        assert_eq!(cost.rate_per_min_paise, 2500);
-        assert_eq!(cost.minutes_to_next_tier, Some(1));
-    }
-
-    #[test]
-    fn cost_30_minutes_non_retroactive() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(1800, &tiers); // exactly 30 min
-        assert_eq!(cost.total_paise, 75000); // 30 * 2500 (non-retroactive: all in Standard tier)
+    fn cost_15_minutes() {
+        let cost = compute_session_cost(900, &test_tiers());
+        assert_eq!(cost.total_paise, 37500);
         assert_eq!(cost.rate_per_min_paise, 2500);
         assert_eq!(cost.tier_name, "Standard");
     }
-
     #[test]
-    fn cost_45_minutes_two_tiers() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(2700, &tiers); // 45 min
-        // Non-retroactive: (30 * 2500) + (15 * 2000) = 75000 + 30000 = 105000
-        assert_eq!(cost.total_paise, 105000);
-        assert_eq!(cost.rate_per_min_paise, 2000);
+    fn cost_29_minutes() {
+        let cost = compute_session_cost(29 * 60, &test_tiers());
+        assert_eq!(cost.total_paise, 72500);
+        assert_eq!(cost.tier_name, "Standard");
+    }
+    #[test]
+    fn cost_30_minutes_snap() {
+        let cost = compute_session_cost(1800, &test_tiers());
+        assert_eq!(cost.total_paise, 70000); // snap to pkg_30
+        assert_eq!(cost.rate_per_min_paise, 2333);
         assert_eq!(cost.tier_name, "Extended");
     }
-
     #[test]
-    fn cost_3_hours_all_three_tiers() {
-        let tiers = test_tiers();
-        let cost = compute_session_cost(10800, &tiers); // 180 min
-        // Non-retroactive: (30 * 2500) + (30 * 2000) + (120 * 1500) = 75000 + 60000 + 180000 = 315000
-        assert_eq!(cost.total_paise, 315000);
+    fn cost_35_minutes_overflow() {
+        let cost = compute_session_cost(35 * 60, &test_tiers());
+        assert_eq!(cost.total_paise, 81665); // 70000 + 5*2333
+    }
+    #[test]
+    fn cost_59_minutes_capped() {
+        let cost = compute_session_cost(59 * 60, &test_tiers());
+        assert_eq!(cost.total_paise, 90000); // capped at pkg_60
+    }
+    #[test]
+    fn cost_60_minutes_snap() {
+        let cost = compute_session_cost(3600, &test_tiers());
+        assert_eq!(cost.total_paise, 90000);
+        assert_eq!(cost.rate_per_min_paise, 1500);
+        assert_eq!(cost.tier_name, "Marathon");
+    }
+    #[test]
+    fn cost_75_minutes() {
+        let cost = compute_session_cost(75 * 60, &test_tiers());
+        assert_eq!(cost.total_paise, 112500); // 90000 + 15*1500
+    }
+    #[test]
+    fn cost_3_hours() {
+        let cost = compute_session_cost(10800, &test_tiers());
+        assert_eq!(cost.total_paise, 270000); // 90000 + 120*1500
         assert_eq!(cost.rate_per_min_paise, 1500);
         assert_eq!(cost.tier_name, "Marathon");
         assert_eq!(cost.minutes_to_next_tier, None);
+    }
+    #[test]
+    fn snap_cost_boundary_cases() {
+        use crate::billing_pricing::snap_cost_for_minutes;
+        let (r, p30, p60) = (2500i64, 70000i64, 90000i64);
+        assert_eq!(snap_cost_for_minutes(0, r, p30, p60), 0);
+        assert_eq!(snap_cost_for_minutes(15, r, p30, p60), 37500);
+        assert_eq!(snap_cost_for_minutes(29, r, p30, p60), 72500);
+        assert_eq!(snap_cost_for_minutes(30, r, p30, p60), 70000);
+        assert_eq!(snap_cost_for_minutes(35, r, p30, p60), 81665);
+        assert_eq!(snap_cost_for_minutes(59, r, p30, p60), 90000);
+        assert_eq!(snap_cost_for_minutes(60, r, p30, p60), 90000);
+        assert_eq!(snap_cost_for_minutes(75, r, p30, p60), 112500);
+    }
+    #[test]
+    fn snap_debit_credit_back_at_30() {
+        let timer = BillingTimer {
+            elapsed_seconds: 1800, total_debited_paise: 75000,
+            ..BillingTimer::default()
+        };
+        assert_eq!(timer.snap_debit_amount(), -5000);
+    }
+    #[test]
+    fn snap_debit_normal_at_15() {
+        let timer = BillingTimer {
+            elapsed_seconds: 900, total_debited_paise: 35000,
+            ..BillingTimer::default()
+        };
+        assert_eq!(timer.snap_debit_amount(), 2500);
     }
 
     #[test]
@@ -1835,13 +1862,12 @@
 
     #[test]
     fn test_tier_alignment_fatm05() {
-        // FATM-05: Rate-based cost for 30 min MUST match DB seed tier_30min price (75000 paise).
-        // DB seed: db/mod.rs INSERT INTO pricing_tiers ... ('tier_30min', '30 Minutes', 30, 75000, ...)
-        // Rate calc: 30 min * 2500 paise/min = 75000 paise
-        // If this test fails, either the rate or the seed diverged — fix both.
+        // FATM-05 (updated for snap pricing): 30min cost snaps DOWN to pkg_30 = 70000 paise = Rs.700.
+        // This is the customer-favorable snap: 30*2500=75000 > pkg_30=70000, so customer pays 70000.
+        // DB seed: pricing_tiers ... ('tier_30min', '30 Minutes', 30, 70000, ...)
         let tiers = default_billing_rate_tiers();
         let cost = compute_session_cost(1800, &tiers);
-        assert_eq!(cost.total_paise, 75000, "FATM-05: 30min cost must match tier_30min price (2500 p/min * 30 min = 75000 p = Rs.750)");
+        assert_eq!(cost.total_paise, 70000, "FATM-05: 30min cost must snap to pkg_30 price (70000 p = Rs.700)");
     }
 
     // ── FSM-07: Split session lifecycle ──────────────────────────────────────

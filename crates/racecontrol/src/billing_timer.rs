@@ -45,7 +45,8 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut agent_ticks: Vec<(String, u32, u32, String, Option<u32>, Option<i64>, Option<i64>, Option<bool>, Option<u32>, Option<String>)> = Vec::new();
     let mut pause_timeout_end: Vec<(String, String, u32, String)> = Vec::new();
     // Act 2: Per-minute debits collected inside lock, processed after lock release
-    let mut per_minute_debits: Vec<(String, String, String, u32)> = Vec::new(); // (session_id, pod_id, wallet_owner_id, rate_paise)
+    let mut per_minute_debits: Vec<(String, String, String, u32)> = Vec::new(); // (session_id, pod_id, wallet_owner_id, debit_paise)
+    let mut credit_backs: Vec<(String, String, String, u32)> = Vec::new(); // snap pricing credit-backs
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
     let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
     // GLD-C-04: Grace window DB writes (session_id, grace_until RFC3339)
@@ -208,15 +209,21 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         let expired = timer.tick();
         let remaining = timer.remaining_seconds();
 
-        // Act 2: Per-minute debit check — collect for async processing after lock release
+        // Act 2: Per-minute debit — snap-to-package pricing with credit-back at boundaries
         if timer.needs_per_minute_debit() {
-            per_minute_debits.push((
-                timer.session_id.clone(),
-                pod_id.clone(),
-                timer.wallet_owner_id.clone(),
-                timer.rate_paise_per_minute,
-            ));
-            timer.record_debit(timer.rate_paise_per_minute);
+            let snap_amount = timer.snap_debit_amount();
+            if snap_amount > 0 {
+                per_minute_debits.push((
+                    timer.session_id.clone(), pod_id.clone(),
+                    timer.wallet_owner_id.clone(), snap_amount as u32,
+                ));
+            } else if snap_amount < 0 {
+                credit_backs.push((
+                    timer.session_id.clone(), pod_id.clone(),
+                    timer.wallet_owner_id.clone(), (-snap_amount) as u32,
+                ));
+            }
+            timer.record_snap_debit(snap_amount);
         }
 
         // Check 5-minute warning
@@ -386,6 +393,18 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     // TODO: Send WS event to kiosk for audible alert
                 }
             }
+        }
+    }
+
+    // Snap pricing: credit-backs at tier boundaries
+    for (session_id, pod_id, wallet_owner_id, refund_paise) in &credit_backs {
+        match crate::wallet::refund(state, wallet_owner_id, *refund_paise as i64, Some(session_id), Some("Snap pricing boundary credit-back")).await {
+            Ok(_) => {
+                let _ = sqlx::query("UPDATE billing_sessions SET total_debited_paise = total_debited_paise - ? WHERE id = ?")
+                    .bind(*refund_paise as i64).bind(session_id).execute(&state.db).await;
+                tracing::info!("Snap credit-back: {}p for session {} (pod {})", refund_paise, session_id, pod_id);
+            }
+            Err(e) => tracing::error!("Snap credit-back FAILED: session {} pod {} — {}", session_id, pod_id, e),
         }
     }
 

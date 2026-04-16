@@ -22,11 +22,11 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
     .await?;
 
 
-    // Seed default pricing tiers
+    // Seed default pricing tiers (snap pricing: per-minute auto-snaps to these at boundaries)
     sqlx::query(
         "INSERT OR IGNORE INTO pricing_tiers (id, name, duration_minutes, price_paise, is_trial, sort_order)
          VALUES
-            ('tier_30min', '30 Minutes', 30, 75000, 0, 1),
+            ('tier_30min', '30 Minutes', 30, 70000, 0, 1),
             ('tier_60min', '1 Hour', 60, 90000, 0, 2),
             ('tier_trial', 'Free Trial', 5, 0, 1, 0)",
     )

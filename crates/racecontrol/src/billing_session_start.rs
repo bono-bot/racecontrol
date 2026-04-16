@@ -268,7 +268,7 @@ pub async fn start_billing_session(
     .flatten();
 
     let (billing_mode, rate_per_min, hold, low_warn) = billing_mode_info
-        .unwrap_or(("package".to_string(), None, None, None));
+        .unwrap_or(("per_minute".to_string(), Some(2500), Some(10000), Some(5000)));
 
     let is_per_minute = billing_mode == "per_minute";
     // Resolve wallet owner for per-minute periodic debits

@@ -147,9 +147,9 @@ impl Default for BillingTimer {
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
-            billing_mode: "package".to_string(),
-            rate_paise_per_minute: 0,
-            hold_paise: 0,
+            billing_mode: "per_minute".to_string(),
+            rate_paise_per_minute: 2500,
+            hold_paise: 10000,
             total_debited_paise: 0,
             seconds_since_last_debit: 0,
             wallet_owner_id: String::new(),
@@ -206,10 +206,28 @@ impl BillingTimer {
         self.billing_mode == "per_minute" && self.seconds_since_last_debit >= 60
     }
 
+    /// Compute debit (or credit-back) for the next per-minute tick using snap pricing.
+    pub fn snap_debit_amount(&self) -> i32 {
+        let billable_seconds = self.elapsed_seconds.saturating_sub(self.recovery_pause_seconds);
+        let new_minutes = billable_seconds / 60;
+        let target_total = crate::billing_pricing::snap_cost_for_minutes(new_minutes, 2500, 70000, 90000);
+        (target_total - self.total_debited_paise as i64) as i32
+    }
+
     /// Record that a per-minute debit was performed.
     pub fn record_debit(&mut self, amount_paise: u32) {
         self.seconds_since_last_debit = 0;
         self.total_debited_paise += amount_paise;
+    }
+
+    /// Record a snap debit (may be negative = credit-back at boundaries).
+    pub fn record_snap_debit(&mut self, amount: i32) {
+        self.seconds_since_last_debit = 0;
+        if amount >= 0 {
+            self.total_debited_paise += amount as u32;
+        } else {
+            self.total_debited_paise = self.total_debited_paise.saturating_sub((-amount) as u32);
+        }
     }
 
     /// Tick the timer by 1 second. Returns true if session should auto-end.
@@ -225,17 +243,8 @@ impl BillingTimer {
             BillingSessionStatus::Active => {
                 self.elapsed_seconds += 1;
                 self.driving_seconds += 1;
-                // Per-minute mode: track seconds toward next debit
-                if self.billing_mode == "per_minute" {
-                    self.seconds_since_last_debit += 1;
-                }
-                // Package mode: auto-end when allocated time reached
-                // Per-minute mode: auto-end handled by wallet-empty check in caller
-                if self.billing_mode == "package" {
-                    self.elapsed_seconds >= self.allocated_seconds
-                } else {
-                    self.elapsed_seconds >= self.max_session_seconds // hard 3-hour cap
-                }
+                self.seconds_since_last_debit += 1;
+                self.elapsed_seconds >= self.max_session_seconds
             }
             BillingSessionStatus::PausedGamePause => {
                 self.pause_seconds += 1;

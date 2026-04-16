@@ -87,10 +87,10 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             recovery_pause_seconds: 0,
             pause_reason: PauseReason::None,
             nonce: String::new(),
-            // Act 2: Per-minute fields — defaults for recovery (will be enhanced with DB lookup)
-            billing_mode: "package".to_string(),
-            rate_paise_per_minute: 0,
-            hold_paise: 0,
+            // Per-minute fields — defaults for recovery
+            billing_mode: "per_minute".to_string(),
+            rate_paise_per_minute: 2500,
+            hold_paise: 10000,
             total_debited_paise: 0,
             seconds_since_last_debit: 0,
             wallet_owner_id: row.1.clone(), // default to driver_id

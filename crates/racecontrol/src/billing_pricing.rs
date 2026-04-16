@@ -2,6 +2,11 @@
 //!
 //! Extracted from billing.rs (Phase 385, v49.0 Architecture Completion).
 //! All pricing computation lives here. Pure functions where possible.
+//!
+//! SNAP PRICING (2026-04-16, Uday decision):
+//! Per-minute billing auto-snaps to package prices at tier boundaries.
+//! 0-29 min: ₹25/min flat. At 30 min: snap to ₹700. 31-59: overflow at ₹23.33/min.
+//! At 60 min: snap to ₹900. 61+: overflow at ₹15/min. Customer always gets best deal.
 
 use std::sync::Arc;
 
@@ -170,132 +175,88 @@ pub struct SessionCost {
     pub minutes_to_next_tier: Option<u32>,
 }
 
-/// Compute session cost from elapsed seconds using non-retroactive tiered pricing.
-///
-/// MMA-P1: Uses integer arithmetic (seconds * paise_per_min / 60) to avoid f64 rounding errors.
-/// Each tier applies only to the seconds within its range (additive, not retroactive).
-/// Default tiers: 25 cr/min (0-30 min), 20 cr/min (31-60 min), 15 cr/min (60+ min).
-///
-/// Example: 45 min = (1800s × 2500/60) + (900s × 2000/60) = 75000 + 30000 = 105000 paise.
-pub fn compute_session_cost(elapsed_seconds: u32, tiers: &[BillingRateTier]) -> SessionCost {
+/// Compute session cost using snap-to-package tiered pricing.
+pub fn compute_session_cost(elapsed_seconds: u32, _tiers: &[BillingRateTier]) -> SessionCost {
+    let per_min_rate: i64 = 2500;
+    let pkg_30: i64 = 70000;
+    let pkg_60: i64 = 90000;
+
     let elapsed_secs = elapsed_seconds as i64;
-    let elapsed_minutes_whole = elapsed_seconds / 60;
+    let whole_minutes = elapsed_secs / 60;
+    let partial_seconds = elapsed_secs % 60;
 
-    let mut total_paise: i64 = 0;
-    let mut prev_threshold_secs: i64 = 0;
-    let mut current_tier_name = String::new();
-    let mut current_rate: i64 = 0;
-    let mut minutes_to_next: Option<u32> = None;
+    let base_cost = snap_cost_for_minutes(whole_minutes as u32, per_min_rate, pkg_30, pkg_60);
+    let partial_cost = if partial_seconds > 0 {
+        let current_rate = overflow_rate_at_minute(whole_minutes as u32, per_min_rate, pkg_30, pkg_60);
+        (partial_seconds * current_rate) / 60
+    } else {
+        0
+    };
 
-    for (i, tier) in tiers.iter().enumerate() {
-        let tier_ceiling_secs: i64 = if tier.threshold_minutes == 0 {
-            i64::MAX / 2 // "unlimited" tier — avoid overflow
-        } else {
-            tier.threshold_minutes as i64 * 60
-        };
-
-        if elapsed_secs < prev_threshold_secs {
-            break;
-        }
-
-        let seconds_in_tier = if elapsed_secs <= tier_ceiling_secs {
-            elapsed_secs - prev_threshold_secs
-        } else {
-            tier_ceiling_secs - prev_threshold_secs
-        };
-
-        // MMA-P1+P2: Integer arithmetic with round-to-nearest.
-        // (seconds * rate + 30) / 60 rounds to nearest paise (banker's rounding).
-        // Maximum intermediate value: 10800s * 10000 paise/min + 30 = 108,000,030 — fits in i64.
-        total_paise += (seconds_in_tier * tier.rate_per_min_paise + 30) / 60;
-        current_tier_name = tier.tier_name.clone();
-        current_rate = tier.rate_per_min_paise;
-
-        // Minutes to next tier: only if currently in this tier and there IS a next tier
-        if elapsed_secs <= tier_ceiling_secs && tier.threshold_minutes > 0 && i + 1 < tiers.len() {
-            minutes_to_next = Some(tier.threshold_minutes.saturating_sub(elapsed_minutes_whole));
-        }
-
-        prev_threshold_secs = tier_ceiling_secs;
-        if elapsed_secs <= tier_ceiling_secs {
-            break;
-        }
-    }
+    let total_paise = base_cost + partial_cost;
+    let current_rate = overflow_rate_at_minute(whole_minutes as u32, per_min_rate, pkg_30, pkg_60);
+    let (tier_name, minutes_to_next) = if whole_minutes >= 60 {
+        ("Marathon".to_string(), None)
+    } else if whole_minutes >= 30 {
+        ("Extended".to_string(), Some(60u32.saturating_sub(whole_minutes as u32)))
+    } else {
+        ("Standard".to_string(), Some(30u32.saturating_sub(whole_minutes as u32)))
+    };
 
     SessionCost {
         total_paise,
         rate_per_min_paise: current_rate,
-        tier_name: current_tier_name,
+        tier_name,
         minutes_to_next_tier: minutes_to_next,
     }
 }
 
-/// Compute proportional refund for an early-ended or timed-out session (FATM-06).
-///
-/// Uses integer arithmetic only (no f64) to prevent rounding drift.
-/// Package customers who end early pay the best rate for their actual usage:
-/// - 0-29 min: per-minute rate (e.g. 2500p/min)
-/// - 30-59 min: 30-min package price + per-minute for extra minutes
-/// - 60+ min: 60-min package price (always the best deal)
-pub fn best_rate_for_minutes(
-    minutes_used: u32,
-    per_min_rate_paise: i64,
-    pkg_30_price_paise: i64,
-    pkg_60_price_paise: i64,
-) -> i64 {
-    if minutes_used == 0 {
-        return 0;
+/// Snap-to-package cost for N whole minutes. Customer always gets best deal.
+pub fn snap_cost_for_minutes(minutes: u32, per_min_rate: i64, pkg_30_price: i64, pkg_60_price: i64) -> i64 {
+    if minutes == 0 { return 0; }
+    if minutes >= 60 {
+        let extra = (minutes - 60) as i64;
+        return pkg_60_price + extra * (pkg_60_price / 60);
     }
-    if minutes_used >= 60 {
-        return pkg_60_price_paise;
+    if minutes >= 30 {
+        let extra = (minutes - 30) as i64;
+        let cost = pkg_30_price + extra * (pkg_30_price / 30);
+        return cost.min(pkg_60_price);
     }
-    if minutes_used >= 30 {
-        let extra_minutes = (minutes_used - 30) as i64;
-        let tiered_cost = pkg_30_price_paise + extra_minutes * per_min_rate_paise;
-        return tiered_cost.min(pkg_60_price_paise);
-    }
-    (minutes_used as i64) * per_min_rate_paise
+    (minutes as i64) * per_min_rate
+}
+
+/// Per-minute overflow rate at a given elapsed minute.
+pub fn overflow_rate_at_minute(elapsed_minutes: u32, per_min_rate: i64, pkg_30_price: i64, pkg_60_price: i64) -> i64 {
+    if elapsed_minutes >= 60 { pkg_60_price / 60 }
+    else if elapsed_minutes >= 30 { pkg_30_price / 30 }
+    else { per_min_rate }
+}
+
+/// Backward-compat wrapper — delegates to snap_cost_for_minutes.
+pub fn best_rate_for_minutes(minutes_used: u32, per_min_rate_paise: i64, pkg_30_price_paise: i64, pkg_60_price_paise: i64) -> i64 {
+    snap_cost_for_minutes(minutes_used, per_min_rate_paise, pkg_30_price_paise, pkg_60_price_paise)
 }
 
 /// Compute refund for a package session that ended early.
-pub fn compute_refund(
-    allocated_seconds: i64,
-    driving_seconds: i64,
-    wallet_debit_paise: i64,
-) -> i64 {
-    compute_refund_with_rates(allocated_seconds, driving_seconds, wallet_debit_paise, 2500, 75000, 90000)
+pub fn compute_refund(allocated_seconds: i64, driving_seconds: i64, wallet_debit_paise: i64) -> i64 {
+    compute_refund_with_rates(allocated_seconds, driving_seconds, wallet_debit_paise, 2500, 70000, 90000)
 }
 
-/// Compute refund with explicit rates from DB (no hardcoded fallback).
-pub fn compute_refund_with_rates(
-    allocated_seconds: i64,
-    driving_seconds: i64,
-    wallet_debit_paise: i64,
-    per_min_rate_paise: i64,
-    pkg_30_price_paise: i64,
-    pkg_60_price_paise: i64,
-) -> i64 {
-    if allocated_seconds <= 0 || wallet_debit_paise <= 0 || driving_seconds >= allocated_seconds {
-        return 0;
-    }
-    let minutes_used = ((driving_seconds + 59) / 60) as u32; // round up to complete minutes
-    let actual_cost = best_rate_for_minutes(minutes_used, per_min_rate_paise, pkg_30_price_paise, pkg_60_price_paise);
+/// Compute refund with explicit rates.
+pub fn compute_refund_with_rates(allocated_seconds: i64, driving_seconds: i64, wallet_debit_paise: i64, per_min_rate_paise: i64, pkg_30_price_paise: i64, pkg_60_price_paise: i64) -> i64 {
+    if allocated_seconds <= 0 || wallet_debit_paise <= 0 || driving_seconds >= allocated_seconds { return 0; }
+    let minutes_used = ((driving_seconds + 59) / 60) as u32;
+    let actual_cost = snap_cost_for_minutes(minutes_used, per_min_rate_paise, pkg_30_price_paise, pkg_60_price_paise);
     let refund = wallet_debit_paise - actual_cost;
     if refund > 0 { refund } else { 0 }
 }
 
-/// Compute refund for a per-minute session that ended early.
-pub fn compute_per_minute_refund(
-    wallet_debit_paise: i64,
-    _total_debited_paise: i64,
-    rate_paise_per_minute: i64,
-    driving_seconds: i64,
-) -> i64 {
-    if wallet_debit_paise <= 0 {
-        return 0;
-    }
-    let minutes_used = (driving_seconds / 60) as i64; // truncate (customer-favorable)
-    let actual_charge = minutes_used * rate_paise_per_minute;
+/// Compute refund for a per-minute session that ended early. Uses snap pricing.
+pub fn compute_per_minute_refund(wallet_debit_paise: i64, _total_debited_paise: i64, _rate_paise_per_minute: i64, driving_seconds: i64) -> i64 {
+    if wallet_debit_paise <= 0 { return 0; }
+    let minutes_used = (driving_seconds / 60) as u32;
+    let actual_charge = snap_cost_for_minutes(minutes_used, 2500, 70000, 90000);
     let refund = wallet_debit_paise - actual_charge;
     if refund > 0 { refund } else { 0 }
 }

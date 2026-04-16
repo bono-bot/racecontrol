@@ -140,6 +140,35 @@ export default function PricingPage() {
         <span className="text-xs text-rp-grey">{tiers.length} tiers</span>
       </div>
 
+      {/* Snap Pricing Explanation */}
+      <div className="bg-rp-card/50 border border-rp-border rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-semibold text-neutral-200 mb-2">Snap Pricing Model</h3>
+        <p className="text-xs text-neutral-400 leading-relaxed">
+          All sessions are per-minute. The meter auto-snaps to the best deal at package boundaries:
+        </p>
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="bg-rp-card border border-rp-border rounded px-3 py-2">
+            <div className="text-neutral-500">0-29 min</div>
+            <div className="text-neutral-200 font-mono font-bold">25 cr/min</div>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded px-3 py-2">
+            <div className="text-neutral-500">At 30 min</div>
+            <div className="text-emerald-400 font-mono font-bold">Snap to 700 cr</div>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded px-3 py-2">
+            <div className="text-neutral-500">31-59 min</div>
+            <div className="text-neutral-200 font-mono font-bold">23.33 cr/min</div>
+          </div>
+          <div className="bg-rp-card border border-rp-border rounded px-3 py-2">
+            <div className="text-neutral-500">At 60 min</div>
+            <div className="text-emerald-400 font-mono font-bold">Snap to 900 cr</div>
+          </div>
+        </div>
+        <p className="text-xs text-neutral-500 mt-2">
+          Customer always gets the best deal. Overflow rates are derived from package prices. Round up to whole rupees on final bill only.
+        </p>
+      </div>
+
       {/* Add New Tier Form */}
       <div className="bg-rp-card border border-rp-border rounded-lg p-4 mb-6">
         <h3 className="text-sm font-medium text-neutral-300 mb-3">
@@ -387,7 +416,7 @@ export default function PricingPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-xl font-bold text-white">Per-Minute Rates</h2>
-            <p className="text-sm text-rp-grey">Non-retroactive tiered pricing (credits/min)</p>
+            <p className="text-sm text-rp-grey">Legacy rate tiers (overflow rates are now derived from package prices above)</p>
           </div>
           <span className="text-xs text-rp-grey">{rates.filter(r => r.is_active).length} active tiers</span>
         </div>
