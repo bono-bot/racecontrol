@@ -51,16 +51,22 @@ use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent};
 
-pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
-    // Check Evolution API (WhatsApp) reachability — non-blocking, 2s timeout
-    let whatsapp_status = check_evolution_health(&state).await;
-
+pub(crate) async fn health(State(_state): State<Arc<AppState>>) -> Json<Value> {
     // Phase 352: Per-subsystem probes (cached, zero latency — reads from background task)
     let subsystems = crate::subsystem_health::get_current_status();
 
     // Derive overall status from subsystem probes (closes "probes that lie" standing rule)
     let all_ok = subsystems.is_empty() || subsystems.values().all(|s| s.ok);
     let overall_status = if all_ok { "ok" } else { "degraded" };
+
+    // WhatsApp status from cached subsystem probe — no inline HTTP call.
+    // Previously check_evolution_health() did a LIVE 5s-timeout HTTP call on every
+    // /health request, adding 500ms+ latency baseline and causing status page red
+    // flashes when Evolution API spiked past 5s (racing the status page's AbortSignal).
+    // The background probe in subsystem_health already checks Evolution every 30s.
+    let whatsapp_status = subsystems.get("whatsapp_api")
+        .map(|s| if s.ok { "ok" } else { "unreachable" })
+        .unwrap_or("not_configured");
 
     Json(json!({
         "status": overall_status,
@@ -112,26 +118,8 @@ pub(crate) async fn get_backup_status(
     Json(status)
 }
 
-/// Probe Evolution API health. Returns "ok", "unreachable", or "not_configured".
-pub(crate) async fn check_evolution_health(state: &Arc<AppState>) -> &'static str {
-    let evo_url = match &state.config.auth.evolution_url {
-        Some(u) => u.clone(),
-        None => return "not_configured",
-    };
-
-    // Probe the base URL — Evolution API returns 200 on GET /
-    // 5s timeout: external hostname DNS resolution can exceed 2s from venue server
-    match state.http_client
-        .get(&evo_url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 401 => "ok",
-        Ok(_) => "ok", // Any HTTP response means Evolution is reachable
-        Err(_) => "unreachable",
-    }
-}
+// check_evolution_health() removed — was doing a LIVE 5s HTTP call on every /health
+// request, adding 500ms+ latency. Replaced by cached subsystem probe (whatsapp_api).
 
 /// GET /api/v1/debug/db-stats — AI debugger database statistics (public, no auth).
 /// Returns counts for ai_suggestions, ai_training_pairs, and recent entries.
