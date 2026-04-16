@@ -52,6 +52,9 @@ Server .23 | Pods 1-8 | POS .20 | James .27 | Bono VPS | Cloud apps | Comms-link
 
 **Why it works:** Forces enumeration before assertion. The grep IS the verification — not a formatted table you fill in after the fact.
 
+**Multi-fix sessions (v4.5, 2026-04-16):** When multiple fixes are applied in a single session, EACH fix requires its own G1 proof block with per-fix evidence BEFORE any completion summary. Do NOT batch fixes into a summary table without individual verification. A summary that says "Fix A: RESOLVED, Fix B: VERIFIED" is a claim — not evidence. Each fix is independently verifiable and must be independently verified.
+_Why: 2026-04-16 — 5 fixes applied in overnight autonomous session. Completion report presented as a table with "RESOLVED/VERIFIED" labels. Only 1 of 5 had actual G1 evidence (terminal_secret had before/after logs). The other 4 had no raw output proving the fix worked. The summary format encouraged labeling over verification._
+
 ### H5: User Corrections Are Mandatory Retrospectives
 **What:** Every user correction ("good catch," "you missed," "that's wrong") triggers:
 1. **Why** the error happened (root cause, not excuse)
