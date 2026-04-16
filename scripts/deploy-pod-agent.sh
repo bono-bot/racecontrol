@@ -27,14 +27,20 @@ set -euo pipefail
 POD_NUM="${1:?Usage: deploy-pod-agent.sh <pod_number> <hash>}"
 HASH="${2:?Usage: deploy-pod-agent.sh <pod_number> <hash>}"
 
-POD_HOST="pod${POD_NUM}"
 INSTALL_DIR='C:\RacingPoint'
 STAGING_DIR="C:/Users/bono/racingpoint/deploy-staging"
 LOCAL_BINARY="${STAGING_DIR}/rc-agent-${HASH}.exe"
 
 # Pod IP lookup for health check
-declare -A POD_IPS=([1]=192.168.31.89 [2]=192.168.31.33 [3]=192.168.31.28 [4]=192.168.31.88 [5]=192.168.31.86 [6]=192.168.31.87 [7]=192.168.31.38 [8]=192.168.31.91)
+declare -A POD_IPS=([1]=192.168.31.89 [2]=192.168.31.33 [3]=192.168.31.28 [4]=192.168.31.88 [5]=192.168.31.86 [6]=192.168.31.87 [7]=192.168.31.38 [8]=192.168.31.91 [9]=192.168.31.130)
 POD_IP="${POD_IPS[$POD_NUM]}"
+
+# POS (pod 9) uses Tailscale SSH with user POS; all other pods use LAN with user User
+if [ "$POD_NUM" = "9" ]; then
+    POD_HOST="pos1"  # Tailscale alias — LAN SSH is firewalled
+else
+    POD_HOST="pod${POD_NUM}"
+fi
 
 echo "=== Deploying rc-agent ${HASH} to Pod ${POD_NUM} (${POD_IP}) ==="
 
@@ -77,18 +83,26 @@ SENTINEL_JSON="{\"kind\":\"OtaDeploying\",\"layer\":\"Layer3Guardian\",\"started
 ssh -o ConnectTimeout=5 "${POD_HOST}" "echo ${SENTINEL_JSON} > ${INSTALL_DIR}\\OTA_DEPLOYING" 2>/dev/null
 echo "OK"
 
-# Step 4: Kill rc-agent (watchdog will see sentinel and NOT restart)
+# Step 4: Kill rc-agent and VERIFY dead (watchdog will see sentinel and NOT restart)
 echo -n "Step 4: Kill rc-agent... "
 ssh -o ConnectTimeout=5 "${POD_HOST}" "taskkill /F /IM rc-agent.exe >nul 2>nul" 2>/dev/null || true
-sleep 3
-# Verify it's dead and watchdog hasn't restarted
-STILL_RUNNING=$(ssh -o ConnectTimeout=5 "${POD_HOST}" "tasklist /FI \"IMAGENAME eq rc-agent.exe\" /NH 2>nul | findstr rc-agent >nul && echo YES || echo NO" 2>/dev/null)
-if [ "$STILL_RUNNING" = "YES" ]; then
-    echo "WARNING — agent still running (watchdog may have ignored sentinel). Killing again."
+
+# Poll until process is dead AND port 8090 is free (max 15s)
+for attempt in 1 2 3 4 5; do
+    sleep 3
+    STILL_RUNNING=$(ssh -o ConnectTimeout=5 "${POD_HOST}" "tasklist /FI \"IMAGENAME eq rc-agent.exe\" /NH 2>nul | findstr rc-agent >nul && echo YES || echo NO" 2>/dev/null)
+    if [ "$STILL_RUNNING" = "NO" ]; then
+        break
+    fi
+    echo -n "(retry kill)... "
     ssh -o ConnectTimeout=5 "${POD_HOST}" "taskkill /F /IM rc-agent.exe >nul 2>nul" 2>/dev/null || true
-    sleep 2
+done
+if [ "$STILL_RUNNING" = "YES" ]; then
+    echo "FAILED — agent won't die after 5 attempts. Aborting."
+    ssh -o ConnectTimeout=5 "${POD_HOST}" "del ${INSTALL_DIR}\\OTA_DEPLOYING 2>nul" 2>/dev/null
+    exit 1
 fi
-echo "OK"
+echo "OK (confirmed dead)"
 
 # Step 5: Swap binary
 echo -n "Step 5: Swap binary... "
@@ -117,6 +131,24 @@ for i in 1 2 3 4 5 6; do
         exit 0
     fi
 done
+
+# build_id mismatch but binary might be correct — stale process issue
+# Kill the stale process and let watchdog restart with the new binary
+if [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != "$HASH" ]; then
+    echo ""
+    echo -n "Step 7b: build_id mismatch (got ${BUILD_ID}), killing stale process..."
+    ssh -o ConnectTimeout=5 "${POD_HOST}" "taskkill /F /IM rc-agent.exe >nul 2>nul" 2>/dev/null || true
+    for i in 1 2 3 4; do
+        sleep 5
+        echo -n "."
+        BUILD_ID=$(curl -s --connect-timeout 3 --max-time 5 "http://${POD_IP}:8090/health" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('build_id',''))" 2>/dev/null || echo "")
+        if [ "$BUILD_ID" = "$HASH" ]; then
+            echo " OK"
+            echo "=== Pod ${POD_NUM}: build_id=${BUILD_ID} — DEPLOY SUCCESS (after stale process kill) ==="
+            exit 0
+        fi
+    done
+fi
 
 echo " TIMEOUT"
 echo "=== Pod ${POD_NUM}: Expected ${HASH}, got ${BUILD_ID:-none} — VERIFY MANUALLY ==="
