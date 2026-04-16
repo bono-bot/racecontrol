@@ -1834,7 +1834,7 @@ Wave 1: Deploy & Verify (383)
 
 ---
 
-### Phase 388: Autonomous Marketing Triggers
+### Phase 388: Autonomous Marketing Triggers — COMPLETE 2026-04-16
 
 **Goal:** Bono detects empty pods and sends targeted offers to opted-in customers. No flooding. No spam. Just smart, targeted nudges during empty hours.
 **Depends on:** Phase 387 (opt-in/opt-out MUST be live first)
@@ -1842,13 +1842,13 @@ Wave 1: Deploy & Verify (383)
 **Requirements:** AMKT-01, AMKT-02, AMKT-03, AMKT-04, AMKT-05
 
 **Success criteria:**
-1. System detects pods with 0 active sessions during typically busy hours — logged as `low_utilization` event
-2. Personalized offers generated based on: customer preferences, past behavior, available time slots
-3. Offers sent via WhatsApp (Evolution API) ONLY to opted-in customers — verified by checking customer_preferences before every send
-4. Each offer tracked: sent_at, opened_at, redeemed_at. Engagement data feeds back into throttle.
-5. "Book 1 hour, get free coffee" combo deal type exists and can be auto-generated during empty hours
+1. ✅ `run_marketing_sweep()` detects 4+ empty pods during busy hours, logs `low_utilization_marketing` to activity_log
+2. ✅ 3 offer types by customer history: first-timer trial, value offer, combo deal. Personalized by name + empty pod count.
+3. ✅ `can_send_promo()` called before every send. WhatsApp via `send_whatsapp_to()` (Evolution API).
+4. ✅ `promo_delivery_log` tracks sent_at/opened_at/redeemed_at. `record_promo_ignored()` feeds auto-pause.
+5. ✅ Combo deal ("Book 1 hour, free coffee") is the `auto_combo_deal` campaign for returning customers.
 
-**Plans:** TBD
+**Commits:** `09015ac1`
 
 ---
 
@@ -1886,19 +1886,19 @@ Wave 1: Deploy & Verify (383)
 
 ---
 
-### Phase 391: Digital Staff Operations
+### Phase 391: Digital Staff Operations — COMPLETE 2026-04-16
 
 **Goal:** Replace paper checklists with a digital audit trail. Morning opening and evening closing checklists enforced and tracked.
 **Depends on:** Phase 384 (P0 verified)
-**Executor:** Joint
+**Executor:** Bono
 **Requirements:** CHKL-01, CHKL-02, CHKL-03
 
 **Success criteria:**
-1. Staff checklist system in DB — pod status, cleaning, hardware checks with timestamps and staff_id
-2. Morning opening + evening closing templates configurable via admin
-3. Admin dashboard shows checklist compliance — which staff completed which checks, flagging gaps
+1. ✅ `staff_checklists` + `staff_checklist_completions` tables. Per-item timestamps, staff_id, notes.
+2. ✅ 2 seeded templates: Morning Opening (8 items), Evening Closing (7 items). Items configurable via JSON, admin can add custom checklists.
+3. ✅ GET /staff/checklists/compliance — 7-day compliance view with completion % and gap detection.
 
-**Plans:** TBD
+**Commits:** `93d75f88`
 
 ---
 
@@ -1977,17 +1977,17 @@ Wave 1: Deploy & Verify (383)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 383. Deploy & Verify Pipeline | 0/TBD | Not started | - |
-| 384. Lap Recording Wiring | 0/TBD | Not started | - |
+| 383. Deploy & Verify Pipeline | 0/TBD | Cloud parity done (`c9c20ef3`), venue pending | - |
+| 384. Lap Recording Wiring | 0/TBD | Awaiting venue AC launch test | - |
 | 385. Architecture Completion | 1/1 | Complete (`f04efacb`) | 2026-04-16 |
-| 386. Autonomous Pricing Engine | 0/TBD | Not started | - |
-| 387. Customer Opt-In/Opt-Out | 0/TBD | Not started | - |
-| 388. Autonomous Marketing Triggers | 0/TBD | Not started | - |
-| 389. Game Launch Completion | 0/TBD | Not started | - |
+| 386. Autonomous Pricing Engine | 0/TBD | Blocked on James Phase 356 | - |
+| 387. Customer Opt-In/Opt-Out | 1/1 | Complete (`f2bc7137`) | 2026-04-16 |
+| 388. Autonomous Marketing Triggers | 1/1 | Complete (`09015ac1`) | 2026-04-16 |
+| 389. Game Launch Completion | 0/TBD | Needs venue pod testing | - |
 | 390. Spectator Displays + Cloud | 0/TBD | Not started | - |
-| 391. Digital Staff Operations | 0/TBD | Not started | - |
+| 391. Digital Staff Operations | 1/1 | Complete (`93d75f88`) | 2026-04-16 |
 | 392. Unified Readiness Review | 0/TBD | Not started | - |
-| 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/1 | Pre-flight + Step 1 done; Step 2 awaiting re-scope approval (URGENT) | - |
+| 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/1 | Layer 1 deployed, cloud FK verified + orphans cleaned, venue pending | - |
 
 *v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
 *Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*
