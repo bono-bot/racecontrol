@@ -22,21 +22,21 @@ $apps = @(
         Port = 3300
         HealthUrl = "http://127.0.0.1:3300/kiosk/api/health"
         Dir = "C:\RacingPoint\kiosk"
-        Env = @{ PORT = "3300"; HOSTNAME = "0.0.0.0" }
+        Env = @{ PORT = "3300"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     },
     @{
         Name = "web"
         Port = 3200
         HealthUrl = "http://127.0.0.1:3200/api/health"
         Dir = "C:\RacingPoint\web"
-        Env = @{ PORT = "3200"; HOSTNAME = "0.0.0.0" }
+        Env = @{ PORT = "3200"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     },
     @{
         Name = "admin"
         Port = 3201
         HealthUrl = "http://127.0.0.1:3201/api/health"
         Dir = "C:\RacingPoint\admin"
-        Env = @{ PORT = "3201"; HOSTNAME = "0.0.0.0" }
+        Env = @{ PORT = "3201"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     }
 )
 

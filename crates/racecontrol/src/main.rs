@@ -362,6 +362,8 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::response::Html(include_str!("../../../assets/status.html"))
         }))
         // Redirects: common wrong URLs → correct destinations
+        .route("/status.html", get(|| async { axum::response::Redirect::permanent("/status") }))
+        .route("/health", get(|| async { axum::response::Redirect::permanent("/api/v1/health") }))
         .route("/admin", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
         .route("/admin/", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
         .route("/pos", get(|| async { axum::response::Redirect::temporary("/billing") }))
