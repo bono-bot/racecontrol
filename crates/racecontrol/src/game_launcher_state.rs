@@ -193,13 +193,15 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             games.get(pod_id).and_then(|t| t.ready_delay_ms)
         };
         if let Some(delay_ms) = ready_delay {
-            let _ = sqlx::query(
-                "UPDATE launch_events SET duration_to_playable_ms = ? WHERE pod_id = ? AND duration_to_playable_ms IS NULL ORDER BY created_at DESC LIMIT 1"
+            if let Err(e) = sqlx::query(
+                "UPDATE launch_events SET duration_to_playable_ms = ? WHERE id = (SELECT id FROM launch_events WHERE pod_id = ? AND duration_to_playable_ms IS NULL ORDER BY created_at DESC LIMIT 1)"
             )
             .bind(delay_ms)
             .bind(pod_id)
             .execute(&state.db)
-            .await;
+            .await {
+                tracing::warn!("Failed to update launch_events duration_to_playable_ms for pod {}: {}", pod_id, e);
+            }
         }
     }
 
