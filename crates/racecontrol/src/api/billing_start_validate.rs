@@ -353,17 +353,18 @@ pub(crate) fn validate_splits_and_duration(
         }
     }
 
-    // P0 zero-laps fix: per-minute tier (duration_minutes=0) requires a minimum
-    // booking duration so customers can complete at least one lap.
-    // Fastest known lap is ~105s (F2004 Spa); 3 min gives comfortable margin.
+    // P0 zero-laps fix: per-minute tier (duration_minutes=0) with an explicit
+    // custom duration must be at least 3 minutes so customers can complete a lap.
+    // None = open-ended per-minute billing (count-up mode, valid).
     const PER_MINUTE_MIN_DURATION: u32 = 3;
     if tier_duration_minutes == 0 {
-        let custom = input.custom_duration_minutes.unwrap_or(0);
-        if custom < PER_MINUTE_MIN_DURATION {
-            return Err(Json(json!({
-                "error": format!("Per-minute sessions require a minimum of {} minutes", PER_MINUTE_MIN_DURATION),
-                "minimum_minutes": PER_MINUTE_MIN_DURATION,
-            })));
+        if let Some(custom) = input.custom_duration_minutes {
+            if custom < PER_MINUTE_MIN_DURATION {
+                return Err(Json(json!({
+                    "error": format!("Per-minute sessions require a minimum of {} minutes", PER_MINUTE_MIN_DURATION),
+                    "minimum_minutes": PER_MINUTE_MIN_DURATION,
+                })));
+            }
         }
     }
     if let Some(dur) = input.split_duration_minutes {
@@ -473,11 +474,13 @@ mod tests {
     }
 
     #[test]
-    fn per_minute_tier_rejects_none_duration() {
-        // No custom_duration_minutes with per-minute tier → 0 allocated seconds (latent bug)
+    fn per_minute_tier_allows_none_duration() {
+        // None = open-ended per-minute billing (count-up mode, valid)
         let input = make_input(None);
         let result = validate_splits_and_duration(&input, 0);
-        assert!(result.is_err(), "per-minute with no duration must be rejected");
+        assert!(result.is_ok(), "per-minute with no duration = open-ended, must be accepted");
+        let (_, secs) = result.unwrap();
+        assert_eq!(secs, 0, "open-ended per-minute allocates 0 seconds (count-up mode)");
     }
 
     #[test]
