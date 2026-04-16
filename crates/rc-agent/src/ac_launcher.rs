@@ -553,6 +553,10 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             .and_then(|mut f| { use std::io::Write; writeln!(f, "FAIL: write_apps_preset: {}", e) });
         return Err(e);
     }
+    if let Err(e) = ensure_python_ini_racecontrol() {
+        tracing::warn!(target: LOG_TARGET, "Failed to ensure python.ini has [RACECONTROL]: {}", e);
+        // Non-fatal — game can still launch, just without telemetry plugin
+    }
 
     // RESIL-07: Reset FFB settings each session — no FFB leakage from previous sessions.
     // Only update the [FF] section, preserving controller/device mappings (steering, gas, brake).
@@ -2189,6 +2193,50 @@ VISIBLE=0
     let crlf_content = content.replace('\n', "\r\n");
     file.write_all(crlf_content.as_bytes())?;
     tracing::info!(target: LOG_TARGET, "Wrote apps preset to {}", apps_ini_path.display());
+    Ok(())
+}
+
+/// Ensure python.ini has [RACECONTROL] ACTIVE=1 so AC loads the telemetry plugin.
+///
+/// AC has TWO python.ini locations — the Documents/Assetto Corsa/cfg/ copy takes
+/// priority over the install dir copy. If the Documents copy exists without
+/// [RACECONTROL], the plugin never loads even if the install dir copy has it.
+/// This function checks both locations and adds the entry where needed.
+///
+/// Without this, zero laps reach the server — the RaceControl Python plugin is
+/// the ONLY path for telemetry data (see ARCHITECTURE.md line 314).
+fn ensure_python_ini_racecontrol() -> Result<()> {
+    let docs_cfg = dirs_next::document_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\User\Documents"))
+        .join("Assetto Corsa")
+        .join("cfg")
+        .join("python.ini");
+
+    let install_cfg = std::path::PathBuf::from(
+        r"C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\cfg\python.ini"
+    );
+
+    for path in &[&docs_cfg, &install_cfg] {
+        if path.exists() {
+            let content = std::fs::read_to_string(path)?;
+            if !content.contains("[RACECONTROL]") {
+                // Append [RACECONTROL] section to existing file
+                let section = "\r\n[RACECONTROL]\r\nACTIVE=1\r\n";
+                let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+                file.write_all(section.as_bytes())?;
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "Added [RACECONTROL] to python.ini at {}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    // If Documents python.ini doesn't exist at all, the install dir copy is used.
+    // We already ensured the install dir copy has [RACECONTROL] above.
+    // If neither exists, AC creates python.ini on first run — we'll catch it next launch.
+
     Ok(())
 }
 
