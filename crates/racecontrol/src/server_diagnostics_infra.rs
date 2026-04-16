@@ -59,7 +59,11 @@ pub(super) async fn check_whatsapp_numbers(state: &AppState) {
         .unwrap_or_default();
 
     // Check instance connection state
-    let url = format!("{}/instance/connectionState/RacingPoint", evo_base.trim_end_matches('/'));
+    let instance = match &state.config.auth.evolution_instance {
+        Some(inst) => inst.clone(),
+        None => return,
+    };
+    let url = format!("{}/instance/connectionState/{}", evo_base.trim_end_matches('/'), instance);
     match client.get(&url)
         .header("apikey", &api_key)
         .send()
