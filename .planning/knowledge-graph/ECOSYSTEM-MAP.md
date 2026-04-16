@@ -20,10 +20,11 @@ Everything a customer, staff member, or the public sees and interacts with.
 
 | # | Component | Repo | Port | Machine | In Graph | Status |
 |---|---|---|---|---|---|---|
-| 1 | WhatsApp Bot (Bono) | racingpoint-whatsapp-bot | 3000 | Bono VPS | YES | Online |
+| 1 | WhatsApp Bot v1 (JS) | racingpoint-whatsapp-bot | 3000 | Bono VPS | YES | Online |
+| 1b | WhatsApp Bot v2 (TS) | racingpoint/whatsapp-bot | 3150 | Bono VPS | YES | Online |
 | 2 | Discord Bot | racingpoint-discord-bot | — | Bono VPS | YES | Online |
 | 3 | Public Website | racingpoint-website | 3600 | Bono VPS | YES | Online |
-| 4 | Website API | racingpoint-website (sub) | 3600 | Bono VPS | YES | Online |
+| 4 | Website API | racingpoint-website | 5050 | Bono VPS | YES | Online |
 | 5 | Instagram (stub) | racingpoint-instagram | — | — | YES | Not live |
 
 ### 1.2 Staff-Facing Apps (Venue)
@@ -89,7 +90,9 @@ The business logic, data, and APIs that power Layer 1.
 | 25 | Cloud RaceControl | racecontrol (Rust, PM2) | 8080 | Bono VPS | YES | Online |
 | 26 | Hiring Bot | Node.js/Express | 3050 | Bono VPS | YES | Online |
 | 27 | Employee PWA | Next.js | — | On-demand | YES | Available |
+| 27b | HR Marketing | Node.js | — | Bono VPS | YES | Available |
 | 28 | Google Services | Node.js (OAuth) | — | Bono VPS | YES | Online |
+| 28b | James Email Notifier | Node.js | — | Bono VPS | YES | Online |
 
 ### 2.2 Rust Crates (inside racecontrol repo)
 
@@ -116,6 +119,9 @@ The business logic, data, and APIs that power Layer 1.
 | 42 | bot.db | Bono VPS | Bono VPS | YES (code) | WhatsApp conversations, customer interactions |
 | 43 | conversations.db | Bono VPS | Bono VPS | YES (code) | WhatsApp conversation history |
 | 44 | hiring.db | Bono VPS | Bono VPS | YES (code) | Candidates, responses, scores |
+| 44b | telemetry.db | Server .23 | Venue | YES (code) | Race telemetry time-series, sector times |
+| 44c | debug.db | Bono VPS | Local | YES (code) | Dashboard debug data |
+| 44d | kuma.db | Bono VPS (Docker) | Local | N/A (external) | Uptime Kuma monitoring state (26MB) |
 
 ### 2.4 Communication Protocols
 
@@ -170,7 +176,7 @@ What keeps Layers 1 and 2 running, self-healing, monitored, and deployable.
 | 59 | RC-Sentry-AI | James .27 | Face detection on 3 cameras | YES |
 | 60 | Pod self_monitor | Pods 1-8 | Self-restart on crash (Session 1) | YES |
 | 61 | RCWatchdog Service | Pods 1-8 | Windows service restarts rc-agent | YES |
-| 62 | auto-detect | Bono VPS | Pipeline anomaly detection | YES |
+| 62 | auto-detect | Bono VPS | Pipeline anomaly detection (STOPPED) | YES |
 | 63 | PM2 watchdog | Bono VPS | `vps-pm2-watchdog.sh` every 2min | YES |
 | 64 | Meshed Intelligence | Pods + Server | 5-tier AI diagnosis + gossip | YES |
 | 65 | Fleet Healer | Server .23 | SSH diagnostics, canary rollout | YES |
@@ -183,8 +189,18 @@ What keeps Layers 1 and 2 running, self-healing, monitored, and deployable.
 | 67 | LAN (192.168.31.x) | Venue | 8 pods + server + POS + James + NVR | N/A (hardware) |
 | 68 | Tailscale mesh | Venue + Cloud | 12 nodes: 8 pods + server + POS + James + Bono | N/A (external) |
 | 69 | nginx reverse proxy | Bono VPS | racingpoint.cloud SSL termination | N/A (config) |
-| 70 | Evolution API | Bono VPS | WhatsApp Business API bridge | N/A (external) |
+| 70 | Evolution API | Bono VPS | WhatsApp Business API bridge (Docker) | N/A (external) |
 | 71 | go2rtc | James .27 | RTSP camera proxy, 13 streams | N/A (external) |
+| 71b | PostgreSQL | Bono VPS | Used by Evolution API + Docker services | N/A (external) |
+
+### 3.3b Docker Services (Bono VPS)
+
+| # | Container | Port | Dependencies | In Graph | Status |
+|---|---|---|---|---|---|
+| 71c | n8n | 5678 | database.sqlite | N/A (external) | Online |
+| 71d | Uptime Kuma | 3001 | kuma.db (26MB) | N/A (external) | Online |
+| 71e | Paymenter | 58290 | MySQL + Redis (Docker) | N/A (external) | Online |
+| 71f | Cloud PWA | 3100 | Next.js (Docker, not PM2) | YES | Online |
 
 ### 3.4 Deploy Pipeline
 
@@ -217,6 +233,28 @@ What keeps Layers 1 and 2 running, self-healing, monitored, and deployable.
 | 91 | vps-pm2-watchdog.sh | Every 2min | PM2 process guard | YES |
 | 92 | download-db.sh | Every 5min | DB sync from venue | YES |
 | 93 | fleet-report.js | Weekly Sun 10am | Weekly fleet stats | YES |
+
+### 3.5b CI/CD Pipelines (GitHub Actions)
+
+| # | Workflow | Trigger | What | In Graph |
+|---|---|---|---|---|
+| 93b | ci.yml | Push/PR | Commit-level validation | YES (code) |
+| 93c | contract-tests.yml | Push/PR | Schema/API contract checks | YES (code) |
+| 93d | deploy.yml | Manual/tag | Deployment orchestration | YES (code) |
+| 93e | e2e-tests.yml | Push/PR | End-to-end Playwright suite | YES (code) |
+| 93f | quality-gate.yml | Push/PR | Multi-suite security + lint + tests | YES (code) |
+
+### 3.5c Background Tasks (inside racecontrol binary)
+
+| # | Task | Interval | What | Critical |
+|---|---|---|---|---|
+| 93g | spawn_reconciliation_job | 30s | Billing session validation | YES — financial |
+| 93h | spawn_content_drift_task | 60min | Pod game/car/track inventory drift | YES — Phase 366 |
+| 93i | spawn_data_collector | Continuous | Telemetry ingestion pipeline | YES — lap data |
+| 93j | spawn_dispatcher | Event-driven | Psychology nudge scheduling | NO |
+| 93k | spawn_business_aggregator | Daily | EBITDA/revenue rollup | YES — finance |
+| 93l | spawn_cleanup_expired_game_requests | 10min TTL | PWA game request expiry | NO |
+| 93m | spawn_coupon_ttl_expiry_job | Periodic | Expired coupon cleanup | NO |
 
 ### 3.6 Operational Framework
 
@@ -284,14 +322,21 @@ Monitoring Chain:
 
 ### Method: Count every component, verify it appears in exactly one layer.
 
+**v2 (2026-04-16 22:00 IST) — re-verified after Bono found 17 gaps in v1.**
+v1 PoE was self-referential: verified map against map, not map against environment.
+v2 enumerates from `pm2 list`, `docker ps`, `ss -tlnp`, `crontab -l`, filesystem.
+
 | Source of Truth | Components Found | All Mapped |
 |---|---|---|
-| PM2 services (21) | 18 RacingPoint + 2 personal (stopped) + 1 internal | YES — 18/18 mapped |
-| Repos on disk (18) | 15 with code + 3 without code | YES — 15/15 mapped |
+| PM2 services (21) | 17 online + 3 stopped + 1 module. Includes james-email-notifier, dual WhatsApp bots | YES — 21/21 mapped |
+| Docker containers (9) | cloud-pwa, n8n, uptime-kuma, paymenter (3 containers), evolution-api (3 containers) | YES — 9/9 mapped |
+| Repos on disk (18) | 15 with code + 3 without code. Includes racingpoint-hr-marketing, racingpoint-employee | YES — 18/18 mapped |
 | Network devices (15+) | 8 pods + server + POS + James + router + NVR + spectators + Bono | YES — all mapped |
-| Databases (6) | racecontrol, admin, comms, bot, conversations, hiring | YES — 6/6 mapped |
+| Databases (9) | racecontrol, admin, comms, bot, conversations, hiring, telemetry, debug, kuma | YES — 9/9 mapped |
 | Rust crates (10) | racecontrol through weekly-report | YES — 10/10 mapped |
 | Cron jobs (14) | All 14 jobs from crontab | YES — 14/14 mapped |
+| CI/CD workflows (5) | ci, contract-tests, deploy, e2e-tests, quality-gate | YES — 5/5 mapped |
+| Background tasks (7+) | reconciliation, content_drift, data_collector, dispatcher, aggregator, etc. | YES — 7/7 mapped |
 | MCP servers (9) | gmail, drive, notebooklm, 4x sqlite, playwright, perplexity | YES — 9/9 mapped |
 | External services (5) | GitHub x2, Google, Tailscale, racingpoint.cloud | YES — 5/5 mapped |
 | WS protocols (4) | agent, dashboard, ai-channel, comms-link | YES — 4/4 mapped |
@@ -314,16 +359,44 @@ Monitoring Chain:
 
 **All excluded items are external/config — zero RacingPoint application code is missing from the graph.**
 
-### Final Count
+### Final Count (v2)
 
 ```
-LAYER 1 (Customer-Facing):  20 components (apps + hardware)
-LAYER 2 (Platform):         31 components (services + crates + DBs + protocols)
-LAYER 3 (Infrastructure):   63 components (AI ops + healing + network + deploy + cron + frameworks + MCP + external)
+LAYER 1 (Customer-Facing):  22 components (+2: WhatsApp Bot v2, Website API separate port)
+LAYER 2 (Platform):         36 components (+5: HR-marketing, email-notifier, telemetry.db, debug.db, kuma.db)
+LAYER 3 (Infrastructure):   83 components (+20: Docker stack, PostgreSQL, CI/CD, background tasks)
                             ────
-TOTAL:                     114 components mapped
+TOTAL:                     141 components mapped
 
-In Graphify code graph:     82 components (all with RacingPoint source code)
-External/config/hardware:   32 components (correctly excluded)
-Missing:                     0
+In Graphify code graph:     87 components (all with RacingPoint source code)
+External/config/hardware:   54 components (correctly excluded)
+Missing:                     0 (after v2 correction — v1 had 17 gaps)
 ```
+
+### v1 → v2 Correction Log (2026-04-16)
+
+v1 claimed 114 components / 0 missing. Bono re-verified from environment (`pm2 list`, `docker ps`, `ss -tlnp`, filesystem) and found 17 gaps:
+
+| Gap | Layer | What was missing | Severity |
+|---|---|---|---|
+| G1 | L1 | WhatsApp Bot v2 (TypeScript rewrite, PM2 id 19, port 3150) — separate from v1 JS bot | HIGH |
+| G2 | L1 | Website API on port 5050 (separate PM2 service, not part of website) | LOW |
+| G3 | L2 | james-email-notifier (PM2 id 3, polls James Gmail, forwards to Uday via WhatsApp) | HIGH |
+| G4 | L2 | racingpoint-hr-marketing repo (marketing/comms workflows) | MEDIUM |
+| G5 | L2 | telemetry.db (race telemetry time-series, 53KB) | MEDIUM |
+| G6 | L2 | debug.db (dashboard debug data, 73KB) | LOW |
+| G7 | L2 | kuma.db (Uptime Kuma monitoring state, 26MB) | LOW |
+| G8 | L3 | n8n workflow engine (Docker, port 5678) | HIGH |
+| G9 | L3 | Uptime Kuma monitoring (Docker, port 3001) | HIGH |
+| G10 | L3 | Paymenter + MySQL + Redis (Docker, port 58290) | HIGH |
+| G11 | L3 | Cloud PWA runs in Docker, not PM2 (port 3100) | LOW |
+| G12 | L3 | PostgreSQL (port 5432, used by Docker services) | MEDIUM |
+| G13 | L3 | 5 GitHub Actions CI/CD pipelines | MEDIUM |
+| G14 | L3 | 7+ background tokio tasks inside racecontrol binary | MEDIUM |
+| G15 | L3 | auto-detect was marked Online but PM2 shows stopped | LOW |
+| G16 | L3 | fail2ban (intrusion detection systemd service) | LOW |
+| G17 | L3 | pm2-logrotate (log rotation module) | LOW |
+
+**Root cause of v1 PoE failure:** Verified map completeness against known items, not against environment. The PoE table said "YES — 18/18 mapped" for PM2 but never ran `pm2 list` to count. Same pattern as "health passes but blanking is broken" — verifying the claim against itself.
+
+**SECURITY FINDING (S1):** james-email-notifier (`/root/james-email-notifier/index.js`) has hardcoded Google OAuth client_secret, refresh_token, and Evolution API key in source code. Must be moved to .env file.
