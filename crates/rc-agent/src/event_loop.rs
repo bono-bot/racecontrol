@@ -1555,7 +1555,10 @@ pub async fn run(
                     last_udp_secs_ago: state.detector.last_udp_packet_elapsed_secs(),
                     game_launch_elapsed_secs: match &conn.launch_state {
                         LaunchState::WaitingForLive { launched_at, .. } => Some(launched_at.elapsed().as_secs()),
-                        _ => None,
+                        // LAUNCH-GRACE: Fall back to game_running_since so the grace window
+                        // still applies after LaunchState transitions past WaitingForLive.
+                        // Without this, stale AI suggestions kill freshly-launched games.
+                        _ => conn.game_running_since.map(|since| since.elapsed().as_secs()),
                     },
                     hid_last_error: !state.detector.is_hid_connected(),
                     ..Default::default()

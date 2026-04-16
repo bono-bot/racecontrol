@@ -739,9 +739,23 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
     }
 
     // Pattern 4: Relaunch game — kill crashed game process
+    // LAUNCH-GRACE: Skip kill_stale_game if the game was launched within the last 30 seconds.
+    // AC takes 5-15s to create shared memory. Without this guard, the AI debugger's cached
+    // suggestion (from a previous crash) kills the freshly launched game, creating a
+    // self-reinforcing poison loop in debug-memory.json (Pod 8 incident 2026-04-16, 47 cycles).
     if lower.contains("relaunch") && lower.contains("game")
         || lower.contains("restart") && (lower.contains("acs.exe") || lower.contains("game"))
     {
+        if let Some(launch_secs) = snapshot.game_launch_elapsed_secs {
+            if launch_secs < 30 {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "LAUNCH-GRACE: Suppressing kill_stale_game — game launched {}s ago (grace window 30s)",
+                    launch_secs
+                );
+                return None;
+            }
+        }
         return Some(fix_kill_stale_game());
     }
 
@@ -1428,6 +1442,47 @@ mod tests {
         };
         let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
         assert!(result.is_some());
+        assert_eq!(result.unwrap().fix_type, "kill_stale_game");
+    }
+
+    #[test]
+    fn test_launch_grace_suppresses_kill_stale_game() {
+        // LAUNCH-GRACE: kill_stale_game must be suppressed when game was launched < 30s ago
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_8".to_string(),
+            pod_number: 8,
+            lock_screen_active: false,
+            billing_active: true,
+            game_pid: Some(10848),
+            driving_state: None,
+            wheelbase_connected: true,
+            ws_connected: true,
+            uptime_seconds: 200,
+            game_launch_elapsed_secs: Some(2), // launched 2s ago — within grace window
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_none(), "kill_stale_game must be suppressed during launch grace window");
+    }
+
+    #[test]
+    fn test_kill_stale_game_allowed_after_grace_window() {
+        // After 30s, kill_stale_game should fire normally
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_8".to_string(),
+            pod_number: 8,
+            lock_screen_active: false,
+            billing_active: true,
+            game_pid: Some(10848),
+            driving_state: None,
+            wheelbase_connected: true,
+            ws_connected: true,
+            uptime_seconds: 200,
+            game_launch_elapsed_secs: Some(45), // launched 45s ago — past grace window
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_some(), "kill_stale_game must fire after grace window expires");
         assert_eq!(result.unwrap().fix_type, "kill_stale_game");
     }
 
