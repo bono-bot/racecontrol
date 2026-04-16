@@ -796,6 +796,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/staff/checklists/completions/{id}/check", post(staff_checklists::check_item))
         .route("/staff/checklists/completions/{id}/finish", post(staff_checklists::finish_checklist))
         .route("/staff/checklists/compliance", get(staff_checklists::checklist_compliance))
+        // Phase 386: Autonomous Pricing Engine
+        .route("/pricing/engine/expenses", get(crate::pricing_engine::get_expenses_handler).post(crate::pricing_engine::update_expenses_handler))
+        .route("/pricing/engine/break-even", get(crate::pricing_engine::break_even_handler))
+        .route("/pricing/engine/recommendations", get(crate::pricing_engine::recommendations_handler))
+        .route("/pricing/engine/apply", post(crate::pricing_engine::apply_recommendation_handler))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))

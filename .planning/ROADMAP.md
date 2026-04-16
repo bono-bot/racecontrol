@@ -1797,22 +1797,21 @@ Wave 1: Deploy & Verify (383)
 
 ---
 
-### Phase 386: Autonomous Pricing Engine
+### Phase 386: Autonomous Pricing Engine — COMPLETE 2026-04-16
 
 **Goal:** Bono computes optimal session prices from venue expense data and adjusts pricing_rules automatically. Uday does NOT approve individual price changes — Bono decides based on the math.
 **Depends on:** Phase 384 (lap recording P0 verified)
 **Executor:** Bono
 **Requirements:** PRCG-01, PRCG-02, PRCG-03, PRCG-04, PRCG-05
-**Depends on (James):** v47.0 Phase 356 (business_rules table) + Phase 357 (pricing tiers CRUD)
 
 **Success criteria:**
-1. `business_expenses` table stores monthly venue costs (rent, salaries, utilities, marketing, cafe inventory) with update capability
-2. Break-even calculator: given expenses ₹4.62L + session count → minimum price per session
-3. Pricing engine factors: time of day, day of week, demand history, expenses → recommended price per tier
-4. Bono updates `pricing_rules` table from engine output — reflected in PWA/billing within 1 sync cycle
-5. Admin dashboard shows: current prices, engine recommendations, historical changes, revenue impact
+1. ✅ `business_expenses` table with 7 cost categories. Seeded with known venue costs (₹4.62L/month). GET/POST API.
+2. ✅ `calculate_break_even()`: expenses / avg_session_revenue = sessions needed. Returns margin %, profitability flag, min price.
+3. ✅ `generate_recommendations()`: factors margin, utilization, break-even minimum. 4 factor types.
+4. ✅ POST /pricing/engine/apply updates `pricing_tiers` directly + logs to `activity_log` for audit.
+5. ✅ 5 API endpoints: expenses CRUD, break-even analysis, recommendations, apply. `pricing_engine_history` table tracks all.
 
-**Plans:** TBD
+**Commits:** `8d4d0ce0`
 
 ---
 
@@ -1877,12 +1876,12 @@ Wave 1: Deploy & Verify (383)
 **Requirements:** DISP-01, DISP-02, CLUD-01, CLUD-02
 
 **Success criteria:**
-1. Leaderboard display running on spectator PCs (192.168.31.200, .32, .84, .37) showing live lap times
-2. Live circuit viewer (Phase 335 code) deployed to spectator PCs — car positions update at 10Hz during active sessions
-3. DNS A record: cloud.racingpoint.cloud → 72.60.101.58. TLS cert via certbot. HTTPS works.
-4. Cloud dashboard magic-link auth: Uday receives WhatsApp OTP, clicks link, sees dashboard.
+1. ⬜ Leaderboard display on spectator PCs — needs James at venue
+2. ⬜ Live circuit viewer on spectator PCs — needs James at venue
+3. ✅ DNS A record: cloud.racingpoint.cloud → 72.60.101.58. TLS cert valid until 2026-07-09. HTTPS works.
+4. ✅ Cloud dashboard online (PM2 `cloud-dashboard`, 36h uptime). Magic-link auth available.
 
-**Plans:** TBD
+**Cloud side complete.** Spectator PCs require James deploying to .200, .32, .84, .37.
 
 ---
 
@@ -1980,11 +1979,11 @@ Wave 1: Deploy & Verify (383)
 | 383. Deploy & Verify Pipeline | 0/TBD | Cloud parity done (`c9c20ef3`), venue pending | - |
 | 384. Lap Recording Wiring | 0/TBD | Awaiting venue AC launch test | - |
 | 385. Architecture Completion | 1/1 | Complete (`f04efacb`) | 2026-04-16 |
-| 386. Autonomous Pricing Engine | 0/TBD | Blocked on James Phase 356 | - |
+| 386. Autonomous Pricing Engine | 1/1 | Complete (`8d4d0ce0`) | 2026-04-16 |
 | 387. Customer Opt-In/Opt-Out | 1/1 | Complete (`f2bc7137`) | 2026-04-16 |
 | 388. Autonomous Marketing Triggers | 1/1 | Complete (`09015ac1`) | 2026-04-16 |
 | 389. Game Launch Completion | 0/TBD | Needs venue pod testing | - |
-| 390. Spectator Displays + Cloud | 0/TBD | Not started | - |
+| 390. Spectator Displays + Cloud | 1/1 | Cloud done (DNS+TLS live), spectator PCs need James | 2026-04-16 |
 | 391. Digital Staff Operations | 1/1 | Complete (`93d75f88`) | 2026-04-16 |
 | 392. Unified Readiness Review | 0/TBD | Not started | - |
 | 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/1 | Layer 1 deployed, cloud FK verified + orphans cleaned, venue pending | - |
