@@ -200,6 +200,12 @@ struct DebugIncident {
     ai_suggestion: String,
     success_count: u32,
     last_seen: String,
+    /// Timestamps of recent firings (last 5). Used for cooldown detection.
+    #[serde(default)]
+    recent_fires: Vec<String>,
+    /// Whether this pattern is quarantined (fired too often without real success).
+    #[serde(default)]
+    quarantined: bool,
 }
 
 /// Pattern memory — learns from resolved crashes for instant replay.
@@ -210,6 +216,7 @@ pub struct DebugMemory {
 
 const MEMORY_PATH: &str = r"C:\RacingPoint\debug-memory.json";
 const MAX_INCIDENTS: usize = 100;
+const MAX_SUCCESS_COUNT: u32 = 10;
 
 impl DebugMemory {
     /// Load from disk, or return empty if file doesn't exist / is corrupt.
@@ -245,17 +252,56 @@ impl DebugMemory {
 
     /// Look up a known fix for this crash pattern.
     /// Returns the cached AI suggestion text (which contains keywords for try_auto_fix).
-    pub fn instant_fix(&self, sim_type: &SimType, error_context: &str) -> Option<String> {
+    /// Quarantined patterns are skipped unless all recent fires are >1 hour old (auto-recovery).
+    pub fn instant_fix(&mut self, sim_type: &SimType, error_context: &str) -> Option<String> {
         let key = Self::pattern_key(sim_type, error_context);
+
+        // QUARANTINE TTL: Auto-un-quarantine patterns whose recent fires are all >1 hour old.
+        // Without this, a transient deploy storm permanently disables a valid fix pattern.
+        let now = Utc::now();
+        for incident in self.incidents.iter_mut() {
+            if incident.quarantined && incident.pattern_key == key {
+                let all_old = incident.recent_fires.iter().all(|ts| {
+                    chrono::DateTime::parse_from_rfc3339(ts)
+                        .map(|t| now - t.with_timezone(&Utc) > chrono::Duration::hours(1))
+                        .unwrap_or(true) // unparseable timestamps count as old
+                });
+                if all_old {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "QUARANTINE-TTL: Un-quarantining '{}' ({}) — all recent fires >1h old",
+                        incident.pattern_key, incident.fix_type
+                    );
+                    incident.quarantined = false;
+                    incident.recent_fires.clear();
+                }
+            }
+        }
+
         self.incidents
             .iter()
-            .filter(|i| i.pattern_key == key && i.success_count > 0)
+            .filter(|i| i.pattern_key == key && i.success_count > 0 && !i.quarantined)
+            .filter(|i| !Self::is_in_cooldown(&i.recent_fires))
             .max_by_key(|i| i.success_count)
             .map(|i| i.ai_suggestion.clone())
     }
 
-    /// Record a successful fix. Increments count if pattern already known, otherwise appends.
-    pub fn record_fix(
+    /// Check if a pattern has fired >3 times in the last 5 minutes (cooldown).
+    fn is_in_cooldown(recent_fires: &[String]) -> bool {
+        let cutoff = Utc::now() - chrono::Duration::minutes(5);
+        let recent_count = recent_fires
+            .iter()
+            .filter_map(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+            .filter(|t| *t > cutoff)
+            .count();
+        recent_count > 3
+    }
+
+    /// Record a fix attempt. Tracks recent fires for cooldown/quarantine detection.
+    /// Does NOT increment success_count — call `confirm_fix_success()` after the
+    /// validation window (60s) to credit the pattern only if the game survived.
+    /// Patterns that fire >3 times in 5 minutes are auto-quarantined.
+    pub fn record_fix_attempt(
         &mut self,
         sim_type: &SimType,
         error_context: &str,
@@ -263,9 +309,23 @@ impl DebugMemory {
         ai_suggestion: &str,
     ) {
         let key = Self::pattern_key(sim_type, error_context);
+        let now = Utc::now().to_rfc3339();
         if let Some(incident) = self.incidents.iter_mut().find(|i| i.pattern_key == key && i.fix_type == fix_type) {
-            incident.success_count += 1;
-            incident.last_seen = Utc::now().to_rfc3339();
+            incident.last_seen = now.clone();
+            // Track recent fires (keep last 5)
+            incident.recent_fires.push(now);
+            if incident.recent_fires.len() > 5 {
+                incident.recent_fires.remove(0);
+            }
+            // Auto-quarantine if firing too often
+            if Self::is_in_cooldown(&incident.recent_fires) {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "QUARANTINE: Pattern '{}' ({}) fired >3 times in 5min — quarantining",
+                    incident.pattern_key, incident.fix_type
+                );
+                incident.quarantined = true;
+            }
         } else {
             // Prune oldest low-count entries if at capacity
             if self.incidents.len() >= MAX_INCIDENTS {
@@ -276,11 +336,44 @@ impl DebugMemory {
                 pattern_key: key,
                 fix_type: fix_type.to_string(),
                 ai_suggestion: ai_suggestion.to_string(),
-                success_count: 1,
-                last_seen: Utc::now().to_rfc3339(),
+                success_count: 0, // Don't credit until validated
+                last_seen: now.clone(),
+                recent_fires: vec![now],
+                quarantined: false,
             });
         }
         self.save();
+    }
+
+    /// Confirm a fix was successful (game survived the validation window).
+    /// Increments success_count, capped at MAX_SUCCESS_COUNT.
+    pub fn confirm_fix_success(
+        &mut self,
+        sim_type: &SimType,
+        error_context: &str,
+        fix_type: &str,
+    ) {
+        let key = Self::pattern_key(sim_type, error_context);
+        if let Some(incident) = self.incidents.iter_mut().find(|i| i.pattern_key == key && i.fix_type == fix_type) {
+            incident.success_count = (incident.success_count + 1).min(MAX_SUCCESS_COUNT);
+            tracing::info!(
+                target: LOG_TARGET,
+                "VALIDATION-PASS: Pattern '{}' ({}) confirmed — success_count now {}",
+                incident.pattern_key, incident.fix_type, incident.success_count
+            );
+            self.save();
+        }
+    }
+
+    /// Check if a specific pattern+fix_type is currently quarantined.
+    pub fn is_pattern_quarantined(
+        &self,
+        sim_type: &SimType,
+        error_context: &str,
+        fix_type: &str,
+    ) -> bool {
+        let key = Self::pattern_key(sim_type, error_context);
+        self.incidents.iter().any(|i| i.pattern_key == key && i.fix_type == fix_type && i.quarantined)
     }
 
     /// Extract pattern key from crash context: "{SimType}:{exit_code}"
@@ -347,8 +440,11 @@ pub async fn analyze_crash(
     }
 
     // ── Check pattern memory for instant fix ────────────────────────────────
-    let memory = DebugMemory::load();
-    if let Some(cached_suggestion) = memory.instant_fix(&sim_type, &error_context) {
+    let mut memory = DebugMemory::load();
+    let cached_suggestion = memory.instant_fix(&sim_type, &error_context);
+    // Save back in case quarantine TTL un-quarantined any patterns
+    memory.save();
+    if let Some(cached_suggestion) = cached_suggestion {
         tracing::info!(
             target: LOG_TARGET,
             "INSTANT FIX from pattern memory for {} ({:?})",
@@ -761,6 +857,36 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
                 return None;
             }
         }
+        // Gate 2+3: Billing + telemetry check
+        // If billing is active AND customer may be driving, don't kill.
+        if snapshot.billing_active {
+            match snapshot.last_udp_secs_ago {
+                Some(last_udp) if last_udp < 60 => {
+                    // AC/games with UDP adapter: recent telemetry = customer is driving
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "BILLING-GUARD: Suppressing kill_stale_game — billing active, last UDP {}s ago (< 60s)",
+                        last_udp
+                    );
+                    return None;
+                }
+                None => {
+                    // F1/iRacing/Forza: no UDP adapter connected, telemetry unavailable.
+                    // Default to protected — billing active means customer paid for this session.
+                    // An AI suggestion should NOT kill a non-AC game mid-race just because
+                    // we can't see telemetry.
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "BILLING-GUARD: Suppressing kill_stale_game — billing active, no UDP adapter (non-AC game protected by default)"
+                    );
+                    return None;
+                }
+                Some(_) => {
+                    // UDP adapter exists but telemetry is stale (>60s) — game may be genuinely stuck
+                    // Fall through to allow kill
+                }
+            }
+        }
         return Some(fix_kill_stale_game());
     }
 
@@ -866,22 +992,48 @@ pub(crate) fn fix_frozen_game(snapshot: &PodStateSnapshot) -> AutoFixResult {
     }
 }
 
-pub(crate) fn fix_launch_timeout(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // No billing gate here — launch timeout can occur before billing activates.
-    // Detection in failure_monitor.rs gates on launch_started_at.is_some() instead.
+pub(crate) fn fix_launch_timeout(snapshot: &PodStateSnapshot) -> AutoFixResult {
+    // Launch timeout can occur before billing activates, so Content Manager kill is safe.
+    // BUT acs.exe kill is guarded: if billing is active AND recent telemetry exists,
+    // the customer is actively driving — don't kill their game process.
     tracing::warn!(target: LOG_TARGET, "fix_launch_timeout: killing Content Manager — 90s timeout");
 
     // Kill both possible Content Manager process names (varies by install method on pods)
     let _ = spawn_safe("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
     let _ = spawn_safe("taskkill").args(["/IM", "acmanager.exe", "/F"]).output();
 
-    // Also kill acs.exe in case it spawned but hung before reaching Live state
-    let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+    // BILLING GATE for acs.exe: if billing active + recent telemetry, customer is driving.
+    // Killing acs.exe mid-race loses the customer's session.
+    let acs_killed = if snapshot.billing_active {
+        match snapshot.last_udp_secs_ago {
+            Some(udp) if udp < 60 => {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    "fix_launch_timeout: BILLING-GUARD — skipping acs.exe kill (billing active, last UDP {}s ago)",
+                    udp
+                );
+                false
+            }
+            _ => {
+                // Billing active but no recent telemetry — game may be hung, safe to kill
+                let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+                true
+            }
+        }
+    } else {
+        let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+        true
+    };
 
-    tracing::info!(target: LOG_TARGET, "fix_launch_timeout: Content Manager and acs.exe killed");
+    let detail = if acs_killed {
+        "Killed Content Manager.exe, acmanager.exe, acs.exe".to_string()
+    } else {
+        "Killed Content Manager.exe, acmanager.exe (acs.exe protected — billing active)".to_string()
+    };
+    tracing::info!(target: LOG_TARGET, "fix_launch_timeout: {}", detail);
     AutoFixResult {
         fix_type: "fix_launch_timeout".to_string(),
-        detail: "Killed Content Manager.exe, acmanager.exe, acs.exe".to_string(),
+        detail,
         success: true,
     }
 }
@@ -1443,6 +1595,7 @@ mod tests {
             wheelbase_connected: true,
             ws_connected: true,
             uptime_seconds: 200,
+            last_udp_secs_ago: Some(120), // Stale telemetry — game may be stuck, allow kill
             ..Default::default()
         };
         let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
@@ -1472,7 +1625,7 @@ mod tests {
 
     #[test]
     fn test_kill_stale_game_allowed_after_grace_window() {
-        // After 30s, kill_stale_game should fire normally
+        // After 30s, kill_stale_game should fire normally (stale telemetry = game stuck)
         let snapshot = PodStateSnapshot {
             pod_id: "pod_8".to_string(),
             pod_number: 8,
@@ -1484,6 +1637,7 @@ mod tests {
             ws_connected: true,
             uptime_seconds: 200,
             game_launch_elapsed_secs: Some(45), // launched 45s ago — past grace window
+            last_udp_secs_ago: Some(90), // Stale telemetry — game may be stuck
             ..Default::default()
         };
         let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
@@ -1591,7 +1745,7 @@ mod tests {
 
     #[test]
     fn test_instant_fix_returns_none_on_empty_memory() {
-        let memory = DebugMemory::default();
+        let mut memory = DebugMemory::default();
         assert!(memory.instant_fix(&SimType::AssettoCorsa, "exit code -1").is_none());
     }
 
@@ -1604,6 +1758,8 @@ mod tests {
             ai_suggestion: "Check for CLOSE_WAIT zombie sockets".to_string(),
             success_count: 3,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
+            recent_fires: vec![],
+            quarantined: false,
         });
         let fix = memory.instant_fix(
             &SimType::AssettoCorsa,
@@ -1622,6 +1778,8 @@ mod tests {
             ai_suggestion: "relaunch game".to_string(),
             success_count: 1,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
+            recent_fires: vec![],
+            quarantined: false,
         });
         memory.incidents.push(DebugIncident {
             pattern_key: "AssettoCorsa:-1".to_string(),
@@ -1629,6 +1787,8 @@ mod tests {
             ai_suggestion: "CLOSE_WAIT zombie".to_string(),
             success_count: 5,
             last_seen: "2026-03-16T11:00:00Z".to_string(),
+            recent_fires: vec![],
+            quarantined: false,
         });
         let fix = memory.instant_fix(
             &SimType::AssettoCorsa,
@@ -1646,6 +1806,8 @@ mod tests {
             ai_suggestion: "zombie sockets".to_string(),
             success_count: 2,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
+            recent_fires: vec![],
+            quarantined: false,
         });
         // record_fix would normally save to disk — test the in-memory logic
         let key = DebugMemory::pattern_key(&SimType::AssettoCorsa, "exit code -1");
@@ -1654,6 +1816,145 @@ mod tests {
         let i = incident.unwrap();
         i.success_count += 1;
         assert_eq!(i.success_count, 3);
+    }
+
+    #[test]
+    fn test_quarantined_pattern_skipped_by_instant_fix() {
+        let mut memory = DebugMemory::default();
+        // recent_fires within the last hour so quarantine TTL doesn't auto-clear
+        let recent: Vec<String> = (0..4)
+            .map(|i| (Utc::now() - chrono::Duration::minutes(i as i64)).to_rfc3339())
+            .collect();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "kill_stale_game".to_string(),
+            ai_suggestion: "relaunch game".to_string(),
+            success_count: 5,
+            last_seen: Utc::now().to_rfc3339(),
+            recent_fires: recent,
+            quarantined: true,
+        });
+        let fix = memory.instant_fix(
+            &SimType::AssettoCorsa,
+            "crashed (exit code -1)",
+        );
+        assert!(fix.is_none(), "quarantined pattern must be skipped");
+    }
+
+    #[test]
+    fn test_quarantine_ttl_auto_recovery() {
+        let mut memory = DebugMemory::default();
+        // All fires are >2 hours old — quarantine should auto-clear
+        let old: Vec<String> = (0..3)
+            .map(|i| (Utc::now() - chrono::Duration::hours(2 + i as i64)).to_rfc3339())
+            .collect();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "kill_stale_game".to_string(),
+            ai_suggestion: "relaunch game".to_string(),
+            success_count: 5,
+            last_seen: Utc::now().to_rfc3339(),
+            recent_fires: old,
+            quarantined: true,
+        });
+        let fix = memory.instant_fix(
+            &SimType::AssettoCorsa,
+            "crashed (exit code -1)",
+        );
+        assert!(fix.is_some(), "quarantined pattern with all-old fires should auto-recover");
+        // Verify quarantine was cleared
+        assert!(!memory.incidents[0].quarantined, "quarantine flag should be cleared");
+    }
+
+    #[test]
+    fn test_cooldown_detection() {
+        let now = Utc::now();
+        let recent: Vec<String> = (0..4)
+            .map(|i| (now - chrono::Duration::minutes(i as i64)).to_rfc3339())
+            .collect();
+        assert!(DebugMemory::is_in_cooldown(&recent), "4 fires in 5min should trigger cooldown");
+
+        let old: Vec<String> = (0..4)
+            .map(|i| (now - chrono::Duration::minutes(10 + i as i64)).to_rfc3339())
+            .collect();
+        assert!(!DebugMemory::is_in_cooldown(&old), "old fires should not trigger cooldown");
+    }
+
+    #[test]
+    fn test_success_count_capped_at_max() {
+        let mut memory = DebugMemory::default();
+        memory.incidents.push(DebugIncident {
+            pattern_key: "AssettoCorsa:-1".to_string(),
+            fix_type: "clear_stale_sockets".to_string(),
+            ai_suggestion: "zombie sockets".to_string(),
+            success_count: MAX_SUCCESS_COUNT,
+            last_seen: "2026-03-16T10:00:00Z".to_string(),
+            recent_fires: vec![],
+            quarantined: false,
+        });
+        let i = &mut memory.incidents[0];
+        i.success_count = (i.success_count + 1).min(MAX_SUCCESS_COUNT);
+        assert_eq!(i.success_count, MAX_SUCCESS_COUNT, "success_count must not exceed MAX_SUCCESS_COUNT");
+    }
+
+    #[test]
+    fn test_kill_stale_game_suppressed_during_active_billing_with_telemetry() {
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_3".to_string(),
+            pod_number: 3,
+            billing_active: true,
+            game_pid: Some(1234),
+            last_udp_secs_ago: Some(5),
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_none(), "must not kill game when billing active + recent telemetry");
+    }
+
+    #[test]
+    fn test_kill_stale_game_allowed_when_billing_active_but_no_telemetry() {
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_3".to_string(),
+            pod_number: 3,
+            billing_active: true,
+            game_pid: Some(1234),
+            last_udp_secs_ago: Some(120),
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_some(), "should kill game when billing active but telemetry absent >60s");
+        assert_eq!(result.unwrap().fix_type, "kill_stale_game");
+    }
+
+    #[test]
+    fn test_kill_stale_game_allowed_when_no_billing() {
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_3".to_string(),
+            pod_number: 3,
+            billing_active: false,
+            game_pid: Some(1234),
+            last_udp_secs_ago: Some(5),
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_some(), "should kill stale game when no billing active");
+        assert_eq!(result.unwrap().fix_type, "kill_stale_game");
+    }
+
+    #[test]
+    fn test_kill_stale_game_suppressed_for_non_ac_game_with_billing() {
+        // Non-AC games (F1, iRacing, Forza) have no UDP adapter — last_udp_secs_ago is None.
+        // When billing is active, default to protected — don't kill mid-race.
+        let snapshot = PodStateSnapshot {
+            pod_id: "pod_3".to_string(),
+            pod_number: 3,
+            billing_active: true,
+            game_pid: Some(1234),
+            last_udp_secs_ago: None, // No UDP adapter for this game
+            ..Default::default()
+        };
+        let result = try_auto_fix("Kill stale acs.exe process and relaunch the game", &snapshot);
+        assert!(result.is_none(), "must not kill non-AC game when billing active and no UDP adapter");
     }
 
     // ─── Phase 24 Wave 0: RED test stubs ─────────────────────────────────────

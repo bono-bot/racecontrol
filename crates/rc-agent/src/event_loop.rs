@@ -1602,8 +1602,10 @@ pub async fn run(
                         fix_result.fix_type, fix_result.detail, fix_result.success
                     );
                     if fix_result.success {
+                        // Record the fix attempt immediately (tracks fires for quarantine).
+                        // success_count is NOT incremented yet — deferred until validation.
                         let mut memory = crate::ai_debugger::DebugMemory::load();
-                        memory.record_fix(
+                        memory.record_fix_attempt(
                             &suggestion.sim_type,
                             &suggestion.error_context,
                             &fix_result.fix_type,
@@ -1611,9 +1613,28 @@ pub async fn run(
                         );
                         tracing::info!(
                             target: LOG_TARGET,
-                            "[pattern-memory] Saved: {} for {:?}",
+                            "[pattern-memory] Recorded attempt: {} for {:?} — validating in 60s",
                             fix_result.fix_type, suggestion.sim_type
                         );
+                        // VALIDATION WINDOW: Only credit success after 60s if no new crash.
+                        // If the game crashes again within 60s, the new crash triggers quarantine
+                        // (>3 fires in 5min) and this confirmation becomes a no-op.
+                        let val_sim_type = suggestion.sim_type.clone();
+                        let val_error_ctx = suggestion.error_context.clone();
+                        let val_fix_type = fix_result.fix_type.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(60)).await;
+                            let mut mem = crate::ai_debugger::DebugMemory::load();
+                            // Only confirm if the pattern hasn't been quarantined in the meantime
+                            if !mem.is_pattern_quarantined(&val_sim_type, &val_error_ctx, &val_fix_type) {
+                                mem.confirm_fix_success(&val_sim_type, &val_error_ctx, &val_fix_type);
+                            } else {
+                                tracing::info!(
+                                    target: "ai-debugger",
+                                    "[pattern-memory] Validation skipped — pattern quarantined during window"
+                                );
+                            }
+                        });
                     }
                     suggestion.suggestion = format!(
                         "[AUTO-FIX APPLIED: {} — {}]\n\n{}",
