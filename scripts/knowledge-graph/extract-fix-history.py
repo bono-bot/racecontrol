@@ -88,24 +88,24 @@ SYMPTOM_PATTERNS = [
 
 
 def get_fix_commits():
-    """Get all fix-related commits with their changed files."""
+    """Get all fix-related commits with their changed files AND diff line ranges."""
+    # First pass: get commit metadata + file list
     result = subprocess.run(
         ["git", "log", "--all", "--format=%H|||%s|||%ai", "--name-only",
          "--diff-filter=ACDMR"],
         capture_output=True, text=True, cwd=REPO_ROOT
     )
 
-    commits = []
+    raw_commits = []
     current = None
 
     for line in result.stdout.split("\n"):
         if "|||" in line:
             if current and current["files"]:
-                commits.append(current)
+                raw_commits.append(current)
             parts = line.split("|||")
             if len(parts) >= 3:
                 msg = parts[1].strip().lower()
-                # Filter to fix-related commits
                 is_fix = any(kw in msg for kw in [
                     "fix", "bug", "crash", "broken", "revert", "hotfix",
                     "repair", "patch", "resolve", "workaround", "recovery",
@@ -113,6 +113,7 @@ def get_fix_commits():
                 ])
                 current = {
                     "hash": parts[0][:8],
+                    "full_hash": parts[0],
                     "message": parts[1].strip(),
                     "date": parts[2].strip()[:10],
                     "files": [],
@@ -124,9 +125,58 @@ def get_fix_commits():
             current["files"].append(line.strip())
 
     if current and current.get("files"):
-        commits.append(current)
+        raw_commits.append(current)
 
-    return [c for c in commits if c["is_fix"]]
+    fix_commits = [c for c in raw_commits if c["is_fix"]]
+
+    # Second pass: get diff hunks for function-level mapping
+    # Process in batches for performance
+    print(f"  Extracting diff hunks for {len(fix_commits)} fix commits...")
+    for i, commit in enumerate(fix_commits):
+        if i % 200 == 0 and i > 0:
+            print(f"    ... {i}/{len(fix_commits)} commits processed")
+        commit["hunks"] = _get_diff_hunks(commit["full_hash"])
+
+    return fix_commits
+
+
+def _get_diff_hunks(commit_hash):
+    """Extract changed line ranges per file from a commit's diff."""
+    try:
+        result = subprocess.run(
+            ["git", "diff", f"{commit_hash}~1..{commit_hash}", "--unified=0", "--no-color",
+             "--diff-filter=ACDMR", "--no-ext-diff"],
+            capture_output=True, cwd=REPO_ROOT,
+            timeout=10
+        )
+    except (subprocess.TimeoutExpired, Exception):
+        return {}
+    if result.returncode != 0:
+        return {}
+
+    # Decode with error handling for binary content
+    try:
+        stdout = result.stdout.decode("utf-8", errors="replace")
+    except Exception:
+        return {}
+
+    hunks = defaultdict(list)  # file -> [(start_line, end_line), ...]
+    current_file = None
+
+    for line in stdout.split("\n"):
+        # Match diff file header: +++ b/path/to/file.rs
+        if line.startswith("+++ b/"):
+            current_file = line[6:]
+        # Match hunk header: @@ -old_start,old_count +new_start,new_count @@
+        elif line.startswith("@@") and current_file:
+            match = re.search(r'\+(\d+)(?:,(\d+))?', line)
+            if match:
+                start = int(match.group(1))
+                count = int(match.group(2) or 1)
+                end = start + max(count - 1, 0)
+                hunks[current_file].append((start, end))
+
+    return dict(hunks)
 
 
 def extract_symptoms(message):
@@ -140,40 +190,58 @@ def extract_symptoms(message):
 
 
 def load_graph_nodes():
-    """Load graph nodes and build a file→nodes lookup."""
+    """Load graph nodes and build file→nodes + file→line→nodes lookups."""
     if not GRAPH_PATH.exists():
         print(f"ERROR: graph.json not found at {GRAPH_PATH}")
-        return {}, {}
+        return {}, {}, {}
 
     with open(GRAPH_PATH) as f:
         graph = json.load(f)
 
     file_to_nodes = defaultdict(list)
     node_index = {}
+    # file_line_index: file_path -> sorted list of (start_line, node_id)
+    file_line_index = defaultdict(list)
 
     for node in graph.get("nodes", []):
         node_id = node.get("label", node.get("id", ""))
         source = node.get("source_file", node.get("source", ""))
         community = node.get("community", -1)
+        loc = node.get("source_location", "")
+
+        # Parse line number from "L123" format
+        line_num = 0
+        if loc and loc.startswith("L"):
+            try:
+                line_num = int(loc[1:])
+            except ValueError:
+                pass
 
         node_info = {
             "id": node_id,
             "source": source,
             "community": community,
             "type": node.get("file_type", "unknown"),
-            "loc": node.get("source_location", ""),
+            "loc": loc,
+            "line": line_num,
         }
         node_index[node_id] = node_info
 
         if source:
-            # Normalize path — strip leading ./
             norm_source = source.lstrip("./")
             file_to_nodes[norm_source].append(node_id)
-            # Also index by filename only for broader matching
             basename = os.path.basename(norm_source)
             file_to_nodes[f"_basename_{basename}"].append(node_id)
 
-    return file_to_nodes, node_index
+            # Build line-level index for function-level matching
+            if line_num > 0:
+                file_line_index[norm_source].append((line_num, node_id))
+
+    # Sort line indices for binary search
+    for filepath in file_line_index:
+        file_line_index[filepath].sort(key=lambda x: x[0])
+
+    return file_to_nodes, node_index, file_line_index
 
 
 def parse_logbook():
@@ -229,8 +297,32 @@ def parse_error_catalog():
     return errors
 
 
-def build_fix_overlay(commits, file_to_nodes, node_index, logbook_entries, error_entries):
-    """Build the fix-history overlay: graph nodes annotated with fix history."""
+def _find_nodes_in_range(file_line_index, filepath, hunk_start, hunk_end):
+    """Find graph nodes whose start line falls within a diff hunk range.
+
+    Each node represents a function/struct starting at a specific line.
+    We match a node if its start line is within [hunk_start - margin, hunk_end + margin].
+    The margin accounts for changes to a function's body hitting lines below the
+    definition start — a 50-line margin covers most function bodies.
+    """
+    MARGIN = 50
+    entries = file_line_index.get(filepath, [])
+    if not entries:
+        return []
+
+    matched = []
+    for node_line, node_id in entries:
+        if (hunk_start - MARGIN) <= node_line <= (hunk_end + MARGIN):
+            matched.append(node_id)
+    return matched
+
+
+def build_fix_overlay(commits, file_to_nodes, node_index, file_line_index, logbook_entries, error_entries):
+    """Build the fix-history overlay: graph nodes annotated with fix history.
+
+    Uses function-level diff hunk matching when available, falls back to
+    file-level matching for commits without hunk data.
+    """
 
     # Node → fix history
     node_fixes = defaultdict(lambda: {
@@ -244,17 +336,38 @@ def build_fix_overlay(commits, file_to_nodes, node_index, logbook_entries, error
     # Symptom → nodes index (for reverse lookup)
     symptom_index = defaultdict(set)
 
+    hunk_hits = 0
+    file_fallbacks = 0
+
     for commit in commits:
         symptoms = extract_symptoms(commit["message"])
+        hunks = commit.get("hunks", {})
 
         for filepath in commit["files"]:
             norm_path = filepath.lstrip("./")
-            matched_nodes = file_to_nodes.get(norm_path, [])
 
-            # Also try basename match
+            # Try function-level matching via diff hunks first
+            matched_nodes = []
+            file_hunks = hunks.get(norm_path, [])
+
+            if file_hunks and norm_path in file_line_index:
+                # Function-level: only match nodes whose lines overlap the diff
+                for hunk_start, hunk_end in file_hunks:
+                    matched_nodes.extend(
+                        _find_nodes_in_range(file_line_index, norm_path, hunk_start, hunk_end)
+                    )
+                matched_nodes = list(set(matched_nodes))  # dedupe
+                if matched_nodes:
+                    hunk_hits += 1
+
+            # Fall back to file-level matching
             if not matched_nodes:
-                basename = os.path.basename(norm_path)
-                matched_nodes = file_to_nodes.get(f"_basename_{basename}", [])
+                matched_nodes = file_to_nodes.get(norm_path, [])
+                if not matched_nodes:
+                    basename = os.path.basename(norm_path)
+                    matched_nodes = file_to_nodes.get(f"_basename_{basename}", [])
+                if matched_nodes:
+                    file_fallbacks += 1
 
             for node_id in matched_nodes:
                 entry = node_fixes[node_id]
@@ -273,6 +386,8 @@ def build_fix_overlay(commits, file_to_nodes, node_index, logbook_entries, error
                 # Build reverse index
                 for symptom in symptoms:
                     symptom_index[symptom].add(node_id)
+
+    print(f"  Function-level hunk matches: {hunk_hits} | File-level fallbacks: {file_fallbacks}")
 
     # Enrich from LOGBOOK
     for entry in logbook_entries:
@@ -328,10 +443,10 @@ def main():
     print("=== RacingPoint Fix-History Knowledge Graph Overlay ===\n")
 
     print("[1/5] Loading graph nodes...")
-    file_to_nodes, node_index = load_graph_nodes()
-    print(f"  Loaded {len(node_index)} nodes, {len(file_to_nodes)} file mappings")
+    file_to_nodes, node_index, file_line_index = load_graph_nodes()
+    print(f"  Loaded {len(node_index)} nodes, {len(file_to_nodes)} file mappings, {len(file_line_index)} files with line-level index")
 
-    print("[2/5] Extracting fix commits from git...")
+    print("[2/5] Extracting fix commits from git (with diff hunks)...")
     commits = get_fix_commits()
     print(f"  Found {len(commits)} fix-related commits")
 
@@ -341,9 +456,9 @@ def main():
     print(f"  LOGBOOK: {len(logbook_entries)} fix entries")
     print(f"  ERROR-CATALOG: {len(error_entries)} known errors")
 
-    print("[4/5] Building fix overlay...")
+    print("[4/5] Building fix overlay (function-level matching)...")
     node_fixes, symptom_index = build_fix_overlay(
-        commits, file_to_nodes, node_index, logbook_entries, error_entries
+        commits, file_to_nodes, node_index, file_line_index, logbook_entries, error_entries
     )
     hotspots = compute_hotspots(node_fixes)
     print(f"  Annotated {len(node_fixes)} nodes with fix history")
