@@ -215,5 +215,81 @@ pub(crate) async fn migrate_staff(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await;
 
+    // ─── Phase 391: Digital Staff Operations — Checklists ────────────────────
+
+    // Checklist templates (morning opening, evening closing, etc.)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_checklists (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            checklist_type TEXT NOT NULL CHECK(checklist_type IN ('opening', 'closing', 'maintenance', 'custom')),
+            items_json TEXT NOT NULL DEFAULT '[]',
+            is_active BOOLEAN DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    // Checklist completion records
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS staff_checklist_completions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            checklist_id TEXT NOT NULL REFERENCES staff_checklists(id),
+            staff_id TEXT NOT NULL,
+            staff_name TEXT,
+            completed_items_json TEXT NOT NULL DEFAULT '[]',
+            total_items INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            notes TEXT,
+            started_at TEXT DEFAULT (datetime('now')),
+            completed_at TEXT,
+            date TEXT NOT NULL DEFAULT (date('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_checklist_completions_date
+         ON staff_checklist_completions(date, checklist_id)"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_checklist_completions_staff
+         ON staff_checklist_completions(staff_id, date)"
+    )
+    .execute(pool)
+    .await?;
+
+    // Seed default checklists
+    sqlx::query(
+        "INSERT OR IGNORE INTO staff_checklists (id, name, checklist_type, items_json) VALUES
+         ('chk_opening', 'Morning Opening', 'opening', '[
+            {\"id\": \"o1\", \"label\": \"Turn on all 8 pods and monitors\", \"category\": \"hardware\"},
+            {\"id\": \"o2\", \"label\": \"Check AC and lighting in venue\", \"category\": \"venue\"},
+            {\"id\": \"o3\", \"label\": \"Verify all pods show RaceControl lock screen\", \"category\": \"software\"},
+            {\"id\": \"o4\", \"label\": \"Check wheelbase and pedal connections on each pod\", \"category\": \"hardware\"},
+            {\"id\": \"o5\", \"label\": \"Wipe down steering wheels and seats\", \"category\": \"cleaning\"},
+            {\"id\": \"o6\", \"label\": \"Check cafe stock and coffee machine\", \"category\": \"cafe\"},
+            {\"id\": \"o7\", \"label\": \"Open POS dashboard and verify connection\", \"category\": \"software\"},
+            {\"id\": \"o8\", \"label\": \"Check printer paper and ink\", \"category\": \"supplies\"}
+         ]'),
+         ('chk_closing', 'Evening Closing', 'closing', '[
+            {\"id\": \"c1\", \"label\": \"End all active billing sessions\", \"category\": \"billing\"},
+            {\"id\": \"c2\", \"label\": \"Shut down all 8 pods\", \"category\": \"hardware\"},
+            {\"id\": \"c3\", \"label\": \"Close cafe register and count cash\", \"category\": \"cafe\"},
+            {\"id\": \"c4\", \"label\": \"Wipe down all steering wheels and seats\", \"category\": \"cleaning\"},
+            {\"id\": \"c5\", \"label\": \"Turn off AC, fans, and unnecessary lights\", \"category\": \"venue\"},
+            {\"id\": \"c6\", \"label\": \"Lock up venue and set alarm\", \"category\": \"security\"},
+            {\"id\": \"c7\", \"label\": \"Report any hardware issues noticed today\", \"category\": \"maintenance\"}
+         ]')"
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }

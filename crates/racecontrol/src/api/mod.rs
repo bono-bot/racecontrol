@@ -95,6 +95,7 @@ pub mod ai_training;
 pub mod billing_daily_report;
 pub mod wallet_gateway;
 pub mod pricing_billing_rates;
+pub mod staff_checklists;
 
 use axum::Router;
 use std::sync::Arc;

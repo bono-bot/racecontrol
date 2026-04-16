@@ -63,6 +63,7 @@ use super::customer_booking::*;
 use super::customer_legal::*;
 use super::customer_marketing::*;
 use super::customer_preferences;
+use super::staff_checklists;
 use super::customer_passport::*;
 use super::customer_register::*;
 use super::customer_session::*;
@@ -789,6 +790,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .route("/fleet/deploy/status", get(fleet_deploy_status_handler))
                 .layer(axum::middleware::from_fn(require_role_superadmin))
         )
+        // Phase 391: Digital Staff Operations — checklists
+        .route("/staff/checklists", get(staff_checklists::list_checklists))
+        .route("/staff/checklists/{id}/start", post(staff_checklists::start_checklist))
+        .route("/staff/checklists/completions/{id}/check", post(staff_checklists::check_item))
+        .route("/staff/checklists/completions/{id}/finish", post(staff_checklists::finish_checklist))
+        .route("/staff/checklists/compliance", get(staff_checklists::checklist_compliance))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
