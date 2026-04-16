@@ -194,23 +194,13 @@ pub(crate) async fn end_billing_session(
                 .ok()
                 .flatten();
 
-                if let Some((driver_id, allocated, Some(debit), wallet_owner, billing_mode, total_debited, rate_per_min)) = wallet_info {
-                    let refund_amount = if billing_mode == "per_minute" {
-                        // Per-minute: refund unused hold. Hold was deducted upfront,
-                        // periodic debits were separate. Refund = hold - (minutes * rate).
-                        let rate = rate_per_min.unwrap_or(2500);
-                        compute_per_minute_refund(debit, total_debited.unwrap_or(0), rate, driving_seconds as i64)
-                    } else {
-                        // Package: use best-rate formula
-                        compute_refund(allocated, driving_seconds as i64, debit)
-                    };
+                if let Some((driver_id, _allocated, Some(debit), wallet_owner, billing_mode, total_debited, _rate_per_min)) = wallet_info {
+                    // Unified refund: use snap-to-package pricing for all billing modes
+                    let total_charged = total_debited.unwrap_or(debit);
+                    let refund_amount = compute_per_minute_refund(total_charged, 0, 0, driving_seconds as i64);
                     if refund_amount > 0 {
                         let refund_target = wallet_owner.as_deref().unwrap_or(&driver_id);
-                        let refund_note = if billing_mode == "per_minute" {
-                            "Early end — per-minute hold refund"
-                        } else {
-                            "Early end — proportional refund"
-                        };
+                        let refund_note = "Early end — snap pricing refund";
                         match crate::wallet::refund(
                             state,
                             refund_target,
