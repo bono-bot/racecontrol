@@ -4,6 +4,7 @@ use axum::middleware as axum_mw;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::{CorsLayer, AllowOrigin};
+use tower_http::compression::CompressionLayer;
 use axum::http::{HeaderValue, Method};
 use tower_http::trace::TraceLayer;
 
@@ -407,6 +408,7 @@ fn build_router(state: Arc<AppState>) -> Router {
                 .allow_headers(tower_http::cors::Any)
                 .allow_credentials(false)
         )
+        .layer(CompressionLayer::new()) // P1: gzip/brotli — 60-80% smaller JSON responses
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB request body limit
         .layer(
             TraceLayer::new_for_http()

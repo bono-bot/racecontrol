@@ -520,22 +520,26 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
     let _ = std::fs::OpenOptions::new().append(true).create(true).open(r"C:\RacingPoint\launch-breadcrumb.txt")
         .and_then(|mut f| { use std::io::Write; writeln!(f, "STEP0: done") });
 
-    // Step 1: Kill existing AC
-    tracing::info!(target: LOG_TARGET, "Killing existing AC...");
-    let _ = spawn_safe("taskkill")
-        .args(["/IM", "acs.exe", "/F"])
-        .output();
-    let _ = spawn_safe("taskkill")
-        .args(["/IM", "AssettoCorsa.exe", "/F"])
-        .output();
-    // AC-01: Poll for acs.exe absence (max 5s) instead of hardcoded 2s sleep
-    // Prevent double AC instance: if kill times out, retry once then abort
-    if !wait_for_acs_exit(5) {
-        tracing::warn!(target: LOG_TARGET, "acs.exe still running after 5s kill timeout — force-killing again");
-        let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
-        if !wait_for_acs_exit(3) {
-            anyhow::bail!("Cannot kill existing acs.exe after 8s — aborting launch to prevent double instance");
+    // Step 1: Kill existing AC (P4: skip if no AC process is running — saves 1-3s on clean launches)
+    if find_acs_pid().is_some() {
+        tracing::info!(target: LOG_TARGET, "Killing existing AC...");
+        let _ = spawn_safe("taskkill")
+            .args(["/IM", "acs.exe", "/F"])
+            .output();
+        let _ = spawn_safe("taskkill")
+            .args(["/IM", "AssettoCorsa.exe", "/F"])
+            .output();
+        // AC-01: Poll for acs.exe absence (max 5s) instead of hardcoded 2s sleep
+        // Prevent double AC instance: if kill times out, retry once then abort
+        if !wait_for_acs_exit(5) {
+            tracing::warn!(target: LOG_TARGET, "acs.exe still running after 5s kill timeout — force-killing again");
+            let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
+            if !wait_for_acs_exit(3) {
+                anyhow::bail!("Cannot kill existing acs.exe after 8s — aborting launch to prevent double instance");
+            }
         }
+    } else {
+        tracing::info!(target: LOG_TARGET, "No existing AC process — skipping kill step");
     }
 
     // Step 2: Write race.ini + assists.ini + apps preset

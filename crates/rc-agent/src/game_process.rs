@@ -83,9 +83,10 @@ pub fn pre_launch_checks() -> Result<(), String> {
         use sysinfo::System;
         let known = all_game_process_names();
         const MAX_KILL_ATTEMPTS: u32 = 3;
+        // P5: Reuse System instance across retry loop — System::new() costs ~50-100ms on Windows
+        let mut sys = System::new();
 
         for attempt in 1..=MAX_KILL_ATTEMPTS {
-            let mut sys = System::new();
             sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
             let mut orphans: Vec<(u32, String)> = Vec::new();
             for (_pid, proc) in sys.processes() {

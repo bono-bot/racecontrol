@@ -48,6 +48,10 @@ pub async fn init_pool(db_path: &str) -> anyhow::Result<SqlitePool> {
             sqlx::query("PRAGMA journal_mode=WAL").execute(&mut *conn).await?;
             sqlx::query("PRAGMA busy_timeout=5000").execute(&mut *conn).await?;
             sqlx::query("PRAGMA synchronous=NORMAL").execute(&mut *conn).await?;
+            // P2: Performance PRAGMAs — server has 64GB RAM, these use ~288MB
+            sqlx::query("PRAGMA cache_size=-32000").execute(&mut *conn).await?;   // 32MB page cache (default ~2MB)
+            sqlx::query("PRAGMA mmap_size=268435456").execute(&mut *conn).await?; // 256MB memory-mapped reads
+            sqlx::query("PRAGMA temp_store=memory").execute(&mut *conn).await?;   // temp tables in RAM
             Ok(())
         }))
         .connect(&url)
