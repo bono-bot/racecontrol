@@ -76,6 +76,9 @@ function Restart-Racecontrol {
         $script:restartCount = 0
         $script:restartWindowStart = Get-Date
         Write-Log "MAINTENANCE_MODE auto-cleared after 30 minutes"
+        if (Test-Path "C:\RacingPoint\MAINTENANCE_MODE") {
+            Remove-Item "C:\RacingPoint\MAINTENANCE_MODE" -Force -ErrorAction SilentlyContinue
+        }
     }
 
     # Restart storm detection: 3+ restarts in 10 min = maintenance mode
@@ -139,6 +142,17 @@ try {
                 Write-Log "Recovered: racecontrol healthy after $consecutiveFails failed checks"
             }
             $consecutiveFails = 0
+            if ($maintenanceMode) {
+                $script:maintenanceMode = $false
+                $script:maintenanceStart = $null
+                $script:restartCount = 0
+                $script:restartWindowStart = Get-Date
+                Write-Log "MAINTENANCE_MODE auto-cleared: racecontrol healthy"
+                if (Test-Path "C:\RacingPoint\MAINTENANCE_MODE") {
+                    Remove-Item "C:\RacingPoint\MAINTENANCE_MODE" -Force -ErrorAction SilentlyContinue
+                    Write-Log "MAINTENANCE_MODE sentinel file removed"
+                }
+            }
         } elseif (-not $running) {
             $consecutiveFails++
             Restart-Racecontrol -reason "process not running"
