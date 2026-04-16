@@ -7,6 +7,7 @@ import { KioskHeader } from "@/components/KioskHeader";
 import LaunchCard from "@/components/LaunchCard";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import type {
+  Pod,
   PodHealth,
   DebugPlaybook,
   DebugIncident,
@@ -1065,6 +1066,269 @@ function ServerLogViewer() {
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Lap Health Panel (zero-laps verification) ─────────────────────────────
+
+function LapHealthPanel({
+  wsLaps,
+  billingTimers,
+  latestTelemetry,
+  pods,
+}: {
+  wsLaps: Lap[];
+  billingTimers: Map<string, BillingSession>;
+  latestTelemetry: Map<string, TelemetryFrame>;
+  pods: Map<string, Pod>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [dbLaps, setDbLaps] = useState<
+    { id: string; driver_id: string; track: string; car: string; lap_time_ms: number; valid: boolean }[]
+  >([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
+
+  const fetchDbLaps = useCallback(async () => {
+    if (!open) return;
+    setDbLoading(true);
+    try {
+      const res = await api.listLaps(50);
+      setDbLaps(res.laps || []);
+      setDbError(null);
+    } catch (e) {
+      setDbError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDbLoading(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    fetchDbLaps();
+    if (!open) return;
+    const iv = setInterval(fetchDbLaps, 30000);
+    return () => clearInterval(iv);
+  }, [fetchDbLaps, open]);
+
+  // Detect zero-lap anomalies: pods with active billing + telemetry but no WS laps
+  const anomalies = useMemo(() => {
+    const results: {
+      podId: string;
+      podNumber: number;
+      driverName: string;
+      drivingSeconds: number;
+      telemetryLapNumber: number;
+    }[] = [];
+    billingTimers.forEach((session, podId) => {
+      if (session.status !== "active" && session.status !== "waiting_for_game") return;
+      const drivingSec = session.driving_seconds || 0;
+      if (drivingSec < 120) return; // skip sessions under 2 min
+
+      const telemetry = latestTelemetry.get(podId);
+      const telemetryLap = telemetry?.lap_number || 0;
+
+      // Flag if driving 2+ min with telemetry showing laps but zero WS lap_completed events
+      if (telemetryLap > 1 && wsLaps.length === 0) {
+        const pod = pods.get(podId);
+        results.push({
+          podId,
+          podNumber: pod?.number || 0,
+          driverName: session.driver_name || "Unknown",
+          drivingSeconds: drivingSec,
+          telemetryLapNumber: telemetryLap,
+        });
+      }
+    });
+    return results;
+  }, [billingTimers, latestTelemetry, wsLaps, pods]);
+
+  const hasAnomaly = anomalies.length > 0;
+
+  return (
+    <div
+      className={`flex-shrink-0 bg-rp-card border rounded-xl overflow-hidden ${
+        hasAnomaly ? "border-red-600" : "border-rp-border"
+      }`}
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-3 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-rp-grey uppercase tracking-wider">
+            Lap Health
+          </h2>
+          {hasAnomaly && (
+            <span className="bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+              ZERO LAPS
+            </span>
+          )}
+          {!hasAnomaly && wsLaps.length > 0 && (
+            <span className="bg-green-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              {wsLaps.length} live
+            </span>
+          )}
+          {!open && dbLaps.length > 0 && (
+            <span className="text-[10px] text-zinc-600">{dbLaps.length} in DB</span>
+          )}
+        </div>
+        <svg
+          className={`w-4 h-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-3">
+          {/* Zero-lap anomaly alerts */}
+          {anomalies.map((a) => (
+            <div
+              key={a.podId}
+              className="bg-red-900/30 border border-red-600/50 rounded-lg px-3 py-2 text-xs"
+            >
+              <div className="flex items-center gap-2 text-red-400 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                Pod {a.podNumber} — NO LAPS RECORDED
+              </div>
+              <div className="text-zinc-400 mt-1">
+                Driver: {a.driverName} | Driving:{" "}
+                {Math.floor(a.drivingSeconds / 60)}m {a.drivingSeconds % 60}s |
+                Telemetry lap: {a.telemetryLapNumber} | WS laps: 0
+              </div>
+              <div className="text-zinc-500 mt-0.5">
+                Check: python.ini on pod, AC SHM plugin, rc-agent lap_tracker
+              </div>
+            </div>
+          ))}
+
+          {/* Active sessions summary */}
+          <div>
+            <h3 className="text-[10px] font-semibold text-zinc-500 uppercase mb-1">
+              Active Sessions
+            </h3>
+            {billingTimers.size === 0 ? (
+              <p className="text-xs text-zinc-600">No active billing sessions</p>
+            ) : (
+              <div className="space-y-1">
+                {Array.from(billingTimers.entries()).map(([podId, session]) => {
+                  const pod = pods.get(podId);
+                  const telemetry = latestTelemetry.get(podId);
+                  const isActive = session.status === "active";
+                  return (
+                    <div key={podId} className="flex items-center gap-2 text-xs font-mono">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          isActive ? "bg-green-400" : "bg-zinc-500"
+                        }`}
+                      />
+                      <span className="text-zinc-400 w-12">Pod {pod?.number || "?"}</span>
+                      <span className="text-white w-24 truncate">{session.driver_name}</span>
+                      <span className="text-zinc-500 w-16">
+                        {Math.floor((session.driving_seconds || 0) / 60)}m
+                      </span>
+                      <span className="text-zinc-500 w-16">
+                        Lap {telemetry?.lap_number || 0}
+                      </span>
+                      <span
+                        className={`px-1 py-0.5 rounded text-[10px] ${
+                          isActive
+                            ? "bg-green-800 text-green-200"
+                            : "bg-zinc-700 text-zinc-300"
+                        }`}
+                      >
+                        {session.status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* WS laps received this session */}
+          <div>
+            <h3 className="text-[10px] font-semibold text-zinc-500 uppercase mb-1">
+              WebSocket Laps (this session: {wsLaps.length})
+            </h3>
+            {wsLaps.length === 0 ? (
+              <p className="text-xs text-zinc-600">
+                No lap_completed events received via WebSocket
+              </p>
+            ) : (
+              <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
+                {wsLaps.slice(0, 10).map((lap, i) => (
+                  <div
+                    key={`${lap.id}-${i}`}
+                    className="flex items-center gap-2 text-xs font-mono text-zinc-400"
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        lap.valid ? "bg-green-400" : "bg-zinc-600"
+                      }`}
+                    />
+                    <span className="w-24 truncate">{lap.track}</span>
+                    <span className="w-20 truncate">{lap.car}</span>
+                    <span className="w-20">
+                      {(lap.lap_time_ms / 1000).toFixed(3)}s
+                    </span>
+                    <span
+                      className={`text-[10px] ${
+                        lap.valid ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {lap.valid ? "valid" : "invalid"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* DB laps */}
+          <div>
+            <h3 className="text-[10px] font-semibold text-zinc-500 uppercase mb-1">
+              Database Laps (last {dbLaps.length})
+              {dbLoading && <span className="text-zinc-600 ml-2">loading...</span>}
+            </h3>
+            {dbError && <div className="text-xs text-red-400 mb-1">{dbError}</div>}
+            {dbLaps.length === 0 && !dbLoading ? (
+              <p className="text-xs text-red-400 font-semibold">
+                0 laps in database — zero-laps bug likely active
+              </p>
+            ) : (
+              <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
+                {dbLaps.slice(0, 10).map((lap, i) => (
+                  <div
+                    key={`${lap.id}-${i}`}
+                    className="flex items-center gap-2 text-xs font-mono text-zinc-400"
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        lap.valid ? "bg-green-400" : "bg-zinc-600"
+                      }`}
+                    />
+                    <span className="w-24 truncate">{lap.track}</span>
+                    <span className="w-20 truncate">{lap.car}</span>
+                    <span className="w-20">{(lap.lap_time_ms / 1000).toFixed(3)}s</span>
+                    <span
+                      className={`text-[10px] ${
+                        lap.valid ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {lap.valid ? "valid" : "invalid"}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
