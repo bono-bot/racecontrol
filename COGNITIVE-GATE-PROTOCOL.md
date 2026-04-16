@@ -48,7 +48,7 @@ _Why: 2026-04-11 — game launch API returned `{ok: true, verified: true}`. Scre
 3. **Missing targets** = the claim is false. Period.
 
 **The full target list (from MEMORY.md):**
-Server .23 | Pods 1-8 | POS .20 | James .27 | Bono VPS | Cloud apps | Comms-link (James) | Comms-link (Bono)
+Server .23 | Pods 1-8 | POS .130 | James .27 | Bono VPS | Cloud apps | Comms-link (James) | Comms-link (Bono)
 
 **Why it works:** Forces enumeration before assertion. The grep IS the verification — not a formatted table you fill in after the fact.
 
