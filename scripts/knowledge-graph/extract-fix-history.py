@@ -13,16 +13,22 @@ import json
 import subprocess
 import re
 import os
+import shutil
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-GRAPH_PATH = REPO_ROOT / ".planning" / "knowledge-graph" / "graph.json"
-OUTPUT_PATH = REPO_ROOT / ".planning" / "knowledge-graph" / "fix-history.json"
+KG_DIR = REPO_ROOT / ".planning" / "knowledge-graph"
+GRAPH_PATH = KG_DIR / "graph.json"
+OUTPUT_PATH = KG_DIR / "fix-history.json"
 LOGBOOK_PATH = REPO_ROOT / "LOGBOOK.md"
 ERROR_CATALOG_PATH = REPO_ROOT / "docs" / "ERROR-CATALOG.md"
+# Also check graphify-out/ for graph.json (G3: auto-copy)
+GRAPHIFY_OUT_PATH = REPO_ROOT / "graphify-out" / "graph.json"
 
 # Symptom keyword patterns — extracted from common RacingPoint incident vocabulary
+# Keep in sync with query-fixes.py SYMPTOM_PATTERNS (G4)
 SYMPTOM_PATTERNS = [
     # Process/restart issues
     (r"crash\s*loop", "crash-loop"),
@@ -56,7 +62,7 @@ SYMPTOM_PATTERNS = [
     (r"wallet|credit|debit", "wallet"),
     (r"refund", "refund"),
     (r"session.?end|end.?session", "session-end"),
-    (r"pricing|price|rate", "pricing"),
+    (r"pricing|price|rate|tier", "pricing"),
 
     # Game launch
     (r"launch", "game-launch"),
@@ -64,6 +70,12 @@ SYMPTOM_PATTERNS = [
     (r"race\.ini|config.?mismatch", "game-config"),
     (r"telemetry|udp", "telemetry"),
     (r"ffb|force.?feedback|conspit", "ffb-wheelbase"),
+    (r"zero.?lap|no.?lap|0.?lap", "zero-laps"),
+    (r"python\.ini", "python-ini"),
+    (r"f1.?25|ea.?app", "f1-25"),
+    (r"iracing", "iracing"),
+    (r"le.?mans|lmu", "lmu"),
+    (r"forza", "forza"),
 
     # Deploy
     (r"deploy", "deploy"),
@@ -77,6 +89,7 @@ SYMPTOM_PATTERNS = [
     (r"allowlist|whitelist", "allowlist"),
     (r"sentry.?key|service.?key", "service-key"),
     (r"feature.?flag", "feature-flag"),
+    (r"foreign.?key|fk.?constraint|\bfk\b", "foreign-key"),
 
     # Infrastructure
     (r"tailscale|ssh", "remote-access"),
@@ -84,12 +97,36 @@ SYMPTOM_PATTERNS = [
     (r"fleet", "fleet-wide"),
     (r"cloud|bono.?vps", "cloud"),
     (r"comms.?link", "comms-link"),
+    (r"memory.?leak|powershell.?leak", "memory-leak"),
 ]
+
+# Generic node names that should never be hotspots — they appear in every file
+GENERIC_NODE_NAMES = frozenset({
+    ".default()", ".new()", ".name()", ".run()", "ok()",
+    "GET()", "spawn()", "main()", "entry()", "load()",
+    ".push()", ".get()", ".set()", ".collect()", ".clone()",
+    ".as_str()", ".open()", ".into()", ".map()", ".unwrap()",
+    ".drop()", ".fmt()", ".from()", ".try_from()", ".deref()",
+    "Error", "Display", "Debug", "Clone", "Default",
+})
+
+GENERIC_FILE_NAMES = frozenset({
+    "mod.rs", "page.tsx", "main.rs", "lib.rs",
+    "index.ts", "index.js", "layout.tsx", "route.ts",
+})
+
+
+def _normalize_path(filepath):
+    """Normalize file paths for cross-platform matching.
+
+    Git uses forward slashes. Graphify on Windows uses backslashes.
+    Both may have leading ./ or no prefix. Normalize to forward slashes, no prefix.
+    """
+    return filepath.replace("\\", "/").lstrip("./")
 
 
 def get_fix_commits():
     """Get all fix-related commits with their changed files AND diff line ranges."""
-    # First pass: get commit metadata + file list
     result = subprocess.run(
         ["git", "log", "--all", "--format=%H|||%s|||%ai", "--name-only",
          "--diff-filter=ACDMR"],
@@ -130,7 +167,6 @@ def get_fix_commits():
     fix_commits = [c for c in raw_commits if c["is_fix"]]
 
     # Second pass: get diff hunks for function-level mapping
-    # Process in batches for performance
     print(f"  Extracting diff hunks for {len(fix_commits)} fix commits...")
     for i, commit in enumerate(fix_commits):
         if i % 200 == 0 and i > 0:
@@ -154,20 +190,17 @@ def _get_diff_hunks(commit_hash):
     if result.returncode != 0:
         return {}
 
-    # Decode with error handling for binary content
     try:
         stdout = result.stdout.decode("utf-8", errors="replace")
     except Exception:
         return {}
 
-    hunks = defaultdict(list)  # file -> [(start_line, end_line), ...]
+    hunks = defaultdict(list)
     current_file = None
 
     for line in stdout.split("\n"):
-        # Match diff file header: +++ b/path/to/file.rs
         if line.startswith("+++ b/"):
-            current_file = line[6:]
-        # Match hunk header: @@ -old_start,old_count +new_start,new_count @@
+            current_file = _normalize_path(line[6:])
         elif line.startswith("@@") and current_file:
             match = re.search(r'\+(\d+)(?:,(\d+))?', line)
             if match:
@@ -189,10 +222,32 @@ def extract_symptoms(message):
     return list(symptoms)
 
 
+def _auto_copy_graph():
+    """G3 fix: Auto-copy graph.json from graphify-out/ if it's newer."""
+    if not GRAPHIFY_OUT_PATH.exists():
+        return
+    if not GRAPH_PATH.exists():
+        print(f"  Auto-copying graph.json from graphify-out/")
+        shutil.copy2(GRAPHIFY_OUT_PATH, GRAPH_PATH)
+        return
+    # Copy if graphify-out version is newer
+    out_mtime = GRAPHIFY_OUT_PATH.stat().st_mtime
+    kg_mtime = GRAPH_PATH.stat().st_mtime
+    if out_mtime > kg_mtime:
+        print(f"  Auto-copying newer graph.json from graphify-out/")
+        shutil.copy2(GRAPHIFY_OUT_PATH, GRAPH_PATH)
+
+
 def load_graph_nodes():
-    """Load graph nodes and build file→nodes + file→line→nodes lookups."""
+    """Load graph nodes and build file->nodes + file->line->nodes lookups.
+
+    G1 fix: Normalize all paths to forward slashes. No basename fallback.
+    """
+    _auto_copy_graph()
+
     if not GRAPH_PATH.exists():
         print(f"ERROR: graph.json not found at {GRAPH_PATH}")
+        print(f"  Run: graphify update . (in repo root)")
         return {}, {}, {}
 
     with open(GRAPH_PATH) as f:
@@ -200,7 +255,6 @@ def load_graph_nodes():
 
     file_to_nodes = defaultdict(list)
     node_index = {}
-    # file_line_index: file_path -> sorted list of (start_line, node_id)
     file_line_index = defaultdict(list)
 
     for node in graph.get("nodes", []):
@@ -209,7 +263,6 @@ def load_graph_nodes():
         community = node.get("community", -1)
         loc = node.get("source_location", "")
 
-        # Parse line number from "L123" format
         line_num = 0
         if loc and loc.startswith("L"):
             try:
@@ -228,16 +281,14 @@ def load_graph_nodes():
         node_index[node_id] = node_info
 
         if source:
-            norm_source = source.lstrip("./")
+            # G1: Normalize to forward slashes, strip leading ./
+            norm_source = _normalize_path(source)
             file_to_nodes[norm_source].append(node_id)
-            basename = os.path.basename(norm_source)
-            file_to_nodes[f"_basename_{basename}"].append(node_id)
+            # NO basename fallback — this caused massive over-counting
 
-            # Build line-level index for function-level matching
             if line_num > 0:
                 file_line_index[norm_source].append((line_num, node_id))
 
-    # Sort line indices for binary search
     for filepath in file_line_index:
         file_line_index[filepath].sort(key=lambda x: x[0])
 
@@ -255,7 +306,6 @@ def parse_logbook():
             line = line.strip()
             if not line or line.startswith("#") or line.startswith("|--"):
                 continue
-            # Format: | date | author | hash | description |
             parts = [p.strip() for p in line.split("|") if p.strip()]
             if len(parts) >= 4:
                 desc = parts[3].lower()
@@ -298,13 +348,7 @@ def parse_error_catalog():
 
 
 def _find_nodes_in_range(file_line_index, filepath, hunk_start, hunk_end):
-    """Find graph nodes whose start line falls within a diff hunk range.
-
-    Each node represents a function/struct starting at a specific line.
-    We match a node if its start line is within [hunk_start - margin, hunk_end + margin].
-    The margin accounts for changes to a function's body hitting lines below the
-    definition start — a 50-line margin covers most function bodies.
-    """
+    """Find graph nodes whose start line falls within a diff hunk range."""
     MARGIN = 50
     entries = file_line_index.get(filepath, [])
     if not entries:
@@ -320,11 +364,9 @@ def _find_nodes_in_range(file_line_index, filepath, hunk_start, hunk_end):
 def build_fix_overlay(commits, file_to_nodes, node_index, file_line_index, logbook_entries, error_entries):
     """Build the fix-history overlay: graph nodes annotated with fix history.
 
-    Uses function-level diff hunk matching when available, falls back to
-    file-level matching for commits without hunk data.
+    G1 fix: Uses normalized paths for matching. No basename fallback.
+    Commits that don't match any graph file are tracked separately for diagnostics.
     """
-
-    # Node → fix history
     node_fixes = defaultdict(lambda: {
         "fix_count": 0,
         "symptoms": set(),
@@ -333,41 +375,39 @@ def build_fix_overlay(commits, file_to_nodes, node_index, file_line_index, logbo
         "communities_affected": set(),
     })
 
-    # Symptom → nodes index (for reverse lookup)
     symptom_index = defaultdict(set)
 
     hunk_hits = 0
-    file_fallbacks = 0
+    file_hits = 0
+    unmatched_files = 0
 
     for commit in commits:
         symptoms = extract_symptoms(commit["message"])
         hunks = commit.get("hunks", {})
 
         for filepath in commit["files"]:
-            norm_path = filepath.lstrip("./")
+            norm_path = _normalize_path(filepath)
 
-            # Try function-level matching via diff hunks first
             matched_nodes = []
             file_hunks = hunks.get(norm_path, [])
 
+            # Try function-level matching via diff hunks first
             if file_hunks and norm_path in file_line_index:
-                # Function-level: only match nodes whose lines overlap the diff
                 for hunk_start, hunk_end in file_hunks:
                     matched_nodes.extend(
                         _find_nodes_in_range(file_line_index, norm_path, hunk_start, hunk_end)
                     )
-                matched_nodes = list(set(matched_nodes))  # dedupe
+                matched_nodes = list(set(matched_nodes))
                 if matched_nodes:
                     hunk_hits += 1
 
-            # Fall back to file-level matching
+            # Fall back to file-level matching (same normalized path only — NO basename)
             if not matched_nodes:
                 matched_nodes = file_to_nodes.get(norm_path, [])
-                if not matched_nodes:
-                    basename = os.path.basename(norm_path)
-                    matched_nodes = file_to_nodes.get(f"_basename_{basename}", [])
                 if matched_nodes:
-                    file_fallbacks += 1
+                    file_hits += 1
+                else:
+                    unmatched_files += 1
 
             for node_id in matched_nodes:
                 entry = node_fixes[node_id]
@@ -383,26 +423,24 @@ def build_fix_overlay(commits, file_to_nodes, node_index, file_line_index, logbo
                 if node_id in node_index:
                     entry["communities_affected"].add(node_index[node_id]["community"])
 
-                # Build reverse index
                 for symptom in symptoms:
                     symptom_index[symptom].add(node_id)
 
-    print(f"  Function-level hunk matches: {hunk_hits} | File-level fallbacks: {file_fallbacks}")
+    print(f"  Function-level hunk matches: {hunk_hits} | File-level matches: {file_hits} | Unmatched files: {unmatched_files}")
 
-    # Enrich from LOGBOOK
+    # Enrich from LOGBOOK — only add symptoms to nodes already in symptom_index
     for entry in logbook_entries:
         for symptom in entry["symptoms"]:
-            # Find nodes that match this symptom
-            for node_id in symptom_index.get(symptom, set()):
+            for node_id in list(symptom_index.get(symptom, set())):
                 node_fixes[node_id]["symptoms"].update(entry["symptoms"])
 
     # Enrich from ERROR-CATALOG
     for error in error_entries:
         for symptom in error["symptoms"]:
-            for node_id in symptom_index.get(symptom, set()):
+            for node_id in list(symptom_index.get(symptom, set())):
                 node_fixes[node_id]["symptoms"].update(error["symptoms"])
 
-    # Convert sets to lists for JSON serialization
+    # Convert sets to lists for JSON
     serializable_fixes = {}
     for node_id, data in node_fixes.items():
         serializable_fixes[node_id] = {
@@ -422,12 +460,14 @@ def build_fix_overlay(commits, file_to_nodes, node_index, file_line_index, logbo
 
 
 def compute_hotspots(node_fixes):
-    """Find the most frequently fixed nodes — these are your structural weak points."""
-    hotspots = sorted(
-        node_fixes.items(),
-        key=lambda x: x[1]["fix_count"],
-        reverse=True
-    )[:30]
+    """Find the most frequently fixed nodes — excluding generic names (G6 fix)."""
+    candidates = [
+        (nid, data) for nid, data in node_fixes.items()
+        if nid not in GENERIC_NODE_NAMES
+        and nid not in GENERIC_FILE_NAMES
+        and not nid.startswith(".")  # skip .method() style generic names
+    ]
+    hotspots = sorted(candidates, key=lambda x: x[1]["fix_count"], reverse=True)[:30]
     return [
         {
             "node": node_id,
@@ -464,18 +504,19 @@ def main():
     print(f"  Annotated {len(node_fixes)} nodes with fix history")
     print(f"  Created {len(symptom_index)} symptom lookups")
 
+    # G8 fix: Use Python datetime instead of shell `date` command
     print("[5/5] Writing fix-history.json...")
     output = {
         "metadata": {
-            "generated": subprocess.run(
-                ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
-                capture_output=True, text=True
-            ).stdout.strip(),
+            "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "fix_commits_analyzed": len(commits),
             "logbook_entries": len(logbook_entries),
             "error_catalog_entries": len(error_entries),
             "nodes_annotated": len(node_fixes),
             "symptom_count": len(symptom_index),
+            "graph_json_mtime": datetime.fromtimestamp(
+                GRAPH_PATH.stat().st_mtime, tz=timezone.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ") if GRAPH_PATH.exists() else None,
         },
         "hotspots": hotspots,
         "symptom_index": symptom_index,
