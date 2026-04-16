@@ -44,6 +44,8 @@ pub struct AssettoCorsaAdapter {
     /// True if we successfully connected to the RC plugin shared memory.
     /// When true, read_telemetry uses the plugin buffer instead of raw AC memory.
     using_rc_plugin: bool,
+    /// Telemetry read counter — used for periodic diagnostic logging.
+    telemetry_read_count: u64,
 }
 
 /// Wrapper for a Windows memory-mapped file handle + view pointer
@@ -145,6 +147,7 @@ impl AssettoCorsaAdapter {
             #[cfg(windows)]
             rc_plugin_handle: None,
             using_rc_plugin: false,
+            telemetry_read_count: 0,
         }
     }
 
@@ -374,6 +377,16 @@ impl AssettoCorsaAdapter {
             self.last_sector_index = current_sector;
         }
 
+        // Periodic diagnostic: log telemetry values every ~30s (300 reads at ~10Hz)
+        self.telemetry_read_count += 1;
+        if self.telemetry_read_count % 300 == 1 {
+            tracing::info!(
+                target: LOG_TARGET,
+                "plugin telemetry: completed_laps={} last_lap_count={} lap_time_ms={} last_lap_ms={} speed={:.1} pos={:.3} sector={}",
+                completed_laps, self.last_lap_count, lap_time_ms, last_lap_time_ms, speed_kmh, normalized_pos, current_sector
+            );
+        }
+
         // Detect lap completion
         if completed_laps > self.last_lap_count {
             let lap_ms = if last_lap_time_ms > 0 { last_lap_time_ms as u32 } else { 0 };
@@ -490,13 +503,19 @@ impl SimAdapter for AssettoCorsaAdapter {
 
         // Try RaceControl AC plugin shared memory first (safe — plugin controls lifecycle).
         // If the plugin is installed, we read from rcpmf_telemetry instead of AC's raw memory.
-        match open_shm("rcpmf_telemetry") {
+        // Try both with and without Local\ prefix — Python mmap may or may not strip it.
+        let rc_shm = open_shm("rcpmf_telemetry")
+            .or_else(|_| open_shm("Local\\rcpmf_telemetry"));
+        match rc_shm {
             Ok(rc_handle) => {
                 tracing::info!(target: LOG_TARGET, "RC AC plugin detected — using safe rcpmf_telemetry shared memory");
                 // Read static info from the plugin buffer
-                let car = Self::read_wchar_string(&rc_handle, 32, 33);   // car_model offset
-                let track = Self::read_wchar_string(&rc_handle, 98, 33); // track_name offset
-                let driver = Self::read_wchar_string(&rc_handle, 164, 33); // driver_name offset
+                // Offsets from RcTelemetryPage ctypes layout (_pack_=4):
+                //   9 x i32 (36 bytes) then car_model(wchar[33]=66B) at 36,
+                //   track_name at 102, track_config at 168, driver_name at 234
+                let car = Self::read_wchar_string(&rc_handle, 36, 33);    // car_model
+                let track = Self::read_wchar_string(&rc_handle, 102, 33); // track_name
+                let driver = Self::read_wchar_string(&rc_handle, 234, 33); // driver_name
                 tracing::info!(target: LOG_TARGET, "RC plugin: driver={}, car={}, track={}", driver, car, track);
                 self.current_car = car;
                 self.current_track = track;
@@ -650,6 +669,16 @@ impl SimAdapter for AssettoCorsaAdapter {
         } else if self.last_sector_index < 0 {
             // First read — initialize sector tracking
             self.last_sector_index = current_sector;
+        }
+
+        // Periodic diagnostic: log telemetry values every ~30s (300 reads at ~10Hz)
+        self.telemetry_read_count += 1;
+        if self.telemetry_read_count % 300 == 1 {
+            tracing::info!(
+                target: LOG_TARGET,
+                "direct telemetry: completed_laps={} last_lap_count={} lap_time_ms={} last_lap_ms={} speed={:.1} pos={:.3} sector={}",
+                completed_laps, self.last_lap_count, lap_time_ms, last_lap_time_ms, speed_kmh, normalized_car_position, current_sector
+            );
         }
 
         // Detect lap completion: completedLaps incremented
