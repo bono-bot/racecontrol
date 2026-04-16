@@ -96,6 +96,7 @@ async fn detect_patterns(state: &Arc<AppState>) -> anyhow::Result<()> {
                 suggestion,
                 model,
                 created_at: Utc::now(),
+                launch_epoch: 0,
             };
 
             // Persist to DB

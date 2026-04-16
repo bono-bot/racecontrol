@@ -111,6 +111,7 @@ pub(crate) async fn escalate_to_ai(
                 suggestion,
                 model,
                 created_at: Utc::now(),
+                launch_epoch: 0,
             };
 
             // Persist to DB

@@ -843,6 +843,10 @@ pub struct AiDebugSuggestion {
     pub suggestion: String,
     pub model: String,
     pub created_at: DateTime<Utc>,
+    /// Monotonic launch counter at the time the crash was analyzed.
+    /// Suggestions with a stale epoch (< current) are discarded on receipt.
+    #[serde(default)]
+    pub launch_epoch: u64,
 }
 
 // ─── Deploy Types ────────────────────────────────────────────────────────────

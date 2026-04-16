@@ -156,6 +156,10 @@ pub(crate) struct ConnectionState {
     /// state), and would flood the log if logged unconditionally. This field
     /// reduces that to one log entry per error-message transition.
     pub(crate) last_adapter_connect_error: Option<String>,
+    /// Monotonic counter incremented on every LaunchGame command.
+    /// AI suggestions stamped with a stale epoch are discarded on receipt,
+    /// preventing fixes from a previous crash from killing a freshly launched game.
+    pub(crate) launch_epoch: u64,
 }
 
 impl ConnectionState {
@@ -210,6 +214,7 @@ impl ConnectionState {
             current_launch_id: None,
             config_verified: false,
             last_adapter_connect_error: None,
+            launch_epoch: 0,
         }
     }
 }
@@ -845,6 +850,7 @@ pub async fn run(
                                 let _ = ws_tx.send(Message::Text(json.into())).await;
                             }
 
+                            conn.launch_epoch += 1;
                             conn.launch_state = LaunchState::WaitingForLive {
                                 launched_at: std::time::Instant::now(),
                                 attempt: attempt + 1,
@@ -1107,6 +1113,7 @@ pub async fn run(
                                         err_ctx,
                                         snapshot,
                                         state.ai_result_tx.clone(),
+                                        conn.launch_epoch,
                                     ));
                                 }
                             }
@@ -1397,6 +1404,7 @@ pub async fn run(
                                 err_ctx,
                                 snapshot,
                                 state.ai_result_tx.clone(),
+                                conn.launch_epoch,
                             ));
                         }
 
@@ -1541,6 +1549,15 @@ pub async fn run(
             Some(mut suggestion) = state.ai_result_rx.recv() => {
                 let _ = &suggestion; // suppress unused warning when ai-debugger is off
                 #[cfg(feature = "ai-debugger")] {
+                // LAUNCH-EPOCH: Discard stale suggestions from a previous launch.
+                if suggestion.launch_epoch < conn.launch_epoch {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        "STALE-EPOCH: Discarding AI suggestion (epoch {} < current {}), model={}",
+                        suggestion.launch_epoch, conn.launch_epoch, suggestion.model
+                    );
+                    continue;
+                }
                 tracing::info!(target: LOG_TARGET, "Received AI suggestion for {}", suggestion.pod_id);
                 let fix_snapshot = PodStateSnapshot {
                     pod_id: state.pod_id.clone(),
@@ -2083,6 +2100,7 @@ pub async fn run(
                                     session_id: None, launch_stage: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
+                                conn.launch_epoch += 1;
                                 conn.launch_state = LaunchState::WaitingForLive {
                                     launched_at: std::time::Instant::now(),
                                     attempt: 1,

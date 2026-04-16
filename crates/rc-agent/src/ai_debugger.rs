@@ -317,6 +317,7 @@ pub async fn analyze_crash(
     error_context: String,
     snapshot: PodStateSnapshot,
     result_tx: mpsc::Sender<AiDebugSuggestion>,
+    launch_epoch: u64,
 ) {
     tracing::info!(
         target: LOG_TARGET,
@@ -339,6 +340,7 @@ pub async fn analyze_crash(
                 suggestion: audit_match,
                 model: "audit-kb/tier-0".to_string(),
                 created_at: Utc::now(),
+                launch_epoch,
             })
             .await;
         return;
@@ -360,6 +362,7 @@ pub async fn analyze_crash(
                 suggestion: format!("[PATTERN MEMORY — instant fix]\n\n{}", cached_suggestion),
                 model: "rc-bot/memory".to_string(),
                 created_at: Utc::now(),
+                launch_epoch,
             })
             .await;
         return;
@@ -395,6 +398,7 @@ pub async fn analyze_crash(
                     suggestion,
                     model: format!("ollama/{}", config.ollama_model),
                     created_at: Utc::now(),
+                    launch_epoch,
                 })
                 .await
             {
@@ -438,6 +442,7 @@ pub async fn analyze_crash(
                         suggestion,
                         model: format!("openrouter/{}", config.openrouter_model),
                         created_at: Utc::now(),
+                        launch_epoch,
                     })
                     .await;
             }
