@@ -352,6 +352,20 @@ pub(crate) fn validate_splits_and_duration(
             return Err(Json(json!({ "error": "Custom duration cannot exceed 24 hours (1440 minutes)" })));
         }
     }
+
+    // P0 zero-laps fix: per-minute tier (duration_minutes=0) requires a minimum
+    // booking duration so customers can complete at least one lap.
+    // Fastest known lap is ~105s (F2004 Spa); 3 min gives comfortable margin.
+    const PER_MINUTE_MIN_DURATION: u32 = 3;
+    if tier_duration_minutes == 0 {
+        let custom = input.custom_duration_minutes.unwrap_or(0);
+        if custom < PER_MINUTE_MIN_DURATION {
+            return Err(Json(json!({
+                "error": format!("Per-minute sessions require a minimum of {} minutes", PER_MINUTE_MIN_DURATION),
+                "minimum_minutes": PER_MINUTE_MIN_DURATION,
+            })));
+        }
+    }
     if let Some(dur) = input.split_duration_minutes {
         if dur > 1440 {
             return Err(Json(json!({ "error": "Split duration cannot exceed 24 hours (1440 minutes)" })));
@@ -401,4 +415,88 @@ pub(crate) async fn resolve_wallet_owner(
     wallet::resolve_wallet_owner(state, driver_id)
         .await
         .map_err(|e| Json(json!({ "error": format!("Wallet error: {}", e) })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_input(custom_duration_minutes: Option<u32>) -> BillingStartInput {
+        BillingStartInput {
+            pod_id: "pod-1".into(),
+            driver_id: "d-1".into(),
+            pricing_tier_id: "tier_per_minute".into(),
+            custom_price_paise: None,
+            custom_duration_minutes,
+            staff_id: None,
+            split_count: None,
+            split_duration_minutes: None,
+            idempotency_key: None,
+            coupon_code: None,
+            staff_discount_paise: None,
+            discount_reason: None,
+            guardian_present_flag: false,
+        }
+    }
+
+    #[test]
+    fn per_minute_tier_rejects_below_3_min() {
+        // tier_duration_minutes=0 is the per-minute tier
+        let input = make_input(Some(1));
+        let result = validate_splits_and_duration(&input, 0);
+        assert!(result.is_err(), "1-min per-minute booking must be rejected");
+    }
+
+    #[test]
+    fn per_minute_tier_rejects_2_min() {
+        let input = make_input(Some(2));
+        let result = validate_splits_and_duration(&input, 0);
+        assert!(result.is_err(), "2-min per-minute booking must be rejected");
+    }
+
+    #[test]
+    fn per_minute_tier_accepts_3_min() {
+        let input = make_input(Some(3));
+        let result = validate_splits_and_duration(&input, 0);
+        assert!(result.is_ok(), "3-min per-minute booking must be accepted");
+        let (_, secs) = result.unwrap();
+        assert_eq!(secs, 180);
+    }
+
+    #[test]
+    fn per_minute_tier_accepts_10_min() {
+        let input = make_input(Some(10));
+        let result = validate_splits_and_duration(&input, 0);
+        assert!(result.is_ok());
+        let (_, secs) = result.unwrap();
+        assert_eq!(secs, 600);
+    }
+
+    #[test]
+    fn per_minute_tier_rejects_none_duration() {
+        // No custom_duration_minutes with per-minute tier → 0 allocated seconds (latent bug)
+        let input = make_input(None);
+        let result = validate_splits_and_duration(&input, 0);
+        assert!(result.is_err(), "per-minute with no duration must be rejected");
+    }
+
+    #[test]
+    fn fixed_tier_30min_not_affected() {
+        // 30-minute tier (tier_duration_minutes=30) should NOT be affected by floor
+        let input = make_input(None);
+        let result = validate_splits_and_duration(&input, 30);
+        assert!(result.is_ok());
+        let (_, secs) = result.unwrap();
+        assert_eq!(secs, 1800);
+    }
+
+    #[test]
+    fn fixed_tier_allows_custom_override() {
+        // A 60-min tier with custom 5-min override should still work
+        let input = make_input(Some(5));
+        let result = validate_splits_and_duration(&input, 60);
+        assert!(result.is_ok());
+        let (_, secs) = result.unwrap();
+        assert_eq!(secs, 300);
+    }
 }
