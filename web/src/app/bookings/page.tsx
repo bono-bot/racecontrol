@@ -49,8 +49,8 @@ export default function BookingsPage() {
             >
               <div className="flex items-center gap-4">
                 <span className="text-neutral-300 text-sm">
-                  {new Date(booking.start_time).toLocaleString()} &mdash;{" "}
-                  {new Date(booking.end_time).toLocaleTimeString()}
+                  {booking.start_time ? new Date(booking.start_time).toLocaleString() : '--'} &mdash;{" "}
+                  {booking.end_time ? new Date(booking.end_time).toLocaleTimeString() : '--'}
                 </span>
                 <span className="text-xs text-rp-grey">
                   Driver: {booking.driver_id?.slice(0, 8)}

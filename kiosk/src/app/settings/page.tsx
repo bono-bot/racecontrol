@@ -258,7 +258,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-rp-grey">
                     Added by {entry.added_by}
                     {entry.notes && ` · ${entry.notes}`}
-                    {" · "}{new Date(entry.created_at).toLocaleDateString()}
+                    {entry.created_at ? ` · ${new Date(entry.created_at).toLocaleDateString()}` : ''}
                   </p>
                 </div>
                 <button

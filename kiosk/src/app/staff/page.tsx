@@ -835,7 +835,7 @@ function WaitingPanel({
 
       <p className="text-sm text-zinc-500">{authToken.pricing_tier_name}</p>
       <p className="text-xs text-zinc-600 font-mono">
-        Expires {new Date(authToken.expires_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true })}
+        Expires {authToken.expires_at ? new Date(authToken.expires_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true }) : '--'}
       </p>
 
       <div className="flex gap-3 mt-4">
