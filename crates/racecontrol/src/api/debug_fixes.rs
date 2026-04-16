@@ -11,12 +11,180 @@ use crate::state::AppState;
 use crate::wol;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
 
-// ─── POST /debug/incidents/{id}/apply-fix — Execute a quick fix action from debug page ──
+// ─── Shared fix execution engine — used by both manual apply-fix and auto-fix on submit ──
+
+use rc_common::types::PodInfo;
+
+/// Execute a fix action on a specific pod. Returns JSON with ok/error fields.
+/// This is the core engine — both the manual POST /apply-fix endpoint and the
+/// auto-fix-on-submit path call this.
+pub(crate) async fn execute_fix_action(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    pod: &PodInfo,
+    action: &str,
+) -> Value {
+    match action {
+        "restart_pod" => {
+            match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+                Ok(output) => json!({ "ok": true, "action": "restart_pod", "output": output }),
+                Err(e) => json!({ "ok": false, "error": format!("Restart failed: {}", e) }),
+            }
+        }
+        "wake_pod" => {
+            if let Some(ref mac) = pod.mac_address {
+                match wol::send_wol(mac).await {
+                    Ok(_) => json!({ "ok": true, "action": "wake_pod" }),
+                    Err(e) => json!({ "ok": false, "error": format!("WoL failed: {}", e) }),
+                }
+            } else {
+                json!({ "ok": false, "error": format!("Pod {} has no MAC address configured", pod.number) })
+            }
+        }
+        "shutdown_pod" => {
+            match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+                Ok(output) => json!({ "ok": true, "action": "shutdown_pod", "output": output }),
+                Err(e) => json!({ "ok": false, "error": format!("Shutdown failed: {}", e) }),
+            }
+        }
+        "relaunch_edge" => {
+            let cmd = "taskkill /F /IM msedge.exe & ping -n 3 127.0.0.1 >nul & start msedge.exe --kiosk http://localhost:3300 --edge-kiosk-type=fullscreen";
+            match crate::ws::ws_exec_on_pod(state, pod_id, cmd, 15_000).await {
+                Ok((success, stdout, stderr)) => {
+                    if success {
+                        json!({ "ok": true, "action": "relaunch_edge", "output": stdout })
+                    } else {
+                        json!({ "ok": false, "error": format!("Edge relaunch failed: {}", stderr) })
+                    }
+                }
+                Err(e) => json!({ "ok": false, "error": format!("Edge relaunch failed: {}", e) }),
+            }
+        }
+        "kill_game" => {
+            let cmd = "taskkill /F /IM acs.exe & taskkill /F /IM acc.exe & taskkill /F /IM FormulaOne.exe & taskkill /F /IM F1_25.exe & taskkill /F /IM iRacingSim64DX11.exe & taskkill /F /IM LMU.exe & taskkill /F /IM ForzaMotorsport.exe";
+            match crate::ws::ws_exec_on_pod(state, pod_id, cmd, 10_000).await {
+                Ok((success, stdout, stderr)) => {
+                    if success {
+                        json!({ "ok": true, "action": "kill_game", "output": stdout })
+                    } else {
+                        json!({ "ok": false, "error": format!("Kill game failed: {}", stderr) })
+                    }
+                }
+                Err(e) => json!({ "ok": false, "error": format!("Kill game failed: {}", e) }),
+            }
+        }
+        "restart_audio" => {
+            let cmd = "net stop Audiosrv & net stop AudioEndpointBuilder & ping -n 2 127.0.0.1 >nul & net start AudioEndpointBuilder & net start Audiosrv";
+            match crate::ws::ws_exec_on_pod(state, pod_id, cmd, 15_000).await {
+                Ok((success, stdout, stderr)) => {
+                    if success {
+                        json!({ "ok": true, "action": "restart_audio", "output": stdout })
+                    } else {
+                        json!({ "ok": false, "error": format!("Audio restart failed: {}", stderr) })
+                    }
+                }
+                Err(e) => json!({ "ok": false, "error": format!("Audio restart failed: {}", e) }),
+            }
+        }
+        "restart_steam" => {
+            let cmd = "taskkill /F /IM steam.exe & taskkill /F /IM steamwebhelper.exe & ping -n 3 127.0.0.1 >nul & start \"\" \"C:\\Program Files (x86)\\Steam\\steam.exe\"";
+            match crate::ws::ws_exec_on_pod(state, pod_id, cmd, 15_000).await {
+                Ok((success, stdout, stderr)) => {
+                    if success {
+                        json!({ "ok": true, "action": "restart_steam", "output": stdout })
+                    } else {
+                        json!({ "ok": false, "error": format!("Steam restart failed: {}", stderr) })
+                    }
+                }
+                Err(e) => json!({ "ok": false, "error": format!("Steam restart failed: {}", e) }),
+            }
+        }
+        "dismiss_dialogs" => {
+            let cmd = "taskkill /F /IM WerFault.exe & taskkill /F /IM WerFaultSecure.exe & taskkill /F /IM dwwin.exe";
+            match crate::ws::ws_exec_on_pod(state, pod_id, cmd, 10_000).await {
+                Ok((success, stdout, stderr)) => {
+                    if success {
+                        json!({ "ok": true, "action": "dismiss_dialogs", "output": stdout })
+                    } else {
+                        json!({ "ok": false, "error": format!("Dismiss dialogs failed: {}", stderr) })
+                    }
+                }
+                Err(e) => json!({ "ok": false, "error": format!("Dismiss dialogs failed: {}", e) }),
+            }
+        }
+        _ => json!({ "ok": false, "error": format!("Unknown action: {}", action) }),
+    }
+}
+
+/// Post-fix bookkeeping: log activity, notify pod tier engine, auto-resolve incident, save to RAG.
+pub(crate) async fn post_fix_bookkeeping(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    pod_number: u32,
+    incident_id: &str,
+    category: &str,
+    action: &str,
+    success: bool,
+    error_msg: Option<&str>,
+    source: &str,
+) {
+    let db = &state.db;
+
+    // Log to activity feed
+    let detail = if success {
+        format!("{}: Applied '{}' on Pod {}", source, action, pod_number)
+    } else {
+        format!("{}: '{}' failed on Pod {}: {}", source, action, pod_number, error_msg.unwrap_or("unknown"))
+    };
+    crate::activity_log::log_pod_activity(state, pod_id, "race_engineer", "Fix Applied", &detail, "staff", None);
+
+    // v27.0: Notify pod's tier engine about the staff action to reset dedup window
+    if success {
+        let agent_senders = state.agent_senders.read().await;
+        if let Some(sender) = agent_senders.get(pod_id) {
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StaffActionNotify {
+                action: action.to_string(),
+                reason: format!("Staff fix for incident {}", incident_id),
+                correlation_id: uuid::Uuid::new_v4().to_string(),
+            })).await;
+        }
+        drop(agent_senders);
+    }
+
+    // If action succeeded, auto-resolve the incident
+    if success {
+        let resolved_at = chrono::Utc::now().to_rfc3339();
+        let _ = sqlx::query(
+            "UPDATE debug_incidents SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'open'",
+        )
+        .bind(&resolved_at)
+        .bind(incident_id)
+        .execute(db)
+        .await;
+
+        // Save to RAG knowledge base
+        let res_id = uuid::Uuid::new_v4().to_string();
+        let resolution_text = format!("{}: {} (auto-applied)", source, action);
+        let _ = sqlx::query(
+            "INSERT INTO debug_resolutions (id, incident_id, category, resolution_text, effectiveness) \
+             VALUES (?, ?, ?, ?, 4)",
+        )
+        .bind(&res_id)
+        .bind(incident_id)
+        .bind(category)
+        .bind(&resolution_text)
+        .execute(db)
+        .await;
+    }
+}
+
+// ─── POST /debug/incidents/{id}/apply-fix — Manual quick fix from debug page ──
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
 pub(crate) struct ApplyFixBody {
-    /// One of: restart_pod, wake_pod, shutdown_pod, relaunch_edge, kill_game
+    /// One of: restart_pod, wake_pod, shutdown_pod, relaunch_edge, kill_game,
+    /// restart_audio, restart_steam, dismiss_dialogs
     action: String,
     pod_id: Option<String>,
 }
@@ -58,110 +226,14 @@ pub(crate) async fn debug_apply_fix(
     };
     drop(pods);
 
-    let action_label = body.action.clone();
-    let result = match body.action.as_str() {
-        "restart_pod" => {
-            match wol::restart_pod(&state.http_client, &pod.ip_address).await {
-                Ok(output) => json!({ "ok": true, "action": "restart_pod", "output": output }),
-                Err(e) => json!({ "ok": false, "error": format!("Restart failed: {}", e) }),
-            }
-        }
-        "wake_pod" => {
-            if let Some(ref mac) = pod.mac_address {
-                match wol::send_wol(mac).await {
-                    Ok(_) => json!({ "ok": true, "action": "wake_pod" }),
-                    Err(e) => json!({ "ok": false, "error": format!("WoL failed: {}", e) }),
-                }
-            } else {
-                json!({ "ok": false, "error": format!("Pod {} has no MAC address configured", pod.number) })
-            }
-        }
-        "shutdown_pod" => {
-            match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
-                Ok(output) => json!({ "ok": true, "action": "shutdown_pod", "output": output }),
-                Err(e) => json!({ "ok": false, "error": format!("Shutdown failed: {}", e) }),
-            }
-        }
-        "relaunch_edge" => {
-            // Kill Edge and relaunch kiosk — executed via WS exec on the pod
-            let cmd = "taskkill /F /IM msedge.exe & ping -n 3 127.0.0.1 >nul & start msedge.exe --kiosk http://localhost:3300 --edge-kiosk-type=fullscreen";
-            match crate::ws::ws_exec_on_pod(&state, pod_id, cmd, 15_000).await {
-                Ok((success, stdout, stderr)) => {
-                    if success {
-                        json!({ "ok": true, "action": "relaunch_edge", "output": stdout })
-                    } else {
-                        json!({ "ok": false, "error": format!("Edge relaunch failed: {}", stderr) })
-                    }
-                }
-                Err(e) => json!({ "ok": false, "error": format!("Edge relaunch failed: {}", e) }),
-            }
-        }
-        "kill_game" => {
-            // Kill any running game process via WS exec
-            let cmd = "taskkill /F /IM acs.exe & taskkill /F /IM acc.exe & taskkill /F /IM FormulaOne.exe";
-            match crate::ws::ws_exec_on_pod(&state, pod_id, cmd, 10_000).await {
-                Ok((success, stdout, stderr)) => {
-                    if success {
-                        json!({ "ok": true, "action": "kill_game", "output": stdout })
-                    } else {
-                        json!({ "ok": false, "error": format!("Kill game failed: {}", stderr) })
-                    }
-                }
-                Err(e) => json!({ "ok": false, "error": format!("Kill game failed: {}", e) }),
-            }
-        }
-        _ => json!({ "ok": false, "error": format!("Unknown action: {}", body.action) }),
-    };
-
+    let result = execute_fix_action(&state, pod_id, &pod, &body.action).await;
     let success = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let error_msg = result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    // Log to activity feed
-    let detail = if success {
-        format!("Applied fix '{}' on Pod {}", action_label, pod.number)
-    } else {
-        let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
-        format!("Fix '{}' failed on Pod {}: {}", action_label, pod.number, err)
-    };
-    crate::activity_log::log_pod_activity(&state, pod_id, "race_engineer", "Quick Fix Applied", &detail, "staff", None);
-
-    // v27.0: Notify pod's tier engine about the staff action to reset dedup window
-    if success {
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StaffActionNotify {
-                action: action_label.clone(),
-                reason: format!("Staff quick-fix for incident {}", incident_id),
-                correlation_id: uuid::Uuid::new_v4().to_string(),
-            })).await;
-        }
-        drop(agent_senders);
-    }
-
-    // If action succeeded, auto-resolve the incident with the action as resolution
-    if success {
-        let resolved_at = chrono::Utc::now().to_rfc3339();
-        let _ = sqlx::query(
-            "UPDATE debug_incidents SET status = 'resolved', resolved_at = ? WHERE id = ? AND status = 'open'",
-        )
-        .bind(&resolved_at)
-        .bind(&inc_id)
-        .execute(db)
-        .await;
-
-        // Save to RAG knowledge base so future diagnosis can reference this fix
-        let res_id = uuid::Uuid::new_v4().to_string();
-        let resolution_text = format!("Quick fix: {} (applied from debug page)", action_label);
-        let _ = sqlx::query(
-            "INSERT INTO debug_resolutions (id, incident_id, category, resolution_text, effectiveness) \
-             VALUES (?, ?, ?, ?, 4)",
-        )
-        .bind(&res_id)
-        .bind(&inc_id)
-        .bind(&category)
-        .bind(&resolution_text)
-        .execute(db)
-        .await;
-    }
+    post_fix_bookkeeping(
+        &state, pod_id, pod.number, &inc_id, &category, &body.action,
+        success, error_msg.as_deref(), "Quick Fix",
+    ).await;
 
     Json(result)
 }

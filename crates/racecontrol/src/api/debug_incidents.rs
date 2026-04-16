@@ -55,23 +55,46 @@ pub(crate) async fn create_debug_incident(
     let db = &state.db;
     let desc_lower = body.description.to_lowercase();
 
-    // Auto-detect category
+    // Auto-detect category — ordered most-specific first to avoid false matches
     let category = if desc_lower.contains("offline") || desc_lower.contains("down") || desc_lower.contains("not working") || desc_lower.contains("dead") {
         "pod_offline"
-    } else if desc_lower.contains("crash") || desc_lower.contains("won't launch") || desc_lower.contains("game error") || desc_lower.contains("wont launch") {
+    } else if desc_lower.contains("frozen") || desc_lower.contains("not responding") || desc_lower.contains("hung") || desc_lower.contains("stuck game") || desc_lower.contains("game stuck") {
+        "game_frozen"
+    } else if desc_lower.contains("crash") || desc_lower.contains("won't launch") || desc_lower.contains("game error") || desc_lower.contains("wont launch")
+        || desc_lower.contains("won't start") || desc_lower.contains("wont start") || desc_lower.contains("not starting") || desc_lower.contains("launch stuck")
+        || desc_lower.contains("launch failed") || desc_lower.contains("loading forever") || desc_lower.contains("black screen")
+        || desc_lower.contains("game black") || desc_lower.contains("game blank") {
         "game_crash"
     } else if desc_lower.contains("billing") || desc_lower.contains("timer") || desc_lower.contains("session stuck") {
         "billing_stuck"
+    } else if desc_lower.contains("sound") || desc_lower.contains("audio") || desc_lower.contains("no sound") || desc_lower.contains("mute")
+        || desc_lower.contains("volume") || desc_lower.contains("speaker") || desc_lower.contains("headphone") {
+        "no_audio"
     } else if desc_lower.contains("blank") || desc_lower.contains("screen stuck") || desc_lower.contains("lock screen") {
         "screen_stuck"
-    } else if desc_lower.contains("steering") || desc_lower.contains("pedal") || desc_lower.contains("wheel") || desc_lower.contains("input") {
+    } else if desc_lower.contains("force feedback") || desc_lower.contains("ffb") || desc_lower.contains("no torque") || desc_lower.contains("wheel dead")
+        || desc_lower.contains("steering") || desc_lower.contains("pedal") || desc_lower.contains("wheel") || desc_lower.contains("input") {
         "no_steering_input"
+    } else if desc_lower.contains("slow") || desc_lower.contains("lag") || desc_lower.contains("fps") || desc_lower.contains("stuttering")
+        || desc_lower.contains("choppy") || desc_lower.contains("frame rate") || desc_lower.contains("frame drop") || desc_lower.contains("performance") {
+        "poor_performance"
+    } else if desc_lower.contains("steam") || desc_lower.contains("steam update") || desc_lower.contains("steam login") || desc_lower.contains("steam popup") {
+        "steam_blocked"
+    } else if desc_lower.contains("werfault") || desc_lower.contains("error popup") || desc_lower.contains("error dialog") || desc_lower.contains("error message")
+        || desc_lower.contains("popup") || desc_lower.contains("crash report") || desc_lower.contains("dialog box") {
+        "error_dialog"
     } else if desc_lower.contains("idle") || desc_lower.contains("not counting") || desc_lower.contains("pausing") {
         "high_idle_time"
     } else if desc_lower.contains("sync") || desc_lower.contains("cloud") || desc_lower.contains("not updating") {
         "sync_failure"
     } else if desc_lower.contains("kiosk") || desc_lower.contains("bypass") || desc_lower.contains("desktop") || desc_lower.contains("taskbar") {
         "kiosk_bypass"
+    } else if desc_lower.contains("missing track") || desc_lower.contains("missing car") || desc_lower.contains("content not found")
+        || desc_lower.contains("dlc") || desc_lower.contains("content missing") || desc_lower.contains("track not found") || desc_lower.contains("car not found") {
+        "content_missing"
+    } else if desc_lower.contains("network") || desc_lower.contains("multiplayer") || desc_lower.contains("lobby") || desc_lower.contains("can't connect")
+        || desc_lower.contains("cannot connect") || desc_lower.contains("connection") || desc_lower.contains("latency") || desc_lower.contains("ping") {
+        "network_issue"
     } else {
         "unknown"
     };
@@ -149,10 +172,15 @@ pub(crate) async fn create_debug_incident(
     let suggested_actions: Vec<&str> = match category {
         "pod_offline" => vec!["restart_pod", "wake_pod"],
         "game_crash" => vec!["kill_game"],
+        "game_frozen" => vec!["kill_game"],
         "screen_stuck" => vec!["relaunch_edge"],
         "no_steering_input" => vec!["restart_pod"],
+        "no_audio" => vec!["restart_audio"],
+        "poor_performance" => vec!["restart_pod"],
+        "steam_blocked" => vec!["restart_steam"],
+        "error_dialog" => vec!["dismiss_dialogs"],
         "kiosk_bypass" => vec!["relaunch_edge"],
-        "billing_stuck" | "high_idle_time" | "sync_failure" | "unknown" => vec![],
+        "content_missing" | "network_issue" | "billing_stuck" | "high_idle_time" | "sync_failure" | "unknown" => vec![],
         _ => vec![],
     };
 
@@ -189,18 +217,69 @@ pub(crate) async fn create_debug_incident(
     }
     } // end category != "pod_offline" guard
 
+    // ─── AUTO-FIX: If category has a suggested action AND pod is selected, apply immediately ──
+    // Staff confirmed the issue by submitting — no second click needed.
+    // Only auto-fix for categories with safe, deterministic first-choice actions.
+    let mut auto_fix_result: Option<serde_json::Value> = None;
+    if !suggested_actions.is_empty() {
+        if let Some(ref pid) = body.pod_id {
+            let pods_for_fix = state.pods.read().await;
+            if let Some(pod) = pods_for_fix.get(pid) {
+                let pod_clone = pod.clone();
+                let pod_number = pod.number;
+                drop(pods_for_fix);
+
+                let action = suggested_actions[0]; // first suggested = highest priority
+                tracing::info!(
+                    target: "debug-bridge",
+                    pod = %pid,
+                    action = %action,
+                    category = %category,
+                    "Auto-applying fix for staff-reported incident {}",
+                    id
+                );
+
+                let result = super::debug_fixes::execute_fix_action(&state, pid, &pod_clone, action).await;
+                let success = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                let error_msg = result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                super::debug_fixes::post_fix_bookkeeping(
+                    &state, pid, pod_number, &id, category, action,
+                    success, error_msg.as_deref(), "Auto Fix",
+                ).await;
+
+                auto_fix_result = Some(result);
+            } else {
+                drop(pods_for_fix);
+            }
+        }
+    }
+
+    // Determine incident status — if auto-fix succeeded, it's already resolved
+    let incident_status = if auto_fix_result
+        .as_ref()
+        .and_then(|r| r.get("ok"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        "resolved"
+    } else {
+        "open"
+    };
+
     Json(json!({
         "incident": {
             "id": id,
             "pod_id": body.pod_id,
             "category": category,
             "description": body.description,
-            "status": "open",
+            "status": incident_status,
             "playbook_id": playbook_id,
             "created_at": chrono::Utc::now().to_rfc3339(),
         },
         "playbook": playbook_json,
         "suggested_actions": suggested_actions,
+        "auto_fix": auto_fix_result,
         "tier_diagnosis": {
             "sent": tier_diagnosis_sent,
             "correlation_id": correlation_id,

@@ -196,14 +196,29 @@ export default function DebugPage() {
         incident: DebugIncident;
         playbook?: DebugPlaybook;
         suggested_actions?: string[];
+        auto_fix?: { ok: boolean; action?: string; error?: string };
       };
-      setCurrentIncident(res.incident);
-      setCurrentPlaybook(res.playbook || null);
       setSuggestedActions(res.suggested_actions || []);
       setDiagnosis(null);
-      setFixResult(null);
       setIssueText("");
       setDiagnosticsOpen(true);
+
+      // If auto-fix was applied and succeeded, show result and clear incident
+      if (res.auto_fix?.ok) {
+        setFixResult({ ok: true, action: res.auto_fix.action });
+        setCurrentIncident(null);
+        setCurrentPlaybook(null);
+      } else if (res.auto_fix && !res.auto_fix.ok) {
+        // Auto-fix was attempted but failed — show error, keep incident open for manual retry
+        setFixResult({ ok: false, error: res.auto_fix.error || "Auto-fix failed" });
+        setCurrentIncident(res.incident);
+        setCurrentPlaybook(res.playbook || null);
+      } else {
+        // No auto-fix attempted (display-only category or no pod selected)
+        setFixResult(null);
+        setCurrentIncident(res.incident);
+        setCurrentPlaybook(res.playbook || null);
+      }
       loadData();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -797,6 +812,9 @@ export default function DebugPage() {
                             { action: "wake_pod", label: "Wake Pod (WoL)", color: "bg-green-600/20 border-green-600/50 text-green-400 hover:bg-green-600/30" },
                             { action: "relaunch_edge", label: "Relaunch Edge", color: "bg-blue-600/20 border-blue-600/50 text-blue-400 hover:bg-blue-600/30" },
                             { action: "kill_game", label: "Kill Game", color: "bg-red-600/20 border-red-600/50 text-red-400 hover:bg-red-600/30" },
+                            { action: "restart_audio", label: "Restart Audio", color: "bg-purple-600/20 border-purple-600/50 text-purple-400 hover:bg-purple-600/30" },
+                            { action: "restart_steam", label: "Restart Steam", color: "bg-cyan-600/20 border-cyan-600/50 text-cyan-400 hover:bg-cyan-600/30" },
+                            { action: "dismiss_dialogs", label: "Dismiss Dialogs", color: "bg-pink-600/20 border-pink-600/50 text-pink-400 hover:bg-pink-600/30" },
                           ] as const).map(({ action, label, color }) => {
                             const isSuggested = suggestedActions.includes(action);
                             return (
