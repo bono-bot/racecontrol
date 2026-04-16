@@ -220,6 +220,7 @@
   .dot-warn { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.4); }
   .dot-err { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.4); }
   .dot-off { background: #444; }
+  .stale-warning { color: #f59e0b; font-weight: bold; }
 
   .last-updated {
     text-align: center;
@@ -508,6 +509,37 @@ function renderFleet(pods) {
 }
 
 var fetching = false;
+var lastSuccessTime = null;
+var consecutiveFailures = 0;
+
+function formatTimestamp(d) {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    day: '2-digit', month: 'short', year: 'numeric'
+  }).format(d);
+}
+
+function updateStatus(anySuccess) {
+  var statusEl = document.getElementById('last-updated');
+  if (anySuccess) {
+    lastSuccessTime = new Date();
+    consecutiveFailures = 0;
+    statusEl.textContent = 'Last updated: ' + formatTimestamp(lastSuccessTime) + ' IST';
+    statusEl.className = 'last-updated';
+  } else {
+    consecutiveFailures++;
+    var msg = 'Data stale';
+    if (lastSuccessTime) {
+      var ago = Math.round((Date.now() - lastSuccessTime.getTime()) / 1000);
+      msg += ' — last success ' + (ago < 60 ? ago + 's' : Math.round(ago / 60) + 'm') + ' ago';
+    }
+    msg += ' (' + consecutiveFailures + ' consecutive failures)';
+    statusEl.textContent = msg;
+    statusEl.className = 'last-updated stale-warning';
+  }
+}
+
 function refresh() {
   if (fetching) return;
   fetching = true;
@@ -515,8 +547,11 @@ function refresh() {
     fetch('/api/v1/health', { cache: 'no-store', signal: makeSignal(5000) }).then(function(r) { return r.json(); }),
     fetch('/api/v1/fleet/health', { cache: 'no-store', signal: makeSignal(5000) }).then(function(r) { return r.json(); }),
   ]).then(function(results) {
+    var anySuccess = false;
+
     if (results[0].status === 'fulfilled') {
       renderServer(results[0].value);
+      anySuccess = true;
     } else {
       var s = document.getElementById('server-section');
       s.textContent = '';
@@ -532,17 +567,13 @@ function refresh() {
       var fleet = results[1].value;
       renderServices(fleet.services || {});
       renderFleet(fleet.pods || []);
+      anySuccess = true;
     } else {
       document.getElementById('services-section').textContent = 'Failed to load services';
       document.getElementById('fleet-section').textContent = 'Failed to load fleet';
     }
 
-    var now = new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-      day: '2-digit', month: 'short', year: 'numeric'
-    }).format(new Date());
-    document.getElementById('last-updated').textContent = 'Last updated: ' + now + ' IST';
+    updateStatus(anySuccess);
   }).finally(function() { fetching = false; });
 }
 
