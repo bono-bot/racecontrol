@@ -416,16 +416,21 @@ function renderServices(svcs) {
   var grid = el('div', { className: 'svc-grid' });
   for (var name of Object.keys(svcs)) {
     var svc = svcs[name];
-    var isOk = svc.status === 'ok';
     var card = el('div', { className: 'svc-card' });
-
     var nameDiv = el('div', { className: 'svc-name' });
-    nameDiv.appendChild(dot(isOk ? 'dot-ok' : 'dot-err'));
-    nameDiv.appendChild(document.createTextNode(' ' + name));
-    card.appendChild(nameDiv);
 
-    card.appendChild(el('div', { className: 'svc-latency', textContent: svc.response_ms != null ? svc.response_ms + 'ms' : '\u2014' }));
-    card.appendChild(el('div', { className: 'svc-meta', textContent: svc.last_checked || '\u2014' }));
+    if (typeof svc === 'string') {
+      nameDiv.appendChild(dot('dot-warn'));
+      nameDiv.appendChild(document.createTextNode(' ' + name + ' (' + svc + ')'));
+      card.appendChild(nameDiv);
+    } else {
+      var isOk = svc.status === 'ok';
+      nameDiv.appendChild(dot(isOk ? 'dot-ok' : 'dot-err'));
+      nameDiv.appendChild(document.createTextNode(' ' + name));
+      card.appendChild(nameDiv);
+      card.appendChild(el('div', { className: 'svc-latency', textContent: svc.response_ms != null ? svc.response_ms + 'ms' : '\u2014' }));
+      card.appendChild(el('div', { className: 'svc-meta', textContent: svc.last_checked || '\u2014' }));
+    }
     grid.appendChild(card);
   }
   section.appendChild(grid);
@@ -538,8 +543,7 @@ function refresh() {
       day: '2-digit', month: 'short', year: 'numeric'
     }).format(new Date());
     document.getElementById('last-updated').textContent = 'Last updated: ' + now + ' IST';
-    fetching = false;
-  });
+  }).finally(function() { fetching = false; });
 }
 
 refresh();
