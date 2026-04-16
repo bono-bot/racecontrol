@@ -119,3 +119,4 @@ tests/e2e/playwright/.auth-state.json
 .planning/knowledge-graph/cache/
 .planning/knowledge-graph/graph.json
 .planning/knowledge-graph/fix-history.json
+.planning/knowledge-graph/ecosystem-graph.json
