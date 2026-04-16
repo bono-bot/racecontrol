@@ -54,9 +54,12 @@ export interface LaunchMatrixRow {
 // ─── API Client Functions ─────────────────────────────────────────────────────
 
 async function metricsGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json" },
-  });
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("rp_staff_jwt");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}/api/v1${path}`, { headers });
   if (!res.ok) {
     throw new Error(`Metrics API error ${res.status}: ${path}`);
   }
