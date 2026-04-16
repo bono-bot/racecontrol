@@ -1987,7 +1987,7 @@ Wave 1: Deploy & Verify (383)
 | 390. Spectator Displays + Cloud | 0/TBD | Not started | - |
 | 391. Digital Staff Operations | 0/TBD | Not started | - |
 | 392. Unified Readiness Review | 0/TBD | Not started | - |
-| 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/0 | Not planned (URGENT) | - |
+| 392.1. P0 Zero-Laps 3-Layer Fix + C1 FK-PRAGMA (INSERTED) | 0/1 | Pre-flight + Step 1 done; Step 2 awaiting re-scope approval (URGENT) | - |
 
 *v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
 *Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*
