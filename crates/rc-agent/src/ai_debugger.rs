@@ -376,15 +376,62 @@ impl DebugMemory {
         self.incidents.iter().any(|i| i.pattern_key == key && i.fix_type == fix_type && i.quarantined)
     }
 
-    /// Extract pattern key from crash context: "{SimType}:{exit_code}"
-    /// e.g. "AssettoCorsa:-1", "F125:3221225477", "AssettoCorsa:unknown"
+    /// Extract pattern key from crash context: "{SimType}:{sub_reason}"
+    ///
+    /// Classification priority (most specific wins):
+    ///   1. Exit code if present: "AssettoCorsa:-1", "F125:3221225477"
+    ///   2. Structured sub-reason from error_context keywords:
+    ///      - "launch.*failed" or "launch completely failed" → "launch_failed"
+    ///      - "Content Manager.*failed" → "cm_launch_failed"
+    ///      - "no exit code" → "crash_no_exit"
+    ///      - "Wheelbase connected: false" / "NoDevice" → "no_wheelbase"
+    ///      - "ws_dead" / "WebSocket.*disconnect" → "ws_disconnect"
+    ///      - "timeout" / "90s" / "launch timeout" → "launch_timeout"
+    ///      - "frozen" / "IsHungAppWindow" → "game_frozen"
+    ///   3. Fallback: "unknown"
+    ///
+    /// This ensures distinct failure modes (wheel missing vs WS drop vs launch
+    /// timeout) get separate pattern_keys so debug-memory.json learns the right
+    /// fix for each, instead of collapsing everything into ":unknown".
     fn pattern_key(sim_type: &SimType, error_context: &str) -> String {
+        let lower = error_context.to_lowercase();
+
+        // Priority 1: extract exit code (handles both "exit code -1" and "exit code: -1")
         let exit_code = error_context
-            .split("exit code ")
+            .split("exit code")
             .nth(1)
+            .map(|s| s.trim_start_matches(|c: char| c == ':' || c == ' '))
             .and_then(|s| s.split(|c: char| c == ')' || c == ' ' || c == ',').next())
-            .unwrap_or("unknown");
-        format!("{:?}:{}", sim_type, exit_code)
+            .filter(|s| !s.is_empty() && s.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-'));
+
+        if let Some(code) = exit_code {
+            return format!("{:?}:{}", sim_type, code);
+        }
+
+        // Priority 2: classify from error_context keywords
+        let sub_reason = if lower.contains("no exit code") || lower.contains("no exit_code") {
+            "crash_no_exit"
+        } else if lower.contains("content manager") && lower.contains("failed") {
+            "cm_launch_failed"
+        } else if lower.contains("launch") && lower.contains("completely failed") {
+            "launch_failed"
+        } else if lower.contains("launch") && lower.contains("failed") {
+            "launch_failed"
+        } else if lower.contains("nodevice") || lower.contains("wheelbase connected: false")
+            || (lower.contains("wheelbase") && lower.contains("not detected"))
+        {
+            "no_wheelbase"
+        } else if lower.contains("ws_dead") || lower.contains("websocket") && lower.contains("disconnect") {
+            "ws_disconnect"
+        } else if lower.contains("launch timeout") || lower.contains("90s") && lower.contains("timeout") {
+            "launch_timeout"
+        } else if lower.contains("frozen") || lower.contains("ishungappwindow") {
+            "game_frozen"
+        } else {
+            "unknown"
+        };
+
+        format!("{:?}:{}", sim_type, sub_reason)
     }
 }
 
@@ -1726,10 +1773,48 @@ mod tests {
     }
 
     #[test]
-    fn test_pattern_key_unknown_when_no_exit_code() {
+    fn test_pattern_key_extracts_exit_code_with_colon() {
+        // event_loop.rs uses "exit code: -1" (with colon)
+        let key = DebugMemory::pattern_key(
+            &SimType::AssettoCorsa,
+            "AssettoCorsa crashed on pod_3 (exit code: -1)",
+        );
+        assert_eq!(key, "AssettoCorsa:-1");
+    }
+
+    #[test]
+    fn test_pattern_key_launch_failed() {
+        let key = DebugMemory::pattern_key(
+            &SimType::AssettoCorsa,
+            "AC launch completely failed on pod_3: spawn error",
+        );
+        assert_eq!(key, "AssettoCorsa:launch_failed");
+    }
+
+    #[test]
+    fn test_pattern_key_cm_launch_failed() {
+        let key = DebugMemory::pattern_key(
+            &SimType::AssettoCorsa,
+            "Content Manager multiplayer launch failed on pod_3. URI timeout.",
+        );
+        assert_eq!(key, "AssettoCorsa:cm_launch_failed");
+    }
+
+    #[test]
+    fn test_pattern_key_no_exit_code_classifies() {
+        // "no exit code" should become crash_no_exit, not unknown
+        let key = DebugMemory::pattern_key(
+            &SimType::AssettoCorsa,
+            "AssettoCorsa crashed on pod_3 (no exit code)",
+        );
+        assert_eq!(key, "AssettoCorsa:crash_no_exit");
+    }
+
+    #[test]
+    fn test_pattern_key_fallback_unknown() {
         let key = DebugMemory::pattern_key(
             &SimType::F125,
-            "game failed to launch",
+            "something unexpected happened",
         );
         assert_eq!(key, "F125:unknown");
     }
