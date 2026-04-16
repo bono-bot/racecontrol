@@ -326,7 +326,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             &state.db,
             wallet_owner_id,
             *rate_paise as i64,
-            "per_minute_billing",
+            "debit_session",
             Some(session_id),
             Some(&format!("Per-minute billing ({}p/min)", rate_paise)),
             &state.config.venue.venue_id,
