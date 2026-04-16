@@ -39,7 +39,8 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
         if (hadToken && !onStaffPage) {
           window.location.href = "/";
         }
-        throw new Error("Unauthorized — session expired");
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Unauthorized — session expired");
       }
       if (!res.ok) {
         const text = await res.text().catch(() => "");

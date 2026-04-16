@@ -16,8 +16,7 @@ function BackButton() {
   const parentMap: Record<string, string> = {
     "/billing/pricing": "/billing",
     "/billing/history": "/billing",
-    "/games/reliability": "/games",
-    "/games/timeline": "/games",
+    "/games/reliability": "/games/timeline",
   };
   const target = parentMap[pathname];
 

@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import PodCard from "@/components/PodCard";
 import StatusBadge from "@/components/StatusBadge";
 import CountdownTimer from "@/components/CountdownTimer";
-import BillingStartModal from "@/components/BillingStartModal";
 import { Skeleton, EmptyState } from "@/components/Skeleton";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { api, racingWsPodsOnly } from "@/lib/api";
@@ -41,7 +40,6 @@ export default function PodsPage() {
   const [selectedPod, setSelectedPod] = useState<Pod | null>(null);
   const [drawerHealth, setDrawerHealth] = useState<PodFleetStatus | null>(null);
   const [drawerHealthLoading, setDrawerHealthLoading] = useState(false);
-  const [modalPod, setModalPod] = useState<Pod | null>(null);
 
   const racingPods = racingWsPodsOnly(pods);
   const sortedPods = [...racingPods].sort((a, b) => a.number - b.number);
@@ -75,14 +73,6 @@ export default function PodsPage() {
       setSelectedPod(updated);
     }
   }, [pods, selectedPod?.id]);
-
-  const handleStartSession = useCallback(
-    (data: { pod_id: string; driver_id: string; pricing_tier_id: string; payment_method?: string; custom_price_paise?: number; custom_duration_minutes?: number; staff_discount_paise?: number; discount_reason?: string }) => {
-      api.startBilling(data).catch(console.error);
-      setModalPod(null);
-    },
-    []
-  );
 
   const isLoading = pods.length === 0 && !connected;
 
@@ -270,31 +260,10 @@ export default function PodsPage() {
 
             {/* Spacer */}
             <div className="flex-1" />
-
-            {/* Start Session Button */}
-            <button
-              onClick={() => {
-                setModalPod(selectedPod);
-              }}
-              disabled={selectedPod.status === "offline"}
-              className="w-full py-2.5 rounded-lg text-sm font-medium transition-colors bg-rp-red text-white hover:bg-rp-red/80 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Start Session
-            </button>
           </aside>
         </>
       )}
 
-      {/* Billing Start Modal */}
-      {modalPod && (
-        <BillingStartModal
-          podId={modalPod.id}
-          podName={`Pod ${String(modalPod.number).padStart(2, "0")} - ${modalPod.name}`}
-          onClose={() => setModalPod(null)}
-          onStart={handleStartSession}
-
-        />
-      )}
     </DashboardLayout>
   );
 }

@@ -48,8 +48,9 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
         document.cookie = `kiosk_staff_jwt=${res.token}; path=/; max-age=1800; SameSite=Strict`;
       }
       onAuthenticated(res.staff_id || "", res.staff_name || "Staff", res.token);
-    } catch {
-      setErrorMsg("Network error - please try again");
+    } catch (err) {
+      const isNetworkError = err instanceof TypeError || (err instanceof DOMException && err.name === 'AbortError');
+      setErrorMsg(isNetworkError ? "Network error - please try again" : (err instanceof Error ? err.message : "Unknown error"));
       setStep("error");
     }
   }, [pin, onAuthenticated]);

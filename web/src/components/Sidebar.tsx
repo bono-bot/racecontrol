@@ -48,7 +48,7 @@ const nav: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/pods", label: "Pods", Icon: Cpu },
   { href: "/fleet", label: "Fleet Health", Icon: Activity },
   { href: "/metrics", label: "Metrics", Icon: BarChart2 },
-  { href: "/games", label: "Games", Icon: Gamepad2 },
+  { href: "/games/timeline", label: "Games", Icon: Gamepad2 },
   { href: "/telemetry", label: "Telemetry", Icon: BarChart2 },
   { href: "/ac-lan", label: "AC LAN Race", Icon: Flag },
   { href: "/ac-sessions", label: "AC Results", Icon: Trophy },

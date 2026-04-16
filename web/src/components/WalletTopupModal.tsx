@@ -85,8 +85,8 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
     setSelectedDriver(d);
     setDriverSearch("");
     try {
-      const res = await fetchApi<{ wallet?: { balance_paise: number } }>(`/wallet/${d.id}`);
-      setBalance(res.wallet?.balance_paise ?? 0);
+      const res = await fetchApi<{ wallet?: { balance_credits: number } }>(`/wallet/${d.id}`);
+      setBalance(res.wallet?.balance_credits ?? 0);
     } catch {
       setBalance(0);
     }
@@ -101,14 +101,14 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetchApi<{ status?: string; new_balance_paise?: number; error?: string }>(
+      const res = await fetchApi<{ status?: string; new_balance_credits?: number; error?: string }>(
         `/wallet/${selectedDriver.id}/topup`,
         { method: "POST", body: JSON.stringify({ amount_paise: effectiveAmount, method: method }) }
       );
       if (res.error) {
         setError(res.error);
       } else {
-        const newBal = res.new_balance_paise ?? 0;
+        const newBal = res.new_balance_credits ?? 0;
         setBalance(newBal);
         setSuccessMsg(`Added ${Math.floor(effectiveAmount / 100)} cr — balance is now ${Math.floor(newBal / 100)} cr`);
         setAmount(0);
