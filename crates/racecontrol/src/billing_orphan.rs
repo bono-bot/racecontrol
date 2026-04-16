@@ -325,6 +325,8 @@ pub async fn detect_orphaned_sessions_background(state: &Arc<AppState>) {
                             agent_senders.get(pod_id.as_str()).cloned()
                         };
                         if let Some(sender) = sender_clone {
+                            // Stop the game first (matches normal end path behavior)
+                            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
                             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                                 billing_session_id: session_id.clone(),
                                 driver_name: String::new(),

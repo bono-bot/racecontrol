@@ -333,7 +333,7 @@ pub(crate) async fn end_billing_session(
     drop(timers);
     // Match all pre-terminal states (consistent with CRITICAL-1 CAS fix)
     let orphan = match sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, pod_id, driver_name FROM billing_sessions WHERE id = ? AND status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
+        "SELECT bs.id, bs.pod_id, COALESCE(d.name, 'Unknown') FROM billing_sessions bs LEFT JOIN drivers d ON bs.driver_id = d.id WHERE bs.id = ? AND bs.status IN ('active', 'paused_manual', 'paused_game_pause', 'paused_disconnect', 'paused_crash_recovery', 'waiting_for_game')",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
@@ -415,6 +415,8 @@ pub(crate) async fn end_billing_session(
             agent_senders.get(&pod_id).cloned()
         };
         if let Some(sender) = sender_clone {
+            // Stop the game first (matches normal end path behavior)
+            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::SessionEnded {
                 billing_session_id: session_id.to_string(),
                 driver_name,
