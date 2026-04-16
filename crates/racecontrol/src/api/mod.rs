@@ -37,6 +37,7 @@ pub mod customer_data_retention;
 pub mod customer_disputes;
 pub mod customer_legal;
 pub mod customer_marketing;
+pub mod customer_preferences;
 pub mod customer_passport;
 pub mod customer_linked_racers;
 pub mod customer_register;

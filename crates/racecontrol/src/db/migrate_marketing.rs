@@ -484,5 +484,55 @@ pub(crate) async fn migrate_marketing(pool: &SqlitePool) -> anyhow::Result<()> {
     .await?;
 
 
+    // ─── Phase 387: Customer Opt-In/Opt-Out Preferences ──────────────────────
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS customer_preferences (
+            driver_id TEXT PRIMARY KEY REFERENCES drivers(id),
+            opt_in_promotions BOOLEAN DEFAULT 1,
+            channel_preference TEXT DEFAULT 'whatsapp' CHECK(channel_preference IN ('whatsapp', 'email', 'both', 'none')),
+            frequency_cap_per_week INTEGER DEFAULT 3,
+            last_promo_sent_at TEXT,
+            promos_sent_this_week INTEGER DEFAULT 0,
+            week_start TEXT,
+            consecutive_ignored INTEGER DEFAULT 0,
+            auto_paused BOOLEAN DEFAULT 0,
+            auto_paused_at TEXT,
+            opted_out_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_customer_prefs_opt_in ON customer_preferences(opt_in_promotions, auto_paused)",
+    )
+    .execute(pool)
+    .await?;
+
+    // Promo delivery log — tracks each sent promo for engagement analysis
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS promo_delivery_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            driver_id TEXT NOT NULL REFERENCES drivers(id),
+            campaign_id TEXT,
+            channel TEXT NOT NULL CHECK(channel IN ('whatsapp', 'email')),
+            message_preview TEXT,
+            sent_at TEXT DEFAULT (datetime('now')),
+            opened_at TEXT,
+            redeemed_at TEXT,
+            ignored BOOLEAN DEFAULT 0
+        )"
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_promo_log_driver ON promo_delivery_log(driver_id, sent_at)",
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }

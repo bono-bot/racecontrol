@@ -62,6 +62,7 @@ use super::customer_auth::*;
 use super::customer_booking::*;
 use super::customer_legal::*;
 use super::customer_marketing::*;
+use super::customer_preferences;
 use super::customer_passport::*;
 use super::customer_register::*;
 use super::customer_session::*;
@@ -359,6 +360,10 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/dispute", post(create_dispute_handler))
         // UX-03: Customer receipt — full financial breakdown with GST, before/after balance
         .route("/customer/sessions/{id}/receipt", get(customer_session_receipt))
+        // Phase 387: Customer opt-in/opt-out preferences (anti-spam)
+        .route("/customer/preferences/{driver_id}", get(customer_preferences::get_preferences).put(customer_preferences::update_preferences))
+        .route("/customer/opt-out/{driver_id}", post(customer_preferences::opt_out))
+        .route("/customer/opt-in/{driver_id}", post(customer_preferences::opt_in))
 }
 
 // ─── Tier 3a: Kiosk-facing (staff JWT required, but pod-accessible) ──────
