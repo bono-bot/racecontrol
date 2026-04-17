@@ -256,11 +256,12 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
 
 # ─── Step 5b: Re-enable watchdog + clear deploy sentinel ────────────
+# Phase 413 Factor 1: re-enable all 8 schtasks (symmetric with Step 3a disable).
 info "Re-enabling watchdog..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 pass "Watchdog re-enabled"
 
 # ─── Step 6: Health check with build_id verification ─────────────────
