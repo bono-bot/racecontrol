@@ -1996,7 +1996,7 @@ Wave 1: Deploy & Verify (383)
 **Goal:** rc-agent Tier 0 oracle live fleet-wide; deploy-server.sh respawn race eliminated.
 **Requirements**: TBD
 **Depends on:** Phase 392.1 (prior active phase)
-**Plans:** 11 plans (broken down 2026-04-18)
+**Plans:** 2/11 plans executed
 
 Plans:
 - [x] 413-05-PLAN.md — deploy-server.sh Factor 1: schtasks disable/re-enable coverage extended from 2 → 8 tasks (commits `0fc38726`, `e38a9e81`, `7c7af7ec`) — shipped 2026-04-17 IST as script-only change; first exercise on next `bash scripts/deploy-server.sh` run
