@@ -141,6 +141,19 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Closes:** Factor 2 of the 2026-04-18 03:13 IST deploy abort — writer + checker now agree on `OTA_DEPLOYING`. PS watchdog will see the sentinel during the next kill→swap→start window and skip its restart. Not live-exercised yet; first test on next `bash scripts/deploy-server.sh` invocation.
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-06-SUMMARY.md`
 
+## Phase 413 Plan 03 — rc-agent MeshKeyCache boot wire-up closed (2026-04-18)
+
+**Completed:** 2026-04-18 (parallel Wave 2 executor)
+**Scope:** Wire `MeshKeyCache` (from Plan 02) into rc-agent's `main.rs` boot sequence. `let mesh_key_cache = crate::mesh_key_cache::new_cache()` placed below `let flags_arc` (same scope). Initial synchronous best-effort fetch + `rc_common::boot_resilience::spawn_periodic_refetch` at 300s interval placed immediately after the feature_flags periodic refetch block. Both insertions feature-gated on `http-client` (matches module gate).
+**Commits:** `28de9e30` (Task 1: full wire-up — `+50 lines` to `crates/rc-agent/src/main.rs`, two additive insertions, strictly no modifications to existing code)
+**Files:** `crates/rc-agent/src/main.rs` (+50 lines)
+**Verification:** `cargo build --release --bin rc-agent` → 0 errors, 100 pre-existing warnings (3 fewer than Plan 02 baseline); `cargo test -p rc-agent-crate --bin rc-agent mesh_key_cache` → 10/10 passing. Acceptance-criteria grep counts all match (new_cache=1, spawn_periodic_refetch=2, "mesh_service_key"=1, fetch_from_server=2). Only mesh_key_cache-related compiler note is `get_key_or_env is never used` — expected until Plan 04.
+**Log lines available for Plan 10 verification:** `Mesh key cache initial fetch ok/failed`, `Mesh key cache periodic re-fetch started (interval=300s)`, plus rc_common's `periodic_refetch started/first_success/failed/self_healed resource="mesh_service_key"`.
+**Design decisions:** 300s cadence matches feature_flags (same operations profile). Initial fetch non-fatal — Ok→info, Err→warn, never short-circuits boot. `#[allow(unused_variables)]` on the let binding with TODO — Plan 04 removes the allow when it adds the three consumer .clone() calls.
+**Deviations:** None. Plan executed exactly as specified. `#[allow(unused_variables)]` explicitly permitted by plan's acceptance-criteria note; feature-gating (`#[cfg(feature = "http-client")]`) followed the plan template.
+**Next plan (04):** Rewire the three RCAGENT_SERVICE_KEY env consumers (ai_debugger.rs:779, remote_ops.rs:165, ws_handler.rs:431) to use `mesh_key_cache::get_key_or_env(&cache).await.unwrap_or_default()`. Closes Gap 4 (pod HKLM key ≠ server TOML key silent 401 fleet-wide).
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-03-SUMMARY.md`
+
 ## Phase 413 Plan 02 — rc-agent MeshKeyCache (Option Z data layer) closed (2026-04-17)
 
 **Completed:** 2026-04-17 (parallel Wave 1 executor)
@@ -154,6 +167,7 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*
+*Last updated: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
+*Previous: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*
 *Previous: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
 *Previous: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*
