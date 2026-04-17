@@ -34,6 +34,8 @@ mod native_lock;
 mod cognitive_gate;
 mod diagnosis_planner;
 mod mesh_gossip;
+#[cfg(feature = "http-client")]
+mod mesh_key_cache;
 mod night_ops;
 mod openrouter;
 mod overlay;
