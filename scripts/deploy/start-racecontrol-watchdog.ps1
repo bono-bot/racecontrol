@@ -129,6 +129,21 @@ function Restart-Racecontrol {
 # Main loop
 Write-Log "Watchdog started - PID $PID"
 
+# Reconcile MAINTENANCE_MODE from disk (survives watchdog restart)
+if (Test-Path "C:\RacingPoint\MAINTENANCE_MODE") {
+    $mmFile = Get-Item "C:\RacingPoint\MAINTENANCE_MODE"
+    $mmAge = (Get-Date) - $mmFile.LastWriteTime
+    $mmAgeMin = [int]$mmAge.TotalMinutes
+    if ($mmAge.TotalMinutes -ge 30) {
+        Remove-Item "C:\RacingPoint\MAINTENANCE_MODE" -Force -ErrorAction SilentlyContinue
+        Write-Log "MAINTENANCE_MODE sentinel cleared on startup - stale ${mmAgeMin}min (>30min TTL)"
+    } else {
+        $script:maintenanceMode = $true
+        $script:maintenanceStart = $mmFile.LastWriteTime
+        Write-Log "MAINTENANCE_MODE sentinel found on startup - state restored ${mmAgeMin}min elapsed, auto-clears at 30min"
+    }
+}
+
 # Give racecontrol time to start on first boot
 Start-Sleep -Seconds 15
 
