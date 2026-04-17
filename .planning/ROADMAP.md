@@ -1991,15 +1991,15 @@ Wave 1: Deploy & Verify (383)
 *v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
 *Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*
 
-### Phase 315: Service key provisioning + deploy-server.sh hardening (Option Z + respawn race fixes)
+### Phase 413: Service key provisioning + deploy-server.sh hardening (Option Z + respawn race fixes)
 
-**Goal:** [To be planned]
+**Goal:** rc-agent Tier 0 oracle live fleet-wide; deploy-server.sh respawn race eliminated.
 **Requirements**: TBD
-**Depends on:** Phase 314
+**Depends on:** Phase 392.1 (prior active phase)
 **Plans:** 0 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 315 to break down)
+- [ ] TBD (run /gsd:plan-phase 413 to break down)
 
 ---
 
