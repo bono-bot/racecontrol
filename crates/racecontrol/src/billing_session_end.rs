@@ -388,7 +388,37 @@ pub(crate) async fn end_billing_session(
                 match crate::wallet::refund(state, refund_target, refund_amount, Some(session_id),
                     Some("Orphaned session refund after restart")).await {
                     Ok(_) => tracing::info!("BILLING: orphaned session {} refund {}p to {}", session_id, refund_amount, driver_id),
-                    Err(e) => tracing::error!("CRITICAL: orphaned session {} refund FAILED for {}: {}", session_id, driver_id, e),
+                    Err(e) => {
+                        tracing::error!("CRITICAL: orphaned session {} refund FAILED for {}: {}", session_id, driver_id, e);
+                        let meta = serde_json::json!({
+                            "driver_id": driver_id,
+                            "refund_target": refund_target,
+                            "refund_amount_paise": refund_amount,
+                            "wallet_debit_paise": debit,
+                            "driving_seconds": driven,
+                            "error": e.to_string(),
+                        }).to_string();
+                        if let Err(ie) = sqlx::query(
+                            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id) \
+                             VALUES (?, ?, 'orphan_refund_failed', ?, ?, ?)",
+                        )
+                        .bind(uuid::Uuid::new_v4().to_string())
+                        .bind(session_id)
+                        .bind(driven)
+                        .bind(&meta)
+                        .bind(&state.config.venue.venue_id)
+                        .execute(&state.db)
+                        .await
+                        {
+                            tracing::error!("Failed to record orphan_refund_failed event for {}: {}", session_id, ie);
+                        }
+                        log_pod_activity(state, &pod_id, "billing", "Refund Failed",
+                            &format!("Orphaned session refund FAILED: {}p for {} — manual reconciliation required", refund_amount, driver_id),
+                            "system", Some(session_id));
+                        crate::whatsapp_alerter::send_whatsapp(&state.config,
+                            &format!("P0 REFUND FAILED\nSession: {}\nDriver: {}\nAmount: {}p\nError: {}\nManual reconciliation required.",
+                                session_id, driver_id, refund_amount, e)).await;
+                    }
                 }
             }
         }
