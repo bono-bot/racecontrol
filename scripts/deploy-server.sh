@@ -207,10 +207,14 @@ curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & schtasks /Change /TN RCWatchdog /Disable 2>nul & schtasks /Change /TN RaceControlStartup /Disable 2>nul & schtasks /Change /TN StartRCDirect /Disable 2>nul & schtasks /Change /TN StartRaceControl /Disable 2>nul & schtasks /Change /TN StartRCWatchdog /Disable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
 # Also write a deploy sentinel to block any remaining watchdog instance
+# Phase 413 Factor 2: Sentinel name unified on OTA_DEPLOYING (matches
+# start-racecontrol-watchdog.ps1:61). Previously wrote a different sentinel
+# name the PS watchdog never checked — it blindly restarted racecontrol
+# mid-swap on 2026-04-18 03:13. OTA_DEPLOYING is the runtime-shipped convention.
 curl -s --max-time 5 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"echo DEPLOYING > C:\\RacingPoint\\DEPLOY_IN_PROGRESS & echo SENTINEL_SET"}' > /dev/null 2>&1
+    -d '{"cmd":"echo DEPLOYING > C:\\RacingPoint\\OTA_DEPLOYING & echo SENTINEL_SET"}' > /dev/null 2>&1
 pass "Watchdog disabled + deploy sentinel set"
 
 # ─── Step 3b: Stop racecontrol via bat window kill ────────────────────
@@ -261,7 +265,7 @@ info "Re-enabling watchdog..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\OTA_DEPLOYING 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 pass "Watchdog re-enabled"
 
 # ─── Step 6: Health check with build_id verification ─────────────────
@@ -329,7 +333,7 @@ echo -e "${RED}Server did not come up after 60 seconds — auto-rollback...${NC}
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\OTA_DEPLOYING 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 info "Rolling back to racecontrol-prev.exe..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
