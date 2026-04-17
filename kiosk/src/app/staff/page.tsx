@@ -12,6 +12,7 @@ import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { AssistanceAlert } from "@/components/AssistanceAlert";
 import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
+import { ConfirmDialog, type ConfirmDialogState } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode, RecentSession, PodInventoryResponse } from "@/lib/types";
@@ -199,6 +200,11 @@ export default function StaffTerminal() {
   // for the same pod so staff can pick the next track/car.
   const [isLaunching, setIsLaunching] = useState(false);
 
+  // ─── Confirmation Modal ───────────────────────────────────────────────
+  // Replaces native window.confirm() which is jarring on touch kiosk + can't be styled.
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmDialogState | null>(null);
+  const dismissConfirm = useCallback(() => setPendingConfirm(null), []);
+
   // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
     if (!selectedPodId || isLaunching) return;
@@ -259,9 +265,16 @@ export default function StaffTerminal() {
   };
 
   const handleEndSession = (billingSessionId: string) => {
-    if (!window.confirm("End this session? The customer will be charged for time used.")) return;
-    sendCommand("end_billing", { billing_session_id: billingSessionId });
-    closePanel();
+    setPendingConfirm({
+      title: "End this session?",
+      description: "The customer will be charged for time used. This cannot be undone.",
+      confirmLabel: "End Session",
+      variant: "destructive",
+      onConfirm: () => {
+        sendCommand("end_billing", { billing_session_id: billingSessionId });
+        closePanel();
+      },
+    });
   };
 
   const handlePauseSession = (billingSessionId: string) => {
@@ -305,22 +318,36 @@ export default function StaffTerminal() {
     }
   };
 
-  const handleRestartPod = async (podId: string) => {
-    if (!window.confirm(`Restart ${podId}? Active sessions will be interrupted.`)) return;
-    try {
-      await api.restartPod(podId);
-    } catch (err) {
-      toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleRestartPod = (podId: string) => {
+    setPendingConfirm({
+      title: `Restart ${podId}?`,
+      description: "Any active session on this pod will be interrupted. The pod will be unreachable for ~90 seconds.",
+      confirmLabel: "Restart Pod",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.restartPod(podId);
+        } catch (err) {
+          toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
-  const handleShutdownPod = async (podId: string) => {
-    if (!window.confirm("Shutdown this pod?")) return;
-    try {
-      await api.shutdownPod(podId);
-    } catch (err) {
-      toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleShutdownPod = (podId: string) => {
+    setPendingConfirm({
+      title: `Shutdown ${podId}?`,
+      description: "The pod will power off. Someone will need to physically press the power button to restart it.",
+      confirmLabel: "Shutdown",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.shutdownPod(podId);
+        } catch (err) {
+          toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
   const handleAcknowledgeAssistance = (podId: string) => {
@@ -680,6 +707,9 @@ export default function StaffTerminal() {
           </div>
         )}
       </main>
+
+      {/* Global confirmation modal — replaces window.confirm for destructive actions */}
+      <ConfirmDialog state={pendingConfirm} onDismiss={dismissConfirm} />
     </div>
   );
 }
