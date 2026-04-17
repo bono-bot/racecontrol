@@ -180,6 +180,18 @@ try {
             }
         }
 
+        # Defensive main-loop TTL: clear stale sentinel regardless of in-memory flag
+        if (Test-Path "C:\RacingPoint\MAINTENANCE_MODE") {
+            $mmAge = (Get-Date) - (Get-Item "C:\RacingPoint\MAINTENANCE_MODE").LastWriteTime
+            if ($mmAge.TotalMinutes -ge 30) {
+                $mmAgeMin = [int]$mmAge.TotalMinutes
+                Remove-Item "C:\RacingPoint\MAINTENANCE_MODE" -Force -ErrorAction SilentlyContinue
+                $script:maintenanceMode = $false
+                $script:maintenanceStart = $null
+                Write-Log "MAINTENANCE_MODE sentinel stale ${mmAgeMin}min - cleared by main loop TTL"
+            }
+        }
+
         Start-Sleep -Seconds $checkIntervalSec
     }
 } finally {
