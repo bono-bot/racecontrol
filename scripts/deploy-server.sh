@@ -198,11 +198,14 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
 # The watchdog auto-restarts racecontrol on crash. If we kill first,
 # the watchdog races to restart the OLD binary before we can swap.
 # Solution: disable watchdog → kill process → swap → restart → re-enable
+# Phase 413 Factor 1: Extended schtasks disable from 2 to 8 tasks. RCWatchdog fired
+# during the 2026-04-18 03:13 abort — it was not in the original disable list.
+# See .planning/phases/413-*/413-CONTEXT.md for full rationale.
 info "Disabling watchdog to prevent restart race..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & schtasks /Change /TN RCWatchdog /Disable 2>nul & schtasks /Change /TN RaceControlStartup /Disable 2>nul & schtasks /Change /TN StartRCDirect /Disable 2>nul & schtasks /Change /TN StartRaceControl /Disable 2>nul & schtasks /Change /TN StartRCWatchdog /Disable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
 # Also write a deploy sentinel to block any remaining watchdog instance
 curl -s --max-time 5 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
