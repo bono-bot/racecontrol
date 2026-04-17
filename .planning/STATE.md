@@ -126,5 +126,18 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Closes:** Factor 1 of the 2026-04-18 03:13 IST deploy abort (RCWatchdog respawn race) — not live-exercised yet; first test on next deploy run
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-05-SUMMARY.md`
 
+## Phase 413 Plan 02 — rc-agent MeshKeyCache (Option Z data layer) closed (2026-04-17)
+
+**Completed:** 2026-04-17 (parallel Wave 1 executor)
+**Scope:** New module `crates/rc-agent/src/mesh_key_cache.rs` (329 lines) — `MeshKeyCache = Arc<RwLock<Option<String>>>` type + `fetch_from_server` HTTP client + `get_key_or_env` helper. Wire-up in main.rs via `mod mesh_key_cache;` gated on `http-client` feature.
+**Commits:** `45d85c14` (Task 1: module + Cargo.toml wiremock dep — commit mislabeled "413-01" due to parallel-agent commit-collision; all Task 1 files are present), `85b1968e` (Task 2: `mod mesh_key_cache;` registration in main.rs)
+**Files:** `crates/rc-agent/src/mesh_key_cache.rs` (new, 329 lines), `crates/rc-agent/Cargo.toml` (+wiremock dev-dep), `crates/rc-agent/src/main.rs` (+2 lines for mod), `Cargo.lock` (wiremock transitive deps)
+**Tests:** 10 unit tests (`cargo test -p rc-agent-crate --bin rc-agent mesh_key_cache`) — all passing. Coverage: 200+non-empty/200+empty/400/403/500/network-error/empty-overwrites-existing/cache-hit/env-fallback/both-empty.
+**W5 observability:** 403/FORBIDDEN logged at `tracing::warn!`; other non-2xx at `debug!`. Cache behavior identical — `error_for_status()?` propagates Err to periodic_refetch, preserving last-known-good.
+**Deviations documented:** (1) Rule 3 no-lib.rs → `mod` in main.rs; (2) Rule 3 `--lib` flag swapped for `--bin rc-agent` in verify commands; (3) Rule 3 parallel-agent commit-collision absorbed Task 1 files into `45d85c14` (branded 413-01). No code lost; all deviations noted in SUMMARY.
+**Next plan (03):** Wire `MeshKeyCache` into `main.rs` boot sequence via `rc_common::boot_resilience::spawn_periodic_refetch`.
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
+
 ---
-*Last updated: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*
+*Last updated: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
+*Previous: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*
