@@ -324,11 +324,12 @@ done
 
 echo ""
 echo -e "${RED}Server did not come up after 60 seconds — auto-rollback...${NC}"
-# Re-enable watchdog even on failure (always-do cleanup)
+# Re-enable watchdog even on failure (always-do cleanup).
+# Phase 413 Factor 1: rollback path re-enables all 8 schtasks symmetric with Step 3a disable.
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Enable 2>nul & schtasks /Change /TN StartRCTemp /Enable 2>nul & schtasks /Change /TN RCWatchdog /Enable 2>nul & schtasks /Change /TN RaceControlStartup /Enable 2>nul & schtasks /Change /TN StartRCDirect /Enable 2>nul & schtasks /Change /TN StartRaceControl /Enable 2>nul & schtasks /Change /TN StartRCWatchdog /Enable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Enable 2>nul & del /Q C:\\RacingPoint\\DEPLOY_IN_PROGRESS 2>nul & echo WATCHDOG_ENABLED"}' > /dev/null 2>&1
 info "Rolling back to racecontrol-prev.exe..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
