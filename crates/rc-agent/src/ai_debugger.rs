@@ -770,9 +770,18 @@ async fn fetch_fleet_solutions(config: &AiDebuggerConfig, error_context: &str) -
 /// Tier 0: Query server for audit known issues matching this symptom.
 /// Returns Some(escalation_message) if matched, None otherwise.
 /// This avoids wasting Ollama/OpenRouter credits on known code bugs.
-async fn check_audit_known_issues(config: &AiDebuggerConfig, error_context: &str) -> Option<String> {
+///
+/// Calls /api/v1/mesh/audit-check-service with X-Service-Key auth. The plain
+/// /audit-check route is in the staff-JWT block; rc-agent has no JWT, so prior
+/// versions of this function silently 401'd on every call since MMA-v29.
+/// Service-key variant fixes that (server-side route added 2026-04-18).
+async fn check_audit_known_issues(_config: &AiDebuggerConfig, error_context: &str) -> Option<String> {
+    let service_key = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
+    if service_key.is_empty() {
+        return None; // No key configured — Tier 0 unavailable, fall through.
+    }
     let search_url = format!(
-        "http://192.168.31.23:8080/api/v1/mesh/audit-check?symptom={}",
+        "http://192.168.31.23:8080/api/v1/mesh/audit-check-service?symptom={}",
         error_context.replace(' ', "+").replace('&', "%26").replace('?', "%3F")
     );
 
@@ -781,7 +790,7 @@ async fn check_audit_known_issues(config: &AiDebuggerConfig, error_context: &str
         .build()
         .unwrap_or_default();
 
-    match client.get(&search_url).send().await {
+    match client.get(&search_url).header("X-Service-Key", &service_key).send().await {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
                 if body.get("matched").and_then(|m| m.as_bool()).unwrap_or(false) {
@@ -790,7 +799,7 @@ async fn check_audit_known_issues(config: &AiDebuggerConfig, error_context: &str
             }
             None
         }
-        _ => None, // Server unreachable = skip Tier 0, proceed to normal diagnosis
+        _ => None, // Server unreachable or 401 = skip Tier 0, proceed to normal diagnosis.
     }
 }
 

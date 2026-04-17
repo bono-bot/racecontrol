@@ -854,6 +854,9 @@ fn service_routes() -> Router<Arc<AppState>> {
         .route("/cloud/mesh/pull", get(cloud_mesh_pull))
         // Audit seed via service key (CGP 4.1: smart pipes feed MI without staff JWT)
         .route("/mesh/audit-seed-service", post(mesh_audit_seed_service))
+        // Audit check via service key — rc-agent Tier 0 short-circuit (ai_debugger.rs)
+        // The plain /mesh/audit-check is staff-JWT-gated; rc-agent has no JWT.
+        .route("/mesh/audit-check-service", get(mesh_audit_check_service))
         // GLD-C-03: CSV telemetry fallback from rc-agent at session end (D-07/D-09)
         // Auth: X-Service-Key (sentry_service_key). Max body: 50MB.
         .route(

@@ -292,6 +292,35 @@ pub(crate) async fn mesh_audit_seed(
     }))
 }
 
+/// GET /api/v1/mesh/audit-check-service — service-key-authed version of audit-check.
+/// rc-agent Tier 0 short-circuit queries this (ai_debugger.rs::check_audit_known_issues).
+/// The plain /mesh/audit-check is in the staff-JWT block — rc-agent has no JWT, so it
+/// needs this sibling endpoint with X-Service-Key auth.
+/// Auth: X-Service-Key header must match config sentry_service_key.
+pub(crate) async fn mesh_audit_check_service(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> axum::response::Response {
+    let expected = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    let provided = headers.get("X-Service-Key").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if expected.is_empty() || provided.is_empty() || provided != expected {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Invalid service key").into_response();
+    }
+    let symptom = params.get("symptom").map(|s| s.as_str()).unwrap_or("");
+    if symptom.is_empty() {
+        return Json(serde_json::json!({ "matched": false })).into_response();
+    }
+    match crate::fleet_kb::check_audit_known_issues(&state.db, symptom).await {
+        Some(escalation) => Json(serde_json::json!({
+            "matched": true,
+            "escalation": escalation,
+            "action": "skip_diagnosis",
+        })).into_response(),
+        None => Json(serde_json::json!({ "matched": false })).into_response(),
+    }
+}
+
 /// POST /api/v1/mesh/audit-seed-service — service-key-authed version of audit-seed.
 /// CGP 4.1: Smart pipes and automated tools need to feed MI without staff JWT.
 /// Auth: X-Service-Key header must match config sentry_service_key.
