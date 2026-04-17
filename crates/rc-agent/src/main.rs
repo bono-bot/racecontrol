@@ -1579,6 +1579,17 @@ async fn main() -> Result<()> {
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
     let flags_arc = std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache()));
 
+    // Phase 413 — Option Z mesh key cache. Fetched at boot + every 5min from
+    // GET /api/v1/pods/mesh-service-key (pod-IP-gated). Replaces HKLM
+    // RCAGENT_SERVICE_KEY provisioning. Cache is shared with ai_debugger,
+    // remote_ops, and ws_handler (see Plan 04).
+    // Feature-gated on http-client because the mesh_key_cache module depends on reqwest.
+    // Plan 04 wires consumers; until then the binding is intentionally unused — the
+    // periodic-refetch task below still keeps the cache fresh, so Plan 04 is a drop-in.
+    #[cfg(feature = "http-client")]
+    #[allow(unused_variables)] // Phase 413 Plan 04 wires consumers — remove allow then
+    let mesh_key_cache = crate::mesh_key_cache::new_cache();
+
     // ─── Billing Guard (stuck session + idle drift detection) ────────────────
     // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
     // Derive HTTP base URL from WebSocket URL: ws://host:port/ws/agent → http://host:port/api/v1
@@ -1616,6 +1627,45 @@ async fn main() -> Result<()> {
             },
         );
         tracing::info!(target: LOG_TARGET, "Feature flags periodic re-fetch started (interval=300s)");
+    }
+
+    // Phase 413 — Mesh key cache: initial best-effort synchronous fetch + 5min periodic refetch.
+    // Non-fatal on initial failure — cache stays None, consumers fall back to env var until next tick.
+    // Logs via rc_common::boot_resilience: `periodic_refetch started`, `periodic_refetch first_success`,
+    // `periodic_refetch failed` (with retry_count), `periodic_refetch self_healed` (with downtime_ms).
+    #[cfg(feature = "http-client")]
+    {
+        let mesh_cache_init = mesh_key_cache.clone();
+        let http_base_init = core_http_base.clone();
+        let http_client_init = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        // Initial synchronous fetch — best-effort. Consumers starting within this
+        // task's boot window (e.g. remote_ops immediately below) get a cache hit
+        // instead of falling to env fallback on the very first request.
+        match crate::mesh_key_cache::fetch_from_server(&http_client_init, &http_base_init, &mesh_cache_init).await {
+            Ok(_) => tracing::info!(target: LOG_TARGET, "Mesh key cache initial fetch ok"),
+            Err(e) => tracing::warn!(target: LOG_TARGET, error = %e, "Mesh key cache initial fetch failed (will retry in 300s)"),
+        }
+
+        let mesh_cache_refetch = mesh_key_cache.clone();
+        let http_base_refetch = core_http_base.clone();
+        let http_client_refetch = http_client_init.clone();
+        rc_common::boot_resilience::spawn_periodic_refetch(
+            "mesh_service_key".to_string(),
+            Duration::from_secs(300), // 5 minutes — matches feature_flags cadence
+            move || {
+                let cache = mesh_cache_refetch.clone();
+                let base = http_base_refetch.clone();
+                let client = http_client_refetch.clone();
+                async move {
+                    crate::mesh_key_cache::fetch_from_server(&client, &base, &cache).await
+                }
+            },
+        );
+        tracing::info!(target: LOG_TARGET, "Mesh key cache periodic re-fetch started (interval=300s)");
     }
 
     billing_guard::spawn(
