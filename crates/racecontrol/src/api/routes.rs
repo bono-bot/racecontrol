@@ -25,7 +25,7 @@ use crate::cafe_marketing;
 use crate::cafe_promos;
 use crate::auth;
 use crate::auth::middleware::{require_staff_jwt, require_role_manager, require_role_superadmin};
-use crate::network_source::require_non_pod_source;
+use crate::network_source::{require_non_pod_source, require_pod_source};
 use crate::fleet_health;
 use crate::fleet_intelligence;
 use crate::process_guard;
@@ -158,6 +158,14 @@ fn public_routes() -> Router<Arc<AppState>> {
         // Previously public: /debug/activity, /debug/playbooks, /debug/incidents, /debug/pod-events
         // MMA-v29: /debug/db-stats also moved to staff_routes (was leaking table names, row counts)
         .route("/guard/whitelist/{machine_id}", get(process_guard::get_whitelist_handler))
+        // Phase 413 — Option Z mesh key bootstrap. Pod-IP-gated via require_pod_source
+        // middleware (network_source.rs). LAN + pod-IP range trust boundary, same
+        // pattern as /guard/whitelist/{machine_id} and /config/kiosk-allowlist.
+        // Consumers: rc-agent MeshKeyCache (Plan 02+03) at boot + every 5 minutes.
+        .route(
+            "/pods/mesh-service-key",
+            get(pods_mesh_service_key).route_layer(axum::middleware::from_fn(require_pod_source)),
+        )
         .route("/venue", get(venue_info))
         .route("/venue/register", post(venue_register))
         .route("/customer/register", post(customer_register))
