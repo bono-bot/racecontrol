@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: completed
-last_updated: "2026-04-15T22:26:57.148Z"
-last_activity: 2026-04-15
+status: executing
+last_updated: "2026-04-17T23:24:32.333Z"
+last_activity: 2026-04-17
 progress:
   total_phases: 4
   completed_phases: 4
@@ -19,13 +19,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 396 — architecture-conventions-docs
+**Current focus:** Phase 413 — service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes
 
 ## Current Phase
 
 **Phase:** 396
-**Status:** Milestone complete
-**Last activity:** 2026-04-15
+**Status:** Executing Phase 413
+**Last activity:** 2026-04-17
 
 ## Progress
 
@@ -114,6 +114,17 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 ## Key Lesson: sed vs Edit Tool
 
 **NEVER use sed for multi-line Rust file modifications.** sed silently empties files when encountering certain patterns (happened twice with pod_healer.rs). Use the Edit tool for all code modifications — it validates changes and reports errors instead of silently corrupting.
+
+## Phase 413 Plan 05 — deploy-server.sh Factor 1 closed (2026-04-17)
+
+**Completed:** 2026-04-17 (parallel Wave 1 executor)
+**Scope:** Extend schtasks disable/re-enable list from 2 to 8 RC-related scheduled tasks in all 3 blocks of `scripts/deploy-server.sh`.
+**Commits:** `0fc38726` (Task 1 disable block), `e38a9e81` (Task 2 success re-enable), `7c7af7ec` (Task 3 rollback re-enable)
+**Files:** `scripts/deploy-server.sh` (+9 lines, -4 lines net across 3 edits)
+**Coverage:** 8 tasks × 3 blocks (1 disable + 2 enables each) = 24 `schtasks /Change /TN` invocations (was 6)
+**Verification:** bash -n clean; per-task grep counts all match (1 Disable + 2 Enables × 8); taskkill WINDOWTITLE + DEPLOY_IN_PROGRESS fragments preserved intact for Plan 06/07
+**Closes:** Factor 1 of the 2026-04-18 03:13 IST deploy abort (RCWatchdog respawn race) — not live-exercised yet; first test on next deploy run
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-05-SUMMARY.md`
 
 ---
 *Last updated: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*
