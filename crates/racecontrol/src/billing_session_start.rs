@@ -263,8 +263,23 @@ pub async fn start_billing_session(
     .ok()
     .flatten();
 
+    // BUG-5: fallback changed from "per_minute" to "package". Rationale:
+    // - "per_minute" fallback gave max_session_seconds=86400 (24h). A trial session
+    //   that hit this fallback would stay "active" for 24h, blocking the pod and
+    //   preventing post-session hooks from firing.
+    // - "package" fallback uses allocated_seconds (what the customer actually paid
+    //   for: 300s trial, 1800s 30-min package, etc). Errs toward shorter session
+    //   if we can't determine the mode. The allocated_seconds==0 floor at line 299
+    //   still protects legitimate per-minute sessions that fall through.
+    // Also log at WARN so we can observe how often this defensive path fires.
     let (billing_mode, rate_per_min, hold, low_warn) = billing_mode_info
-        .unwrap_or(("per_minute".to_string(), Some(2500), Some(10000), Some(5000)));
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "BILLING: pricing_tier {} not found or query failed — falling back to 'package' mode with default rate. Session: {}",
+                pricing_tier_id, session_id
+            );
+            ("package".to_string(), Some(2500), Some(10000), Some(5000))
+        });
 
     let is_per_minute = billing_mode == "per_minute";
     // Resolve wallet owner for per-minute periodic debits
@@ -296,7 +311,7 @@ pub async fn start_billing_session(
         max_pause_duration_secs: 600,
         elapsed_seconds: 0,
         pause_seconds: 0,
-        max_session_seconds: if is_per_minute { 86400 } else { allocated_seconds }, // 24hr safety cap for per-minute (was 3hr, raised for iRacing endurance)
+        max_session_seconds: if is_per_minute || allocated_seconds == 0 { 86400 } else { allocated_seconds }, // 24hr safety cap for per-minute (was 3hr, raised for iRacing endurance). BUG-5 floor: allocated_seconds==0 also caps at 24h so a per-minute session that fell through to the package fallback doesn't end instantly.
         sim_type: None,
         recovery_pause_seconds: 0,
         pause_reason: PauseReason::None,
