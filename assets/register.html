@@ -920,8 +920,10 @@ async function submitRegistration() {
 
 // ─── Step 5: Open App ─────────────────────────────────────────────────────
 function openApp() {
-  // Try to open the PWA — adjust URL to your deployment
-  const pwaUrl = window.location.origin.replace(':8080', ':3500');
+  // Venue: register.html served on :8080, PWA/kiosk on :3300.
+  // Cloud/reverse-proxy: same origin serves both; navigate to root path.
+  const origin = window.location.origin;
+  const pwaUrl = origin.includes(':8080') ? origin.replace(':8080', ':3300') : '/';
   window.location.href = pwaUrl;
 }
 

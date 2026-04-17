@@ -294,6 +294,16 @@
     <div class="loading"><div class="spinner"></div>Loading fleet status...</div>
   </div>
 
+  <div class="section-label">Displays</div>
+  <div id="displays-section">
+    <div class="loading"><div class="spinner"></div>Loading displays...</div>
+  </div>
+
+  <div class="section-label">Diagnostics</div>
+  <div id="diagnostics-section">
+    <div class="loading"><div class="spinner"></div>Loading diagnostics...</div>
+  </div>
+
   <div class="last-updated" id="last-updated"></div>
 </div>
 
@@ -508,6 +518,56 @@ function renderFleet(pods) {
   section.appendChild(grid);
 }
 
+function renderDisplays(displays) {
+  var section = document.getElementById('displays-section');
+  section.textContent = '';
+
+  if (!displays || displays.length === 0) {
+    section.appendChild(el('div', { className: 'loading', textContent: 'No display machines registered' }));
+    return;
+  }
+
+  var grid = el('div', { className: 'svc-grid' });
+  for (var i = 0; i < displays.length; i++) {
+    var d = displays[i];
+    var card = el('div', { className: 'svc-card' });
+    var nameDiv = el('div', { className: 'svc-name' });
+    nameDiv.appendChild(dot(d.online ? 'dot-ok' : 'dot-err'));
+    nameDiv.appendChild(document.createTextNode(' ' + (d.display_id || 'display')));
+    card.appendChild(nameDiv);
+    card.appendChild(el('div', { className: 'svc-latency', textContent: 'Uptime ' + fmtUptime(d.uptime_s) }));
+    var seenMs = (d.last_ping_secs_ago || 0) * 1000;
+    card.appendChild(el('div', { className: 'svc-meta', textContent: 'Last ping ' + (seenMs < 60000 ? (d.last_ping_secs_ago + 's ago') : Math.floor((d.last_ping_secs_ago || 0) / 60) + 'm ago') }));
+    grid.appendChild(card);
+  }
+  section.appendChild(grid);
+}
+
+function renderDiagnostics(fleet) {
+  var section = document.getElementById('diagnostics-section');
+  section.textContent = '';
+
+  var card = el('div', { className: 'server-card' });
+  var kvGrid = el('div', { className: 'kv-grid' });
+
+  var venueOpen = fleet.venue_open;
+  kvGrid.appendChild(makeKVWithDot('Venue', venueOpen ? 'Open' : 'Closed', venueOpen === true));
+
+  var churn = fleet.dashboard_ws_churn || {};
+  var churnOk = churn.healthy === true;
+  kvGrid.appendChild(makeKVWithDot(
+    'WS Churn',
+    (churn.connects_per_min != null ? churn.connects_per_min : '\u2014') + ' / ' +
+      (churn.disconnects_per_min != null ? churn.disconnects_per_min : '\u2014') + ' per min',
+    churnOk
+  ));
+
+  kvGrid.appendChild(makeKV('Dashboard Clients', String(fleet.dashboard_clients != null ? fleet.dashboard_clients : '\u2014')));
+
+  card.appendChild(kvGrid);
+  section.appendChild(card);
+}
+
 var fetching = false;
 var lastSuccessTime = null;
 var consecutiveFailures = 0;
@@ -567,10 +627,14 @@ function refresh() {
       var fleet = results[1].value;
       renderServices(fleet.services || {});
       renderFleet(fleet.pods || []);
+      renderDisplays(fleet.displays || []);
+      renderDiagnostics(fleet);
       anySuccess = true;
     } else {
       document.getElementById('services-section').textContent = 'Failed to load services';
       document.getElementById('fleet-section').textContent = 'Failed to load fleet';
+      document.getElementById('displays-section').textContent = 'Failed to load displays';
+      document.getElementById('diagnostics-section').textContent = 'Failed to load diagnostics';
     }
 
     updateStatus(anySuccess);
