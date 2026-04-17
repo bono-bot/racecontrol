@@ -308,21 +308,42 @@ pub(crate) async fn end_billing_session(
 
             tracing::info!("Billing session {} ended ({})", session_id, status_str);
 
-            // Post-session hooks (fire-and-forget)
+            // Post-session hooks (fire-and-forget, but panics are captured + logged)
             if end_status != BillingSessionStatus::Cancelled {
                 let state_clone = state.clone();
                 let session_id_clone = session_id.to_string();
                 let driver_id_clone = info.driver_id.clone();
                 let pod_id_clone = pod_id.clone();
                 tokio::spawn(async move {
-                    post_session_hooks(
-                        &state_clone,
-                        &session_id_clone,
-                        &driver_id_clone,
-                        seconds_covered_at_end,
-                        &pod_id_clone,
-                    )
-                    .await;
+                    // Inner spawn lets us catch panics via JoinError without pulling in futures::catch_unwind.
+                    let sid = session_id_clone.clone();
+                    let did = driver_id_clone.clone();
+                    let pid = pod_id_clone.clone();
+                    let inner = tokio::spawn(async move {
+                        post_session_hooks(
+                            &state_clone,
+                            &session_id_clone,
+                            &driver_id_clone,
+                            seconds_covered_at_end,
+                            &pod_id_clone,
+                        )
+                        .await;
+                    });
+                    match inner.await {
+                        Ok(()) => {}
+                        Err(e) if e.is_panic() => {
+                            tracing::error!(
+                                session_id = %sid, driver_id = %did, pod_id = %pid,
+                                "post_session_hooks PANICKED: {:?}", e
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                session_id = %sid, driver_id = %did, pod_id = %pid,
+                                "post_session_hooks task error: {:?}", e
+                            );
+                        }
+                    }
                 });
             }
             return true;

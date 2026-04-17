@@ -271,6 +271,39 @@ async fn get_driver_phone(db: &sqlx::SqlitePool, driver_id: &str) -> anyhow::Res
 
 // ─── Post-Session Hooks ───────────────────────────────────────────────────────
 
+/// Record a post-session hook failure as a billing_event for operator visibility.
+/// Errors here are also logged but never propagate — the session is already ended.
+async fn record_hook_failure(
+    state: &Arc<AppState>,
+    session_id: &str,
+    hook_name: &str,
+    detail: &serde_json::Value,
+) {
+    let meta = serde_json::json!({
+        "hook": hook_name,
+        "detail": detail,
+    })
+    .to_string();
+    if let Err(ie) = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, metadata, venue_id) \
+         VALUES (?, ?, 'post_session_hook_failed', ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(session_id)
+    .bind(&meta)
+    .bind(&state.config.venue.venue_id)
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!(
+            session_id = %session_id,
+            hook = %hook_name,
+            "Failed to record post_session_hook_failed billing event: {}",
+            ie
+        );
+    }
+}
+
 /// Post-session hooks: credit referral rewards, schedule review nudge.
 pub async fn post_session_hooks(
     state: &Arc<AppState>,
@@ -279,25 +312,41 @@ pub async fn post_session_hooks(
     seconds_covered: u32,
     pod_id: &str,
 ) {
+    tracing::info!(
+        session_id = %session_id,
+        driver_id = %driver_id,
+        pod_id = %pod_id,
+        "post_session_hooks: start"
+    );
+
     // Phase 364 CONSIST-01: clear rolling lap history to prevent stale data leaking to next session
     if let Some(pod) = state.pods.write().await.get_mut(pod_id) {
         pod.recent_lap_times.clear();
+    } else {
+        tracing::warn!(pod_id = %pod_id, "post_session_hooks: pod not in state.pods — skipping lap clear");
     }
 
     // 1. Credit referral reward if this is the referee's first completed session
-    let pending_referral: Option<(String, String)> = sqlx::query_as(
+    let pending_referral: Option<(String, String)> = match sqlx::query_as(
         "SELECT r.id, r.referrer_id FROM referrals r
          WHERE r.referee_id = ? AND r.reward_credited = 0",
     )
     .bind(driver_id)
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten();
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!(session_id = %session_id, driver_id = %driver_id, "referral lookup failed: {}", e);
+            record_hook_failure(state, session_id, "referral_lookup",
+                &serde_json::json!({ "driver_id": driver_id, "error": e.to_string() })).await;
+            None
+        }
+    };
 
     if let Some((referral_id, referrer_id)) = pending_referral {
         // Credit 100 credits (₹100 = 10000 paise) to referrer
-        let _ = crate::wallet::credit(
+        if let Err(e) = crate::wallet::credit(
             state,
             &referrer_id,
             10000,
@@ -306,9 +355,18 @@ pub async fn post_session_hooks(
             Some("Referral reward — friend completed first session"),
             None,
         )
-        .await;
+        .await {
+            tracing::error!(
+                session_id = %session_id, referral_id = %referral_id, referrer_id = %referrer_id,
+                "referral_reward credit FAILED: {}", e
+            );
+            record_hook_failure(state, session_id, "referral_reward_credit", &serde_json::json!({
+                "referral_id": referral_id, "referrer_id": referrer_id,
+                "amount_paise": 10000, "error": e.to_string(),
+            })).await;
+        }
         // Credit 50 credits to referee
-        let _ = crate::wallet::credit(
+        if let Err(e) = crate::wallet::credit(
             state,
             driver_id,
             5000,
@@ -317,27 +375,56 @@ pub async fn post_session_hooks(
             Some("Welcome reward — referred by a friend"),
             None,
         )
-        .await;
-        let _ = sqlx::query("UPDATE referrals SET reward_credited = 1 WHERE id = ?")
+        .await {
+            tracing::error!(
+                session_id = %session_id, referral_id = %referral_id, referee_id = %driver_id,
+                "referral_bonus credit FAILED: {}", e
+            );
+            record_hook_failure(state, session_id, "referral_bonus_credit", &serde_json::json!({
+                "referral_id": referral_id, "referee_id": driver_id,
+                "amount_paise": 5000, "error": e.to_string(),
+            })).await;
+        }
+        // Marking the referral credited is CRITICAL — if this fails but credits succeeded,
+        // the next session will re-credit (double-reward risk). Log + record event so operators
+        // can manually reconcile.
+        if let Err(e) = sqlx::query("UPDATE referrals SET reward_credited = 1 WHERE id = ?")
             .bind(&referral_id)
             .execute(&state.db)
-            .await;
-        tracing::info!("Referral reward credited: referrer={}, referee={}", referrer_id, driver_id);
+            .await
+        {
+            tracing::error!(
+                session_id = %session_id, referral_id = %referral_id,
+                "referral marker UPDATE FAILED — double-credit risk on next session: {}", e
+            );
+            record_hook_failure(state, session_id, "referral_marker_update", &serde_json::json!({
+                "referral_id": referral_id, "severity": "double_credit_risk",
+                "error": e.to_string(),
+            })).await;
+        } else {
+            tracing::info!("Referral reward credited: referrer={}, referee={}", referrer_id, driver_id);
+        }
     }
 
     // 2. Schedule review nudge (record for WhatsApp bot to pick up)
-    let already_nudged: Option<(i64,)> = sqlx::query_as(
+    let already_nudged: Option<(i64,)> = match sqlx::query_as(
         "SELECT COUNT(*) FROM review_nudges WHERE driver_id = ?",
     )
     .bind(driver_id)
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten();
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::warn!(session_id = %session_id, driver_id = %driver_id,
+                "review_nudges lookup failed: {}", e);
+            None
+        }
+    };
 
     // Only nudge once per driver
     if already_nudged.map(|c| c.0 == 0).unwrap_or(true) {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO review_nudges (id, driver_id, billing_session_id, sent_at, venue_id) VALUES (?, ?, ?, NULL, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
@@ -345,11 +432,17 @@ pub async fn post_session_hooks(
         .bind(session_id)
         .bind(&state.config.venue.venue_id)
         .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::warn!(session_id = %session_id, driver_id = %driver_id,
+                "review_nudge INSERT failed — driver will not receive review prompt: {}", e);
+            record_hook_failure(state, session_id, "review_nudge_insert",
+                &serde_json::json!({ "driver_id": driver_id, "error": e.to_string() })).await;
+        }
     }
 
     // 3. Update membership hours if member
-    let membership: Option<(String, f64)> = sqlx::query_as(
+    let membership: Option<(String, f64)> = match sqlx::query_as(
         "SELECT m.id, bs.driving_seconds / 3600.0
          FROM memberships m
          JOIN billing_sessions bs ON bs.driver_id = m.driver_id AND bs.id = ?
@@ -359,17 +452,36 @@ pub async fn post_session_hooks(
     .bind(driver_id)
     .fetch_optional(&state.db)
     .await
-    .ok()
-    .flatten();
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!(session_id = %session_id, driver_id = %driver_id,
+                "membership lookup failed — active member hours may not update: {}", e);
+            record_hook_failure(state, session_id, "membership_lookup",
+                &serde_json::json!({ "driver_id": driver_id, "error": e.to_string() })).await;
+            None
+        }
+    };
 
     if let Some((membership_id, hours_used)) = membership {
-        let _ = sqlx::query(
+        // Membership hours is financial — customer paid for hours that won't be tracked if UPDATE fails.
+        if let Err(e) = sqlx::query(
             "UPDATE memberships SET hours_used = hours_used + ? WHERE id = ?",
         )
         .bind(hours_used)
         .bind(&membership_id)
         .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::error!(
+                session_id = %session_id, membership_id = %membership_id, hours_used = hours_used,
+                "membership hours UPDATE FAILED — member's hours under-counted: {}", e
+            );
+            record_hook_failure(state, session_id, "membership_hours_update", &serde_json::json!({
+                "membership_id": membership_id, "driver_id": driver_id,
+                "hours_used_unapplied": hours_used, "error": e.to_string(),
+            })).await;
+        }
     }
 
     // 4. Send WhatsApp receipt (best-effort, direct Evolution API)
@@ -437,7 +549,7 @@ pub async fn post_session_hooks(
 /// Evaluate driver's commitment ladder position based on completed session count.
 /// Queue WhatsApp nudge at escalation thresholds (2 sessions → package, 5 → membership).
 async fn evaluate_commitment_ladder(state: &Arc<AppState>, driver_id: &str) {
-    let session_count: i64 = sqlx::query_scalar(
+    let session_count: i64 = match sqlx::query_scalar(
         "SELECT COUNT(*) FROM billing_sessions
          WHERE driver_id = ? AND status IN ('completed', 'ended_early')
          AND is_trial = 0"
@@ -445,7 +557,16 @@ async fn evaluate_commitment_ladder(state: &Arc<AppState>, driver_id: &str) {
     .bind(driver_id)
     .fetch_one(&state.db)
     .await
-    .unwrap_or(0);
+    {
+        Ok(n) => n,
+        Err(e) => {
+            // Without the session count we skip ladder evaluation entirely rather than
+            // silently default to 0 (which would wrongly demote to 'trial' and re-fire nudges).
+            tracing::warn!(driver_id = %driver_id,
+                "commitment_ladder session_count query failed — skipping evaluation: {}", e);
+            return;
+        }
+    };
 
     let (new_position, should_nudge, nudge_message) = match session_count {
         0     => ("trial",   false, ""),
@@ -457,17 +578,21 @@ async fn evaluate_commitment_ladder(state: &Arc<AppState>, driver_id: &str) {
     };
 
     // Update ladder position
-    let _ = sqlx::query(
+    if let Err(e) = sqlx::query(
         "UPDATE drivers SET commitment_ladder = ? WHERE id = ?"
     )
     .bind(new_position)
     .bind(driver_id)
     .execute(&state.db)
-    .await;
+    .await
+    {
+        tracing::warn!(driver_id = %driver_id, new_position = %new_position,
+            "commitment_ladder UPDATE failed: {}", e);
+    }
 
     // Queue nudge if at escalation point (with 7-day dedup)
     if should_nudge {
-        let already_sent: bool = sqlx::query_scalar(
+        let already_sent: bool = match sqlx::query_scalar(
             "SELECT COUNT(*) > 0 FROM nudge_queue
              WHERE driver_id = ? AND template = ?
              AND created_at >= datetime('now', '-7 days')"
@@ -476,7 +601,15 @@ async fn evaluate_commitment_ladder(state: &Arc<AppState>, driver_id: &str) {
         .bind(nudge_message)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        {
+            Ok(v) => v,
+            Err(e) => {
+                // Fail closed: if we can't check dedup, skip the nudge rather than spam.
+                tracing::warn!(driver_id = %driver_id,
+                    "nudge dedup query failed — skipping nudge to avoid spam risk: {}", e);
+                return;
+            }
+        };
 
         if !already_sent {
             crate::psychology::queue_notification(
