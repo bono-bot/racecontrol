@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-17T23:43:07.408Z"
+last_updated: "2026-04-17T23:50:45.879Z"
 last_activity: 2026-04-17
 progress:
   total_phases: 4
@@ -126,6 +126,21 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Closes:** Factor 1 of the 2026-04-18 03:13 IST deploy abort (RCWatchdog respawn race) — not live-exercised yet; first test on next deploy run
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-05-SUMMARY.md`
 
+## Phase 413 Plan 06 — deploy-server.sh Factor 2 closed (2026-04-18)
+
+**Completed:** 2026-04-18 (parallel Wave 2 executor, --no-verify)
+**Scope:** Rename deploy sentinel from `DEPLOY_IN_PROGRESS` to `OTA_DEPLOYING` in all 3 blocks of `scripts/deploy-server.sh` (write + success-path delete + rollback-path delete). Add Phase 413 Factor 2 explanatory comment above the write block citing `start-racecontrol-watchdog.ps1:61`.
+**Commits:** `d92c3843` (Task 1: single atomic rename across all 3 blocks)
+**Files:** `scripts/deploy-server.sh` (+7 lines, -3 lines — 3 substring renames + 4 comment lines)
+**Before/after counts:**
+- `grep -c DEPLOY_IN_PROGRESS scripts/deploy-server.sh` : 3 → 0
+- `grep -c OTA_DEPLOYING scripts/deploy-server.sh` : 0 → 5 (3 functional + 2 in comment)
+- `grep -c 'del /Q C:\\RacingPoint\\OTA_DEPLOYING' scripts/deploy-server.sh` : 2
+- bash -n clean; Plan 05 `RCWatchdog` count=3 preserved; `start-racecontrol-watchdog.ps1` untouched (2 OTA_DEPLOYING hits)
+**Deviation (Rule 1, documentation bug):** Plan prescribed comment text contained the literal `DEPLOY_IN_PROGRESS` substring, which contradicted the `grep -c DEPLOY_IN_PROGRESS = 0` acceptance criterion. Reworded comment to `a different sentinel name the PS watchdog never checked` — preserves intent, satisfies the stricter invariant.
+**Closes:** Factor 2 of the 2026-04-18 03:13 IST deploy abort — writer + checker now agree on `OTA_DEPLOYING`. PS watchdog will see the sentinel during the next kill→swap→start window and skip its restart. Not live-exercised yet; first test on next `bash scripts/deploy-server.sh` invocation.
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-06-SUMMARY.md`
+
 ## Phase 413 Plan 02 — rc-agent MeshKeyCache (Option Z data layer) closed (2026-04-17)
 
 **Completed:** 2026-04-17 (parallel Wave 1 executor)
@@ -139,5 +154,6 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
+*Last updated: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*
+*Previous: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
 *Previous: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*
