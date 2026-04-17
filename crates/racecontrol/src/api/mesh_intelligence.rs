@@ -339,6 +339,31 @@ pub(crate) async fn mesh_audit_seed_service(
     result.into_response()
 }
 
+/// GET /api/v1/pods/mesh-service-key — Option Z bootstrap endpoint.
+/// rc-agent MeshKeyCache (Plan 02+03) fetches this at boot + every 5 minutes
+/// via rc_common::boot_resilience::spawn_periodic_refetch.
+///
+/// Auth: pod-IP source only (enforced by require_pod_source middleware
+/// layered on the route in routes.rs — NOT here in the handler). LAN +
+/// pod-IP range is the trust boundary, same pattern as /config/kiosk-allowlist
+/// and /guard/whitelist/{machine_id}.
+///
+/// Returns `{"mesh_service_key": "<key>"}`. Empty string when unconfigured —
+/// consumer cache treats that as None and falls back to env var (test-only).
+///
+/// Phase 413 — key-propagation Option Z. Eliminates manual HKLM provisioning
+/// on 8 pods + POS. See phase CONTEXT.md.
+pub(crate) fn render_mesh_service_key_body(key: &str) -> serde_json::Value {
+    serde_json::json!({ "mesh_service_key": key })
+}
+
+pub(crate) async fn pods_mesh_service_key(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Response {
+    let key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    Json(render_mesh_service_key_body(key)).into_response()
+}
+
 #[allow(dead_code)]
 #[derive(serde::Deserialize)]
 pub(crate) struct EvalQueryParams {
@@ -404,3 +429,34 @@ pub(crate) async fn list_model_reputation(
 
 // Cloud mesh sync/pull, telemetry fallback, and reconciliation handlers
 // are in mesh_intelligence_cloud.rs
+
+#[cfg(test)]
+mod phase413_tests {
+    use super::*;
+
+    // Pure-helper tests — the handler is a 2-line wrapper around
+    // render_mesh_service_key_body, so testing the helper is sufficient
+    // for unit-level coverage. Full HTTP-layer integration is covered by
+    // Plan 10 live test matrix against a running server.
+
+    #[test]
+    fn render_returns_configured_value() {
+        let body = render_mesh_service_key_body("test-key-123");
+        assert_eq!(body, serde_json::json!({ "mesh_service_key": "test-key-123" }));
+    }
+
+    #[test]
+    fn render_returns_empty_string_when_unconfigured() {
+        // Matches the unwrap_or("") fallback when sentry_service_key is None
+        let body = render_mesh_service_key_body("");
+        assert_eq!(body, serde_json::json!({ "mesh_service_key": "" }));
+    }
+
+    #[test]
+    fn render_json_shape_is_stable() {
+        // Consumer cache in Plan 02 parses this exact shape. Regression guard.
+        let body = render_mesh_service_key_body("foo");
+        assert!(body.get("mesh_service_key").is_some());
+        assert_eq!(body.as_object().unwrap().len(), 1, "exactly one field");
+    }
+}
