@@ -23,7 +23,9 @@ pub enum RequestSource {
 
 /// Pure function: classifies an IP address into a RequestSource.
 ///
-/// Pod IPs: 192.168.31.{28,33,38,86,87,88,89,91}
+/// Pod IPs: 192.168.31.{28,33,38,86,87,88,89,91,130} + POS Tailscale 100.95.211.1
+/// (POS added per Phase 413 — LAN IP .130 for normal operation, Tailscale IP
+/// 100.95.211.1 for LAN-outage fallback; authoritative source: CLAUDE.md Network Map.)
 /// Staff IPs: 192.168.31.{20,23,27}, 127.0.0.1, ::1
 /// Customer: other 192.168.31.* addresses
 /// Cloud: everything else
@@ -34,9 +36,16 @@ pub fn classify_ip(ip: std::net::IpAddr) -> RequestSource {
             if octets == [127, 0, 0, 1] {
                 return RequestSource::Staff;
             }
+            // POS Tailscale IP — narrow single-IP exception so POS rc-agent can
+            // fetch the mesh key during LAN outages. DO NOT widen to 100.x.x.x —
+            // that range also contains Bono VPS (Cloud) and server (Staff via LAN).
+            // See CLAUDE.md Network Map for the authoritative POS Tailscale IP.
+            if octets == [100, 95, 211, 1] {
+                return RequestSource::Pod;
+            }
             if octets[0] == 192 && octets[1] == 168 && octets[2] == 31 {
                 match octets[3] {
-                    28 | 33 | 38 | 86 | 87 | 88 | 89 | 91 => RequestSource::Pod,
+                    28 | 33 | 38 | 86 | 87 | 88 | 89 | 91 | 130 => RequestSource::Pod,
                     20 | 23 | 27 => RequestSource::Staff,
                     _ => RequestSource::Customer,
                 }
@@ -83,6 +92,26 @@ pub async fn require_non_pod_source(
     next.run(req).await
 }
 
+/// Guard middleware: rejects requests from non-Pod sources with 403 Forbidden.
+/// Fail-closed: if RequestSource extension is missing, rejects (unlike
+/// require_non_pod_source which fails open).
+/// Must run AFTER `classify_source_middleware` has inserted `RequestSource`.
+/// Used by `/api/v1/pods/mesh-service-key` — only pods may fetch the mesh key.
+pub async fn require_pod_source(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let source = req.extensions().get::<RequestSource>().copied();
+    if source != Some(RequestSource::Pod) {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            "Pod source required",
+        )
+            .into_response();
+    }
+    next.run(req).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,7 +124,8 @@ mod tests {
 
     #[test]
     fn pod_ips_classify_as_pod() {
-        let pod_octets = [28, 33, 38, 86, 87, 88, 89, 91];
+        // Phase 413: 130 (POS LAN) added to Pod classification
+        let pod_octets = [28, 33, 38, 86, 87, 88, 89, 91, 130];
         for last in pod_octets {
             let ip: std::net::IpAddr = format!("192.168.31.{}", last).parse().unwrap();
             assert_eq!(
@@ -105,6 +135,36 @@ mod tests {
                 last
             );
         }
+    }
+
+    #[test]
+    fn pos_ip_130_classifies_as_pod() {
+        let ip: std::net::IpAddr = "192.168.31.130".parse().unwrap();
+        assert_eq!(classify_ip(ip), RequestSource::Pod, "POS LAN .130 must be Pod per Phase 413");
+    }
+
+    #[test]
+    fn pos_tailscale_classifies_as_pod() {
+        // B1 fix — POS falls through to Tailscale (100.95.211.1) when LAN is down.
+        // Without this, POS rc-agent would 403 on /pods/mesh-service-key during outages.
+        let ip: std::net::IpAddr = "100.95.211.1".parse().unwrap();
+        assert_eq!(classify_ip(ip), RequestSource::Pod, "POS Tailscale 100.95.211.1 must be Pod");
+    }
+
+    #[test]
+    fn bono_vps_tailscale_stays_cloud() {
+        // Regression guard: the narrow POS-Tailscale exception must NOT widen to 100.x.x.x.
+        // Bono VPS on Tailscale is 100.70.177.44 — must remain Cloud.
+        let ip: std::net::IpAddr = "100.70.177.44".parse().unwrap();
+        assert_eq!(classify_ip(ip), RequestSource::Cloud, "Bono VPS Tailscale must stay Cloud");
+    }
+
+    #[test]
+    fn server_tailscale_stays_cloud() {
+        // Regression guard: server Tailscale (100.125.108.37) is "Cloud" class
+        // (staff reach server via LAN .23; Tailscale is for external admin).
+        let ip: std::net::IpAddr = "100.125.108.37".parse().unwrap();
+        assert_eq!(classify_ip(ip), RequestSource::Cloud, "Server Tailscale must stay Cloud");
     }
 
     #[test]
@@ -222,5 +282,73 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), axum::http::StatusCode::OK);
+    }
+
+    // ── require_pod_source integration tests (Phase 413) ────────────────
+
+    fn test_router_with_pod_guard() -> Router {
+        Router::new()
+            .route("/pod-only", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn(require_pod_source))
+    }
+
+    #[tokio::test]
+    async fn pod_guard_allows_pod_source() {
+        let app = test_router_with_pod_guard();
+        let req = axum::http::Request::builder()
+            .uri("/pod-only")
+            .extension(RequestSource::Pod)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn pod_guard_rejects_staff_source() {
+        let app = test_router_with_pod_guard();
+        let req = axum::http::Request::builder()
+            .uri("/pod-only")
+            .extension(RequestSource::Staff)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn pod_guard_rejects_customer_source() {
+        let app = test_router_with_pod_guard();
+        let req = axum::http::Request::builder()
+            .uri("/pod-only")
+            .extension(RequestSource::Customer)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn pod_guard_rejects_cloud_source() {
+        let app = test_router_with_pod_guard();
+        let req = axum::http::Request::builder()
+            .uri("/pod-only")
+            .extension(RequestSource::Cloud)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn pod_guard_rejects_missing_source() {
+        // Fail-closed: unlike require_non_pod_source, this REJECTS when extension is missing
+        let app = test_router_with_pod_guard();
+        let req = axum::http::Request::builder()
+            .uri("/pod-only")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::FORBIDDEN);
     }
 }
