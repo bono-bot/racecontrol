@@ -9,9 +9,17 @@ cd /d C:\RacingPoint
 REM Check OTA sentinel - do not restart during OTA
 if exist OTA_DEPLOYING goto :ota_skip
 
-REM Check maintenance mode sentinel
-if exist MAINTENANCE_MODE goto :maintenance_skip
+REM Check maintenance mode sentinel (with 30min TTL auto-clear)
+if not exist MAINTENANCE_MODE goto :check_running
+powershell -NoProfile -Command "exit ([int](((Get-Date) - (Get-Item 'C:\RacingPoint\MAINTENANCE_MODE').LastWriteTime).TotalMinutes -ge 30))" 1>nul 2>nul
+if %ERRORLEVEL% equ 1 goto :maintenance_ttl_clear
+goto :maintenance_skip
 
+:maintenance_ttl_clear
+del /Q MAINTENANCE_MODE 1>nul 2>nul
+echo %date% %time% WATCHDOG: MAINTENANCE_MODE stale ^>30min - TTL cleared, proceeding >> C:\RacingPoint\racecontrol-watchdog.log
+
+:check_running
 REM Check if racecontrol.exe is running
 tasklist /FI "IMAGENAME eq racecontrol.exe" 2>nul | find /i "racecontrol.exe" >nul
 if %ERRORLEVEL% equ 0 goto :running
@@ -54,7 +62,7 @@ echo %date% %time% WATCHDOG: OTA in progress - skipping >> C:\RacingPoint\raceco
 goto :end
 
 :maintenance_skip
-echo %date% %time% WATCHDOG: MAINTENANCE_MODE active - skipping >> C:\RacingPoint\racecontrol-watchdog.log
+echo %date% %time% WATCHDOG: MAINTENANCE_MODE active (^<30min) - skipping >> C:\RacingPoint\racecontrol-watchdog.log
 goto :end
 
 :end
