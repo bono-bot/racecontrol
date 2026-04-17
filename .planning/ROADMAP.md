@@ -1991,6 +1991,16 @@ Wave 1: Deploy & Verify (383)
 *v49.0 defined: 2026-04-14. Predecessor: v48.0 (10 phases code-committed, deploy pending).*
 *Business context: ₹4.62L/month costs, 965 drivers, 75% one-time visitors, Pitlane competitor.*
 
+### Phase 315: Service key provisioning + deploy-server.sh hardening (Option Z + respawn race fixes)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 314
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 315 to break down)
+
 ---
 
 ## v52.0 Claude Workspace Restructure
