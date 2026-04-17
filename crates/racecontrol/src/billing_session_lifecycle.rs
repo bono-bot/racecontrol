@@ -117,6 +117,15 @@ async fn set_billing_status(
     session_id: &str,
     new_status: BillingSessionStatus,
 ) {
+    // BUG-7: Pause/Resume FSM errors must surface to the kiosk so staff aren't
+    // left with UI state that diverges from server state. Mirrors the
+    // Start/End/Cancel CommandError pattern.
+    let command_name = match new_status {
+        BillingSessionStatus::PausedManual => "pause_billing",
+        BillingSessionStatus::Active => "resume_billing",
+        _ => "set_billing_status",
+    };
+
     let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 
@@ -126,73 +135,101 @@ async fn set_billing_status(
         .find(|(_, t)| t.session_id == session_id)
         .map(|(k, _)| k.clone());
 
-    if let Some(pod_id) = pod_id
-        && let Some(timer) = timers.get_mut(&pod_id) {
-            // FSM-01: gate every status mutation through validate_transition
-            let event = match new_status {
-                BillingSessionStatus::PausedManual => crate::billing_fsm::BillingEvent::PauseManual,
-                BillingSessionStatus::Active => crate::billing_fsm::BillingEvent::Resume,
-                other => {
-                    tracing::warn!("BILLING: set_billing_status called with unexpected status {:?} for session {}", other, session_id);
-                    return;
-                }
-            };
-            match crate::billing_fsm::validate_transition(timer.status, event) {
-                Ok(new_status) => { timer.status = new_status; }
-                Err(e) => { tracing::warn!("BILLING: {}", e); return; }
-            }
-            let info = timer.to_info(&rate_tiers);
-
-            let event_type = match new_status {
-                BillingSessionStatus::PausedManual => "paused_manual",
-                BillingSessionStatus::Active => "resumed_manual",
-                _ => "status_change",
-            };
-
-            let activity_action = match new_status {
-                BillingSessionStatus::PausedManual => "Session Paused",
-                BillingSessionStatus::Active => "Session Resumed",
-                _ => "Session Status Changed",
-            };
-            log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core", Some(session_id));
-
-            drop(timers);
-
-            // Log event
-            if let Err(e) = sqlx::query(
-                "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
-                 VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(session_id)
-            .bind(event_type)
-            .bind(info.driving_seconds as i64)
-            .bind(&state.config.venue.venue_id)
-            .execute(&state.db)
-            .await
-            {
-                tracing::error!("Failed to log billing event '{}' for session {}: {}", event_type, session_id, e);
-            }
-
-            // Update DB status
-            let status_str = match new_status {
-                BillingSessionStatus::Active => "active",
-                BillingSessionStatus::PausedManual => "paused_manual",
-                _ => "active",
-            };
-            if let Err(e) = sqlx::query("UPDATE billing_sessions SET status = ? WHERE id = ?")
-                .bind(status_str)
-                .bind(session_id)
-                .execute(&state.db)
-                .await
-            {
-                tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
-            }
-
-            let _ = state
-                .dashboard_tx
-                .send(DashboardEvent::BillingSessionChanged(info));
+    let Some(pod_id) = pod_id else {
+        tracing::warn!("BILLING: {} for unknown session {}", command_name, session_id);
+        let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+            command: command_name.to_string(),
+            pod_id: String::new(),
+            error: format!("No active billing timer for session {}", session_id),
+        });
+        return;
+    };
+    let Some(timer) = timers.get_mut(&pod_id) else {
+        tracing::warn!("BILLING: timer disappeared for pod {} during {}", pod_id, command_name);
+        let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+            command: command_name.to_string(),
+            pod_id: pod_id.clone(),
+            error: format!("Timer for session {} is no longer active", session_id),
+        });
+        return;
+    };
+    // FSM-01: gate every status mutation through validate_transition
+    let event = match new_status {
+        BillingSessionStatus::PausedManual => crate::billing_fsm::BillingEvent::PauseManual,
+        BillingSessionStatus::Active => crate::billing_fsm::BillingEvent::Resume,
+        other => {
+            tracing::warn!("BILLING: set_billing_status called with unexpected status {:?} for session {}", other, session_id);
+            let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                command: command_name.to_string(),
+                pod_id: pod_id.clone(),
+                error: format!("Unsupported status change {:?}", other),
+            });
+            return;
         }
+    };
+    match crate::billing_fsm::validate_transition(timer.status, event) {
+        Ok(new_status) => { timer.status = new_status; }
+        Err(e) => {
+            tracing::warn!("BILLING: {}", e);
+            let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                command: command_name.to_string(),
+                pod_id: pod_id.clone(),
+                error: e.to_string(),
+            });
+            return;
+        }
+    }
+    let info = timer.to_info(&rate_tiers);
+
+    let event_type = match new_status {
+        BillingSessionStatus::PausedManual => "paused_manual",
+        BillingSessionStatus::Active => "resumed_manual",
+        _ => "status_change",
+    };
+
+    let activity_action = match new_status {
+        BillingSessionStatus::PausedManual => "Session Paused",
+        BillingSessionStatus::Active => "Session Resumed",
+        _ => "Session Status Changed",
+    };
+    log_pod_activity(state, &pod_id, "billing", activity_action, &info.driver_name, "core", Some(session_id));
+
+    drop(timers);
+
+    // Log event
+    if let Err(e) = sqlx::query(
+        "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(session_id)
+    .bind(event_type)
+    .bind(info.driving_seconds as i64)
+    .bind(&state.config.venue.venue_id)
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!("Failed to log billing event '{}' for session {}: {}", event_type, session_id, e);
+    }
+
+    // Update DB status
+    let status_str = match new_status {
+        BillingSessionStatus::Active => "active",
+        BillingSessionStatus::PausedManual => "paused_manual",
+        _ => "active",
+    };
+    if let Err(e) = sqlx::query("UPDATE billing_sessions SET status = ? WHERE id = ?")
+        .bind(status_str)
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("Failed to update billing session {} to {}: {}", session_id, status_str, e);
+    }
+
+    let _ = state
+        .dashboard_tx
+        .send(DashboardEvent::BillingSessionChanged(info));
 }
 
 // ─── Update Driving State ───────────────────────────────────────────────────
