@@ -103,7 +103,7 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
 
     // Forward broadcast events to this dashboard client (filter non-physical pods)
     // WS-HARDEN: ping every 20s, timeout after 45s no pong, slow client drop after 5s send
-    let send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {
         // Phase 254: Debounce RecordBroken broadcasts — max 1 per second per (track, sim_type)
         let mut record_debounce: HashMap<(String, String), Instant> = HashMap::new();
         let last_pong = Instant::now();
@@ -179,8 +179,16 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         } // end loop
     });
 
-    // Handle incoming commands from dashboard
+    // Handle incoming commands from dashboard — spawned so we can join it against send_task.
+    // DEAD-END FIX (2026-04-18): previously the outer receive loop blocked on receiver.next()
+    // indefinitely even after send_task died (lag>500, pong timeout, slow-send timeout).
+    // That left a zombie half-socket: DASHBOARD_CLIENT_COUNT still counted the client, but
+    // `dashboard_tx.receiver_count()` had dropped to 0 because the spawned send_task's rx was
+    // dropped. Every subsequent `dashboard_tx.send()` then returned SendError("channel closed")
+    // and kiosk UI stopped updating. Fix: race send_task and recv_task — whichever ends first
+    // aborts the other, socket fully closes, client reconnects with a fresh rx.
     let cmd_state = state.clone();
+    let mut recv_task = tokio::spawn(async move {
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             // WS-HARDEN: Pong received — reset pong timeout in send_task
@@ -315,8 +323,21 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
             _ => {}
         }
     }
+    }); // end recv_task
 
-    send_task.abort();
+    // DEAD-END FIX: race send and recv tasks. If either exits, abort the other so the WS
+    // fully closes, the client's onclose fires, reconnect happens, and dashboard_tx gets a
+    // fresh subscriber. Prevents the "channel closed" broadcast failure pattern.
+    tokio::select! {
+        _ = &mut send_task => {
+            tracing::warn!("Dashboard send_task exited early (lag/ping-timeout/slow-send) — aborting recv_task for clean reconnect");
+            recv_task.abort();
+        }
+        _ = &mut recv_task => {
+            send_task.abort();
+        }
+    }
+
     // MI Phase 1: Decrement on disconnect
     let prev = DASHBOARD_CLIENT_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     DASHBOARD_WS_DISCONNECTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

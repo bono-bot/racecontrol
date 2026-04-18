@@ -270,6 +270,7 @@ pub(crate) async fn handle_launch_timeouts(
             // the entire billing tick loop.
             // BILL-14: never default to AssettoCorsa when sim_type is missing or when the
             // waiting entry is gone — guessing the sim swaps out the customer's actual game.
+            let mut bail_no_sim = false;
             let retry = {
                 let mut waiting = state.billing.waiting_for_game.write().await;
                 match waiting.get_mut(&pod_id) {
@@ -293,6 +294,7 @@ pub(crate) async fn handle_launch_timeouts(
                             // every poll cycle, flooding logs with the same error.
                             entry.attempt = 2;
                             entry.waiting_since = std::time::Instant::now();
+                            bail_no_sim = true;
                             None
                         }
                     },
@@ -306,6 +308,21 @@ pub(crate) async fn handle_launch_timeouts(
                 }
                 // write lock dropped here
             };
+            // DEAD-END FIX (2026-04-18): notify kiosk + audit log when we bail because the
+            // sim_type is None. Previously the error was server-log-only; kiosk saw no state
+            // change after the original launch command, leaving the UI spinner hung until the
+            // next-tick cancel-with-refund eventually arrived (or the customer gave up).
+            if bail_no_sim {
+                let err_msg = "Launch failed — sim type unknown. Your credits will be refunded. Please try launching the game again.".to_string();
+                let _ = state.dashboard_tx.send(DashboardEvent::CommandError {
+                    command: "launch_game".to_string(),
+                    pod_id: pod_id.clone(),
+                    error: err_msg.clone(),
+                });
+                log_pod_activity(state, &pod_id, "billing", "Launch Timeout Aborted",
+                    "sim_type unknown — will refund and request re-launch",
+                    "race_engineer", None);
+            }
             let Some((retry_sim, retry_args)) = retry else {
                 continue;
             };
