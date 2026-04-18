@@ -1757,7 +1757,17 @@ pub async fn run(
                         };
                         let _ = freedom_msg_tx.try_send(msg);
                     }
-                } else if state.kiosk_enabled && state.kiosk.should_enforce() {
+                } else if false && state.kiosk_enabled && state.kiosk.should_enforce() {
+                    // LOCKDOWN guard disabled (2026-04-18): the periodic
+                    // process-whitelist scan was causing fleet-wide collateral
+                    // (e.g. iRacingService repeatedly tripping the "Unauthorized
+                    // software detected" path, kiosk_lockdown flags flapping).
+                    // The allowlist maintenance burden (hashed/versioned Windows
+                    // update binaries, Steam helper churn) outweighed the kiosk
+                    // enforcement benefit in practice. `kiosk_lockdown_enabled`
+                    // remote setting still gates via WS (ws_handler.rs), but no
+                    // local periodic scan fires. Flip back by removing the
+                    // `false &&` prefix once allowlist strategy is revisited.
                     let allowed = state.kiosk.allowed_set_snapshot();
                     let pod_id_kiosk = state.pod_id.clone();
                     let kiosk_msg_tx = state.ws_exec_result_tx.clone();

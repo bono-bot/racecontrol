@@ -1371,3 +1371,39 @@ Rolled forward fleet after b935038b's `this_instance_is_cloud()` + ALLOWED_PROCE
 ### Ref
 - Handoff: `session_handoff_20260418_lockdown_mitigated_fleet_deploy.md`
 - Commit: 176734f (deploy-staging, scripts/deploy-server.sh + pod-deploy.sh).
+
+
+## 2026-04-18 21:10 IST — LOCKDOWN guard removed (code-level)
+
+### Action
+Short-circuited the rc-agent periodic process-whitelist scan branch in
+`crates/rc-agent/src/event_loop.rs` with `if false && ...`. Previously
+`kiosk_lockdown_enabled=false` (remote setting) disabled the *effect*
+(kiosk stays inactive → `should_enforce()` returns false). This code
+change disables the *scan* itself at the branch level, so even if the
+flag is flipped to true later, no periodic process scan fires and no
+LOCKDOWN event is emitted from this path. `CoreToAgentMessage::SettingsUpdated`
+handler in `ws_handler.rs` still responds to the remote setting (kiosk
+activate/deactivate UI), but the allowlist enforcement is dead.
+
+### Why
+Fleet-wide coordinated iRacingService64.exe crashes (Event 7034 "terminated
+unexpectedly") repeating on all 7 pods within seconds of each other
+at specific times across 4-14 → 4-17 — exact correlation not proven to
+LOCKDOWN guard (the guard doesn't kill processes; it only triggers a UI
+overlay), but the allowlist-maintenance burden (hashed/versioned Windows
+Update binaries, EA anti-cheat churn, Garage61 hashed names, Steam
+helpers) made the signal-to-noise ratio of the guard negative in practice.
+462 LOCKDOWN events over 3 days with zero verified malware-blocks.
+
+### Files
+- `crates/rc-agent/src/event_loop.rs` (+11/-1): wrapped branch with `if false &&`
+
+### NOT tested
+- Whether iRacingService fleet crashes stop after deploy (observation
+  window needed, will be visible over next 24-48h).
+- Whether remote `kiosk_lockdown_enabled=true` still renders the UI
+  overlay (SettingsUpdated handler still wired, but the scan-driven
+  LOCKDOWN flag set is now dead code — user-facing effect of remote flag
+  is limited to `state.kiosk.activate()` / `deactivate()`).
+- POS `.130` (SAC-blocked, pre-existing, rc-agent not running there).
