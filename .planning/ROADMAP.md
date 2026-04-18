@@ -2211,7 +2211,7 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 Plans:
 - [x] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
-- [ ] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant)
+- [x] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant) — no-op verified 2026-04-18 (Plan 01 swap covered every occurrence)
 - [x] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3) — shipped `76f9b3e4` 2026-04-18
 - [ ] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4)
 - [ ] 413.1-05-PLAN.md — rc-sentry /exec swap regression test harness (tests/deploy_script_swap_test.sh, R6)
