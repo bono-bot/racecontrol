@@ -218,19 +218,166 @@ The two failing tests assert values from the tiered-pricing engine migration (ME
 
 ## T3 — Live dev racecontrol boot
 
-_(filled in by Task 2)_
+**Setup** — isolated sandbox to avoid touching production configs or Bono VPS:
+- Binary: `cp target/release/racecontrol.exe /tmp/phase413-dev/racecontrol.exe` (SHA matches local build)
+- Config: `/tmp/phase413-dev/racecontrol.toml` (sandbox — `cloud.enabled = false`, `bono.enabled = false`, `watchdog.enabled = false`, `process_guard.enabled = false`, `pods.sentry_service_key = "DEV_TEST_KEY_plan10_t3_t4_mesh_service_key_0123456789abcdef"`)
+- Secrets: `RACECONTROL_ENCRYPTION_KEY` + `RACECONTROL_HMAC_KEY` generated via `openssl rand -hex 32` at boot time; never written to disk except the single dev key file for session-local use.
+- Launch: `cd /tmp/phase413-dev && RUST_LOG=info ./racecontrol.exe &`
+
+**Boot log tail (from `/tmp/phase413-server.log`):**
+```
+[config] Loaded config from racecontrol.toml
+ INFO racecontrol: Venue: Phase413-Dev (dev-sandbox)
+ INFO racecontrol: Server: 0.0.0.0:8080
+ INFO racecontrol_crate::db: SQLite WAL mode VERIFIED active (busy_timeout=5000ms, synchronous=NORMAL)
+ INFO racecontrol_crate::db: Database initialized at ./phase413-dev.db
+ INFO racecontrol::background_tasks: ... (lifecycle logs)
+ INFO racecontrol_crate::server_ops: [server_ops] Listening on http://0.0.0.0:8090
+ INFO racecontrol: RaceControl HTTP on http://0.0.0.0:8080
+ INFO racecontrol: API:          http://0.0.0.0:8080/api/v1/health
+ INFO racecontrol: Agent WS:     ws://0.0.0.0:8080/ws/agent
+ INFO mdns: mDNS advertiser started: _racecontrol._tcp.local. on port 8080 (venue=racingpoint-hyd-001, build=79abe386)
+```
+
+**Command:**
+```
+curl -si http://127.0.0.1:8080/api/v1/health
+```
+
+**Raw output:**
+```
+HTTP/1.1 200 OK
+content-type: application/json
+[... security headers ...]
+date: Sat, 18 Apr 2026 01:31:54 GMT
+
+{"build_id":"79abe386","deploy_context":"v34-v39 merged: ...","service":"racecontrol","status":"degraded","subsystems":{ ... "db_writable": {"ok":true}, "disk_free": {"detail":"930.3 GB free"}, ... }, "version":"0.1.0","whatsapp":"ok"}
+```
+
+Server-side access log confirming the request served:
+```
+INFO http_request{method=GET route=/api/v1/health correlation_id=92541f22-7142-4adc-a471-1afde2f82446}: admin_api: request_started method=GET route=/api/v1/health
+INFO http_request{method=GET route=/api/v1/health correlation_id=92541f22-...}: admin_api: request_completed status=200 latency_ms=0
+```
+
+`status: "degraded"` is expected — dev subsystem checks run but database tables for fleet/server_health are partial in a fresh sandbox. Not relevant to Plan 10 gate (we're testing the pods/mesh-service-key route, not the degraded-subsystem codepath).
+
+**T3 verdict: PASS** — dev server bound 0.0.0.0:8080, health returns 200 + build_id + JSON.
+
+---
 
 ## T4 — Live route pod-IP request → 200 + mesh_service_key JSON
 
-_(filled in by Task 2)_
+**IP source** — curl executed on Pod 1 (192.168.31.89) via SSH, targeting James .27 where dev racecontrol is listening. Pod 1's LAN IP falls in the Pod-classified range [28,33,38,86,87,88,89,91,130] from `network_source::classify_ip` (see crates/racecontrol/src/network_source.rs:46-51).
+
+**Command (executed on Pod 1, TCP source 192.168.31.89):**
+```
+ssh pod1 'curl -s -m 10 -i http://192.168.31.27:8080/api/v1/pods/mesh-service-key'
+```
+
+**Raw output:**
+```
+HTTP/1.1 200 OK
+content-type: application/json
+content-security-policy: img-src 'self' data:; form-action 'self'; connect-src 'self' http://192.168.31.23:8080 ws://192.168.31.23:8080 http://localhost:8080 ws://localhost:8080 ws: wss:; frame-ancestors 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; default-src 'self'
+x-frame-options: DENY
+x-content-type-options: nosniff
+strict-transport-security: max-age=300; includeSubdomains
+cache-control: no-cache, no-store, must-revalidate
+vary: origin, access-control-request-method, access-control-request-headers
+vary: accept-encoding
+content-length: 82
+date: Sat, 18 Apr 2026 01:35:32 GMT
+
+{"mesh_service_key":"DEV_TEST_KEY_plan10_t3_t4_mesh_service_key_0123456789abcdef"}
+```
+
+**Body matches sandbox TOML exactly** — `sentry_service_key = "DEV_TEST_KEY_plan10_t3_t4_mesh_service_key_0123456789abcdef"` from `/tmp/phase413-dev/racecontrol.toml` line 17 is served byte-for-byte via `state.config.pods.sentry_service_key`.
+
+**T4b — POS LAN (192.168.31.130 = Pod per Plan 01 reclassification):**
+```
+ssh pos 'curl -s -m 10 -i http://192.168.31.27:8080/api/v1/pods/mesh-service-key'
+```
+```
+HTTP/1.1 200 OK
+content-type: application/json
+[...]
+content-length: 82
+
+{"mesh_service_key":"DEV_TEST_KEY_plan10_t3_t4_mesh_service_key_0123456789abcdef"}
+```
+
+POS LAN also returns 200 — confirming Plan 01's POS-as-Pod reclassification works live, not just in unit tests.
+
+**T4 verdict: PASS** — 200 OK + JSON body with `mesh_service_key` key, body value matches config file. Confirmed from two different Pod-classified LAN sources (192.168.31.89 + 192.168.31.130).
+
+---
 
 ## T5 — Live route localhost (Staff) → 403
 
-_(filled in by Task 2)_
+**IP source** — curl from James .27 itself (both `127.0.0.1` and `192.168.31.27` = Staff class).
+
+**Command — localhost:**
+```
+curl -si -w "\nHTTP_CODE=%{http_code}\n" http://127.0.0.1:8080/api/v1/pods/mesh-service-key
+```
+**Raw output:**
+```
+HTTP/1.1 403 Forbidden
+content-type: text/plain; charset=utf-8
+[... security headers ...]
+content-length: 19
+date: Sat, 18 Apr 2026 01:31:54 GMT
+
+Pod source required
+HTTP_CODE=403
+```
+
+**Command — LAN IP (James .27 = Staff):**
+```
+curl -si -w "\nHTTP_CODE=%{http_code}\n" http://192.168.31.27:8080/api/v1/pods/mesh-service-key
+```
+**Raw output:**
+```
+HTTP/1.1 403 Forbidden
+content-type: text/plain; charset=utf-8
+[... security headers ...]
+content-length: 19
+date: Sat, 18 Apr 2026 01:31:54 GMT
+
+Pod source required
+HTTP_CODE=403
+```
+
+Body `Pod source required` matches `require_pod_source` middleware in `network_source.rs:107-109` exactly.
+
+**T5 verdict: PASS** — 403 Forbidden from both `127.0.0.1` (Staff by loopback special-case) and `192.168.31.27` (Staff by explicit IP range).
+
+---
 
 ## T6 — Live route Customer IP → 403
 
-_(filled in by Task 2)_
+**Status: DEFERRED (non-blocking) — no customer-class LAN host reachable from this session's workstation.**
+
+James .27 has exactly two reachable interfaces (LAN 192.168.31.27 = Staff, Tailscale 100.82.33.94 = Cloud). POS .130 is Pod (T4b). Pods .28/.33/.38/.86-.91 are Pod (T4). Server .23 is Staff. No IP in the 192.168.31.100-192.168.31.199 Customer range is accessible without physical deployment of a test host.
+
+**Cross-reference to unit test coverage** (`cargo test -p racecontrol-crate --lib network_source` passes 21/21, documented under T2a):
+
+- `network_source::tests::pos_ip_classifies_as_pod` — PASS (ensures .130 is Pod)
+- `network_source::tests::staff_ips_classify_as_staff` — PASS (20/23/27)
+- `network_source::tests::bono_vps_tailscale_stays_cloud` — PASS (regression guard)
+- `network_source::tests::server_tailscale_stays_cloud` — PASS (regression guard)
+- Fall-through arm `_ => RequestSource::Customer` at network_source.rs:50 has structural coverage via the same suite.
+
+`require_pod_source` guard against non-Pod is also directly covered by:
+- `network_source::tests::pod_guard_rejects_missing_source` (fail-closed on missing ext)
+- The existing T5 live evidence (Staff class → 403) exercises the same middleware branch as Customer class would (`source != Some(RequestSource::Pod)` arm), using a different input IP.
+
+Plan 10 source explicitly permits this: _"If T6 is runnable, its output captures HTTP 403; if not runnable, document reason"_ and _"Failing to prove T6 is weaker evidence but the code path is unit-tested in Plan 01 Task 1."_
+
+**T6 verdict: DEFERRED — non-blocking for Plan 11. Unit-test + live T5 proves the same `require_pod_source` 403 branch. If Plan 11 canary fails 403 for a real Customer source, escalate to checkpoint.**
+
+---
 
 ## T7 — rc-agent boot `periodic_refetch started` log
 
