@@ -106,6 +106,20 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
+## Phase 414 Plan 03 — Wave 3 Protocol additions + cascade closed (2026-04-18)
+
+**Completed:** 2026-04-18T09:15 IST (GSD executor)
+**Scope:** DashboardEvent::IdleWarning variant (5 fields) + BillingSessionInfo.between_games_idle_seconds: Option<u32> added to rc-common. Real IdleWarning broadcast wired post-lock with wallet balance query + can_continue. Per-tick BillingTick in WaitingForGame mid-stream branch (B2 fix). BillingTimer.to_info() populates new field. TS cascade to shared-types + web/api.ts. CONTRACT-01 describe.skip removed. 4 Wave-0 protocol/contract tests GREEN.
+**Commits:**
+- `894420c9` — Task 1: IdleWarning variant + between_games_idle_seconds field + PROTOCOL-01/02 tests GREEN + struct literal fixes
+- `9382f77a` — Task 2: real IdleWarning broadcast post-lock + B2 BillingTick in WaitingForGame mid-stream
+- `d0db978e` — Task 3: TS cascade + CONTRACT-01 un-skipped + vitest 54 passed
+
+**Test result:** rc-common 254 passed; racecontrol --lib billing 183 passed, 4 ignored; vitest 54 passed
+**Decisions:** IdleWarning tag = "idle_warning" (snake_case); unwrap_or(0) for missing wallet; B2 BillingTick added inside mid-stream WaitingForGame branch; web/api.ts BillingSession redeclaration cascaded
+**Next plan:** 414-04 Wave 4 (handle_game_off rewrite + auto-end + integration tests TIMER-04 + INTEGRATION-01..04)
+**Summary:** `.planning/phases/414-continuous-billing-session/414-03-SUMMARY.md`
+
 ## Phase 414 Plan 02 — Wave 2 BillingTimer idle counter + tick_all_timers candidate collection closed (2026-04-18)
 
 **Completed:** 2026-04-18T08:45 IST (GSD executor)
@@ -270,7 +284,7 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18T08:45 IST — Phase 414-02 (Wave 2 BillingTimer idle counter) closed; 2 fields added + tick() arm extended + tick_all_timers branch + 3 Wave-0 tests GREEN; 975 lib tests passing (`c5d45d44` + `8a271ecf`)*
+*Last updated: 2026-04-18T09:15 IST — Phase 414-03 (Wave 3 Protocol additions + cascade) closed; IdleWarning variant + between_games_idle_seconds + real broadcast + B2 BillingTick + TS cascade; rc-common 254 passed, vitest 54 passed (`894420c9` + `9382f77a` + `d0db978e`)*
 *Previous: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
 *Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
 *Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
