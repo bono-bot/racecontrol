@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T03:17:28.088Z"
+last_updated: "2026-04-18T04:04:05.318Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 414 — Continuous Billing Session
+**Current focus:** Phase 413.1 — deploy-server-step4-fix-and-plan11-retry
 
 ## Current Phase
 
 **Phase:** 413
-**Status:** Executing Phase 414
+**Status:** Executing Phase 413.1
 **Last activity:** 2026-04-18
 
 ## Progress
@@ -106,11 +106,27 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
+## Phase 413.1 Plan 03 — racecontrol-prev.exe 72h forfiles guard closed (2026-04-18)
+
+**Completed:** 2026-04-18T09:29 IST (parallel Wave 1 executor, --no-verify)
+**Scope:** Replace unconditional `del /Q racecontrol-prev.exe` at `scripts/deploy/start-racecontrol.bat:15` with `forfiles /M racecontrol-prev.exe /D -3 /C "cmd /c del /Q @file"` 72h mtime guard. Wrap the subsequent `ren` in a preserve-if-not-exist chain so a fresh prev cannot be clobbered mid-swap. Defense-in-depth for the conditional staged-binary branch (STAGED defined). R3 of Phase 413.1.
+**Commits:**
+
+- `76f9b3e4` — Task 1: bat file 72h mtime guard + preserve-if-not-exist rename. Post-commit hook swept 2 parallel-agent files (scripts/deploy-server.sh +1/-1 from 413.1-01 step-4 swap, .planning/ROADMAP.md +19/-5 from 413.1-01 wave-structure block) — known R5 sweeper pattern explicitly deferred in CONTEXT.md.
+
+**Verification:** `grep -c 'forfiles /M racecontrol-prev.exe /D -3'` = 1; `grep -c 'if not exist racecontrol-prev.exe ren racecontrol.exe racecontrol-prev.exe'` = 1; `grep -c '^del /Q racecontrol-prev\.exe 1>nul 2>nul$'` = 0; `file` reports `DOS batch file, ASCII text, with CRLF line terminators`; byte scan ASCII-clean (em-dashes replaced with `--` post Rule 1 auto-fix); zero parenthesized if/else blocks.
+**Decisions:** forfiles /D -3 self-cancelling delete (Windows built-in); preserve-if-not-exist defends against double-entry-into-staged-branch race; ASCII-only via python3 byte scan, not just `file` output.
+**Corrected narrative:** Defense-in-depth — R1 prev.exe disappearance is NOT definitively traced to this code path (line 14 `goto :startrc` skips the del+ren block when `STAGED` undefined, which was the R1 case). 72h guard still applies because it's the ONLY bat-level del path for prev.exe. Real R1 culprit remains un-traced (follow-up for 413.2 or later).
+**Deviations:** (1) Rule 1 CLAUDE.md ASCII violation — em-dashes in rem comments replaced with `--` after byte scan. (2) R5 known-sweep — commit includes parallel agent 413.1-01's files; absorbed per CONTEXT.md `<deferred>` block rather than amend-mid-parallel-wave.
+**Next plan:** 413.1-02 (!errorlevel! sweep, Wave 2, depends on 01), 413.1-04 (StartRCTemp investigation, Wave 2), 413.1-05 (regression test harness, Wave 3).
+**Summary:** `.planning/phases/413.1-deploy-server-step4-fix-and-plan11-retry/413.1-03-SUMMARY.md`
+
 ## Phase 414 Plan 03 — Wave 3 Protocol additions + cascade closed (2026-04-18)
 
 **Completed:** 2026-04-18T09:15 IST (GSD executor)
 **Scope:** DashboardEvent::IdleWarning variant (5 fields) + BillingSessionInfo.between_games_idle_seconds: Option<u32> added to rc-common. Real IdleWarning broadcast wired post-lock with wallet balance query + can_continue. Per-tick BillingTick in WaitingForGame mid-stream branch (B2 fix). BillingTimer.to_info() populates new field. TS cascade to shared-types + web/api.ts. CONTRACT-01 describe.skip removed. 4 Wave-0 protocol/contract tests GREEN.
 **Commits:**
+
 - `894420c9` — Task 1: IdleWarning variant + between_games_idle_seconds field + PROTOCOL-01/02 tests GREEN + struct literal fixes
 - `9382f77a` — Task 2: real IdleWarning broadcast post-lock + B2 BillingTick in WaitingForGame mid-stream
 - `d0db978e` — Task 3: TS cascade + CONTRACT-01 un-skipped + vitest 54 passed
@@ -125,6 +141,7 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Completed:** 2026-04-18T08:45 IST (GSD executor)
 **Scope:** 2 new fields on BillingTimer (between_games_idle_seconds + idle_warning_sent), tick() WaitingForGame arm extended (mid-stream increments idle counter, first-wait stays no-op), tick_all_timers WaitingForGame branch (sets idle_warning_sent inside lock at 600s, collects candidate post-lock). 3 Wave-0 tests un-ignored + implemented.
 **Commits:**
+
 - `c5d45d44` — Task 1: fields + tick() + 3 test stubs replaced with real bodies + 3 struct literal initializer fixes (Rule 1 auto-fix)
 - `8a271ecf` — Task 2: tick_all_timers WaitingForGame branch + idle_warnings_to_emit collector + placeholder log
 

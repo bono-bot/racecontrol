@@ -20,7 +20,12 @@ pub(crate) async fn cleanup_stale_sessions(state: &Arc<AppState>) {
         "SELECT id, driver_id, wallet_debit_paise, pod_id, created_at, status, wallet_owner_id FROM billing_sessions \
          WHERE status IN ('pending', 'waiting_for_game') \
          AND created_at < datetime('now', '-5 minutes') \
-         AND ended_at IS NULL",
+         AND ended_at IS NULL \
+         AND driving_seconds = 0",
+        // Phase 414: don't auto-cancel mid-stream WaitingForGame sessions.
+        // driving_seconds > 0 means the customer DID drive before the game stopped —
+        // those sessions should persist for the full 15-min idle window (tick_all_timers auto-end).
+        // Only initial-wait sessions (driving_seconds = 0) are swept by this 5-min stale rule.
     )
     .fetch_all(&state.db)
     .await {

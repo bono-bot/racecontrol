@@ -48,7 +48,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     let mut per_minute_debits: Vec<(String, String, String, u32)> = Vec::new(); // (session_id, pod_id, wallet_owner_id, debit_paise)
     let mut credit_backs: Vec<(String, String, String, u32)> = Vec::new(); // snap pricing credit-backs
     let mut new_pauses: Vec<(String, String, u32)> = Vec::new(); // pod_id, session_id, pause_count
-    let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
+    let mut sessions_to_auto_end: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason (H11 offline auto-end → ended_early)
+    // Phase 414 Plan 04 Task 2a: separate vec for the 15-min idle auto-end path.
+    // CRITICAL (B4 / D-IDLE-AUTOEND): this path uses BillingEvent::End → Completed (NOT EndedEarly).
+    // Must NOT be merged with sessions_to_auto_end above — H11 path writes status='ended_early'
+    // and computes a partial refund; Phase 414 auto-end is a "natural completion" via end_billing_session.
+    let mut phase414_idle_auto_ends: Vec<(String, String, String)> = Vec::new(); // pod_id, session_id, reason
     // GLD-C-04: Grace window DB writes (session_id, grace_until RFC3339)
     let mut grace_window_sets: Vec<(String, String)> = Vec::new();
     // GLD-C-04: Expired grace windows to finalize (pod_id, session_id, end_status)
@@ -161,7 +166,20 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     timer.rate_paise_per_minute,
                 ));
             }
-            // Plan 04 will add: 900s auto-end (sessions_to_auto_end.push(...))
+            // Phase 414 Plan 04 Task 2a: 15-min idle auto-end.
+            // Push to dedicated post-lock vec (phase414_idle_auto_ends) so end_billing_session_public
+            // runs AFTER active_timers write lock drops.
+            // CRITICAL (B4 / D-IDLE-AUTOEND): uses BillingEvent::End → Completed.
+            // Staff-triggered stop uses BillingEvent::EndEarly → EndedEarly (Task 2b stop_billing handler).
+            // DO NOT use sessions_to_auto_end (H11 vec) — that one routes through handle_offline_auto_end
+            // which writes status='ended_early'. The two paths are distinct (B4 lock).
+            if timer.between_games_idle_seconds >= 900 {
+                phase414_idle_auto_ends.push((
+                    pod_id.clone(),
+                    timer.session_id.clone(),
+                    "Phase 414: 15-min idle auto-end (between games)".to_string(),
+                ));
+            }
 
             // Phase 414 Plan 03 (per plan-checker B2): emit BillingTick on every WaitingForGame
             // mid-stream tick so the kiosk paused-meter UI can render the live
@@ -353,6 +371,40 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         );
 
         // Plan 04 also adds: log to pod_activity table with kind="between_games_idle_warning"
+    }
+
+    // ─── Phase 414 Plan 04 Task 2a: 15-min idle AUTO-END (between-games) ────────
+    // Process auto-end candidates after lock drop. end_billing_session_public is async + does its own DB work.
+    // PER CONTEXT.md D-IDLE-AUTOEND: use BillingEvent::End → Completed (NOT EndEarly → EndedEarly).
+    // Rationale: 15-min auto-end is a "natural completion" (customer walked away after the warning),
+    // not an explicit early termination. Staff-triggered stop on mid-stream uses EndEarly (Task 2b).
+    // We pass BillingSessionStatus::Completed which end_billing_session maps to BillingEvent::End
+    // via its match table (billing_session_end.rs:53).
+    for (pod_id, session_id, reason) in &phase414_idle_auto_ends {
+        let ended = crate::billing_session_end::end_billing_session_public(
+            &state,
+            session_id.as_str(),
+            rc_common::types::BillingSessionStatus::Completed, // BillingEvent::End via end_billing_session match
+            Some(reason.as_str()),
+        ).await;
+
+        if ended {
+            tracing::info!(
+                pod_id = %pod_id,
+                session_id = %session_id,
+                "Phase 414: Auto-ended session at 15-min idle (Completed via BillingEvent::End)"
+            );
+            crate::activity_log::log_pod_activity(
+                &state, pod_id, "billing", "Session Auto-Ended (Idle)",
+                reason, "core", Some(session_id),
+            );
+        } else {
+            tracing::warn!(
+                pod_id = %pod_id,
+                session_id = %session_id,
+                "Phase 414: Auto-end at 15-min idle returned false (already finalized or CAS-rejected); will not retry"
+            );
+        }
     }
 
     // GLD-C-04: Persist grace window deadlines to DB (fire-and-forget, lock already released)

@@ -2207,12 +2207,12 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 **Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
 
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
 - [x] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
 - [ ] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant)
-- [ ] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3)
+- [x] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3) — shipped `76f9b3e4` 2026-04-18
 - [ ] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4)
 - [ ] 413.1-05-PLAN.md — rc-sentry /exec swap regression test harness (tests/deploy_script_swap_test.sh, R6)
 - [ ] 413.1-06-PLAN.md — Plan 11 retry (server + cloud + canary pod 3 with AUDIT KNOWN ISSUE matched end-to-end, R7)

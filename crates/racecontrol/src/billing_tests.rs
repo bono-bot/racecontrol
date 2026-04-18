@@ -2605,6 +2605,11 @@
             .expect("in-memory sqlite pool");
 
         // Create minimal billing_sessions table with all columns we need
+        // Phase 414 Plan 04 Task 2a: include driving_seconds column so the new
+        // `AND driving_seconds = 0` filter in billing_timer_stale.rs query works
+        // against the LBILL test schema. Without this, the SQL query fails
+        // ("no such column"), the match block returns Vec::new() silently, and
+        // every LBILL stale-cancel test reports "session was not cancelled".
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS billing_sessions (
                 id TEXT PRIMARY KEY,
@@ -2612,6 +2617,7 @@
                 pod_id TEXT NOT NULL,
                 pricing_tier_id TEXT NOT NULL DEFAULT 'test',
                 allocated_seconds INTEGER NOT NULL DEFAULT 1800,
+                driving_seconds INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 wallet_debit_paise INTEGER,
                 wallet_owner_id TEXT,
