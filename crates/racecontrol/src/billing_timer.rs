@@ -56,6 +56,10 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // dropping the write lock, preventing the double-finalize race where the next tick
     // sees the timer with cleared grace fields and treats it as a normal active timer.
     let mut deferred_finalizes: Vec<(String, String, BillingSessionStatus)> = Vec::new();
+    // Phase 414: Collect (pod_id, session_id, wallet_owner_id, rate_paise_per_minute) candidates inside the lock.
+    // Plan 03 will use this vec to query wallet balance + emit DashboardEvent::IdleWarning AFTER lock drop.
+    // For Plan 02, we just log the candidates so we have evidence the threshold was hit.
+    let mut idle_warnings_to_emit: Vec<(String, String, String, u32)> = Vec::new();
 
     // Read pod statuses for offline detection
     let pods = state.pods.read().await;
@@ -141,6 +145,31 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     cost.minutes_to_next_tier, Some(cost.tier_name.clone()),
                 ));
             }
+            continue;
+        }
+
+        // Phase 414: Mid-stream WaitingForGame — idle counter has been ticked by timer.tick() above.
+        // Check if the 10-min warning threshold was just crossed; if so, set the one-shot flag and
+        // queue the candidate for post-lock IdleWarning broadcast (Plan 03 implements emission).
+        if timer.status == BillingSessionStatus::WaitingForGame && timer.elapsed_seconds > 0 {
+            if timer.between_games_idle_seconds == 600 && !timer.idle_warning_sent {
+                timer.idle_warning_sent = true;
+                idle_warnings_to_emit.push((
+                    pod_id.clone(),
+                    timer.session_id.clone(),
+                    timer.wallet_owner_id.clone(),
+                    timer.rate_paise_per_minute,
+                ));
+                tracing::info!(
+                    pod_id = %pod_id,
+                    session_id = %timer.session_id,
+                    between_games_idle = timer.between_games_idle_seconds,
+                    "Phase 414 Plan 02: IdleWarning threshold hit (Plan 03 will broadcast DashboardEvent::IdleWarning)"
+                );
+            }
+            // Plan 04 will add: 900s auto-end (sessions_to_auto_end.push(...))
+            // Plan 03 will add: events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(...)))
+            //                   so the kiosk paused-meter UI re-renders the idle countdown
             continue;
         }
 
@@ -291,6 +320,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
+
+    // Phase 414 Plan 02 placeholder: Plan 03 replaces this loop with actual wallet balance lookup + DashboardEvent broadcast.
+    for (pod_id, session_id, wallet_owner_id, rate_paise_per_minute) in &idle_warnings_to_emit {
+        tracing::info!(
+            pod_id = %pod_id, session_id = %session_id, wallet_owner_id = %wallet_owner_id,
+            rate = rate_paise_per_minute,
+            "Phase 414 Plan 02: Would emit DashboardEvent::IdleWarning (Plan 03 implements wallet lookup + broadcast)"
+        );
+    }
 
     // GLD-C-04: Persist grace window deadlines to DB (fire-and-forget, lock already released)
     for (sid, grace_str) in &grace_window_sets {
