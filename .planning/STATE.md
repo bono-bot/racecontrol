@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T01:46:28Z"
+last_updated: "2026-04-18T08:20:00.000Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 413 — service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes
+**Current focus:** Phase 414 — Continuous Billing Session
 
 ## Current Phase
 
 **Phase:** 413
-**Status:** Executing Phase 413 (Plan 10/11 complete — Plan 11 fleet deploy next)
+**Status:** Executing Phase 414
 **Last activity:** 2026-04-18
 
 ## Progress
@@ -105,6 +105,18 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
+
+## Phase 414 Plan 00 — Wave 0 TDD scaffolding closed (2026-04-18)
+
+**Completed:** 2026-04-18 (GSD executor)
+**Scope:** 14 stubbed RED tests + 2 fixtures + 1 e2e file. All Rust stubs `#[ignore]`'d, TS stubs `describe.skip`'d for pre-commit gate compatibility.
+**Commits:**
+- `92888a19` — 5 FSM stubs + BillingEvent::GameStopped variant + 2 protocol/types round-trip stubs
+- `18d52955` — 7 timer/integration stubs in billing_tests.rs + NEW billing_session_e2e.rs
+- `ff74cad6` — 2 new fixtures (idle_warning, billing_tick_between_games) + 3 TS tests (2 passing, 1 skipped)
+**Pre-commit gate:** `cargo test -p racecontrol-crate --lib billing_fsm` = 30 passed, 5 ignored, 0 failed. `cargo test -p rc-common --lib` = 252 passed, 2 ignored. vitest = 53 passed, 1 skipped.
+**Next plan:** 414-01 Wave 1 (FSM transitions — remove 5 FSM #[ignore] attributes + add TRANSITION_TABLE rows)
+**Summary:** `.planning/phases/414-continuous-billing-session/414-00-SUMMARY.md`
 
 ## Roadmap Evolution
 
