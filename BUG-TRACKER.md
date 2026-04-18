@@ -17,7 +17,7 @@
 
 | ID | Bug | Severity | Status | Fix Commit | Deployed To | Depends On | Notes |
 |----|-----|----------|--------|------------|-------------|------------|-------|
-| **ZL-1** | Apps preset missing `[RACECONTROL]` plugin — AC never loads RC plugin, zero laps ever recorded | **P0** | DEPLOYED | `e86ff0c0` tree (ac_launcher.rs +7 lines) | Server: `3bb882cc`. Pods 1-8: `3bb882cc`. POS: blocked (SAC). VPS: `8a0f82a1` | — | **Deployed 2026-04-17 03:00 IST.** Needs runtime verification: launch AC, drive laps, check DB. |
+| **ZL-1** | Apps preset missing `[RACECONTROL]` plugin — AC never loads RC plugin, zero laps ever recorded | **P0** | DEPLOYED | `d4b6247d` (apps-default.ini preset add) + `4bc9dce8` (SHM name `Local\` prefix + static offsets + `sim-ac` tracing filter) | Server: `3bb882cc`. Pods 1-8: `3bb882cc`. POS: blocked (SAC). VPS: `8a0f82a1` | — | **Deployed 2026-04-17 03:00 IST.** Needs runtime verification: launch AC, drive laps, check DB. Prior attribution `e86ff0c0 tree` was build_id containing the fix, not the fix commit — corrected 2026-04-18. |
 | ZL-2 | python.ini missing `[RACECONTROL]` section on pods | P0 | DEPLOYED | `ac0b215e` + `cfc73811` | Server: `3bb882cc`. Pods 1-8: `3bb882cc` (includes both). POS: blocked (SAC) | ZL-1 | **Deployed 2026-04-17 03:00 IST.** Both `ac0b215e` and `cfc73811` now on all pods. |
 | ZL-3 | 0 laps in DB (DB-1) | P0 | OPEN | — | — | ZL-1 + ZL-2 | Symptom, not a bug. Resolves when ZL-1+ZL-2 deployed+verified. |
 | ZL-4 | 222/342 sessions 0 driving_seconds (DB-4) | P1 | OPEN | — | — | ZL-1 | Same root cause — no telemetry SHM without plugin. |
