@@ -111,6 +111,13 @@ pub struct BillingTimer {
     /// Mirrors the existing `warning_5min_sent: bool` pattern.
     /// Resets to false on every WaitingForGame → Active transition.
     pub idle_warning_sent: bool,
+
+    /// Phase 414 (MMA P1-A fix): One-shot guard for the 15-min auto-end queue push.
+    /// Without this, tick_all_timers would push to phase414_idle_auto_ends every tick
+    /// from second 900 onward until the async end_billing_session_public CAS removes
+    /// the timer, producing duplicate "Session Auto-Ended" activity log entries.
+    /// Mirrors the `idle_warning_sent` one-shot pattern. Resets alongside it on resume.
+    pub idle_auto_end_queued: bool,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -170,6 +177,7 @@ impl Default for BillingTimer {
             pending_end_status: None,     // Intentional default: no deferred end status
             between_games_idle_seconds: 0,
             idle_warning_sent: false,
+            idle_auto_end_queued: false,
         }
     }
 }

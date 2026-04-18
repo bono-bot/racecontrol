@@ -173,7 +173,12 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
             // Staff-triggered stop uses BillingEvent::EndEarly → EndedEarly (Task 2b stop_billing handler).
             // DO NOT use sessions_to_auto_end (H11 vec) — that one routes through handle_offline_auto_end
             // which writes status='ended_early'. The two paths are distinct (B4 lock).
-            if timer.between_games_idle_seconds >= 900 {
+            if timer.between_games_idle_seconds >= 900 && !timer.idle_auto_end_queued {
+                // MMA P1-A fix: one-shot guard. Without this, every tick from second 900+
+                // re-pushed to phase414_idle_auto_ends until the async end_billing_session_public
+                // CAS removed the timer, producing duplicate "Session Auto-Ended" activity log
+                // entries. Mirrors the idle_warning_sent pattern at line 161.
+                timer.idle_auto_end_queued = true;
                 phase414_idle_auto_ends.push((
                     pod_id.clone(),
                     timer.session_id.clone(),

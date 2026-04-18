@@ -337,6 +337,7 @@ pub async fn start_billing_session(
         // Phase 414: Idle counter starts at 0 for all new sessions.
         between_games_idle_seconds: 0,
         idle_warning_sent: false,
+        idle_auto_end_queued: false,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;

@@ -354,6 +354,7 @@ pub async fn finalize_billing_start(state: &Arc<AppState>, data: BillingStartDat
         // Phase 414: Idle counter starts at 0 for all new sessions.
         between_games_idle_seconds: 0,
         idle_warning_sent: false,
+        idle_auto_end_queued: false,
     };
 
     // Phase 283: Generate session nonce for replay protection

@@ -249,10 +249,11 @@ async fn handle_live_resume(state: &Arc<AppState>, pod_id: &str) {
                     timer.pause_reason = PauseReason::None;
                     // Phase 414: Reset between-games idle counter on resume to Active.
                     // Covers the WaitingForGame → Active path (GameLive event fires on next game launch).
-                    // between_games_idle_seconds and idle_warning_sent are reset so the next
-                    // game-stop starts a fresh 15-min window (D-IDLE-AUTOEND).
+                    // between_games_idle_seconds, idle_warning_sent, and idle_auto_end_queued are reset
+                    // so the next game-stop starts a fresh 15-min window (D-IDLE-AUTOEND).
                     timer.between_games_idle_seconds = 0;
                     timer.idle_warning_sent = false;
+                    timer.idle_auto_end_queued = false; // MMA P1-A fix: reset one-shot auto-end guard
                     tracing::info!(
                         pod_id = %pod_id,
                         session_id = %timer.session_id,
@@ -339,6 +340,7 @@ async fn handle_game_off(state: &Arc<AppState>, pod_id: &str) {
                     timer.status = new_status; // → WaitingForGame
                     timer.between_games_idle_seconds = 0;
                     timer.idle_warning_sent = false;
+                    timer.idle_auto_end_queued = false; // MMA P1-A fix: fresh window on game-stop
                     tracing::info!(
                         pod_id = %pod_id,
                         session_id = %timer.session_id,
