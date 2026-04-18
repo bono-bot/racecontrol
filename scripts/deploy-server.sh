@@ -200,12 +200,18 @@ curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
 # Solution: disable watchdog → kill process → swap → restart → re-enable
 # Phase 413 Factor 1: Extended schtasks disable from 2 to 8 tasks. RCWatchdog fired
 # during the 2026-04-18 03:13 abort — it was not in the original disable list.
+# Phase 413 Factor 3: Replaced the window-title taskkill filter with a WMIC
+# commandline match. start-racecontrol.bat launches the watchdog via
+# `start "" /B powershell ... -File start-racecontrol-watchdog.ps1` — the
+# empty "" leaves the window title unset, so the old taskkill wildcard filter
+# matched zero instances and zombie watchdogs survived the "kill" step.
+# Commandline match via WMIC catches every PS instance running the ps1.
 # See .planning/phases/413-*/413-CONTEXT.md for full rationale.
 info "Disabling watchdog to prevent restart race..."
 curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & schtasks /Change /TN RCWatchdog /Disable 2>nul & schtasks /Change /TN RaceControlStartup /Disable 2>nul & schtasks /Change /TN StartRCDirect /Disable 2>nul & schtasks /Change /TN StartRaceControl /Disable 2>nul & schtasks /Change /TN StartRCWatchdog /Disable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Disable 2>nul & taskkill /F /IM powershell.exe /FI \"WINDOWTITLE eq *watchdog*\" 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Change /TN StartRCOnBoot /Disable 2>nul & schtasks /Change /TN StartRCTemp /Disable 2>nul & schtasks /Change /TN RCWatchdog /Disable 2>nul & schtasks /Change /TN RaceControlStartup /Disable 2>nul & schtasks /Change /TN StartRCDirect /Disable 2>nul & schtasks /Change /TN StartRaceControl /Disable 2>nul & schtasks /Change /TN StartRCWatchdog /Disable 2>nul & schtasks /Change /TN StartFrontendWatchdog /Disable 2>nul & wmic process where \"name='powershell.exe' and commandline like '%%start-racecontrol-watchdog.ps1%%'\" delete 2>nul & echo WATCHDOG_DISABLED"}' > /dev/null 2>&1
 # Also write a deploy sentinel to block any remaining watchdog instance
 # Phase 413 Factor 2: Sentinel name unified on OTA_DEPLOYING (matches
 # start-racecontrol-watchdog.ps1:61). Previously wrote a different sentinel
