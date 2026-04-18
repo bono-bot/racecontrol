@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T09:59:00.000Z"
+last_updated: "2026-04-18T04:36:40.814Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 4
+  completed_plans: 4
 ---
 
 # Project State
@@ -333,7 +333,22 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18T09:15 IST — Phase 414-03 (Wave 3 Protocol additions + cascade) closed; IdleWarning variant + between_games_idle_seconds + real broadcast + B2 BillingTick + TS cascade; rc-common 254 passed, vitest 54 passed (`894420c9` + `9382f77a` + `d0db978e`)*
+## Phase 414 Plan 05 — Wave 5 Kiosk Frontend closed (Tasks 1+2; Task 3 awaiting venue checkpoint)
+
+**Completed (Tasks 1+2):** 2026-04-18T04:49 IST (GSD executor)
+**Scope:** New `IdleWarningDialog` component (Branch A can_continue + Branch B out-of-credits), paused-meter UI branch in `LiveSessionPanel` (waiting_for_game + elapsed_seconds>0), `idle_warning` WS event handler in `useKioskSocket`, `IdleWarningDialog` mounted top-level in `staff/page.tsx`, 3 label fixes (Between Games vs Game Loading/Waiting for Game across LiveSessionPanel + KioskPodCard), web/StatusBadge Phase 414 coarse-label comment.
+**Commits:**
+- `a4654235` — Task 1: IdleWarningDialog component (Branch A + B, ~140 LOC)
+- `29508f64` — Task 2: wire IdleWarning event + paused-meter UI + 3 label fixes (5 files, +119/-16)
+
+**Build:** `kiosk npm run build` → 27 JS chunks, 0 TypeScript errors
+**Task 3 status:** AWAITING venue checkpoint. `autonomous: false` — requires physical venue verification of all 18 AC items with Plan 04 backend deployed on test server.
+**Decisions:** Stable ref pattern for onIdleWarning callback; isMidStreamWaiting flag; bottom End Session hidden not removed; StatusBadge coarse label accepted.
+**Deviations:** (1) Rule 1 — JSX.Element namespace unavailable → React.ReactElement; (2) Rule 1 — stale closure risk in useCallback([], []) → stable ref; (3) Rule 1 — idleWarning state moved before useKioskSocket call.
+**Next plan:** 414-06 Wave 6 (venue financial E2E + deploy parity).
+**Summary:** `.planning/phases/414-continuous-billing-session/414-05-SUMMARY.md`
+
+*Last updated: 2026-04-18T04:49 IST — Phase 414-05 (Wave 5 kiosk frontend Tasks 1+2) closed; IdleWarningDialog + paused-meter UI + 3 label fixes; kiosk build 27 chunks clean; Task 3 awaiting venue checkpoint (`a4654235` + `29508f64`)*
 *Previous: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
 *Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
 *Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*

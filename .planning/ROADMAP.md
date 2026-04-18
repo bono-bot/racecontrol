@@ -2257,7 +2257,7 @@ Plans:
 - [x] 414-02-PLAN.md — Wave 2 BillingTimer.between_games_idle_seconds + tick branch + tick_all_timers candidate collection
 - [x] 414-03-PLAN.md — Wave 3 protocol additions (DashboardEvent::IdleWarning + BillingSessionInfo field) + TS cascade + IdleWarning broadcast
 - [x] 414-04-PLAN.md — Wave 4 handle_game_off rewrite + handle_live_resume reset + tick_all_timers auto-end + stop_billing branch + stale query fix
-- [ ] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (with venue visual checkpoint)
+- [x] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (Tasks 1+2 complete `a4654235`+`29508f64`; Task 3 venue checkpoint awaiting)
 - [ ] 414-06-PLAN.md — Wave 6 MMA audit + venue financial E2E + deploy parity (server .23 + Bono VPS + 3 frontends) + LOGBOOK
 
 ---
