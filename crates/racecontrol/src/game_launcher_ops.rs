@@ -317,25 +317,26 @@ pub async fn launch_game(
 
     let mut send_ok = false;
     for attempt in 1..=2 {
-        let senders = state.agent_senders.read().await;
-        if let Some(tx) = senders.get(pod_id) {
+        // Issue 3 fix: clone sender inside lock scope, drop guard before .await
+        let sender = {
+            let senders = state.agent_senders.read().await;
+            senders.get(pod_id).cloned()
+        };
+        if let Some(tx) = sender {
             match tx.send(launch_msg.clone()).await {
                 Ok(_) => { send_ok = true; break; }
                 Err(e) => {
                     tracing::warn!("LaunchGame send attempt {}/2 failed for pod {}: {}", attempt, pod_id, e);
-                    drop(senders);
                     if attempt == 1 {
                         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                     }
                 }
             }
+        } else if attempt == 1 {
+            tracing::warn!("No agent connected for pod {} (attempt 1/2), retrying in 3s", pod_id);
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            continue;
         } else {
-            drop(senders);
-            if attempt == 1 {
-                tracing::warn!("No agent connected for pod {} (attempt 1/2), retrying in 3s", pod_id);
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                continue;
-            }
             break;
         }
     }

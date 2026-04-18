@@ -193,8 +193,11 @@ pub(crate) async fn create_debug_incident(
     let mut tier_diagnosis_sent = false;
     if category != "pod_offline"
     && let Some(ref pid) = body.pod_id {
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pid) {
+        let sender = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(pid).cloned()
+        };
+        if let Some(sender) = sender {
             let diag_req = CoreToAgentMessage::DiagnosticRequest {
                 correlation_id: correlation_id.clone(),
                 incident_id: id.clone(),
@@ -213,7 +216,6 @@ pub(crate) async fn create_debug_incident(
                 );
             }
         }
-        drop(agent_senders);
     } // end category != "pod_offline" guard
 
     // ─── AUTO-FIX: If category has a suggested action AND pod is selected, apply immediately ──

@@ -251,34 +251,36 @@ pub async fn retry_pod_join(
     });
 
     // First send StopGame to kill any stuck process, then re-launch
-    {
+    let sender = {
         let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
-            let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
-        } else {
-            anyhow::bail!("Pod {} is not connected", pod_id);
-        }
-    }
+        agent_senders.get(pod_id).cloned()
+    };
+    let Some(sender) = sender else {
+        anyhow::bail!("Pod {} is not connected", pod_id);
+    };
+    let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).await;
 
     // Brief delay to let the old process die
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    {
+    // Re-snapshot sender after the sleep — the pod may have disconnected.
+    let sender_relaunch = {
         let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
-            let cmd = CoreToAgentMessage::LaunchGame {
-                sim_type: rc_common::types::SimType::AssettoCorsa,
-                launch_args: Some(launch_json.to_string()),
-                force_clean: false,
-                duration_minutes: None,
-                launch_id: None,
-            };
-            let _ = sender.send(CoreMessage::wrap(cmd)).await;
-            tracing::info!(
-                "GROUP-03: Re-sent LaunchGame to pod {} for session {} (retry join)",
-                pod_id, session_id
-            );
-        }
+        agent_senders.get(pod_id).cloned()
+    };
+    if let Some(sender) = sender_relaunch {
+        let cmd = CoreToAgentMessage::LaunchGame {
+            sim_type: rc_common::types::SimType::AssettoCorsa,
+            launch_args: Some(launch_json.to_string()),
+            force_clean: false,
+            duration_minutes: None,
+            launch_id: None,
+        };
+        let _ = sender.send(CoreMessage::wrap(cmd)).await;
+        tracing::info!(
+            "GROUP-03: Re-sent LaunchGame to pod {} for session {} (retry join)",
+            pod_id, session_id
+        );
     }
 
     // Update game tracker to Launching (clears error state on dashboard)

@@ -20,8 +20,11 @@ pub(crate) async fn set_pod_transmission(
         .and_then(|v| v.as_str())
         .unwrap_or("auto");
 
-    let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(&pod_id) {
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(&pod_id).cloned()
+    };
+    if let Some(tx) = sender {
         let msg = CoreToAgentMessage::SetTransmission {
             transmission: transmission.to_string(),
         };
@@ -44,8 +47,11 @@ pub(crate) async fn set_pod_ffb(
     // Try numeric percent first (Phase 6 mid-session FFB gain)
     if let Some(percent) = body.get("percent").and_then(|v| v.as_u64()) {
         let percent = (percent as u8).clamp(10, 100);
-        let senders = state.agent_senders.read().await;
-        if let Some(tx) = senders.get(&pod_id) {
+        let sender = {
+            let senders = state.agent_senders.read().await;
+            senders.get(&pod_id).cloned()
+        };
+        if let Some(tx) = sender {
             let msg = CoreToAgentMessage::SetFfbGain { percent };
             if let Err(e) = tx.send(CoreMessage::wrap(msg)).await {
                 tracing::error!("Failed to send SetFfbGain to {}: {}", pod_id, e);
@@ -64,8 +70,11 @@ pub(crate) async fn set_pod_ffb(
         .and_then(|v| v.as_str())
         .unwrap_or("medium");
 
-    let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(&pod_id) {
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(&pod_id).cloned()
+    };
+    if let Some(tx) = sender {
         let msg = CoreToAgentMessage::SetFfb {
             preset: preset.to_string(),
         };
@@ -98,8 +107,11 @@ pub(crate) async fn set_pod_assists(
         return Json(json!({ "error": "Invalid assist_type. Supported: abs, tc, transmission" }));
     }
 
-    let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(&pod_id) {
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(&pod_id).cloned()
+    };
+    if let Some(tx) = sender {
         let msg = CoreToAgentMessage::SetAssist {
             assist_type: assist_type.to_string(),
             enabled,
@@ -127,8 +139,11 @@ pub(crate) async fn get_pod_assist_state(
 
     // Also send QueryAssistState to agent for background refresh
     // (next time PWA opens the drawer, cache will be even fresher)
-    let senders = state.agent_senders.read().await;
-    if let Some(tx) = senders.get(&pod_id)
+    let sender = {
+        let senders = state.agent_senders.read().await;
+        senders.get(&pod_id).cloned()
+    };
+    if let Some(tx) = sender
         && let Err(e) = tx.send(CoreMessage::wrap(CoreToAgentMessage::QueryAssistState)).await {
             tracing::warn!("Failed to send QueryAssistState to {}: {}", pod_id, e);
         }

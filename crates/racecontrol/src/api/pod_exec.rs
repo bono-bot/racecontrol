@@ -243,8 +243,11 @@ pub(crate) async fn clear_maintenance_pod(
     Path(id): Path<String>,
 ) -> Json<Value> {
     // Send ClearMaintenance via WS.
-    let agent_senders = state.agent_senders.read().await;
-    match agent_senders.get(&id) {
+    let sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&id).cloned()
+    };
+    match sender {
         Some(sender) => {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ClearMaintenance)).await;
         }
@@ -252,7 +255,6 @@ pub(crate) async fn clear_maintenance_pod(
             return Json(json!({ "error": format!("Pod {} not connected", id) }));
         }
     }
-    drop(agent_senders);
 
     // Also clear server-side maintenance state immediately (optimistic update).
     {

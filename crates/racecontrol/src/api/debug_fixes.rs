@@ -140,15 +140,17 @@ pub(crate) async fn post_fix_bookkeeping(
 
     // v27.0: Notify pod's tier engine about the staff action to reset dedup window
     if success {
-        let agent_senders = state.agent_senders.read().await;
-        if let Some(sender) = agent_senders.get(pod_id) {
+        let sender = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(pod_id).cloned()
+        };
+        if let Some(sender) = sender {
             let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::StaffActionNotify {
                 action: action.to_string(),
                 reason: format!("Staff fix for incident {}", incident_id),
                 correlation_id: uuid::Uuid::new_v4().to_string(),
             })).await;
         }
-        drop(agent_senders);
     }
 
     // If action succeeded, auto-resolve the incident

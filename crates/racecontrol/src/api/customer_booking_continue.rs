@@ -154,11 +154,15 @@ pub(crate) async fn customer_continue_session(
         // Check if this game supports auto-spawn
         let needs_assistance = matches!(sim_type, SimType::F125);
 
-        let agent_senders = state.agent_senders.read().await;
+        // Clone the sender once; use it in whichever branch needs to send.
+        let sender = {
+            let agent_senders = state.agent_senders.read().await;
+            agent_senders.get(&reservation.pod_id).cloned()
+        };
         if needs_assistance {
             // Send assistance screen instead of launching
-            if let Some(sender) = agent_senders.get(&reservation.pod_id) {
-                let _ = sender.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen {
+            if let Some(ref s) = sender {
+                let _ = s.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::ShowAssistanceScreen {
                     driver_name: driver_id.clone(),
                     message: "A team member is on the way to help launch your game.".to_string(),
                 })).await;
@@ -182,8 +186,8 @@ pub(crate) async fn customer_continue_session(
                     "aids": { "abs": 1, "tc": 1, "stability": 1, "autoclutch": 1, "ideal_line": 1 },
                     "conditions": { "damage": 0 }
                 }).to_string();
-                if let Some(sender) = agent_senders.get(&reservation.pod_id) {
-                    let _ = sender.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::LaunchGame {
+                if let Some(ref s) = sender {
+                    let _ = s.send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::LaunchGame {
                         sim_type,
                         launch_args: Some(launch_args),
                         force_clean: false,
