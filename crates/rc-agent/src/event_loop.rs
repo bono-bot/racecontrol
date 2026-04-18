@@ -390,6 +390,12 @@ pub async fn run(
                     tracing::error!(target: LOG_TARGET, "Lost connection to core server");
                     break;
                 }
+                // Pattern I defense-in-depth: send WS-level Ping every heartbeat tick.
+                // Server tungstenite auto-responds with Pong, which lands as Ok(_) in
+                // ws_rx and refreshes last_server_frame_at — so the 90s liveness guard
+                // fires promptly on half-open TCP even during fully idle periods when
+                // the server has no unsolicited Text frames to send.
+                let _ = ws_tx.send(Message::Ping(Vec::new().into())).await;
             }
 
             _ = conn.telemetry_interval.tick() => {
