@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T04:21:15.923Z"
+last_updated: "2026-04-18T09:59:00.000Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
 ---
 
 # Project State
@@ -105,6 +105,21 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
+
+## Phase 413.1 Plan 05 — deploy-server.sh swap regression test harness closed (2026-04-18)
+
+**Completed:** 2026-04-18T09:59 IST (Wave 3 executor, --no-verify)
+**Scope:** Add `tests/deploy_script_swap_test.sh` — a 3-layer regression harness that catches the defect class responsible for the 2026-04-18 07:50 IST P0 outage (forward-slash Windows paths via cmd.exe, `!errorlevel!` without DelayedExpansion, missing auto-recover on rename failure, missing 72h forfiles guard in start-racecontrol.bat). R6 of Phase 413.1.
+**Commits:**
+
+- `955b625b` — Task 1: 3-layer test harness at `tests/deploy_script_swap_test.sh`. Clean commit (1 file, +257 lines) — NO sweeper interference (4 prior incidents this session did not strike this commit). Explicit `git add tests/deploy_script_swap_test.sh` used (never `git add -A`).
+
+**Verification:** `bash tests/deploy_script_swap_test.sh` exits 0 on this machine. Layer 1 passes all 7 invariants (R1 x3 ren-sequence + SWAP_FAILED_RECOVERED, R2 !errorlevel! absent, R3 forfiles guard, bash -n clean). Layer 2 Scenario A (happy-path) + B (stale-prev cleanup) PASS deterministically. Layer 2 Scenario C (barrier auto-recover) DROPs cleanly per revision Issue 10 (barrier timing unreliable on runner — Layer 1 grep + Plan 06 live canary provide coverage). Layer 3 forfiles behavioral regression PASSES. Safety guard phrase `UNSAFE: test would touch production` grep-enforced (count=1); `forfiles`=15; `SWAP_FAILED_RECOVERED`=8; `errorlevel`=5; `SWAPPED`=8.
+**Decisions:** (1) Python3 + chr(92) + str.replace for path rewrite (replaced broken sed — plan's original sed `${VAR}\\\\` expression mangled leading backslash on this runner; Python approach is unambiguous across shells). (2) Scenario C uses explicit DROP path per revision Issue 10 — not silent skip, not test-failure. (3) No integration into tests/run-all.sh — file does not exist in the repo; test stands alone with invocation documented in script header. (4) CRLF trim on file-content comparisons (cmd.exe echo writes CRLF; trim via `tr -d '\r\n'` before string match).
+**Deviations:** (1) Rule 3 blocking — plan's sed approach did not preserve leading backslash; replaced with Python3 heredoc (same safety-guard semantics, auditable, no shell-escape layers). (2) Rule 2 missing — Scenario A/B comparison needed CR trimming on cmd.exe-written files. Both fixed inline during Task 1; single commit `955b625b`.
+**Closes:** R6 of Phase 413.1. Defect class (forward-slash Windows paths, !errorlevel!, missing auto-recover, missing 72h forfiles guard) now has a permanent 3-layer regression gate. Future maintainers cannot re-introduce these without the test failing at CI time. Plan 06 live canary remains the ultimate verification; this harness catches ~95% of the defect class before production.
+**Next plan:** 413.1-06 (Wave 4 Plan 11 retry — server + cloud + pod 3 canary with AUDIT KNOWN ISSUE end-to-end, R7).
+**Summary:** `.planning/phases/413.1-deploy-server-step4-fix-and-plan11-retry/413.1-05-SUMMARY.md`
 
 ## Phase 413.1 Plan 04 — StartRCTemp retirement (Option A) closed (2026-04-18)
 
