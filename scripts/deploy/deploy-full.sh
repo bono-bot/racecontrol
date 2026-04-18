@@ -74,7 +74,8 @@ pass "SSH reachable"
 # ─── Step 1: Record pre-deploy state ────────────────────────────────
 section "Step 1: Pre-deploy state"
 PRE_BUILD=$(ssh "${CLOUD_SSH}" "curl -s --max-time 5 http://localhost:8080/api/v1/health 2>/dev/null" \
-    | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+    | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
+PRE_BUILD="${PRE_BUILD:-unknown}"
 echo -e "  ${CYAN}>>>${NC}   Pre-deploy build_id: ${PRE_BUILD}"
 
 # ─── Step 2: Git pull ───────────────────────────────────────────────
@@ -177,7 +178,8 @@ info "Checking binary health..."
 for i in $(seq 1 6); do
     HEALTH_BODY=$(ssh "${CLOUD_SSH}" "curl -s --max-time 5 http://localhost:8080/api/v1/health 2>/dev/null" || echo "")
     if echo "$HEALTH_BODY" | grep -q '"status":"ok"'; then
-        ACTUAL_BUILD=$(echo "$HEALTH_BODY" | grep -oP '"build_id":"\K[^"]+' || echo "unknown")
+        ACTUAL_BUILD=$(echo "$HEALTH_BODY" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
+        ACTUAL_BUILD="${ACTUAL_BUILD:-unknown}"
         if [ -n "$EXPECTED_BUILD_ID" ] && [ "$ACTUAL_BUILD" != "$EXPECTED_BUILD_ID" ]; then
             echo -e "  ${RED}!!${NC}    build_id MISMATCH: expected ${EXPECTED_BUILD_ID}, got ${ACTUAL_BUILD}"
             fail "build_id mismatch after deploy"

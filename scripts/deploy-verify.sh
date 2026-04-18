@@ -96,7 +96,8 @@ HASH_MISMATCHES=0
 # --- Server (.23:8080) ---
 SERVER_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:8080/api/v1/health" 2>/dev/null || echo "")
 if [ -n "$SERVER_HEALTH" ]; then
-    SERVER_BUILD=$(echo "$SERVER_HEALTH" | grep -oP '"build_id":"\K[^"]+' 2>/dev/null || echo "unknown")
+    SERVER_BUILD=$(echo "$SERVER_HEALTH" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
+    SERVER_BUILD="${SERVER_BUILD:-unknown}"
     if [ "$SERVER_BUILD" = "$EXPECTED_HASH" ]; then
         printf "  %-14s %-12s %-12s ${GREEN}%-12s${NC}\n" "Server :8080" "$EXPECTED_HASH" "$SERVER_BUILD" "MATCH"
     else
@@ -134,7 +135,8 @@ fi
 # --- Cloud (Bono VPS) ---
 CLOUD_HEALTH=$(curl -s --max-time 10 "http://${CLOUD_HOST}:8080/api/v1/health" 2>/dev/null || echo "")
 if [ -n "$CLOUD_HEALTH" ]; then
-    CLOUD_BUILD=$(echo "$CLOUD_HEALTH" | grep -oP '"build_id":"\K[^"]+' 2>/dev/null || echo "unknown")
+    CLOUD_BUILD=$(echo "$CLOUD_HEALTH" | sed -n 's/.*"build_id":"\([^"]*\)".*/\1/p' | head -1)
+    CLOUD_BUILD="${CLOUD_BUILD:-unknown}"
     if [ "$CLOUD_BUILD" = "$EXPECTED_HASH" ]; then
         printf "  %-14s %-12s %-12s ${GREEN}%-12s${NC}\n" "Cloud" "$EXPECTED_HASH" "$CLOUD_BUILD" "MATCH"
     else
