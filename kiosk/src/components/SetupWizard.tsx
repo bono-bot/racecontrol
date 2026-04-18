@@ -150,6 +150,74 @@ export function SetupWizard({
   const [carSearch, setCarSearch] = useState("");
   const [carCategory, setCarCategory] = useState("Featured");
 
+  // ─── Walk-in registration (phoneless) ────────────────────────────────
+  // Customers without a phone can't enroll via PWA. This inline form lets
+  // staff register them directly inside billing without leaving the wizard.
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [regName, setRegName] = useState("");
+  const [regDob, setRegDob] = useState("");
+  const [regGuardianName, setRegGuardianName] = useState("");
+  const [regWaiver, setRegWaiver] = useState(false);
+  const [regBusy, setRegBusy] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+
+  const regIsMinor = useMemo(() => {
+    if (!regDob) return false;
+    const birth = new Date(regDob);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age < 18;
+  }, [regDob]);
+
+  function resetRegisterForm() {
+    setShowRegisterForm(false);
+    setRegName("");
+    setRegDob("");
+    setRegGuardianName("");
+    setRegWaiver(false);
+    setRegError(null);
+  }
+
+  async function handleRegisterWalkIn() {
+    setRegError(null);
+    if (regName.trim().length < 2) { setRegError("Name must be at least 2 characters"); return; }
+    if (!regDob) { setRegError("Date of birth is required"); return; }
+    if (!regWaiver) { setRegError("Waiver consent is required"); return; }
+    if (regIsMinor && !regGuardianName.trim()) { setRegError("Guardian name is required for under 18"); return; }
+
+    setRegBusy(true);
+    try {
+      const res = await api.venueRegister({
+        name: regName.trim(),
+        dob: regDob,
+        waiver_consent: regWaiver,
+        guardian_name: regIsMinor ? regGuardianName.trim() : undefined,
+      });
+      if (res.error || !res.driver_id) {
+        setRegError(res.error || "Registration failed");
+        return;
+      }
+      const newDriver: Driver = {
+        id: res.driver_id,
+        name: res.name || regName.trim(),
+        total_laps: 0,
+        total_time_ms: 0,
+        has_used_trial: false,
+      };
+      // Refresh shared driver list so future searches find this driver too
+      api.listDrivers().then((r) => setDrivers(r.drivers || [])).catch(() => {});
+      resetRegisterForm();
+      setSearchQuery("");
+      handleSelectDriver(newDriver);
+    } catch (err) {
+      setRegError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setRegBusy(false);
+    }
+  }
+
   // Reliability warning — fetch when entering review step with car+track selected
   const [comboSuccessRate, setComboSuccessRate] = useState<number | null>(null);
   const [comboAlternatives, setComboAlternatives] = useState<AlternativeCombo[]>([]);
@@ -412,11 +480,99 @@ export function SetupWizard({
               )}
             </div>
 
-            {/* Linked racers shown under parent */}
             {filteredDrivers.length === 0 && searchQuery.trim().length > 0 && (
-              <p className="text-xs text-rp-grey mt-2">
-                No drivers found. Register via PWA or venue registration first.
-              </p>
+              <p className="text-xs text-rp-grey mt-2">No drivers match &ldquo;{searchQuery}&rdquo;.</p>
+            )}
+
+            {/* ─── Walk-in registration (no phone needed) ──────────── */}
+            {!showRegisterForm ? (
+              <button
+                data-testid="register-walkin-toggle"
+                onClick={() => setShowRegisterForm(true)}
+                className="w-full px-3 py-2.5 mt-2 border border-dashed border-rp-border rounded text-sm text-rp-grey hover:text-white hover:border-rp-red transition-colors"
+              >
+                + Register New Walk-In <span className="text-xs">(no phone required)</span>
+              </button>
+            ) : (
+              <div data-testid="walkin-register-form" className="mt-2 p-3 border border-rp-border rounded bg-rp-surface space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-white">New Walk-In Driver</p>
+                  <p className="text-[10px] text-rp-grey">For customers without a phone</p>
+                </div>
+
+                <div>
+                  <label className="text-xs text-rp-grey block mb-1">Full Name *</label>
+                  <input
+                    data-testid="walkin-name"
+                    type="text"
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    placeholder="Customer name"
+                    className="w-full px-3 py-2 bg-rp-card border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-rp-grey block mb-1">Date of Birth *</label>
+                  <input
+                    data-testid="walkin-dob"
+                    type="date"
+                    value={regDob}
+                    onChange={(e) => setRegDob(e.target.value)}
+                    className="w-full px-3 py-2 bg-rp-card border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
+                  />
+                </div>
+
+                {regIsMinor && (
+                  <div>
+                    <label className="text-xs text-amber-400 block mb-1">Guardian Name * (under 18)</label>
+                    <input
+                      data-testid="walkin-guardian"
+                      type="text"
+                      value={regGuardianName}
+                      onChange={(e) => setRegGuardianName(e.target.value)}
+                      placeholder="Parent or guardian name"
+                      className="w-full px-3 py-2 bg-rp-card border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
+                    />
+                  </div>
+                )}
+
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    data-testid="walkin-waiver"
+                    type="checkbox"
+                    checked={regWaiver}
+                    onChange={(e) => setRegWaiver(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-rp-border accent-rp-red"
+                  />
+                  <span className="text-xs text-rp-grey">
+                    Customer accepts the safety waiver and understands sim-racing risks
+                    {regIsMinor && " (signed by guardian)"}
+                  </span>
+                </label>
+
+                {regError && <p className="text-xs text-red-400">{regError}</p>}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    data-testid="walkin-cancel"
+                    onClick={resetRegisterForm}
+                    disabled={regBusy}
+                    className="flex-1 py-2 border border-rp-border text-rp-grey rounded text-sm hover:text-white hover:border-zinc-500 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    data-testid="walkin-submit"
+                    onClick={handleRegisterWalkIn}
+                    disabled={regBusy}
+                    className="flex-[2] py-2 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded text-sm disabled:opacity-50"
+                  >
+                    {regBusy ? "Registering..." : "Register & Continue"}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

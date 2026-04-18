@@ -98,6 +98,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  // Phoneless walk-in registration (used by SetupWizard register_driver step
+  // for customers who can't enroll via PWA). Backend: POST /venue/register.
+  venueRegister: (data: {
+    name: string;
+    dob: string;
+    waiver_consent: boolean;
+    guardian_name?: string;
+  }) =>
+    fetchApi<{
+      status?: string;
+      driver_id?: string;
+      customer_id?: string;
+      name?: string;
+      is_minor?: boolean;
+      message?: string;
+      error?: string;
+    }>("/venue/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   // Pricing
   listPricingTiers: () => fetchApi<{ tiers: PricingTier[] }>("/pricing"),
