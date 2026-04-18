@@ -57,3 +57,18 @@ because production never builds with `--no-default-features`.
 ai_debugger, ws_handler, main.rs, app_state, event_loop all have their
 feature-gates in place). Deferred as pre-existing tech debt.
 
+## 2026-04-18 — Plan 10
+
+### 2 billing-integration-test failures in `integration.rs` (pre-existing)
+
+**Discovered by:** Plan 10 Task 1 T2 full-suite run.
+**Command:** `cargo test -p rc-common -p rc-agent-crate -p racecontrol-crate`
+**Failures:**
+- `test_billing_rates_delete_excludes_from_cost` — expected 180000 paise baseline 90-min cost, got 135000 (integration.rs:3679)
+- `test_financial_e2e_tiered_pricing_integer_math` — expected 75000 for 30-min standard tier, got 70000 (integration.rs:3894)
+**Status:** Pre-existing. `git log 36f6d2a0..HEAD -- crates/racecontrol/tests/integration.rs` returns zero commits — the test file has not been modified since `36f6d2a0` (Phase 367-05), which predates Phase 413 by ~2 weeks. Phase 413's commits touch `network_source.rs`, `mesh_intelligence.rs`, `routes.rs`, `mesh_key_cache.rs`, `ai_debugger.rs`, `remote_ops.rs`, `ws_handler.rs`, `csv_lap_fallback.rs`, `main.rs`, `app_state.rs`, `event_loop.rs`, `deploy-server.sh` — zero billing-code changes.
+**Root cause (hypothesis):** Drift in the tiered-pricing engine between the baseline the integration tests were written against and the current runtime computation. MEMORY.md documents per-minute tiered pricing landing in commits `290f16ca` + `f4de983d` with a billing migration — possibly the test fixtures' expected paise values weren't updated when the pricing floor/rounding changed, or the migration swapped rate semantics.
+**Impact on Phase 413:** None. All Phase 413-specific test suites pass (mesh_key_cache 11/11, remote_ops 19/19 incl. 7 service-key, phase413_tests 7/7 on racecontrol, network_source 21/21, rc-common 252/252). The mesh-service-key HTTP route + rc-agent cache code path is fully exercised and green.
+**Candidate fix:** Audit the two tests against the production pricing engine output. Either (a) update the tests' expected paise values if the runtime is correct, or (b) find and fix the regression if the runtime is wrong. Side-task; assign to whoever owns the pricing-engine backlog.
+**Scope:** Non-blocking for Plan 11 deploy gate — Plan 11 only touches mesh-service-key code path and deploy-server.sh, neither of which interacts with the billing engine under test.
+
