@@ -418,6 +418,54 @@ const ALLOWED_PROCESSES: &[&str] = &[
     // Xbox / Edge Game Assist (Pod 8)
     "edgegameassist.exe",          // Edge Game Assist overlay
     "xboxpcappft.exe",             // Xbox PC app
+
+    // Windows system processes — observed tripping kiosk LOCKDOWN during
+    // 2026-04-18 fleet PoE (462 lockdown events across 8 pods over 3 days).
+    // Exact names only — hashed/versioned names (microsoftedge_x64_<ver>.exe,
+    // garage61-agent-<hash>.exe, windows-kb890830-x64-<ver>.exe) stay in the
+    // DB allowlist because they mutate per update and exact match can't track.
+    "monotificationux.exe",        // Windows notification UI (836 hits in 3d)
+    "windowspackagemanagerserver.exe", // Windows Package Manager server
+    "wimserv.exe",                 // Windows Imaging service
+    "vds.exe",                     // Virtual Disk Service
+    "mrt.exe",                     // Malicious Software Removal Tool
+    "wermgr.exe",                  // Windows Error Reporting Manager
+    "runonce.exe",                 // Windows RunOnce
+    "dismhost.exe",                // DISM servicing
+    "wuaucltcore.exe",             // Windows Update Client core
+    "uieorchestratorstub.exe",     // UI Orchestrator stub
+    "uieorchestrator.exe",         // UI Orchestrator
+    "compattelrunner.exe",         // Compatibility Telemetry
+
+    // .NET native-image generation (runs during .NET servicing)
+    "ngen.exe",                    // .NET native image generator
+    "ngentask.exe",                // .NET NGEN task
+    "mscorsvw.exe",                // .NET runtime optimization service
+
+    // Microsoft / OneDrive / Office
+    "onedrivelauncher.exe",        // OneDrive launcher
+    "powerpnt.exe",                // PowerPoint
+
+    // Visual C++ Redistributable (run briefly during install)
+    "vc_redist.x86.exe",           // VC redist x86
+    "vc_redist.x64.exe",           // VC redist x64
+
+    // EA AntiCheat (required for F1 25)
+    "eaanticheat.gameservice.exe", // EA AntiCheat game service
+    "eaanticheat.gameservicelauncher.exe", // EA AntiCheat launcher
+
+    // NVIDIA updaters + utilities
+    "nvngx_update.exe",            // NVIDIA DLSS / NGX updater
+    "nvidia-smi.exe",              // NVIDIA System Management Interface
+
+    // Ollama installer artifacts (Pod 8 local LLM)
+    "ollamasetup.exe",             // Ollama setup
+    "ollamasetup.tmp",             // Ollama setup temp
+
+    // Browser + Windows AI agents
+    "default-browser-agent.exe",   // Firefox/browser default-browser agent
+    "aimgr.exe",                   // AI Manager (Windows 11)
+    "ai.exe",                      // AI binary (Windows 11)
 ];
 
 /// A monitored process entry reported during freedom mode.

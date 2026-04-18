@@ -118,14 +118,26 @@ impl Config {
 
 /// Phase 343: Returns true if this racecontrol instance IS the cloud (authoritative writer).
 /// Cloud does NOT reject staff mutations — it's the source of truth.
+///
+/// Fix 2026-04-18: the prior heuristic tested `api_url.contains(":{self_port}")`, which
+/// matched venue instances too whenever venue + cloud shared a common port (both on :8080).
+/// Consequence: BOTH instances self-identified as cloud → BOTH rejected venue-authoritative
+/// writes → kiosk_settings became unwritable via API on the entire deployment. Observed
+/// during James PoE 2026-04-18 while trying to flip kiosk_lockdown_enabled=false.
+/// New heuristic requires an explicit loopback/localhost host+port match. Instances
+/// that need to be treated as cloud must either (a) match a loopback api_url or
+/// (b) set RC_IS_CLOUD=1 in their environment.
 pub fn this_instance_is_cloud(config: &Config) -> bool {
     if std::env::var("RC_IS_CLOUD").as_deref() == Ok("1") {
         return true;
     }
-    // Heuristic: if cloud api_url points at our own host:port, we ARE the cloud
+    // Heuristic: if cloud api_url points at our own loopback:port, we ARE the cloud.
+    // Port-only substring is INSUFFICIENT — venue + cloud commonly share the same port.
     if let Some(ref api_url) = config.cloud.api_url {
-        let self_pattern = format!(":{}", config.server.port);
-        if api_url.contains("127.0.0.1") || api_url.contains("localhost") || api_url.contains(&self_pattern) {
+        let loopback_v4 = format!("127.0.0.1:{}", config.server.port);
+        let loopback_v6 = format!("[::1]:{}", config.server.port);
+        let localhost = format!("localhost:{}", config.server.port);
+        if api_url.contains(&loopback_v4) || api_url.contains(&loopback_v6) || api_url.contains(&localhost) {
             return true;
         }
     }
