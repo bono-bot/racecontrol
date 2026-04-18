@@ -1,0 +1,32 @@
+{
+  "_comment": "Symptom class → candidate source files. Consumed by scripts/diagnose/bundle-helper.js to pre-filter MMA codebase context. Paths are repo-root-relative. Missing files are skipped at runtime (gracefully survives renames). Keep in sync with symptom-classes.json by class key.",
+  "_spec": ".planning/specs/MMA-TRIAGE-ROUTER.md",
+  "classes": {
+    "exit-code-1": [
+      "crates/rc-agent/src/game_process.rs",
+      "crates/rc-agent/src/event_loop.rs",
+      "crates/racecontrol/src/game_launcher_support.rs"
+    ],
+    "orphan-process": [
+      "crates/rc-agent/src/pre_flight.rs",
+      "crates/rc-agent/src/game_process.rs"
+    ],
+    "steam-dialog": [
+      "crates/rc-agent/src/steam_checks.rs"
+    ],
+    "zero-laps": [
+      "crates/rc-agent/src/ac_launcher.rs",
+      "crates/racecontrol/src/lap_tracker.rs",
+      "crates/racecontrol/src/lap_consistency.rs"
+    ],
+    "rally-3min": [
+      "crates/racecontrol/src/billing_timer_expiry_timeout.rs"
+    ],
+    "launch-timeout": [
+      "crates/racecontrol/src/game_launcher_support.rs"
+    ],
+    "python-ini": [
+      "crates/rc-agent/src/ac_launcher.rs"
+    ]
+  }
+}

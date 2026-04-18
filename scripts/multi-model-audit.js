@@ -286,6 +286,20 @@ function bundleFiles(files) {
   return files.map(f => `--- FILE: ${f.path} ---\n${sanitizeForPrompt(f.content)}`).join('\n\n');
 }
 
+// L1 retrieval helper (Commit 3 of MMA-TRIAGE-ROUTER spec, 2026-04-18):
+// For query-driven audits, replace the hardcoded directory walks below
+// (serverRs, agentRs, etc.) with a focused bundle:
+//
+//   const { prepareQueryRelevantBundle } = require('./diagnose/bundle-helper');
+//   const focused = prepareQueryRelevantBundle(query, symptomClasses);
+//   const prompt = `...\n${bundleFiles(focused.files)}`;
+//
+// Preserves token budget — a steam-dialog query narrows from ~40k distractor
+// tokens to ~5k signal tokens, preventing the 2026-04-17 hallucination class.
+// Symptom classes come from the triage router's AUDIT_DEEP verdict
+// (relevant_symptom_classes field). Legacy full-directory path is correct
+// for milestone-ship and security audits — keep both in use.
+
 function estimateTokens(text) { return Math.ceil(text.length / 4); }
 
 // ─── Auto-split for context limits ─────────────────────────────────────────
