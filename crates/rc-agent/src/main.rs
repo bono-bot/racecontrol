@@ -11,6 +11,7 @@ mod experience_actions;
 mod experience_collector;
 mod experience_score;
 mod ws_handler;
+mod ws_state;
 mod config;
 mod content_scanner;
 mod debug_server;
@@ -2051,6 +2052,12 @@ async fn main() -> Result<()> {
     // On disconnect, retry with exponential backoff. All local state
     // (lock screen, kiosk, HID/UDP monitors, game process) persists across
     // reconnections — only the WebSocket is re-established.
+    //
+    // Pattern I (2026-04-18): init the ws_state diagnostic snapshot before
+    // entering the loop so `GET /debug/ws-state` can return meaningful data
+    // during silent-reconnect-forever failures (last connect error, attempt
+    // count, consecutive failures).
+    ws_state::init();
     let mut reconnect_attempt: u32 = 0;
     let mut startup_complete_logged = false;
     let mut _startup_report_sent = false;
@@ -2115,6 +2122,9 @@ async fn main() -> Result<()> {
         };
         tracing::info!(target: LOG_TARGET, "Connecting to RaceControl core (auth={})...",
             if state.current_jwt.is_some() { "jwt" } else { "psk" });
+        // Pattern I: record attempt BEFORE connect_async so the snapshot reflects
+        // the most recent intent even if connect_async hangs mid-TLS-handshake.
+        ws_state::record_attempt(&connect_url).await;
         let ws_result = tokio::time::timeout(
             Duration::from_secs(10),
             connect_async(&connect_url),
@@ -2124,12 +2134,14 @@ async fn main() -> Result<()> {
             Ok(Ok(stream)) => {
                 reconnect_attempt = 0; // Reset on successful connection
                 ws_disconnected_at = None; // SESSION-04: Clear grace window on reconnect
+                ws_state::record_success().await;
                 stream
             }
             Ok(Err(e)) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
                 // Phase 306: detect 401 Unauthorized — clear JWT so next retry uses PSK
                 let err_str = e.to_string();
+                ws_state::record_failure(&err_str).await;
                 if err_str.contains("401") || err_str.contains("Unauthorized") {
                     if state.current_jwt.is_some() {
                         tracing::warn!(target: LOG_TARGET, "Phase 306: JWT rejected (401) — clearing JWT, next reconnect will use PSK bootstrap");
@@ -2155,6 +2167,7 @@ async fn main() -> Result<()> {
             }
             Err(_) => {
                 let delay = reconnect_delay_for_attempt(reconnect_attempt);
+                ws_state::record_failure("connect_timeout_10s").await;
                 tracing::warn!(target: LOG_TARGET, "Connection to core timed out. Attempt {}. Retrying in {:?}...", reconnect_attempt, delay);
                 // SESSION-04: Only show Disconnected after 30s grace window
                 {

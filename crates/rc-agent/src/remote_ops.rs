@@ -275,6 +275,7 @@ pub fn start(port: u16, cache: crate::mesh_key_cache::MeshKeyCache) {
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
+            .route("/debug/ws-state", get(ws_state_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
             // When both cache and RCAGENT_SERVICE_KEY env are unset/empty,
             // permissive mode allows all requests through (safe rollout).
@@ -388,6 +389,7 @@ pub fn start(port: u16) {
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
+            .route("/debug/ws-state", get(ws_state_handler))
             .layer(middleware::from_fn(require_service_key));
         let app = public_routes
             .merge(protected_routes)
@@ -431,6 +433,7 @@ pub fn start_checked(
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
+            .route("/debug/ws-state", get(ws_state_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
             // When both cache and RCAGENT_SERVICE_KEY env are unset/empty,
             // permissive mode allows all requests through (safe rollout).
@@ -548,6 +551,7 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
+            .route("/debug/ws-state", get(ws_state_handler))
             .layer(middleware::from_fn(require_service_key));
         let app = public_routes
             .merge(protected_routes)
@@ -647,6 +651,7 @@ fn start_checked_tls_inner(
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
+            .route("/debug/ws-state", get(ws_state_handler))
             .layer(axum::middleware::from_fn_with_state(
                 cache.clone(),
                 require_service_key,
@@ -1778,6 +1783,17 @@ pub(crate) fn build_content_dirs_response(
         })
         .collect();
     ContentDirsResponse { games }
+}
+
+/// axum handler for `GET /debug/ws-state` (service-key protected).
+///
+/// Pattern I (2026-04-18): returns the WS client's diagnostic snapshot so a
+/// silent-reconnect-forever failure can be diagnosed remotely in <30s. The
+/// 2026-04-18 Pod 1 + Pod 6 incident took 53 minutes to notice and required
+/// a taskkill-restart to recover without ever knowing the connect error —
+/// this endpoint would have surfaced the error on attempt #1.
+pub async fn ws_state_handler() -> Json<crate::ws_state::WsStateSnapshot> {
+    Json(crate::ws_state::snapshot().await)
 }
 
 /// axum handler for `GET /debug/content-dirs` (service-key protected).
