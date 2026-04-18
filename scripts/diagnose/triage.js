@@ -211,4 +211,9 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+// Exposed for unit tests only.
+module.exports = { parseArgs, formatVerdict, exitCodeFor };

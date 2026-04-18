@@ -81,7 +81,7 @@ pub enum TriageVerdict {
 
 /// Extracted features used for oracle lookup + classification.
 #[derive(Debug, PartialEq)]
-pub(crate) struct ParsedQuery {
+pub struct ParsedQuery {
     pub pod_ids: Vec<String>,
     pub symptom_classes: Vec<String>,
     pub expanded_terms: Vec<String>,
@@ -117,7 +117,7 @@ fn symptom_class_map() -> &'static [(&'static str, &'static [&'static str])] {
     ]
 }
 
-pub(crate) fn parse_query(query: &str, targets_hint: Option<&[String]>) -> ParsedQuery {
+pub fn parse_query(query: &str, targets_hint: Option<&[String]>) -> ParsedQuery {
     let lower = query.to_lowercase();
     let mut pod_ids = BTreeSet::new();
 
@@ -158,7 +158,7 @@ pub(crate) fn parse_query(query: &str, targets_hint: Option<&[String]>) -> Parse
 
 // ─── Hit classification ────────────────────────────────────────────────────
 
-pub(crate) fn classify_hit(match_: &AuditKnownIssueMatch, requested_pods: &[String]) -> (String, f32) {
+pub fn classify_hit(match_: &AuditKnownIssueMatch, requested_pods: &[String]) -> (String, f32) {
     if requested_pods.is_empty() {
         // Target-agnostic query — treat any hit as EXACT with moderate confidence.
         return ("EXACT".into(), 0.85);
@@ -173,7 +173,7 @@ pub(crate) fn classify_hit(match_: &AuditKnownIssueMatch, requested_pods: &[Stri
     }
 }
 
-pub(crate) fn is_ambiguous(parsed: &ParsedQuery, raw_query: &str) -> bool {
+pub fn is_ambiguous(parsed: &ParsedQuery, raw_query: &str) -> bool {
     // Ambiguous = no pod AND no symptom class AND query is short/generic.
     // Long queries with detail but no keyword matches are RESEARCH_NEW, not ambiguous.
     parsed.pod_ids.is_empty()
@@ -183,7 +183,7 @@ pub(crate) fn is_ambiguous(parsed: &ParsedQuery, raw_query: &str) -> bool {
 
 // ─── Verdict builder ───────────────────────────────────────────────────────
 
-pub(crate) fn build_verdict(
+pub fn build_verdict(
     parsed: &ParsedQuery,
     raw_query: &str,
     caller_context: Option<&str>,
