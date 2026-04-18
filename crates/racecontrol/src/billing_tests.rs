@@ -2989,3 +2989,76 @@
         ).fetch_one(&pool).await.unwrap();
         assert!(!row.0, "grace_window_caught should be false");
     }
+
+    // ── Phase 414 Wave 0 stubs — timer + integration ─────────────────────────
+    // All marked #[ignore] so pre-commit gate (cargo test --lib) passes.
+    // Plans 02 and 04 remove the #[ignore] attributes when implementations land.
+
+    #[test]
+    #[ignore = "Phase 414 Plan 02 adds BillingTimer.between_games_idle_seconds + tick branch"]
+    fn timer_idle_counter_advances_only_in_waiting() {
+        // 414-TIMER-01: Counter increments while WaitingForGame, stays at 0 while Active
+        // Construct BillingTimer with status=Active, tick 5 times, assert idle counter = 0
+        // Switch to WaitingForGame, tick 7 times, assert idle counter = 7
+        // (See billing_timer.rs Pattern 2 — Plan 02 implements)
+        panic!("Wave 0 stub — Plan 02 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 02 adds reset on WaitingForGame->Active"]
+    fn timer_idle_counter_resets_on_resume() {
+        // 414-TIMER-02: Counter resets to 0 on WaitingForGame -> Active
+        // Tick 600 idle seconds in WaitingForGame, transition to Active, assert counter = 0
+        panic!("Wave 0 stub — Plan 02 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 02 adds idle_warning_sent flag"]
+    fn idle_warning_fires_at_600s_once() {
+        // 414-TIMER-03: At idle=600s, idle_warning_sent flips true exactly once
+        // Tick 599s -> flag false. Tick 1 more -> flag true. Tick 100 more -> still true (not re-fired)
+        panic!("Wave 0 stub — Plan 02 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 04 adds auto-end at 900s"]
+    fn idle_auto_ends_at_900s_completed() {
+        // 414-TIMER-04: At idle=900s, BillingEvent::End fires -> status = Completed
+        // Tick 899s in WaitingForGame -> status unchanged. Tick 1 more -> status = Completed.
+        panic!("Wave 0 stub — Plan 04 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 04 — cumulative snap pricing across game swaps"]
+    fn cumulative_snap_25_5_yields_pkg_30() {
+        // 414-INTEGRATION-01: 25min Active + 7min WaitingForGame + 5min Active -> final cost = 70000 paise (snap to 30-min pkg)
+        // Pattern from RESEARCH.md Risk 8:
+        // let mut timer = BillingTimer { ..BillingTimer::default() };
+        // timer.status = Active; for _ in 0..(25*60) { timer.tick(); }
+        // assert_eq!(timer.elapsed_seconds, 1500);
+        // timer.status = WaitingForGame; for _ in 0..(7*60) { timer.tick(); }
+        // assert_eq!(timer.elapsed_seconds, 1500); // unchanged
+        // timer.status = Active; for _ in 0..(5*60) { timer.tick(); }
+        // assert_eq!(timer.elapsed_seconds, 1800);
+        // let final_cost = crate::billing_pricing::snap_cost_for_minutes(30, 2500, 70000, 90000);
+        // assert_eq!(final_cost, 70000);
+        panic!("Wave 0 stub — Plan 04 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 04 — auto-end with cumulative cost"]
+    fn idle_auto_end_completes_with_cumulative_cost() {
+        // 414-INTEGRATION-02: 16-min idle from mid-stream WaitingForGame -> auto-end as Completed
+        // Build: 10min Active (drove 10 x 2500 paise = 25000 paise) -> WaitingForGame -> 16min idle (auto-end)
+        // Assert: final status = Completed (NOT EndedEarly -- auto-end uses BillingEvent::End per CONTEXT.md D-IDLE-AUTOEND)
+        // total_debited_paise == 25000 (10 min worth)
+        panic!("Wave 0 stub — Plan 04 implements");
+    }
+
+    #[test]
+    #[ignore = "Phase 414 Plan 04 — disconnect-during-waiting auto-ends"]
+    fn pod_offline_in_waiting_auto_ends_completed() {
+        // 414-INTEGRATION-03: pod_is_offline=true while status=WaitingForGame mid-stream + 16min idle -> auto-end Completed
+        // Verify the tick loop's offline check (which gates Active timers only) doesn't interfere with idle counter
+        panic!("Wave 0 stub — Plan 04 implements");
+    }

@@ -237,33 +237,76 @@ pub(crate) async fn handle_launch_timeouts(
     timed_out: Vec<(String, u8)>,
 ) {
     for (pod_id, attempt) in timed_out {
+        // BILL-14: Suppress retry if the pod's game has already reached Running.
+        // Non-AC sims (F1 25, iRacing, etc.) don't reliably emit AcStatus::Live — the launch
+        // succeeds via GameState::Running but waiting_for_game is never cleared. Firing a
+        // retry in that state launches a different game (previously defaulting to
+        // AssettoCorsa) that swaps adapters and kills the currently-playing game — confirmed
+        // root cause for pod_1 AC Rally 3-min exit-1 crashes (2026-04-17) and pod_6 F1 25
+        // 3-min exit-1 crash (2026-04-18). Clear the stale waiting entry and skip retry.
+        let already_running = {
+            let games = state.game_launcher.active_games.read().await;
+            games
+                .get(&pod_id)
+                .map(|t| matches!(t.game_state, rc_common::types::GameState::Running))
+                .unwrap_or(false)
+        };
+        if already_running {
+            let removed = state.billing.waiting_for_game.write().await.remove(&pod_id);
+            if removed.is_some() {
+                tracing::warn!(
+                    "BILL-14: Launch timeout suppressed for pod {} (attempt {}) — game is already Running; cleared stale waiting_for_game entry without firing retry",
+                    pod_id, attempt
+                );
+            }
+            continue;
+        }
+
         if attempt == 1 {
             // First timeout: reset to attempt 2 and allow another 3 minutes.
             // CRITICAL: acquire write lock in a tight block, snapshot retry data, then drop.
             // Previous code held the write lock alive when acquiring a read lock on the same
             // RwLock — tokio::sync::RwLock is not re-entrant, causing a deadlock that froze
             // the entire billing tick loop.
-            let (retry_sim, retry_args) = {
+            // BILL-14: never default to AssettoCorsa when sim_type is missing or when the
+            // waiting entry is gone — guessing the sim swaps out the customer's actual game.
+            let retry = {
                 let mut waiting = state.billing.waiting_for_game.write().await;
-                if let Some(entry) = waiting.get_mut(&pod_id) {
-                    tracing::warn!(
-                        "Launch timeout (attempt 1) for pod {} — allowing retry (attempt 2)",
-                        pod_id
-                    );
-                    entry.attempt = 2;
-                    entry.waiting_since = std::time::Instant::now();
-                    // Snapshot retry data while we have the lock
-                    (
-                        entry.sim_type.unwrap_or(rc_common::types::SimType::AssettoCorsa),
-                        entry.launch_args.clone(),
-                    )
-                } else {
-                    (rc_common::types::SimType::AssettoCorsa, None)
+                match waiting.get_mut(&pod_id) {
+                    Some(entry) => match entry.sim_type {
+                        Some(sim) => {
+                            tracing::warn!(
+                                "Launch timeout (attempt 1) for pod {} — allowing retry (attempt 2, sim={:?})",
+                                pod_id, sim
+                            );
+                            entry.attempt = 2;
+                            entry.waiting_since = std::time::Instant::now();
+                            Some((sim, entry.launch_args.clone()))
+                        }
+                        None => {
+                            tracing::error!(
+                                "BILL-14: Launch timeout retry aborted for pod {}: sim_type is None (refusing to default to AssettoCorsa — would swap out customer's game)",
+                                pod_id
+                            );
+                            None
+                        }
+                    },
+                    None => {
+                        tracing::warn!(
+                            "BILL-14: Launch timeout retry skipped for pod {}: waiting_for_game entry already cleared (race)",
+                            pod_id
+                        );
+                        None
+                    }
                 }
                 // write lock dropped here
             };
+            let Some((retry_sim, retry_args)) = retry else {
+                continue;
+            };
             log_pod_activity(state, &pod_id, "billing", "Launch Timeout",
-                "AC failed to reach LIVE in 3 min — retry allowed", "race_engineer", None);
+                &format!("{:?} failed to reach Live in 3 min — retry allowed", retry_sim),
+                "race_engineer", None);
             // The agent-side LaunchState machine handles the actual retry
             // Send LaunchGame again with the ORIGINAL sim_type and args (not hardcoded AC)
             let sender = {
@@ -294,7 +337,7 @@ pub(crate) async fn handle_launch_timeouts(
                 pod_id
             );
             log_pod_activity(state, &pod_id, "billing", "Launch Failed",
-                "AC failed to reach LIVE after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer", None);
+                "Game failed to reach Live after 2 attempts (6 min total) — session cancelled, no charge", "race_engineer", None);
 
             // BILL-06: Cancel session — handle both pre-committed (BILL-13) and PIN-auth paths
             if let Some(ref timed_out_entry) = entry {
