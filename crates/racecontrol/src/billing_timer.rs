@@ -150,7 +150,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
 
         // Phase 414: Mid-stream WaitingForGame — idle counter has been ticked by timer.tick() above.
         // Check if the 10-min warning threshold was just crossed; if so, set the one-shot flag and
-        // queue the candidate for post-lock IdleWarning broadcast (Plan 03 implements emission).
+        // queue the candidate for post-lock IdleWarning broadcast.
         if timer.status == BillingSessionStatus::WaitingForGame && timer.elapsed_seconds > 0 {
             if timer.between_games_idle_seconds == 600 && !timer.idle_warning_sent {
                 timer.idle_warning_sent = true;
@@ -160,16 +160,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                     timer.wallet_owner_id.clone(),
                     timer.rate_paise_per_minute,
                 ));
-                tracing::info!(
-                    pod_id = %pod_id,
-                    session_id = %timer.session_id,
-                    between_games_idle = timer.between_games_idle_seconds,
-                    "Phase 414 Plan 02: IdleWarning threshold hit (Plan 03 will broadcast DashboardEvent::IdleWarning)"
-                );
             }
             // Plan 04 will add: 900s auto-end (sessions_to_auto_end.push(...))
-            // Plan 03 will add: events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(...)))
-            //                   so the kiosk paused-meter UI re-renders the idle countdown
+
+            // Phase 414 Plan 03 (per plan-checker B2): emit BillingTick on every WaitingForGame
+            // mid-stream tick so the kiosk paused-meter UI can render the live
+            // between_games_idle_seconds countdown. Without this, the kiosk has the
+            // initial state from the last Active tick but no live updates during the wait.
+            // to_info() populates between_games_idle_seconds (Some(N)) per the billing.rs impl.
+            events_to_broadcast.push(DashboardEvent::BillingTick(timer.to_info(&rate_tiers)));
             continue;
         }
 
@@ -321,13 +320,39 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     drop(pods);   // Release pods read lock
     drop(timers); // Release write lock before DB/broadcast
 
-    // Phase 414 Plan 02 placeholder: Plan 03 replaces this loop with actual wallet balance lookup + DashboardEvent broadcast.
+    // Phase 414 Plan 03: Broadcast DashboardEvent::IdleWarning for each candidate.
+    // Wallet balance lookup is async and MUST happen AFTER the active_timers lock drops (CLAUDE.md mandate).
     for (pod_id, session_id, wallet_owner_id, rate_paise_per_minute) in &idle_warnings_to_emit {
+        // Same query pattern as the existing per-minute debit (billing_timer.rs ~line 415)
+        let balance: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT balance_paise FROM wallets WHERE driver_id = ?",
+        )
+        .bind(wallet_owner_id.as_str())
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0); // CLAUDE.md: no .unwrap() — graceful degradation; treat missing wallet as 0 balance
+
+        let balance_paise: u64 = balance.max(0) as u64;
+        let can_continue: bool = (balance_paise as u32) >= *rate_paise_per_minute;
+
+        let event = DashboardEvent::IdleWarning {
+            pod_id: pod_id.clone(),
+            session_id: session_id.clone(),
+            balance_paise,
+            seconds_remaining: 300, // 600s idle elapsed → 5 min until 15-min auto-end (Plan 04)
+            can_continue,
+        };
+        let _ = state.dashboard_tx.send(event);
+
         tracing::info!(
-            pod_id = %pod_id, session_id = %session_id, wallet_owner_id = %wallet_owner_id,
-            rate = rate_paise_per_minute,
-            "Phase 414 Plan 02: Would emit DashboardEvent::IdleWarning (Plan 03 implements wallet lookup + broadcast)"
+            pod_id = %pod_id,
+            session_id = %session_id,
+            balance_paise,
+            can_continue,
+            "Phase 414: Broadcast DashboardEvent::IdleWarning (10-min mark, 5min until auto-end)"
         );
+
+        // Plan 04 also adds: log to pod_activity table with kind="between_games_idle_warning"
     }
 
     // GLD-C-04: Persist grace window deadlines to DB (fire-and-forget, lock already released)
