@@ -153,6 +153,12 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
     );
 
     let mut dialogs_dismissed: u32 = 0;
+    // INV-9 v2 diagnostic: accumulate every visible top-level window class observed
+    // during the wait, so the timeout error message surfaces unmatched candidate
+    // dialog classes (e.g. SteamUI, Chrome_RenderWidgetHostHWND, SDL_app) that
+    // dismiss_steam_dialogs() does NOT currently match.
+    #[cfg(windows)]
+    let mut observed_classes_all: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     while std::time::Instant::now() < deadline {
         let mut sys = System::new();
@@ -180,7 +186,9 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
         // (e.g., update prompt → EULA → DRM check). Previously only dismissed once.
         #[cfg(windows)]
         {
-            if dismiss_steam_dialogs() {
+            let (found, observed) = dismiss_steam_dialogs();
+            observed_classes_all.extend(observed);
+            if found {
                 dialogs_dismissed += 1;
                 tracing::info!(
                     target: LOG_TARGET,
@@ -201,6 +209,27 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
         std::thread::sleep(poll_interval);
     }
 
+    // Deadline expired — surface the observed window classes for INV-9 v2 triage.
+    #[cfg(windows)]
+    {
+        let observed_str = observed_classes_all
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        tracing::warn!(
+            target: LOG_TARGET,
+            "INV-9 v2: Deadline reached for {:?}. Observed top-level visible window classes during wait: [{}]. Dismissed {} vguiPopupWindow(s). If a Steam dialog was visible, its class is in this list and is not currently matched by dismiss_steam_dialogs.",
+            sim_type, observed_str, dialogs_dismissed
+        );
+        return Err(format!(
+            "Game failed to launch - only Steam dialog visible after {}s timeout for {:?}. \
+            Steam may have shown a dialog (DRM check, update, login) instead of launching the game. \
+            Dismissed {} dialog(s) during wait. Observed window classes: [{}]",
+            timeout_secs, sim_type, dialogs_dismissed, observed_str
+        ));
+    }
+    #[cfg(not(windows))]
     Err(format!(
         "Game failed to launch - only Steam dialog visible after {}s timeout for {:?}. \
         Steam may have shown a dialog (DRM check, update, login) instead of launching the game. \
@@ -335,16 +364,27 @@ fn check_steam_app_manifest(config: &GameExeConfig) -> Result<(), String> {
 /// "game is already running", and EULA/ToS acceptance. These block the game exe
 /// from launching. We detect them by window class and send WM_CLOSE.
 ///
-/// Returns true if a dialog was found and dismissed.
+/// Returns (found, observed_classes) — `found` is true if a vguiPopupWindow was
+/// dismissed. `observed_classes` lists ALL visible top-level window classes seen
+/// in this enumeration (de-duplicated). The observed list is used by
+/// `wait_for_game_window` to surface unmatched candidate dialog classes when the
+/// 60s deadline expires — INV-9 v2 diagnostic for Steam dialogs that use newer
+/// Chromium/SDL classes (`SteamUI`, `Chrome_RenderWidgetHostHWND`, `SDL_app`)
+/// not currently matched by this dismiss code.
 #[cfg(windows)]
-fn dismiss_steam_dialogs() -> bool {
+fn dismiss_steam_dialogs() -> (bool, std::collections::BTreeSet<String>) {
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use winapi::um::winuser::{EnumWindows, GetClassNameW, PostMessageW, WM_CLOSE, IsWindowVisible};
     use winapi::shared::windef::HWND;
-    use winapi::shared::minwindef::{BOOL, LPARAM, TRUE, FALSE};
+    use winapi::shared::minwindef::{BOOL, LPARAM, TRUE};
 
     static FOUND: AtomicBool = AtomicBool::new(false);
+    static OBSERVED: Mutex<std::collections::BTreeSet<String>> =
+        Mutex::new(std::collections::BTreeSet::new());
+
     FOUND.store(false, Ordering::SeqCst);
+    if let Ok(mut g) = OBSERVED.lock() { g.clear(); }
 
     unsafe extern "system" fn enum_callback(hwnd: HWND, _lparam: LPARAM) -> BOOL {
         if unsafe { IsWindowVisible(hwnd) } == 0 {
@@ -354,6 +394,10 @@ fn dismiss_steam_dialogs() -> bool {
         let len = unsafe { GetClassNameW(hwnd, class_buf.as_mut_ptr(), 256) };
         if len > 0 {
             let class_name = String::from_utf16_lossy(&class_buf[..len as usize]);
+            // Record every visible top-level class for the diagnostic.
+            if let Ok(mut g) = OBSERVED.lock() {
+                g.insert(class_name.clone());
+            }
             if class_name == "vguiPopupWindow" {
                 tracing::warn!(
                     target: "steam-checks",
@@ -368,7 +412,9 @@ fn dismiss_steam_dialogs() -> bool {
     }
 
     unsafe { EnumWindows(Some(enum_callback), 0); }
-    FOUND.load(Ordering::SeqCst)
+    let found = FOUND.load(Ordering::SeqCst);
+    let observed = OBSERVED.lock().map(|g| g.clone()).unwrap_or_default();
+    (found, observed)
 }
 
 #[cfg(test)]
