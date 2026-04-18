@@ -2178,6 +2178,41 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 *v52.0 defined: 2026-04-15. Restructured 2026-04-16 (Option A: +4 phases for secrets/agents/repo-gate/drift-remainder). Parallel to v49.0 (not blocking). Core gate: `cgp-distribution-probe.js` 100% parity on cross-platform hooks.*
 
+### Phase 413.1: deploy-server.sh Step 4 Fix + Plan 11 Retry (gap closure)
+
+**Goal:** Fix the `move /Y` + `!errorlevel!` swap-line defects in `scripts/deploy-server.sh` Step 4 that caused the 2026-04-18 ~07:50 IST P0 outage (server .23 down for ~20 min mid-swap). Then retry Phase 413 Plan 11 (fleet deploy + goal-backward verification).
+
+**Defects surfaced by Plan 11 Task 2 live run:**
+1. `move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe` — forward-slash paths fail via rc-sentry `/exec` cmd.exe invocation ("The system cannot find the path specified"). Contradicts the standing rule `CLAUDE.md > Deploy > Server binary swap: rename, don't overwrite` which mandates the 3-step `ren` pattern.
+2. `echo SWAP_FAILED_EL=!errorlevel!` echoes the literal string `!errorlevel!` because rc-sentry `/exec` doesn't enable `cmd /v:on` (DelayedExpansion). Error codes never surface.
+3. `racecontrol-prev.exe` disappeared during R1 recovery — 72h rollback safety-net thinner than designed.
+4. `schtasks /Run /TN StartRCTemp` silently failed during R1 recovery; `StartRCDirect` succeeded. Separate schtasks defect, same class.
+5. **Process:** parallel `git add -A` sweeper in another session captured unrelated working-tree edits into commits `92888a19` (8 swept files) + `5fcabd38` (R1 evidence swept into unrelated BILL-14 billing commit). Commit integrity compromised.
+
+**Requirements:**
+- Replace Step 4 `move /Y` block with the standing-rule-mandated 3-step `ren` sequence (with auto-recover on failure).
+- Eliminate `!errorlevel!` use in deploy-server.sh (rc-sentry `/exec` context has no DelayedExpansion). Use `%errorlevel%` or test return codes inline.
+- Preserve `racecontrol-prev.exe` for the documented 72h rollback window — add explicit guard so recovery paths don't delete it.
+- Fix or document the `StartRCTemp` silent-fail observed during R1 recovery. If StartRCDirect is the reliable path, use it throughout and retire StartRCTemp.
+- Investigate and disable the `git add -A` auto-sweeper hook compromising commit integrity (separate plan or separate phase — flag).
+- Add a unit test simulating rc-sentry `/exec` swap invocation to catch this class of defect before live.
+- Retry Plan 11 from Task 2 — binaries already staged at `C:/Users/bono/racingpoint/deploy-staging/` @ commit `1318883c`; no rebuild needed unless source drift.
+
+**Success criteria:**
+- [ ] deploy-server.sh runs end-to-end via rc-sentry `/exec` with zero forward-slash or `!errorlevel!` usage
+- [ ] Step 4 swap completes: `ren` sequence with auto-recover guard; `racecontrol-prev.exe` preserved after swap
+- [ ] Plan 11 Task 2 retry: server .23 reaches `/api/v1/health` build_id `1318883c` (or current HEAD) without mid-swap P0
+- [ ] Plan 11 Tasks 2b + 3 + 4 + 5 complete with AUDIT KNOWN ISSUE matched on canary pod (Phase 413's hard deliverable)
+- [ ] Auto-sweeper investigated — commits contain only their intended scope
+
+**Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
+
+| Plan | Status |
+|------|--------|
+| 413.1-PLAN.md | 0/TBD (Not started — run `/gsd:plan-phase 413.1 --skip-research` in a fresh session) |
+
+*Defect characterization captured 2026-04-18 from Plan 11 live run. Research not required — defects are fully traced to specific deploy-server.sh lines.*
+
 ### Phase 414: Continuous Billing Session (Option 1 + Idle Auto-End)
 
 **Goal:** Decouple billing-session lifetime from individual game lifetime so a customer can swap games/cars/tracks freely inside one paid session. Meter only ticks while game is `Running` and driver is `Active`. After 15 min of no game running, auto-end with 10-min warning. Cumulative snap pricing across game swaps (15min AC + 15min F1 25 = ₹700 snap, not ₹750 per-minute).
