@@ -1,5 +1,57 @@
 # Racing Point Operations (Unified)
 
+## Planning Milestone: v50.0 rc-agent-mobile — Reception Automation Hub
+
+**Started:** 2026-04-18 (Planning phase — not yet executing)
+**Goal:** Build a Kotlin Android agent (`rc-agent-mobile`) on 1× Lenovo Tab Plus (TB-351FU) + 1× Samsung Galaxy M07 to automate reception-workflow apps (Zomato Partner P1, HyperPure P2, Blinkit P3, cardboard vendor P4-deferred) via Accessibility Service. Closes the inventory loop end-to-end: Core detects depletion → agent drives supplier app → delivery logged back.
+
+**Source spec:** `~/.claude/projects/C--Users-bono/memory/project_v50_rc_agent_mobile.md`
+**Requirements:** `.planning/REQUIREMENTS-v50.md` (54 requirements across 14 categories)
+**Roadmap:** `.planning/ROADMAP-v50.md` (16 phases, range 409–424 TBD)
+
+**Target features:**
+- Kotlin Android agent with Foreground Service, local :8090 HTTP, comms-link registration (matches existing rc-agent pattern on pods/POS)
+- Accessibility Service driving tap/swipe/text on third-party apps without root
+- Zomato Partner auto-accept (capacity-gated) / auto-reject / mark-ready / WhatsApp+Discord forwarding
+- HyperPure bulk supply reorder triggered by Core inventory depletion
+- Blinkit emergency top-up on staff trigger
+- Admin dashboard reception view (unified orders, deliveries, device status)
+
+**Extensibility features (non-negotiable — ship in v50.0 for future-proofing):**
+1. **Pluggable driver framework** — drivers are plugins via manifest, not hardcoded; lifecycle hooks `install → onAppUpdate → healthCheck → uninstall`
+2. **Selector DSL + hot-reload** — YAML per-app-version selectors, remote-pushable signed patches, rollback on failure
+3. **Capability registry** — each device declares what drivers it runs; multi-device-type ready (tablet/phone/future)
+4. **Credential abstraction** — `CredentialStrategy` interface with `PersistentSession` shipping v50; `OtpFlow`/`OAuth` as future-compatible slots
+5. **Protocol versioning** — comms-link registration negotiates schema version; forward-compat unknown-field handling
+6. **Feature flags per device + per driver** — push-sync within 10s; global kill-switch for ToS incident response
+7. **Humanize layer** — randomized delays, business-hours gate, rate limits shared across all drivers (ToS risk mitigation)
+8. **Audit log** — every UI action with timestamp + selector + screenshot hash; hourly ship to server
+9. **Remote selector push UI** — admin can fix selector drift without rebuild (critical for "HyperPure UI changed at 2am")
+10. **Multi-device-type readiness** — `smart_display`, `ps5_tablet`, `kiosk_phone` types reserved in schema
+
+**Architectural decisions (locked 2026-04-18):**
+
+| Decision | Value |
+|----------|-------|
+| App priority | Zomato → HyperPure → Blinkit; cardboard deferred pending Q2 |
+| Fleet | 1× Tab Plus + 1× M07 (no provisioning phase) |
+| Credential model | PersistentSession for v50; OTP/OAuth future phases |
+| Selector-map maintainer | James (YAML in git, hot-reloadable) |
+| Language | Kotlin (Android-native, Accessibility is first-class) |
+| Shared code with Rust rc-agent | NO — shared JSON protocol spec only |
+
+**ToS risk:** HIGH for Zomato (ToS prohibits bots); MEDIUM for HyperPure/Blinkit. Mitigation: Accessibility Service (user-assist class, lowest risk), humanize layer, business-hours gate, kill-switch ready, phase 16 incident playbook.
+
+**Maintenance tax:** ~1-2 hrs/month/app for selector re-mapping when target app UI changes. Owner: James. Selector DSL + remote push make this manageable.
+
+**Out of scope:** In-store PWA cafe ordering (`app.racingpoint.cloud` → separate milestone, backlog), OTP/2FA, multi-language UI, iOS.
+
+**Dependencies:**
+- TM-T82 printer setup on Tab Plus (`project_tm_t82_tablet_setup.md`) — parallel, not blocking
+- v51.0 rc-agent-ps5 shares agent core pattern — follow-on milestone
+
+---
+
 ## Current Milestone: v52.0 Claude Workspace Restructure
 
 **Started:** 2026-04-15

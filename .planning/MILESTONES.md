@@ -1,5 +1,25 @@
 # Milestones
 
+## v50.0 rc-agent-mobile — Reception Automation Hub (PLANNING 2026-04-18)
+
+**Status:** Planning phase — all 6 open questions answered and locked. Requirements + roadmap drafted. Kickoff awaits phase-1 execution trigger.
+
+**Goal:** Kotlin Android agent on 1× Lenovo Tab Plus + 1× Samsung Galaxy M07 that automates reception-workflow apps via Accessibility Service. Priority order: Zomato Partner (P1) → HyperPure (P2) → Blinkit (P3) → cardboard vendor (P4, deferred pending app identification).
+
+**Phase range:** 409–424 (16 phases, concrete numbers assigned at kickoff)
+
+**Key non-negotiable:** 10 extensibility features MUST ship in v50.0 for future-proofing — pluggable driver framework, selector DSL with hot-reload, capability registry, credential abstraction, protocol versioning, feature flags, humanize layer, audit log, remote selector push, multi-device-type readiness. See `.planning/REQUIREMENTS-v50.md` + `.planning/ROADMAP-v50.md`.
+
+**Locked decisions (2026-04-18):** Zomato first; Kotlin (not Rust+JNI); PersistentSession credential strategy; James owns selector maintenance; 1+1 device fleet.
+
+**Out of scope:** In-store PWA cafe ordering (`app.racingpoint.cloud`) → separate milestone, currently in backlog.
+
+**ToS risk:** HIGH for Zomato; MEDIUM for HyperPure/Blinkit. Mitigated via Accessibility Service (user-assist class), humanize layer, kill-switch.
+
+**Related memory:** `~/.claude/projects/C--Users-bono/memory/project_v50_rc_agent_mobile.md`
+
+---
+
 ## v46.0 Game Launch Diagnostics (PAUSED 2026-04-10 — runs parallel with v47.0, started 2026-04-09)
 
 **Status:** 1 of 7 phases shipped, 1 phase code-complete-not-shipped, 1 phase partial execution. Paused at user directive to resume v47.0 work.
