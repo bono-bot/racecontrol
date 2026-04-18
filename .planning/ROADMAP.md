@@ -2207,7 +2207,7 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 **Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 - [x] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)

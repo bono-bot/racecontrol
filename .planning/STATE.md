@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: executing
-last_updated: "2026-04-18T04:36:40.814Z"
+status: completed
+last_updated: "2026-04-18T09:51:19.435Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Phase
 
-**Phase:** 413
-**Status:** Executing Phase 413.1
+**Phase:** 413.1
+**Status:** Milestone complete
 **Last activity:** 2026-04-18
 
 ## Progress
@@ -338,6 +338,7 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Completed (Tasks 1+2):** 2026-04-18T04:49 IST (GSD executor)
 **Scope:** New `IdleWarningDialog` component (Branch A can_continue + Branch B out-of-credits), paused-meter UI branch in `LiveSessionPanel` (waiting_for_game + elapsed_seconds>0), `idle_warning` WS event handler in `useKioskSocket`, `IdleWarningDialog` mounted top-level in `staff/page.tsx`, 3 label fixes (Between Games vs Game Loading/Waiting for Game across LiveSessionPanel + KioskPodCard), web/StatusBadge Phase 414 coarse-label comment.
 **Commits:**
+
 - `a4654235` — Task 1: IdleWarningDialog component (Branch A + B, ~140 LOC)
 - `29508f64` — Task 2: wire IdleWarning event + paused-meter UI + 3 label fixes (5 files, +119/-16)
 
