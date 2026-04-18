@@ -2207,11 +2207,25 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 **Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
 
-| Plan | Status |
-|------|--------|
-| 413.1-PLAN.md | 0/TBD (Not started — run `/gsd:plan-phase 413.1 --skip-research` in a fresh session) |
+**Plans:** 6 plans
 
-*Defect characterization captured 2026-04-18 from Plan 11 live run. Research not required — defects are fully traced to specific deploy-server.sh lines.*
+Plans:
+- [ ] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
+- [ ] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant)
+- [ ] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3)
+- [ ] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4)
+- [ ] 413.1-05-PLAN.md — rc-sentry /exec swap regression test harness (tests/deploy_script_swap_test.sh, R6)
+- [ ] 413.1-06-PLAN.md — Plan 11 retry (server + cloud + canary pod 3 with AUDIT KNOWN ISSUE matched end-to-end, R7)
+
+**R5 (git add -A sweeper) DEFERRED** to Phase 413.2 or 414.x per CONTEXT.md `<deferred>` — not planned in 413.1. Flagged by 413.1 Plan 01 — see `.planning/phases/413.1-deploy-server-step4-fix-and-plan11-retry/413.1-CONTEXT.md` `<deferred>` block. Grep starting point for the follow-up investigation: `grep -rn 'git add -A\|git add \.' .git/hooks/ scripts/ 2>/dev/null`. Affected commits: `92888a19` (8 swept files), `5fcabd38` (R1 evidence swept into BILL-14).
+
+**Wave structure** (revised 2026-04-18 per plan-checker feedback — Plan 02 moved to Wave 2 to avoid wave-1 parallel collision on scripts/deploy-server.sh with Plan 01):
+- Wave 1 (parallel): 413.1-01 (deploy-server.sh swap-line fix + ROADMAP R5 marker), 413.1-03 (start-racecontrol.bat forfiles guard — different file, safe parallel)
+- Wave 2 (parallel): 413.1-02 (post-Plan-01 !errorlevel! sweep verification, depends on 413.1-01), 413.1-04 (StartRCTemp investigation, depends on 413.1-01)
+- Wave 3: 413.1-05 (regression test harness, depends on Plans 01-04 final state)
+- Wave 4: 413.1-06 (Plan 11 retry live deploy, depends on all fixes landed)
+
+*Defect characterization captured 2026-04-18 from Plan 11 live run. Research not required — defects are fully traced to specific deploy-server.sh lines. Plans generated 2026-04-18 via `/gsd:plan-phase 413.1 --skip-research`.*
 
 ### Phase 414: Continuous Billing Session (Option 1 + Idle Auto-End)
 

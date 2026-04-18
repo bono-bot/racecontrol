@@ -12,8 +12,10 @@ for /f "delims=" %%F in ('dir /B /O-D racecontrol-????????*.exe 2^>nul') do (
     )
 )
 if not defined STAGED goto :startrc
-del /Q racecontrol-prev.exe 1>nul 2>nul
-if exist racecontrol.exe ren racecontrol.exe racecontrol-prev.exe 1>nul 2>nul
+rem 72h mtime guard per CLAUDE.md OTA Pipeline rule -- only delete prev if older than 72h
+forfiles /M racecontrol-prev.exe /D -3 /C "cmd /c del /Q @file" 1>nul 2>nul
+rem Preserve fresh prev -- only create new prev if one doesn't already exist (don't clobber)
+if exist racecontrol.exe if not exist racecontrol-prev.exe ren racecontrol.exe racecontrol-prev.exe 1>nul 2>nul
 ping -n 2 127.0.0.1 >nul
 if exist racecontrol.exe del /Q racecontrol.exe 1>nul 2>nul
 ren "%STAGED%" racecontrol.exe 1>nul

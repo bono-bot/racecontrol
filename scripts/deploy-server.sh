@@ -243,7 +243,7 @@ info "Swapping binary..."
 SWAP=$(curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe && echo SWAPPED || echo SWAP_FAILED_EL=!errorlevel!"}' 2>/dev/null || echo "")
+    -d '{"cmd":"del /Q C:\\RacingPoint\\racecontrol-prev.exe 2>nul & ren C:\\RacingPoint\\racecontrol.exe racecontrol-prev.exe || (echo SWAP_FAILED_EL=%errorlevel% & exit /b 1) & ren C:\\RacingPoint\\racecontrol-new.exe racecontrol.exe || (ren C:\\RacingPoint\\racecontrol-prev.exe racecontrol.exe & echo SWAP_FAILED_RECOVERED & exit /b 2) & echo SWAPPED"}' 2>/dev/null || echo "")
 if ! echo "$SWAP" | grep -q "SWAPPED"; then
     fail "Swap failed (likely file lock from respawned racecontrol.exe): $SWAP"
 fi
