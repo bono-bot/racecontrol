@@ -53,9 +53,8 @@ async fn test_dynamic_timeout_with_sufficient_history() {
         insert_success_row(&db, "AssettoCorsa", None, None, 25000).await;
     }
     let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
-    // median=25000ms stdev=0 -> timeout=25s -> max(30) = 30
-    assert!(timeout >= 30, "timeout floor should be 30s, got {}s", timeout);
-    assert!(timeout <= 40, "timeout should not be excessive, got {}s", timeout);
+    // Pattern G: median=25000ms stdev=0 -> computed=25s, floored to per-sim default 120s.
+    assert_eq!(timeout, 120, "Pattern G floor: computed below default must raise to default, got {}s", timeout);
 }
 
 #[tokio::test]
@@ -66,8 +65,8 @@ async fn test_dynamic_timeout_varied_history() {
         insert_success_row(&db, "AssettoCorsa", None, None, d).await;
     }
     let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
-    assert!(timeout >= 30, "timeout should be at least 30s floor, got {}s", timeout);
-    assert!(timeout < 120, "dynamic timeout should be less than default 120s, got {}s", timeout);
+    // Pattern G: all samples below default -> floor raises timeout to default.
+    assert_eq!(timeout, 120, "Pattern G floor: computed {}s must be raised to default 120s", timeout);
 }
 
 #[tokio::test]
@@ -88,13 +87,28 @@ async fn test_dynamic_timeout_empty_history() {
 }
 
 #[tokio::test]
-async fn test_dynamic_timeout_floor_30s() {
+async fn test_dynamic_timeout_pattern_g_floor_is_per_sim_default() {
+    // Pattern G regression test: Pod 4 F1 25 2026-04-18 17:19:43 IST scenario.
+    // 10 fast samples at 1000ms each -> computed would be 1s -> must floor to per-sim default.
     let db = make_db().await;
     for _ in 0..10 {
         insert_success_row(&db, "AssettoCorsa", None, None, 1000).await;
     }
     let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 120).await;
-    assert!(timeout >= 30, "timeout floor should be 30s, got {}s", timeout);
+    assert_eq!(timeout, 120, "Pattern G: floor MUST be per-sim default, not 30s. Got {}s", timeout);
+}
+
+#[tokio::test]
+async fn test_dynamic_timeout_can_exceed_default_when_slow() {
+    // Pattern G: floor only raises — it must NOT cap. Slow historical launches (>default)
+    // still raise the dynamic value above the default so slow games get enough time.
+    let db = make_db().await;
+    for _ in 0..10 {
+        insert_success_row(&db, "AssettoCorsa", None, None, 150_000).await;
+    }
+    let timeout = query_dynamic_timeout(&db, "AssettoCorsa", None, None, 90).await;
+    // median=150s, stdev=0, computed=150, default=90 -> returns 150 (max(150, 90))
+    assert!(timeout >= 150, "Pattern G: computed above default must pass through, got {}s", timeout);
 }
 
 // ─── Phase 199 RECOVER-05: query_best_recovery_action tests ──────────────

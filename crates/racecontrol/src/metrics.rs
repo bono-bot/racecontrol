@@ -323,7 +323,13 @@ pub async fn query_best_recovery_action(
 
 /// Query launch_events for dynamic timeout: median + 2*stdev of last 10 successful durations.
 /// Returns timeout in seconds. Falls back to default_secs if insufficient history (< 3 samples).
-/// Floor: 30 seconds regardless of history (LAUNCH-08).
+///
+/// Floor: `default_secs` (per-sim default) regardless of history (Pattern G, 2026-04-18).
+/// Supersedes the earlier LAUNCH-08 30s floor, which allowed a dynamic value below the
+/// per-sim default when historical launches happened to be unusually fast. Pod 4 F1 25
+/// 2026-04-18 17:19:43 IST: dynamic returned 39s, launch needed > 39s, server killed it,
+/// BILL-14 retry cascade followed. The dynamic timeout can raise a slow-game floor, but
+/// must never lower it below the per-sim safe default.
 pub async fn query_dynamic_timeout(
     db: &SqlitePool,
     sim_type: &str,
@@ -356,13 +362,21 @@ pub async fn query_dynamic_timeout(
     let variance = durations_ms.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / durations_ms.len() as f64;
     let stdev = variance.sqrt();
     let timeout_ms = median + 2.0 * stdev;
-    let timeout_secs = (timeout_ms / 1000.0).ceil() as u64;
+    let computed_secs = (timeout_ms / 1000.0).ceil() as u64;
+    let floored_secs = computed_secs.max(default_secs);
 
-    tracing::info!(
-        "dynamic timeout: {}s for {}/{:?}/{:?} (median={:.0}ms stdev={:.0}ms samples={})",
-        timeout_secs, sim_type, car, track, median, stdev, rows.len()
-    );
-    timeout_secs.max(30)
+    if floored_secs > computed_secs {
+        tracing::info!(
+            "dynamic timeout: {}s for {}/{:?}/{:?} (computed {}s raised to per-sim default {}s; median={:.0}ms stdev={:.0}ms samples={})",
+            floored_secs, sim_type, car, track, computed_secs, default_secs, median, stdev, rows.len()
+        );
+    } else {
+        tracing::info!(
+            "dynamic timeout: {}s for {}/{:?}/{:?} (above per-sim default {}s; median={:.0}ms stdev={:.0}ms samples={})",
+            floored_secs, sim_type, car, track, default_secs, median, stdev, rows.len()
+        );
+    }
+    floored_secs
 }
 
 #[cfg(test)]
