@@ -48,9 +48,13 @@ if (fs.existsSync(publicSrc)) {
   console.log('postbuild: copied public/ -> standalone');
 }
 
-// Write git commit to standalone root for /api/health build_id reporting
+// Write git commit to standalone root for /api/health build_id reporting.
+// Run git from the racecontrol repo root (scripts/..), NOT kiosk/web cwd —
+// those dirs contain stray .git/ scaffolding (no commits) from shadcn/Next scaffolds
+// that hijacks git resolution and fails with "Needed a single revision".
+const REPO_ROOT = path.resolve(__dirname, '..');
 try {
-  const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: REPO_ROOT }).trim();
   fs.writeFileSync(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
   console.log(`postbuild: wrote git-commit.txt (${gitCommit})`);
 } catch (e) {
