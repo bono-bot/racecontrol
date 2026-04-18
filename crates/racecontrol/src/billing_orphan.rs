@@ -104,6 +104,9 @@ pub async fn recover_active_sessions(state: &Arc<AppState>) -> anyhow::Result<()
             // P0-3 fix: original code cleared these explicitly, which clobbered the hydration.
             lap_reject_grace_until: None,
             pending_end_status: None,
+            // Phase 414: Idle counter is in-memory only — reset to 0 on recovery (customer-favourable per D-CLOUD-SYNC).
+            between_games_idle_seconds: 0,
+            idle_warning_sent: false,
         };
 
         tracing::info!(

@@ -101,6 +101,16 @@ pub struct BillingTimer {
     /// grace window begins. Cleared after deferred finalize completes.
     /// Intentional default: None.
     pub pending_end_status: Option<BillingSessionStatus>,
+
+    /// Phase 414: Seconds elapsed in mid-stream WaitingForGame (between games).
+    /// Resets to 0 on every WaitingForGame → Active transition (handled in handle_live_resume — Plan 04).
+    /// In-memory only — NOT persisted to DB (per CONTEXT.md D-CLOUD-SYNC: customer-favourable on restart).
+    pub between_games_idle_seconds: u32,
+
+    /// Phase 414: Whether the 10-min IdleWarning has been broadcast for THIS between-games wait.
+    /// Mirrors the existing `warning_5min_sent: bool` pattern.
+    /// Resets to false on every WaitingForGame → Active transition.
+    pub idle_warning_sent: bool,
 }
 
 /// BILL-06: Distinguishes why a billing session is paused.
@@ -158,6 +168,8 @@ impl Default for BillingTimer {
             telemetry_seconds_covered: std::collections::HashSet::new(),
             lap_reject_grace_until: None, // Intentional default: no pending deferral
             pending_end_status: None,     // Intentional default: no deferred end status
+            between_games_idle_seconds: 0,
+            idle_warning_sent: false,
         }
     }
 }
@@ -259,7 +271,12 @@ impl BillingTimer {
                 self.recovery_pause_seconds += 1;
                 self.pause_seconds >= 600 // 10-min pause timeout
             }
-            BillingSessionStatus::WaitingForGame => false,
+            BillingSessionStatus::WaitingForGame if self.elapsed_seconds > 0 => {
+                // Phase 414: Mid-stream between-games. Increment idle counter; cost is FROZEN (no elapsed_seconds bump).
+                self.between_games_idle_seconds += 1;
+                false  // not actively billing — meter shows paused state
+            }
+            BillingSessionStatus::WaitingForGame => false, // first-wait (elapsed_seconds == 0) — no-op (existing behavior)
             _ => false,
         }
     }

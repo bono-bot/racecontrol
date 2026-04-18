@@ -334,6 +334,9 @@ pub async fn start_billing_session(
         // GLD-C-04: Grace window fields start as None at session creation.
         lap_reject_grace_until: None, // Intentional default: no pending deferral
         pending_end_status: None,     // Intentional default: no deferred end status
+        // Phase 414: Idle counter starts at 0 for all new sessions.
+        between_games_idle_seconds: 0,
+        idle_warning_sent: false,
     };
 
     let rate_tiers = state.billing.rate_tiers.read().await;
