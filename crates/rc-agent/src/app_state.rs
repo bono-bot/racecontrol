@@ -126,6 +126,18 @@ pub struct AppState {
     /// Phase 306: JWT expiry timestamp (Unix seconds). Reconnect loop
     /// compares against Utc::now() to decide PSK vs JWT URL.
     pub(crate) jwt_expires_at: Option<i64>,
+    /// Phase 413 Plan 04: shared Option Z mesh service-key cache.
+    ///
+    /// Populated by `rc_common::boot_resilience::spawn_periodic_refetch` (see
+    /// main.rs Plan 03 wire-up). Consumed by:
+    ///   - `ai_debugger::check_audit_known_issues` (Tier 0 mesh oracle via `analyze_crash`)
+    ///   - `remote_ops::require_service_key` (pod /exec middleware, sub-router state)
+    ///   - `ws_handler` csv_lap_fallback push (session-end CSV upload)
+    ///
+    /// When empty / unpopulated, `get_key_or_env` falls back to the legacy
+    /// `RCAGENT_SERVICE_KEY` env var (test + first-boot compatibility).
+    #[cfg(feature = "http-client")]
+    pub(crate) mesh_key_cache: crate::mesh_key_cache::MeshKeyCache,
 }
 
 impl AppState {

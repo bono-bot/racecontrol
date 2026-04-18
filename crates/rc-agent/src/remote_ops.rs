@@ -18,7 +18,7 @@
 
 use axum::{
     Router,
-    extract::Query,
+    extract::{Query, State},
     http::{StatusCode, header, HeaderValue},
     middleware,
     response::{IntoResponse, Json},
@@ -155,17 +155,69 @@ async fn connection_close_layer(
 }
 
 /// Middleware: require X-Service-Key header on protected routes.
-/// When RCAGENT_SERVICE_KEY is empty or unset, all requests pass through
+/// When the cache AND env are both empty/unset, all requests pass through
 /// (permissive mode for safe rollout). Uses constant-time comparison to
 /// prevent timing side-channel attacks.
+///
+/// Phase 413 Plan 04 — W4 state-shape choice = **Option (a) sub-router**
+/// (NOT Option (b) FromRef). Rationale from codebase grep:
+///   - rc-agent has no pre-existing OuterState / AppState-style axum state struct
+///     bundling multiple Arcs — the router was built with unit state `Router::new()`
+///     on every code path (`start`, `start_checked`, `start_checked_tls_inner`, plus
+///     `test_router`, `test_router_full`).
+///   - The protected sub-router is self-contained (only the middleware reads
+///     `MeshKeyCache`; no endpoint handler needs it). Localizing State to the
+///     sub-router keeps the outer Router plain (no `FromRef` plumbing elsewhere).
+///   - Tests construct a fresh empty cache via `new_cache()` and pass it into the
+///     router builder. Env fallback kicks in because cache is None → behavior
+///     identical to pre-413 env-only tests.
+///
+/// The State type is `MeshKeyCache` — the same type passed to
+/// `axum::middleware::from_fn_with_state(cache, require_service_key)` and
+/// `Router::with_state(cache)` on the sub-router. No FromRef impl needed.
+#[cfg(feature = "http-client")]
+async fn require_service_key(
+    State(cache): State<crate::mesh_key_cache::MeshKeyCache>,
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    // Plan 04: read key from the Option Z cache first. Fall back to legacy
+    // RCAGENT_SERVICE_KEY env var (for tests + pre-wire-up boots).
+    let expected_opt = crate::mesh_key_cache::get_key_or_env(&cache).await;
+
+    // MMA-P1: Log warning when running without service key (was silently permissive).
+    // Still allows requests through for safe rollout, but now LOUDLY warns on every request.
+    let Some(expected) = expected_opt else {
+        static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            tracing::error!(target: LOG_TARGET,
+                "SECURITY: RCAGENT_SERVICE_KEY is not set! All protected endpoints are UNAUTHENTICATED. \
+                 Set RCAGENT_SERVICE_KEY env var to enforce auth.");
+        }
+        return Ok(next.run(req).await);
+    };
+
+    let provided = req.headers()
+        .get("x-service-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    // Constant-time comparison to prevent timing attacks
+    if expected.as_bytes().ct_eq(provided.as_bytes()).into() {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+/// `--no-default-features` variant (no http-client, no MeshKeyCache). Env-only.
+/// Keeps behavior identical to the original permissive-mode path.
+#[cfg(not(feature = "http-client"))]
 async fn require_service_key(
     req: axum::extract::Request,
     next: middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     let expected = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
-
-    // MMA-P1: Log warning when running without service key (was silently permissive).
-    // Still allows requests through for safe rollout, but now LOUDLY warns on every request.
     if expected.is_empty() {
         static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -175,13 +227,10 @@ async fn require_service_key(
         }
         return Ok(next.run(req).await);
     }
-
     let provided = req.headers()
         .get("x-service-key")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-
-    // Constant-time comparison to prevent timing attacks
     if expected.as_bytes().ct_eq(provided.as_bytes()).into() {
         Ok(next.run(req).await)
     } else {
@@ -197,8 +246,14 @@ pub fn init_diagnostic_log(log: crate::diagnostic_log::DiagnosticLog) {
 
 /// Start the remote ops HTTP server on the given port.
 /// Spawns an async task — returns immediately.
+///
+/// Phase 413 Plan 04: `cache` is the shared Option Z key cache used by the
+/// `require_service_key` middleware. Pass a clone of the `MeshKeyCache` created
+/// once in main(). When the `http-client` feature is off, this parameter is
+/// absent (the env-only middleware variant is used).
 #[allow(dead_code)]
-pub fn start(port: u16) {
+#[cfg(feature = "http-client")]
+pub fn start(port: u16, cache: crate::mesh_key_cache::MeshKeyCache) {
     START_TIME.get_or_init(Instant::now);
 
     tokio::spawn(async move {
@@ -206,6 +261,8 @@ pub fn start(port: u16) {
             .route("/ping", get(ping))
             .route("/health", get(health));
 
+        // Phase 413 Plan 04 — Option (a) sub-router with state = MeshKeyCache.
+        // The middleware reads the cache via `State<MeshKeyCache>`. No FromRef needed.
         let protected_routes = Router::new()
             .route("/info", get(info))
             .route("/events/recent", get(events_recent))
@@ -219,9 +276,13 @@ pub fn start(port: u16) {
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
-            // When RCAGENT_SERVICE_KEY is unset/empty, permissive mode allows all
-            // requests through (safe rollout — set the env var to enforce auth).
-            .layer(middleware::from_fn(require_service_key));
+            // When both cache and RCAGENT_SERVICE_KEY env are unset/empty,
+            // permissive mode allows all requests through (safe rollout).
+            .layer(axum::middleware::from_fn_with_state(
+                cache.clone(),
+                require_service_key,
+            ))
+            .with_state(cache);
 
         let app = public_routes
             .merge(protected_routes)
@@ -306,10 +367,50 @@ pub fn start(port: u16) {
     });
 }
 
+/// `--no-default-features` variant (no http-client, no MeshKeyCache). Env-only auth.
+#[allow(dead_code)]
+#[cfg(not(feature = "http-client"))]
+pub fn start(port: u16) {
+    START_TIME.get_or_init(Instant::now);
+    tokio::spawn(async move {
+        let public_routes = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health));
+        let protected_routes = Router::new()
+            .route("/info", get(info))
+            .route("/events/recent", get(events_recent))
+            .route("/files", get(list_files))
+            .route("/file", get(read_file))
+            .route("/exec", post(exec_command))
+            .route("/mkdir", post(make_dir))
+            .route("/write", post(write_file))
+            .route("/screenshot", get(screenshot))
+            .route("/cursor", get(cursor_position))
+            .route("/input", post(send_input))
+            .route("/debug/content-dirs", get(content_dirs_handler))
+            .layer(middleware::from_fn(require_service_key));
+        let app = public_routes
+            .merge(protected_routes)
+            .layer(middleware::from_fn(connection_close_layer));
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+        let listener = match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => l,
+            Err(e) => { tracing::error!(target: LOG_TARGET, "bind failed: {e}"); return; }
+        };
+        let _ = axum::serve(listener, app).await;
+    });
+}
+
 /// Start remote ops HTTP server and return a oneshot receiver with the bind result.
 /// The existing retry loop (10 attempts, 3s each) is preserved for CLOSE_WAIT recovery,
 /// but the result is signaled back to main() so bind failures are observable.
-pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+///
+/// Phase 413 Plan 04: `cache` is the shared Option Z key cache (see `start` docstring).
+#[cfg(feature = "http-client")]
+pub fn start_checked(
+    port: u16,
+    cache: crate::mesh_key_cache::MeshKeyCache,
+) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     START_TIME.get_or_init(Instant::now);
 
@@ -318,6 +419,7 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/ping", get(ping))
             .route("/health", get(health));
 
+        // Phase 413 Plan 04 — Option (a) sub-router with state = MeshKeyCache.
         let protected_routes = Router::new()
             .route("/info", get(info))
             .route("/files", get(list_files))
@@ -330,9 +432,13 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
             // SEC-EXEC-01: Require X-Service-Key on all protected routes.
-            // When RCAGENT_SERVICE_KEY is unset/empty, permissive mode allows all
-            // requests through (safe rollout — set the env var to enforce auth).
-            .layer(middleware::from_fn(require_service_key));
+            // When both cache and RCAGENT_SERVICE_KEY env are unset/empty,
+            // permissive mode allows all requests through (safe rollout).
+            .layer(axum::middleware::from_fn_with_state(
+                cache.clone(),
+                require_service_key,
+            ))
+            .with_state(cache);
 
         let app = public_routes
             .merge(protected_routes)
@@ -422,6 +528,44 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
     rx
 }
 
+/// `--no-default-features` variant (no http-client, no MeshKeyCache). Env-only auth.
+#[cfg(not(feature = "http-client"))]
+pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    START_TIME.get_or_init(Instant::now);
+    tokio::spawn(async move {
+        let public_routes = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health));
+        let protected_routes = Router::new()
+            .route("/info", get(info))
+            .route("/files", get(list_files))
+            .route("/file", get(read_file))
+            .route("/exec", post(exec_command))
+            .route("/mkdir", post(make_dir))
+            .route("/write", post(write_file))
+            .route("/screenshot", get(screenshot))
+            .route("/cursor", get(cursor_position))
+            .route("/input", post(send_input))
+            .route("/debug/content-dirs", get(content_dirs_handler))
+            .layer(middleware::from_fn(require_service_key));
+        let app = public_routes
+            .merge(protected_routes)
+            .layer(middleware::from_fn(connection_close_layer));
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(listener) => {
+                let _ = tx.send(Ok(port));
+                let _ = axum::serve(listener, app).await;
+            }
+            Err(e) => {
+                let _ = tx.send(Err(format!("bind failed: {e}")));
+            }
+        }
+    });
+    rx
+}
+
 // ─── Phase 305: TLS-enabled server startup ───────────────────────────────────
 
 /// Start the remote ops server, optionally with TLS (Phase 305).
@@ -431,22 +575,40 @@ pub fn start_checked(port: u16) -> tokio::sync::oneshot::Receiver<Result<u16, St
 ///
 /// The Tailscale bypass is architectural: Tailscale relay listeners use a separate
 /// plain-HTTP bind IP in main.rs. Pass `None` from any Tailscale-bound startup path.
+///
+/// Phase 413 Plan 04: `cache` is the shared Option Z key cache passed through to
+/// the middleware (both plain-HTTP and TLS paths).
+#[cfg(feature = "http-client")]
 pub fn start_checked_with_tls(
     port: u16,
     tls: Option<crate::config::AgentTlsConfig>,
+    cache: crate::mesh_key_cache::MeshKeyCache,
 ) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
     // Filter out disabled TLS configs — fallback to plain HTTP
     let maybe_tls = tls.filter(|t| t.enabled);
     if maybe_tls.is_none() {
-        return start_checked(port);
+        return start_checked(port, cache);
     }
-    start_checked_tls_inner(port, maybe_tls)
+    start_checked_tls_inner(port, maybe_tls, cache)
+}
+
+/// `--no-default-features` variant — env-only auth, delegates to plain start_checked.
+#[cfg(not(feature = "http-client"))]
+pub fn start_checked_with_tls(
+    port: u16,
+    _tls: Option<crate::config::AgentTlsConfig>,
+) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
+    // TLS path requires reqwest/hyper which the http-client feature carries;
+    // no-default-features builds fall back to plain HTTP.
+    start_checked(port)
 }
 
 /// Internal helper: start the server with a confirmed-enabled TLS config.
+#[cfg(feature = "http-client")]
 fn start_checked_tls_inner(
     port: u16,
     maybe_tls: Option<crate::config::AgentTlsConfig>,
+    cache: crate::mesh_key_cache::MeshKeyCache,
 ) -> tokio::sync::oneshot::Receiver<Result<u16, String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     START_TIME.get_or_init(Instant::now);
@@ -473,6 +635,7 @@ fn start_checked_tls_inner(
             .route("/ping", get(ping))
             .route("/health", get(health));
 
+        // Phase 413 Plan 04 — Option (a) sub-router with state = MeshKeyCache.
         let protected_routes = Router::new()
             .route("/info", get(info))
             .route("/files", get(list_files))
@@ -484,7 +647,11 @@ fn start_checked_tls_inner(
             .route("/cursor", get(cursor_position))
             .route("/input", post(send_input))
             .route("/debug/content-dirs", get(content_dirs_handler))
-            .layer(middleware::from_fn(require_service_key));
+            .layer(axum::middleware::from_fn_with_state(
+                cache.clone(),
+                require_service_key,
+            ))
+            .with_state(cache);
 
         let app = public_routes
             .merge(protected_routes)
@@ -1675,9 +1842,25 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_router() -> Router {
-        Router::new()
-            .route("/exec", post(exec_command))
-            .layer(axum::middleware::from_fn(require_service_key))
+        // Phase 413 Plan 04: tests pass an empty cache. get_key_or_env
+        // falls back to RCAGENT_SERVICE_KEY env var, matching pre-Plan-04 test behavior.
+        #[cfg(feature = "http-client")]
+        {
+            let cache = crate::mesh_key_cache::new_cache();
+            Router::new()
+                .route("/exec", post(exec_command))
+                .layer(axum::middleware::from_fn_with_state(
+                    cache.clone(),
+                    require_service_key,
+                ))
+                .with_state(cache)
+        }
+        #[cfg(not(feature = "http-client"))]
+        {
+            Router::new()
+                .route("/exec", post(exec_command))
+                .layer(axum::middleware::from_fn(require_service_key))
+        }
     }
 
     async fn exec_post(app: Router, body: serde_json::Value) -> (u16, serde_json::Value) {
@@ -1784,15 +1967,54 @@ mod tests {
     }
 
     fn test_router_full() -> Router {
+        // Phase 413 Plan 04: tests pass an empty cache. get_key_or_env
+        // falls back to RCAGENT_SERVICE_KEY env var, matching pre-Plan-04 test behavior.
         let public_routes = Router::new()
             .route("/ping", get(ping))
             .route("/health", get(health));
 
+        #[cfg(feature = "http-client")]
+        let protected_routes = {
+            let cache = crate::mesh_key_cache::new_cache();
+            Router::new()
+                .route("/exec", post(exec_command))
+                .route("/info", get(info))
+                .layer(axum::middleware::from_fn_with_state(
+                    cache.clone(),
+                    require_service_key,
+                ))
+                .with_state(cache)
+        };
+        #[cfg(not(feature = "http-client"))]
         let protected_routes = Router::new()
             .route("/exec", post(exec_command))
             .route("/info", get(info))
             .layer(axum::middleware::from_fn(require_service_key));
 
+        public_routes.merge(protected_routes)
+    }
+
+    /// Phase 413 Plan 04 S10 test helper — build a router with a pre-populated cache.
+    /// Used only by `test_service_key_cache_wins_over_env`. Factored out so cache
+    /// construction is explicit (the other tests deliberately use an empty cache
+    /// to exercise the env fallback path).
+    #[cfg(feature = "http-client")]
+    async fn test_router_full_with_cache(initial_key: Option<&str>) -> Router {
+        let cache = crate::mesh_key_cache::new_cache();
+        if let Some(k) = initial_key {
+            *cache.write().await = Some(k.to_string());
+        }
+        let public_routes = Router::new()
+            .route("/ping", get(ping))
+            .route("/health", get(health));
+        let protected_routes = Router::new()
+            .route("/exec", post(exec_command))
+            .route("/info", get(info))
+            .layer(axum::middleware::from_fn_with_state(
+                cache.clone(),
+                require_service_key,
+            ))
+            .with_state(cache);
         public_routes.merge(protected_routes)
     }
 
@@ -1961,6 +2183,57 @@ mod tests {
         let status = info_get_with_key(app, None).await;
         unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
         assert_eq!(status, 401, "/info without header must return 401 when key is set");
+    }
+
+    /// Phase 413 Plan 04 — S10 fix: cache MUST win over env when both are set.
+    ///
+    /// Populates the MeshKeyCache with "from-cache" AND sets the legacy
+    /// RCAGENT_SERVICE_KEY env var to "from-env" — then asserts the middleware:
+    ///   - Accepts X-Service-Key="from-cache"  → 200 (cache wins)
+    ///   - Rejects X-Service-Key="from-env"    → 401 (env is IGNORED when cache has a value)
+    ///
+    /// This catches any future drift where env accidentally wins (e.g., if someone
+    /// refactors `get_key_or_env` to check env first). The get_key_or_env precedence
+    /// is the structural foundation of Option Z — a server-side key rotation MUST
+    /// take effect without relying on the pod-local env var.
+    #[cfg(feature = "http-client")]
+    #[tokio::test]
+    #[serial]
+    async fn test_service_key_cache_wins_over_env() {
+        unsafe { std::env::set_var("RCAGENT_SERVICE_KEY", "from-env"); }
+        let app = test_router_full_with_cache(Some("from-cache")).await;
+
+        // Request with the CACHE value in X-Service-Key → 200
+        let req_good = axum::http::Request::builder()
+            .method("POST")
+            .uri("/exec")
+            .header("X-Service-Key", "from-cache")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"cmd":"echo hi","timeout_ms":10000}"#))
+            .unwrap();
+        let resp_good = app.clone().oneshot(req_good).await.unwrap();
+        assert!(
+            resp_good.status().is_success(),
+            "cache value should authenticate; got status {}",
+            resp_good.status()
+        );
+
+        // Request with the ENV value in X-Service-Key → 401 (cache wins; env is ignored)
+        let req_bad = axum::http::Request::builder()
+            .method("POST")
+            .uri("/exec")
+            .header("X-Service-Key", "from-env")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"cmd":"echo hi","timeout_ms":10000}"#))
+            .unwrap();
+        let resp_bad = app.oneshot(req_bad).await.unwrap();
+        assert_eq!(
+            resp_bad.status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "env value should be IGNORED when cache has a value"
+        );
+
+        unsafe { std::env::remove_var("RCAGENT_SERVICE_KEY"); }
     }
 
     // ─── Phase 361-01: content-dirs handler tests ──────────────────────────

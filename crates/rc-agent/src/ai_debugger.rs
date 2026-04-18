@@ -450,6 +450,11 @@ const PROTECTED_PROCESSES: &[&str] = &[
 
 /// Analyze a crash/error and produce a debug suggestion.
 /// Runs as a spawned async task — makes HTTP calls to Ollama/Anthropic.
+///
+/// Phase 413 Plan 04: `mesh_key_cache` is the shared Option Z cache that supplies
+/// the X-Service-Key header for the Tier 0 audit known-issues lookup. Falls back
+/// to the legacy `RCAGENT_SERVICE_KEY` env var when the cache is unpopulated (tests
+/// and pre-wire-up boots).
 pub async fn analyze_crash(
     config: AiDebuggerConfig,
     pod_id: String,
@@ -458,6 +463,7 @@ pub async fn analyze_crash(
     snapshot: PodStateSnapshot,
     result_tx: mpsc::Sender<AiDebugSuggestion>,
     launch_epoch: u64,
+    #[cfg(feature = "http-client")] mesh_key_cache: crate::mesh_key_cache::MeshKeyCache,
 ) {
     tracing::info!(
         target: LOG_TARGET,
@@ -466,7 +472,11 @@ pub async fn analyze_crash(
     );
 
     // ── Tier 0: Check audit known issues (code bugs, not runtime fixable) ────
-    if let Some(audit_match) = check_audit_known_issues(&config, &error_context).await {
+    #[cfg(feature = "http-client")]
+    let audit_result = check_audit_known_issues(&config, &error_context, &mesh_key_cache).await;
+    #[cfg(not(feature = "http-client"))]
+    let audit_result: Option<String> = None;
+    if let Some(audit_match) = audit_result {
         tracing::warn!(
             target: LOG_TARGET,
             "AUDIT KNOWN ISSUE matched for {} — skipping AI diagnosis",
@@ -775,11 +785,25 @@ async fn fetch_fleet_solutions(config: &AiDebuggerConfig, error_context: &str) -
 /// /audit-check route is in the staff-JWT block; rc-agent has no JWT, so prior
 /// versions of this function silently 401'd on every call since MMA-v29.
 /// Service-key variant fixes that (server-side route added 2026-04-18).
-async fn check_audit_known_issues(_config: &AiDebuggerConfig, error_context: &str) -> Option<String> {
-    let service_key = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
-    if service_key.is_empty() {
-        return None; // No key configured — Tier 0 unavailable, fall through.
-    }
+///
+/// Phase 413 Plan 04: service key is read from the shared `MeshKeyCache` first,
+/// falling back to the legacy `RCAGENT_SERVICE_KEY` env var only when the cache
+/// is unpopulated (tests and the tiny window before the first boot fetch completes).
+/// Once the cache is live, no pod-local env-var is needed.
+///
+/// W5 fix (Plan 04): a 403 from the Tier 0 endpoint is now logged at `warn!` level
+/// with a distinct message — stale keys after a server rotation (Option Z key
+/// rotation edge) are observable instead of silently dropping every Tier 0 lookup.
+/// Other non-2xx + network errors remain at `debug!` level (transient noise).
+#[cfg(feature = "http-client")]
+async fn check_audit_known_issues(
+    _config: &AiDebuggerConfig,
+    error_context: &str,
+    cache: &crate::mesh_key_cache::MeshKeyCache,
+) -> Option<String> {
+    let Some(service_key) = crate::mesh_key_cache::get_key_or_env(cache).await else {
+        return None; // No key in cache AND no env fallback — Tier 0 unavailable, fall through.
+    };
     let search_url = format!(
         "http://192.168.31.23:8080/api/v1/mesh/audit-check-service?symptom={}",
         error_context.replace(' ', "+").replace('&', "%26").replace('?', "%3F")
@@ -799,8 +823,47 @@ async fn check_audit_known_issues(_config: &AiDebuggerConfig, error_context: &st
             }
             None
         }
-        _ => None, // Server unreachable or 401 = skip Tier 0, proceed to normal diagnosis.
+        Ok(resp) if resp.status() == reqwest::StatusCode::FORBIDDEN => {
+            // W5: distinct warn! line so "silent 403" on Tier 0 is surfaced. This means
+            // either the cache is holding a stale key the server has rotated out, OR the
+            // pod's IP has been removed from the Pod allowlist (network_middleware denies
+            // /mesh/audit-check-service). Cache behavior is unchanged — last-known-good is
+            // preserved (no mutation here); the next periodic_refetch in main.rs will
+            // re-synchronize within 5 minutes.
+            tracing::warn!(
+                target: LOG_TARGET,
+                status = 403,
+                url = %search_url,
+                "Tier 0 mesh oracle rejected service key (403 FORBIDDEN) — cache key may be stale or server rotated. Last-known-good preserved; next periodic_refetch will correct. See Phase 413 CONTEXT.md."
+            );
+            None
+        }
+        Ok(resp) => {
+            tracing::debug!(
+                target: LOG_TARGET,
+                status = resp.status().as_u16(),
+                "Tier 0 mesh oracle returned non-2xx (not 403) — transient, retry later"
+            );
+            None
+        }
+        Err(e) => {
+            tracing::debug!(
+                target: LOG_TARGET,
+                error = %e,
+                "Tier 0 mesh oracle network error — transient"
+            );
+            None
+        }
     }
+}
+
+/// Stub variant for `--no-default-features` builds where the http-client feature
+/// is off. Tier 0 is unavailable in that variant; this keeps the call site in
+/// `analyze_crash` compilable (the real variant is guarded by `#[cfg(feature = "http-client")]`).
+#[cfg(not(feature = "http-client"))]
+#[allow(dead_code)]
+async fn check_audit_known_issues(_config: &AiDebuggerConfig, _error_context: &str) -> Option<String> {
+    None
 }
 
 fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnapshot, error_ctx: &PodErrorContext) -> String {

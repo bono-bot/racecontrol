@@ -854,6 +854,8 @@ pub async fn handle_ws_message(
                                     state.config.ai_debugger.clone().into(), pod_id_clone.clone(),
                                     launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                                     conn.launch_epoch,
+                                    #[cfg(feature = "http-client")]
+                                    state.mesh_key_cache.clone(),
                                 ));
                             }
                         }
@@ -898,6 +900,8 @@ pub async fn handle_ws_message(
                                 state.config.ai_debugger.clone().into(), pod_id_clone,
                                 launch_sim, err_ctx, snapshot, state.ai_result_tx.clone(),
                                 conn.launch_epoch,
+                                #[cfg(feature = "http-client")]
+                                state.mesh_key_cache.clone(),
                             ));
                         }
                     }

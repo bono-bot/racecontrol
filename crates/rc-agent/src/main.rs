@@ -951,9 +951,24 @@ async fn main() -> Result<()> {
     }
     startup_log::write_phase("firewall", "");
 
+    // Phase 413 Plan 04: construct the Option Z mesh key cache BEFORE remote_ops
+    // starts, so the middleware's sub-router can take a clone as its axum State.
+    // Boot-time population + periodic re-fetch is wired further below (Plan 03
+    // block — below AppState construction). Cache is safe to pass around empty:
+    // consumers will transparently fall back to RCAGENT_SERVICE_KEY env until the
+    // initial fetch completes.
+    #[cfg(feature = "http-client")]
+    let mesh_key_cache = crate::mesh_key_cache::new_cache();
+
     // Remote ops HTTP server (merged pod-agent) — port 8090
     // SAFETY-02: start_checked returns a oneshot so bind failures are observable.
     // We start it early so the retry loop (up to 30s) runs concurrently with other init.
+    //
+    // Phase 413 Plan 04: hand the mesh_key_cache clone to the router so the
+    // require_service_key middleware can read it from axum State (sub-router pattern).
+    #[cfg(feature = "http-client")]
+    let remote_ops_rx = remote_ops::start_checked(8090, mesh_key_cache.clone());
+    #[cfg(not(feature = "http-client"))]
     let remote_ops_rx = remote_ops::start_checked(8090);
     startup_log::write_phase("http_server", "port=8090");
 
@@ -1579,16 +1594,11 @@ async fn main() -> Result<()> {
     // v22.0 Phase 178: Create Arc here (before AppState) so billing_guard can share it.
     let flags_arc = std::sync::Arc::new(RwLock::new(FeatureFlags::load_from_cache()));
 
-    // Phase 413 — Option Z mesh key cache. Fetched at boot + every 5min from
-    // GET /api/v1/pods/mesh-service-key (pod-IP-gated). Replaces HKLM
-    // RCAGENT_SERVICE_KEY provisioning. Cache is shared with ai_debugger,
-    // remote_ops, and ws_handler (see Plan 04).
-    // Feature-gated on http-client because the mesh_key_cache module depends on reqwest.
-    // Plan 04 wires consumers; until then the binding is intentionally unused — the
-    // periodic-refetch task below still keeps the cache fresh, so Plan 04 is a drop-in.
-    #[cfg(feature = "http-client")]
-    #[allow(unused_variables)] // Phase 413 Plan 04 wires consumers — remove allow then
-    let mesh_key_cache = crate::mesh_key_cache::new_cache();
+    // Phase 413 — Option Z mesh key cache is now instantiated EARLIER in main()
+    // (above the remote_ops::start_checked call) so the sub-router can take a
+    // clone as its axum State. Periodic re-fetch wire-up remains here (below).
+    // Consumers (ai_debugger, ws_handler) read via AppState.mesh_key_cache;
+    // remote_ops reads via its sub-router State — see Plan 04 SUMMARY.
 
     // ─── Billing Guard (stuck session + idle drift detection) ────────────────
     // Site billing_guard: spawn billing anomaly detection task (shares watch receiver)
@@ -1876,6 +1886,11 @@ async fn main() -> Result<()> {
         // Phase 306: JWT fields — start with no JWT (first connect uses PSK bootstrap)
         current_jwt: None,
         jwt_expires_at: None,
+        // Phase 413 Plan 04: share the Option Z cache with consumers. Cloned here
+        // because the remote_ops sub-router (constructed below via start_checked_*)
+        // also needs a clone as its axum State.
+        #[cfg(feature = "http-client")]
+        mesh_key_cache: mesh_key_cache.clone(),
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
