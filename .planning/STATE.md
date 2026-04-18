@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T04:04:05.318Z"
+last_updated: "2026-04-18T04:21:15.923Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -105,6 +105,23 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
+
+## Phase 413.1 Plan 04 — StartRCTemp retirement (Option A) closed (2026-04-18)
+
+**Completed:** 2026-04-18T09:51 IST (parallel Wave 2 executor, --no-verify)
+**Scope:** Investigate StartRCTemp silent-no-op observed during 2026-04-18 08:05 IST R1 recovery, retire in deploy-server.sh Step 5 + rollback path, cascade update CLAUDE.md server-deploy 7-step rule Step 4 (StartRCTemp → StartRCDirect). R4 of Phase 413.1.
+**Commits:**
+
+- `17cb6b8e` — Task 1: Investigation artifact. 6 commands via rc-sentry /exec against server .23 (schtasks /Query /V /FO LIST + /XML for both tasks, start-racecontrol.bat contents, Status check). Field-by-field diff proves dual defect.
+- `f0597923` — Task 3 source-code change swept into parallel 414-04 executor's commit by post-commit hook (R5 sweeper pattern, known deferred). Clean 28-line diff verified via `git show f0597923 -- CLAUDE.md scripts/deploy-server.sh`.
+
+**Verification:** bash -n clean; `grep -c 'StartRCDirect' scripts/deploy-server.sh` = 10; `grep -c 'StartRCTemp' scripts/deploy-server.sh` = 9 (all in /Disable, /Enable, comment blocks — no startup-path calls); `grep -c 'StartRCTemp' CLAUDE.md` = 2 (1 retirement reference in Step 4, 1 unrelated watchdog-disable rule).
+**Decisions:** (1) Option A (retire StartRCTemp) chosen autonomously per plan conditional-checkpoint — Task 2 display-only because Option A is source-only. (2) StartRCTemp schtask on server NOT deleted — still registered for legacy-script compat, just not invoked by deploy-server.sh. (3) StartRCTemp preserved verbatim in Step 3a /Disable + Step 5b /Enable + rollback /Enable blocks — Plan 05's 8-task symmetric coverage stays intact.
+**Evidence — Dual defect:** (a) StartRCTemp Run-As-User=ADMIN + Logon Mode=Interactive only (XML `<LogonType>InteractiveToken</LogonType>` under human-user SID S-1-5-21-...-1002) matches the silent-no-op pattern provision-startrcdirect.ps1:12-18 explicitly warns about. (b) start-racecontrol.bat (StartRCTemp target) never directly invokes racecontrol.exe — only binary-swap + watchdog.ps1 spawn, so even a "working" StartRCTemp launch is a 4-hop indirect chain with the same logon-mode failure in the watchdog PS spawn.
+**Deviations:** (1) R5 sweeper — Task 3 source-code change absorbed into parallel 414-04 session's commit `f0597923` per known CONTEXT.md `<deferred>` pattern (3rd instance this session). No code lost. Same shape as Plan 03's `76f9b3e4`.
+**Closes:** R4 of Phase 413.1. Defect 4 from CONTEXT.md `<specifics>`. Plan 06 (Wave 4 Plan 11 retry) now has a startup mechanism proven to work in non-interactive context — R1 recovery 2026-04-18 09:29 IST via StartRCDirect verified healthy at build_id 45d03bd5-dirty.
+**Next plan:** 413.1-05 (Wave 3, regression test harness), 413.1-06 (Wave 4 Plan 11 retry).
+**Summary:** `.planning/phases/413.1-deploy-server-step4-fix-and-plan11-retry/413.1-04-SUMMARY.md`
 
 ## Phase 413.1 Plan 03 — racecontrol-prev.exe 72h forfiles guard closed (2026-04-18)
 

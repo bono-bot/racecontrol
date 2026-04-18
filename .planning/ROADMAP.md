@@ -2207,13 +2207,13 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 **Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
 
-**Plans:** 2/6 plans executed
+**Plans:** 4/6 plans executed
 
 Plans:
 - [x] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
 - [x] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant) — no-op verified 2026-04-18 (Plan 01 swap covered every occurrence)
 - [x] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3) — shipped `76f9b3e4` 2026-04-18
-- [ ] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4)
+- [x] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4) — Option A (retire StartRCTemp) shipped `f0597923` 2026-04-18 (investigation `17cb6b8e`, source-code change swept into 414-04 commit per known R5 pattern)
 - [ ] 413.1-05-PLAN.md — rc-sentry /exec swap regression test harness (tests/deploy_script_swap_test.sh, R6)
 - [ ] 413.1-06-PLAN.md — Plan 11 retry (server + cloud + canary pod 3 with AUDIT KNOWN ISSUE matched end-to-end, R7)
 
@@ -2249,14 +2249,14 @@ Plans:
 5. Server restart mid-WaitingForGame → idle counter resets (customer-favourable but undocumented).
 6. Balance gate threshold definition (< 1 min @ ₹25/min = ₹25 floor?).
 
-**Plans:** 3/7 plans executed
+**Plans:** 5/7 plans executed
 
 Plans:
 - [x] 414-00-PLAN.md — Wave 0 TDD scaffolding (5 RED FSM tests + 9 ignored stubs + 2 fixtures)
 - [x] 414-01-PLAN.md — Wave 1 FSM TRANSITION_TABLE extension (Active+GameStopped, WaitingForGame+End/EndEarly)
 - [x] 414-02-PLAN.md — Wave 2 BillingTimer.between_games_idle_seconds + tick branch + tick_all_timers candidate collection
-- [ ] 414-03-PLAN.md — Wave 3 protocol additions (DashboardEvent::IdleWarning + BillingSessionInfo field) + TS cascade + IdleWarning broadcast
-- [ ] 414-04-PLAN.md — Wave 4 handle_game_off rewrite + handle_live_resume reset + tick_all_timers auto-end + stop_billing branch + stale query fix
+- [x] 414-03-PLAN.md — Wave 3 protocol additions (DashboardEvent::IdleWarning + BillingSessionInfo field) + TS cascade + IdleWarning broadcast
+- [x] 414-04-PLAN.md — Wave 4 handle_game_off rewrite + handle_live_resume reset + tick_all_timers auto-end + stop_billing branch + stale query fix
 - [ ] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (with venue visual checkpoint)
 - [ ] 414-06-PLAN.md — Wave 6 MMA audit + venue financial E2E + deploy parity (server .23 + Bono VPS + 3 frontends) + LOGBOOK
 
