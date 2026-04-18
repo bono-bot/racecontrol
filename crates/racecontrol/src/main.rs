@@ -24,6 +24,47 @@ mod background_tasks;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // INTROSPECTION FAST-PATH — --version / --build-id / --help must work on ANY
+    // host (including build machines) without triggering the singleton mutex,
+    // config load, DB migrations, port bind, or any disk/network side effect.
+    // Matches rc-agent's pattern (main.rs ~line 411) so deploy scripts can
+    // verify a binary's embedded GIT_HASH BEFORE swapping it into production.
+    //
+    // Without this, `racecontrol.exe --build-id` starts the full server
+    // (mutex → config → DB migrate → port :8080 bind), taking ~10s and
+    // colliding with any running server on the same machine.
+    {
+        let args: Vec<String> = std::env::args().collect();
+        for arg in args.iter().skip(1) {
+            match arg.as_str() {
+                "--version" | "-V" => {
+                    println!("racecontrol {} (build {})", env!("CARGO_PKG_VERSION"), env!("GIT_HASH"));
+                    return Ok(());
+                }
+                "--build-id" => {
+                    println!("{}", env!("GIT_HASH"));
+                    return Ok(());
+                }
+                "--help" | "-h" => {
+                    println!("racecontrol — RacingPoint venue management server");
+                    println!("Build:   {}", env!("GIT_HASH"));
+                    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+                    println!();
+                    println!("Introspective flags (exit before startup, work on any host):");
+                    println!("  --version, -V   Print version and build ID");
+                    println!("  --build-id      Print build ID only (no formatting)");
+                    println!("  --help, -h      Print this help");
+                    println!();
+                    println!("With no flags, racecontrol runs the full venue server.");
+                    println!("Singleton mutex, config load, DB migrations, and port bind");
+                    println!("apply to the runtime path only.");
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+    }
+
     println!(r#"
     ____                  ______            __             __
    / __ \____ _________  / ____/___  ____  / /__________  / /
