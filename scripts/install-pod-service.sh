@@ -88,6 +88,17 @@ for target in "${TARGETS[@]}"; do
   echo "  [4/4] Removing rc-sentry HKLM Run key..."
   run_ssh "$ip" "reg delete \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\" /v RCSentry /f 2>nul"
 
+  # Step 5: Configure iRacingService crash-recovery (2026-04-18)
+  # iRacingService64.exe (iRacing.com Helper Service) historically crashed
+  # ~daily without any auto-restart config. Event 7034 observed on all 7
+  # pods, often in tight cross-pod correlation with rc-agent restart
+  # cycles. Root cause of the crash is still open (not our kill list —
+  # taskkill iRacingService.exe doesn't match iRacingService64.exe), but
+  # the 3x auto-restart keeps customer iRacing launches working.
+  # Skip silently if service doesn't exist (iRacing not installed on that pod).
+  echo "  [5/5] Configuring iRacingService auto-recovery (if installed)..."
+  run_ssh "$ip" "sc query iRacingService >nul 2>&1 && sc failure iRacingService reset= 86400 actions= restart/60000/restart/60000/restart/60000 >nul 2>&1"
+
   # Verify
   echo "  Verifying..."
   SVC_STATE=$(run_ssh "$ip" "sc query RCSentry 2>nul | findstr STATE" | grep -oP '\d+\s+\w+' | head -1)

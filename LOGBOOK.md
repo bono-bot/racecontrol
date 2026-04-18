@@ -1407,3 +1407,55 @@ helpers) made the signal-to-noise ratio of the guard negative in practice.
   LOCKDOWN flag set is now dead code — user-facing effect of remote flag
   is limited to `state.kiosk.activate()` / `deactivate()`).
 - POS `.130` (SAC-blocked, pre-existing, rc-agent not running there).
+
+
+## 2026-04-18 21:25 IST — iRacingService fleet-wide auto-recovery + pod-provisioning fix
+
+### Problem
+iRacingService (iRacing.com Helper Service, `iRacingService64.exe`) was
+crashing fleet-wide ~daily for weeks. 9+ Event 7034 ("terminated
+unexpectedly") per pod across 14-04 → 18-04, tightly correlated across
+pods (<60s spread between pod crashes on same event). No failure-recovery
+config → service stayed STOPPED until manually started or next reboot.
+When stopped, iRacing launches fail ~60s later with "Steam dialog
+visible, no game window" (customer impact: Vishal on Pod 4 at 14:46Z today).
+
+### Investigation
+Cross-pod enumeration: 6/7 pods on venue had iRacingService STOPPED,
+Pod 8 doesn't have it installed. Crash-cause research: Application log
+has no Application Error events for iRacingService (service exits
+voluntarily, not SEGV); WER queue empty; no iRacingService provider
+events. Crash timing tightly correlated with rc-agent restart cycles
+(21:08 deploy → 7 pods crashed at 21:08:16-21:09:10 within 54s).
+
+Kill-list audit in rc-agent source: `enforce_safe_state` in
+ac_launcher.rs had `iRacingService.exe` in its game_processes kill list,
+but `taskkill /IM iRacingService.exe` does NOT match the actual binary
+`iRacingService64.exe` (verified by direct ssh test: "ERROR: process
+not found"). Removed the stale name anyway for correctness.
+
+### Fix (this commit)
+`scripts/install-pod-service.sh` step 5 — after setting up RCSentry,
+configure iRacingService auto-recovery (if present):
+
+  sc failure iRacingService reset= 86400 actions= restart/60000/restart/60000/restart/60000
+
+This means: crashed iRacingService auto-restarts within 60s (up to 3
+attempts), counter resets every 24h. Reimaged pods will pick this up
+on next install-pod-service.sh run. Existing pods already configured
+manually this session via direct sc.exe failure calls (all 7 pods
+with iRacingService installed).
+
+### NOT fixed
+- Root cause of iRacingService voluntary exit on rc-agent restart. The
+  rc-agent source doesn't directly kill iRacingService64.exe by name;
+  something indirect (display/session/RPC/Steam state) causes self-exit.
+  Passive 6-min observation window shows service stays UP when rc-agent
+  isn't being restarted, so the trigger is real but not yet isolated.
+- Pod 8 has no iRacingService installed (service absent from `sc query`).
+  iRacing will not launch there. Requires full iRacing install via Steam.
+
+### Files
+- `scripts/install-pod-service.sh` (+10 lines, step 5)
+- `crates/rc-agent/src/ac_launcher.rs` (prior commit `b39c2a6f`, removed
+  iRacingService.exe from kill list + added iRacingSim64DX12.exe)
