@@ -159,7 +159,9 @@ pub(crate) async fn migrate_kiosk(pool: &SqlitePool) -> anyhow::Result<()> {
     ).execute(pool).await?;
 
 
-    // Seed default kiosk settings
+    // Seed default kiosk settings. INSERT OR IGNORE: only fires on first boot
+    // of a fresh DB. updated_by/source columns are added by migrate_cross_domain
+    // which runs AFTER this, so backfill them on existing seed rows below.
     sqlx::query(
         "INSERT OR IGNORE INTO kiosk_settings (key, value)
          VALUES

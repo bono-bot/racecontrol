@@ -15,6 +15,24 @@ pub(super) async fn migrate_cross_domain(pool: &SqlitePool) -> anyhow::Result<()
             .await;
     }
 
+    // kiosk_settings audit columns: who wrote, which code path, when.
+    // Why: the flag kiosk_lockdown_enabled was oscillating true<->false with no audit trail.
+    // source values: 'admin_put' | 'pos_lockdown' | 'cloud_sync_pull' | 'scheduler' | 'seed' | 'sql'
+    let _ = sqlx::query("ALTER TABLE kiosk_settings ADD COLUMN updated_by TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE kiosk_settings ADD COLUMN source TEXT")
+        .execute(pool)
+        .await;
+    // Backfill pre-audit rows so subsequent writes can detect mutations
+    let _ = sqlx::query("UPDATE kiosk_settings SET source = 'pre_audit' WHERE source IS NULL")
+        .execute(pool)
+        .await;
+    // Index on updated_at so we can query recent writes cheaply
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_kiosk_settings_updated ON kiosk_settings(updated_at)")
+        .execute(pool)
+        .await;
+
     // Backfill NULL updated_at with created_at where available
     let _ = sqlx::query("UPDATE drivers SET updated_at = created_at WHERE updated_at IS NULL")
         .execute(pool)

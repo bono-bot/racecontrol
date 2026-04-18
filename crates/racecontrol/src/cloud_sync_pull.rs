@@ -141,8 +141,13 @@ pub(crate) async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> an
 
             if needs_update {
                 if let Err(e) = sqlx::query(
-                    "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
-                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    "INSERT INTO kiosk_settings (key, value, updated_at, updated_by, source)
+                     VALUES (?, ?, datetime('now'), 'cloud', 'cloud_sync_pull')
+                     ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at,
+                        updated_by = excluded.updated_by,
+                        source = excluded.source",
                 )
                 .bind(key)
                 .bind(&val_str)
@@ -152,6 +157,7 @@ pub(crate) async fn sync_once_http(state: &Arc<AppState>, cloud_url: &str) -> an
                     tracing::error!("Cloud sync: failed to upsert kiosk_setting '{}': {}", key, e);
                     continue;
                 }
+                tracing::info!("kiosk_settings write: key={} source=cloud_sync_pull new_value={}", key, val_str);
                 changed = true;
                 total_upserted += 1;
             }

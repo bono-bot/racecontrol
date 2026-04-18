@@ -2,7 +2,7 @@
 use super::customer_auth::extract_driver_id;
 use super::auth_staff::venue_authority_guard;
 use rand::Rng;
-use axum::{Json, Router, extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, routing::{delete, get, post, put}};
+use axum::{Extension, Json, Router, extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, routing::{delete, get, post, put}};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -361,6 +361,7 @@ pub(crate) async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Js
 
 pub(crate) async fn update_kiosk_settings(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<crate::auth::middleware::StaffClaims>,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     // Phase 349: Guard — cloud instance rejects writes to venue-authoritative tables
@@ -372,6 +373,7 @@ pub(crate) async fn update_kiosk_settings(
         None => return Json(json!({ "error": "Expected a JSON object of key-value pairs" })).into_response(),
     };
 
+    let updated_by = format!("staff:{}", claims.sub);
     let mut updated = 0;
     for (key, value) in obj {
         let val_str = match value.as_str() {
@@ -380,11 +382,17 @@ pub(crate) async fn update_kiosk_settings(
         };
 
         let result = sqlx::query(
-            "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO kiosk_settings (key, value, updated_at, updated_by, source)
+             VALUES (?, ?, datetime('now'), ?, 'admin_put')
+             ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by,
+                source = excluded.source",
         )
         .bind(key)
         .bind(&val_str)
+        .bind(&updated_by)
         .execute(&state.db)
         .await;
 
@@ -455,16 +463,24 @@ pub(crate) async fn get_pos_lockdown(State(state): State<Arc<AppState>>) -> Json
 /// POST /pos/lockdown — toggle lockdown state from admin dashboard
 pub(crate) async fn set_pos_lockdown(
     State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<crate::auth::middleware::StaffClaims>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
     let locked = body.get("locked").and_then(|v| v.as_bool()).unwrap_or(true);
     let val = if locked { "true" } else { "false" };
+    let updated_by = format!("staff:{}", claims.sub);
 
     let result = sqlx::query(
-        "INSERT INTO kiosk_settings (key, value) VALUES ('pos_lockdown', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        "INSERT INTO kiosk_settings (key, value, updated_at, updated_by, source)
+         VALUES ('pos_lockdown', ?, datetime('now'), ?, 'pos_lockdown')
+         ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by,
+            source = excluded.source",
     )
     .bind(val)
+    .bind(&updated_by)
     .execute(&state.db)
     .await;
 

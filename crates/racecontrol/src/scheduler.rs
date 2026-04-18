@@ -393,8 +393,13 @@ pub async fn update_settings(
                 // business_hours go to kiosk_settings, rest go to settings
                 if key.starts_with("business_hours") {
                     let _ = sqlx::query(
-                        "INSERT INTO kiosk_settings (key, value) VALUES (?, ?)
-                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        "INSERT INTO kiosk_settings (key, value, updated_at, updated_by, source)
+                         VALUES (?, ?, datetime('now'), 'scheduler', 'scheduler')
+                         ON CONFLICT(key) DO UPDATE SET
+                            value = excluded.value,
+                            updated_at = excluded.updated_at,
+                            updated_by = excluded.updated_by,
+                            source = excluded.source",
                     )
                     .bind(key)
                     .bind(&val_str)
