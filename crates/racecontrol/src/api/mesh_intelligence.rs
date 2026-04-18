@@ -360,8 +360,31 @@ pub(crate) fn render_mesh_service_key_body(key: &str) -> serde_json::Value {
 pub(crate) async fn pods_mesh_service_key(
     State(state): State<Arc<AppState>>,
 ) -> axum::response::Response {
-    let key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
-    Json(render_mesh_service_key_body(key)).into_response()
+    // Phase 413 MMA-C2 fix: refuse-to-serve when key is empty/unset rather than
+    // returning 200 + empty. If we returned 200+empty, fleet-wide rc-agent caches
+    // would OVERWRITE last-known-good to None within 300s (silent fleet-wide
+    // Tier 0/remote_ops outage) — 3/5 MMA-audit models flagged this as HIGH.
+    // 503 is chosen over 404/500 so rc-agent's fetch_from_server treats this as
+    // a transient server-side config issue (error_for_status()? returns Err,
+    // cache is PRESERVED via last-known-good). A tracing::error! on the server
+    // makes the misconfig observable. See 413-MMA-AUDIT.md Section DIAGNOSE / Q2.
+    let key_opt = state.config.pods.sentry_service_key.as_deref();
+    match key_opt {
+        Some(k) if !k.is_empty() => {
+            Json(render_mesh_service_key_body(k)).into_response()
+        }
+        _ => {
+            tracing::error!(
+                target: "mesh_intelligence",
+                "/pods/mesh-service-key: pods.sentry_service_key is empty/unset in racecontrol.toml — refusing to serve so pod caches preserve last-known-good. Fix the TOML and reload."
+            );
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                "mesh_service_key unconfigured (see server logs)",
+            )
+                .into_response()
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -458,5 +481,24 @@ mod phase413_tests {
         let body = render_mesh_service_key_body("foo");
         assert!(body.get("mesh_service_key").is_some());
         assert_eq!(body.as_object().unwrap().len(), 1, "exactly one field");
+    }
+
+    // Phase 413 MMA-C2 (Q2 HIGH consensus) — refuse-to-serve when key is empty.
+    // The handler's dispatch logic is `match key_opt { Some(k) if !k.is_empty() => 200, _ => 503 }`.
+    // We assert the decision predicate here to lock the behavior.
+    fn mesh_key_should_serve(key_opt: Option<&str>) -> bool {
+        matches!(key_opt, Some(k) if !k.is_empty())
+    }
+
+    #[test]
+    fn mma_c2_empty_toml_key_does_not_serve() {
+        assert!(!mesh_key_should_serve(None), "None must map to 503 (refuse)");
+        assert!(!mesh_key_should_serve(Some("")), "empty string must map to 503 (refuse)");
+    }
+
+    #[test]
+    fn mma_c2_non_empty_toml_key_serves() {
+        assert!(mesh_key_should_serve(Some("abc")), "non-empty key must serve 200");
+        assert!(mesh_key_should_serve(Some("x")), "single-char key must serve 200");
     }
 }

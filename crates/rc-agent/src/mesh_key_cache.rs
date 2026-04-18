@@ -220,6 +220,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fetch_preserves_last_known_good_on_503() {
+        // Phase 413 MMA-C2 — server returns 503 when pods.sentry_service_key is
+        // empty in TOML (refuse-to-serve guard). rc-agent cache MUST preserve
+        // last-known-good (same path as any non-2xx). This test guards against
+        // regression of the C2 fix's partner behavior in the consumer side.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/pods/mesh-service-key"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let cache = new_cache();
+        *cache.write().await = Some("old-key".to_string());
+        let http_base = format!("{}/api/v1", server.uri());
+        let res = fetch_from_server(&test_client(), &http_base, &cache).await;
+        assert!(res.is_err(), "fetch should return Err on 503");
+        assert_eq!(
+            *cache.read().await,
+            Some("old-key".to_string()),
+            "cache must preserve last-known-good on 503 (server refuses to serve empty key)"
+        );
+    }
+
+    #[tokio::test]
     async fn fetch_preserves_last_known_good_on_network_failure() {
         // Unreachable port — no mock server
         let cache = new_cache();

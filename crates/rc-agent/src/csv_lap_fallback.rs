@@ -211,13 +211,29 @@ pub(crate) async fn push_csv_fallback_inner(
             Ok(r) => {
                 let status = r.status();
                 last_err = Some(format!("attempt {}: HTTP {}", attempt_idx + 1, status));
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    session_id = %session_id,
-                    status = %status,
-                    attempt = attempt_idx + 1,
-                    "csv fallback push returned non-2xx — will retry"
-                );
+                // Phase 413 MMA-C5 fix (Q8 — 3/5 consensus): distinct warn log on
+                // 401/403 so a stale/wrong mesh service key in csv_lap_fallback
+                // surfaces in rc-agent.log rather than blending with transient 5xx.
+                // Matches the W5 distinction pattern in ai_debugger + mesh_key_cache.
+                if status == reqwest::StatusCode::UNAUTHORIZED
+                    || status == reqwest::StatusCode::FORBIDDEN
+                {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        session_id = %session_id,
+                        status = %status,
+                        attempt = attempt_idx + 1,
+                        "csv fallback push AUTH REJECTED (401/403) — mesh service key may be stale or missing; periodic_refetch should correct within 300s"
+                    );
+                } else {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        session_id = %session_id,
+                        status = %status,
+                        attempt = attempt_idx + 1,
+                        "csv fallback push returned non-2xx — will retry"
+                    );
+                }
             }
             Err(e) => {
                 last_err = Some(format!("attempt {}: {}", attempt_idx + 1, e));
