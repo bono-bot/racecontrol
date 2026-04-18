@@ -708,6 +708,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/mesh/solutions/{id}/promote", post(mesh_promote_solution))
         .route("/mesh/solutions/{id}/retire", post(mesh_retire_solution))
         .route("/mesh/audit-seed", post(mesh_audit_seed))
+        // MMA Triage Router (Step 2 of MAP pipeline — see .planning/specs/MMA-TRIAGE-ROUTER.md)
+        .route("/diagnose/triage", post(super::triage::diagnose_triage))
         // ─── Model Evaluation Query (EVAL-03 / Phase 290) ────────────────────
         .route("/models/evaluations", get(list_model_evaluations))
         // ─── Model Reputation Query (MREP-04 / Phase 292) ────────────────────

@@ -182,6 +182,56 @@ pub async fn check_audit_known_issues(pool: &SqlitePool, symptom: &str) -> Optio
     None
 }
 
+/// Structured match result for the triage router.
+/// Unlike check_audit_known_issues which returns a formatted string, this returns
+/// the raw fields so the router can classify EXACT vs CATEGORY and build a verdict.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AuditKnownIssueMatch {
+    pub problem_key: String,
+    pub severity: String,
+    pub fix_status: String,
+    pub fixed_in_build: Option<String>,
+    pub affects_targets: Vec<String>,
+    pub escalation_message: String,
+    pub matched_pattern: String,
+}
+
+/// Structured Tier-0 lookup. Returns the first audit_known_issues row whose
+/// symptom_patterns contains a substring of the query (same match direction as
+/// check_audit_known_issues). Separate from check_audit_known_issues because
+/// the triage router needs raw fields, not a formatted escalation string.
+pub async fn match_audit_known_issue_structured(
+    pool: &SqlitePool,
+    symptom: &str,
+) -> Option<AuditKnownIssueMatch> {
+    let lower = symptom.to_lowercase();
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String, String, String)>(
+        "SELECT problem_key, severity, fix_status, fixed_in_build, affects_targets, \
+         symptom_patterns, escalation_message FROM audit_known_issues",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    for (problem_key, severity, fix_status, fixed_in_build, affects_json, patterns_json, escalation) in &rows {
+        if let Ok(patterns) = serde_json::from_str::<Vec<String>>(patterns_json) {
+            if let Some(matched) = patterns.iter().find(|p| lower.contains(&p.to_lowercase())) {
+                let affects: Vec<String> = serde_json::from_str(affects_json).unwrap_or_default();
+                return Some(AuditKnownIssueMatch {
+                    problem_key: problem_key.clone(),
+                    severity: severity.clone(),
+                    fix_status: fix_status.clone(),
+                    fixed_in_build: fixed_in_build.clone(),
+                    affects_targets: affects,
+                    escalation_message: escalation.clone(),
+                    matched_pattern: matched.clone(),
+                });
+            }
+        }
+    }
+    None
+}
+
 /// Insert or update an audit known issue.
 pub async fn upsert_audit_known_issue(
     pool: &SqlitePool,

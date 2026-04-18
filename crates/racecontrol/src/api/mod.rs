@@ -76,6 +76,7 @@ pub mod sync_actions;
 pub mod sync_cloud;
 pub mod sync_failover;
 pub mod terminal_handlers;
+pub mod triage;
 pub mod tournament_admin;
 pub mod tournament_core;
 pub mod tournament_customer;
