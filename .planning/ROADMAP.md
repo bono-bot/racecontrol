@@ -2176,6 +2176,33 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 *v52.0 defined: 2026-04-15. Restructured 2026-04-16 (Option A: +4 phases for secrets/agents/repo-gate/drift-remainder). Parallel to v49.0 (not blocking). Core gate: `cgp-distribution-probe.js` 100% parity on cross-platform hooks.*
 
+### Phase 414: Continuous Billing Session (Option 1 + Idle Auto-End)
+
+**Goal:** Decouple billing-session lifetime from individual game lifetime so a customer can swap games/cars/tracks freely inside one paid session. Meter only ticks while game is `Running` and driver is `Active`. After 15 min of no game running, auto-end with 10-min warning. Cumulative snap pricing across game swaps (15min AC + 15min F1 25 = ₹700 snap, not ₹750 per-minute).
+
+**Requirements**:
+- BE: New `BillingEvent::GameStopped`; FSM transitions Active→WaitingForGame, WaitingForGame→{Completed,EndedEarly}; `between_games_idle_seconds` field on BillingTimer; tick semantics for WaitingForGame (10-min IdleWarning broadcast, 15-min auto-end).
+- BE: When game state transitions Running→Stopped/Crashed inside an Active billing session, fire GameStopped event (status → WaitingForGame, meter pauses).
+- BE: New `DashboardEvent::IdleWarning { pod_id, session_id, balance_paise, seconds_remaining }` (server→dashboard only — no rc-agent protocol churn).
+- FE: Kiosk staff page when `status==WaitingForGame && elapsed_seconds>0` shows "Continue with another game" + "End session" buttons + paused-meter UI with cumulative cost.
+- FE: IdleWarning modal with balance check; "insufficient balance to continue" branch when wallet < 1 min worth.
+- TESTS: snap-across-swap (25min+5min=₹700), idle auto-end at 900s, warning at 600s, idle-counter reset on resume, FSM transitions valid, balance-insufficient at warning, End/EndEarly from WaitingForGame.
+
+**Depends on:** Phase 413 (no hard dep — independent feature; sequencing only). Design contract at `~/.claude/projects/C--Users-bono/memory/decision_billing_continuous_session_design.md`.
+
+**Open risks (resolve in plan-phase):**
+1. Existing `WaitingForGame` consumers may assume `elapsed_seconds == 0` — needs grep audit.
+2. FSM today rejects `EndEarly` from `WaitingForGame` (per `api/billing_session.rs:259`) — must add transition.
+3. Activity log noise on every game swap.
+4. Crash vs clean-stop: 10-min PausedCrashRecovery vs 15-min WaitingForGame — two timeouts, valid?
+5. Server restart mid-WaitingForGame → idle counter resets (customer-favourable but undocumented).
+6. Balance gate threshold definition (< 1 min @ ₹25/min = ₹25 floor?).
+
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 414 to break down)
+
 ---
 
 ## v50.0 — rc-agent-mobile (Reception Automation Hub) — Phases 429–444
