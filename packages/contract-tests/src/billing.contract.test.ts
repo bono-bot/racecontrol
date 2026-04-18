@@ -102,21 +102,47 @@ describe('GET /api/v1/billing/sessions — BillingSession contract', () => {
 });
 
 // Phase 414 — between_games_idle_seconds field (414-CONTRACT-01)
-// describe.skip so vitest shows "skipped" (not "failed") until Plan 03 adds the field.
-// Plan 03 removes the .skip once BillingSession has between_games_idle_seconds in @racingpoint/types.
-describe.skip('Phase 414 — BillingSession.between_games_idle_seconds field', () => {
-  test('field is optional number', () => {
+// Plan 03 removed .skip — BillingSession now has between_games_idle_seconds in @racingpoint/types.
+describe('Phase 414 — BillingSession.between_games_idle_seconds field', () => {
+  test('field is optional number on BillingSession type', () => {
     // 414-CONTRACT-01: shape assertion. Type-only — actual value population is server-side.
-    type BillingSessionWith414 = BillingSession & {
-      between_games_idle_seconds?: number;
-    };
-    const sample: BillingSessionWith414 = {
-      // Cast to satisfy required fields until Plan 03 extends the shared type
+    // BillingSession.between_games_idle_seconds is now part of @racingpoint/types (Plan 03).
+    const sample: BillingSession = {
+      id: 'sess-414',
+      driver_id: 'drv-1',
+      driver_name: 'Test Driver',
+      pod_id: 'pod_3',
+      pricing_tier_name: 'per-minute',
+      allocated_seconds: 86400,
+      driving_seconds: 1500,
+      remaining_seconds: 84900,
+      status: 'waiting_for_game',
+      driving_state: 'idle',
+      split_count: 1,
+      current_split_number: 1,
       between_games_idle_seconds: 720,
-    } as BillingSessionWith414;
+    };
     expect(
       typeof sample.between_games_idle_seconds === 'number' ||
         sample.between_games_idle_seconds === undefined,
     ).toBe(true);
+    expect(sample.between_games_idle_seconds).toBe(720);
+
+    // Also verify that omitting the field is valid (it's optional)
+    const sampleWithout: BillingSession = {
+      id: 'sess-415',
+      driver_id: 'drv-2',
+      driver_name: 'Another Driver',
+      pod_id: 'pod_1',
+      pricing_tier_name: 'per-minute',
+      allocated_seconds: 86400,
+      driving_seconds: 900,
+      remaining_seconds: 85500,
+      status: 'active',
+      driving_state: 'active',
+      split_count: 1,
+      current_split_number: 1,
+    };
+    expect(sampleWithout.between_games_idle_seconds).toBeUndefined();
   });
 });

@@ -969,6 +969,9 @@ export interface BillingSession {
   cost_paise?: number;
   rate_per_min_paise?: number;
   payment_method?: string;
+  recovery_pause_seconds?: number;
+  /** Phase 414: Mid-stream idle counter — present only when status='waiting_for_game' AND elapsed_seconds > 0. */
+  between_games_idle_seconds?: number;
 }
 
 export interface PricingTier {
