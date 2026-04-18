@@ -91,7 +91,18 @@ pub async fn check_game_health(state: &Arc<AppState>) {
     {
         let games = state.game_launcher.active_games.read().await;
         for (pod_id, tracker) in games.iter() {
-            if tracker.game_state == GameState::Launching {
+            // LOADING-TIMEOUT-FIX (2026-04-19): Loading and Launching both indicate the game
+            // is trying to start but hasn't reached Running. Previously only Launching triggered
+            // this timeout — rc-agent's process-detection emits Loading ONCE (loading_emitted flag)
+            // after process spawn, and the tracker flipped to Loading after that. Once in Loading,
+            // no timeout path fired in game_launcher_support, and the only safety net was BILL-14
+            // at ~3 min (gated on billing mode + vulnerable to the sim_type=None abort). A game
+            // stuck at the Loading screen (AC physics init hang, post-spawn Steam auth dialog,
+            // content-package load hang) left the kiosk UI on a silent spinner with no retry UX
+            // and no backend escalation beyond billing. Fix: include Loading in the timeout
+            // scan. handle_game_state_update -> dashboard_tx broadcasts GameState::Error, kiosk
+            // shows the Relaunch banner (KioskPodCard.tsx:529 / LiveSessionPanel.tsx:262).
+            if matches!(tracker.game_state, GameState::Launching | GameState::Loading) {
                 if let Some(launched_at) = tracker.launched_at {
                     let elapsed = now.signed_duration_since(launched_at);
                     let elapsed_secs = elapsed.num_seconds();
@@ -107,7 +118,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                     }
                     // GSTATE-01: Hard cap at 180s regardless of dynamic timeout
                     if !already_timed_out && elapsed_secs > 180 {
-                        tracing::warn!("GSTATE-01: Hard-cap 180s timeout for pod {} (dynamic was {}s)", pod_id, timeout_secs);
+                        tracing::warn!("GSTATE-01: Hard-cap 180s timeout for pod {} (dynamic was {}s, state={:?})", pod_id, timeout_secs, tracker.game_state);
                         timed_out.push((pod_id.clone(), tracker.sim_type, 180));
                     }
                 } else {
@@ -141,9 +152,10 @@ pub async fn check_game_health(state: &Arc<AppState>) {
         let mut games = state.game_launcher.active_games.write().await;
         for pod_id in &needs_launched_at {
             if let Some(tracker) = games.get_mut(pod_id)
-                && tracker.game_state == GameState::Launching && tracker.launched_at.is_none() {
+                && matches!(tracker.game_state, GameState::Launching | GameState::Loading)
+                && tracker.launched_at.is_none() {
                     tracker.launched_at = Some(now);
-                    tracing::warn!("GSTATE-01: Backfilled launched_at for pod {} (was None, likely from reconnect)", pod_id);
+                    tracing::warn!("GSTATE-01: Backfilled launched_at for pod {} (was None, likely from reconnect, state={:?})", pod_id, tracker.game_state);
                 }
         }
     }
