@@ -2235,12 +2235,12 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 5. Server restart mid-WaitingForGame → idle counter resets (customer-favourable but undocumented).
 6. Balance gate threshold definition (< 1 min @ ₹25/min = ₹25 floor?).
 
-**Plans:** 7 plans
+**Plans:** 3/7 plans executed
 
 Plans:
 - [x] 414-00-PLAN.md — Wave 0 TDD scaffolding (5 RED FSM tests + 9 ignored stubs + 2 fixtures)
 - [x] 414-01-PLAN.md — Wave 1 FSM TRANSITION_TABLE extension (Active+GameStopped, WaitingForGame+End/EndEarly)
-- [ ] 414-02-PLAN.md — Wave 2 BillingTimer.between_games_idle_seconds + tick branch + tick_all_timers candidate collection
+- [x] 414-02-PLAN.md — Wave 2 BillingTimer.between_games_idle_seconds + tick branch + tick_all_timers candidate collection
 - [ ] 414-03-PLAN.md — Wave 3 protocol additions (DashboardEvent::IdleWarning + BillingSessionInfo field) + TS cascade + IdleWarning broadcast
 - [ ] 414-04-PLAN.md — Wave 4 handle_game_off rewrite + handle_live_resume reset + tick_all_timers auto-end + stop_billing branch + stale query fix
 - [ ] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (with venue visual checkpoint)

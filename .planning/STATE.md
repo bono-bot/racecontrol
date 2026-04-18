@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T03:05:00.000Z"
+last_updated: "2026-04-18T03:17:28.088Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -106,11 +106,26 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
+## Phase 414 Plan 02 — Wave 2 BillingTimer idle counter + tick_all_timers candidate collection closed (2026-04-18)
+
+**Completed:** 2026-04-18T08:45 IST (GSD executor)
+**Scope:** 2 new fields on BillingTimer (between_games_idle_seconds + idle_warning_sent), tick() WaitingForGame arm extended (mid-stream increments idle counter, first-wait stays no-op), tick_all_timers WaitingForGame branch (sets idle_warning_sent inside lock at 600s, collects candidate post-lock). 3 Wave-0 tests un-ignored + implemented.
+**Commits:**
+- `c5d45d44` — Task 1: fields + tick() + 3 test stubs replaced with real bodies + 3 struct literal initializer fixes (Rule 1 auto-fix)
+- `8a271ecf` — Task 2: tick_all_timers WaitingForGame branch + idle_warnings_to_emit collector + placeholder log
+
+**Test result:** `cargo test -p racecontrol-crate --lib billing` = 183 passed, 0 failed, 4 ignored (4 remain ignored for Plan 04)
+**Full gate:** `cargo test -p racecontrol-crate --lib` = 975 passed, 0 failed, 5 ignored
+**Decisions:** between_games_idle_seconds in-memory only (D-CLOUD-SYNC); idle_warning_sent set inside lock (one-shot); tick() separation of concerns from tick_all_timers
+**Next plan:** 414-03 Wave 3 (protocol additions + IdleWarning broadcast — add DashboardEvent::IdleWarning variant, wire post-lock emission in tick_all_timers)
+**Summary:** `.planning/phases/414-continuous-billing-session/414-02-SUMMARY.md`
+
 ## Phase 414 Plan 01 — Wave 1 FSM table extension closed (2026-04-18)
 
 **Completed:** 2026-04-18 (GSD executor)
 **Scope:** 3 new TRANSITION_TABLE rows + remove 5 #[ignore] attributes. Pure const-array data change. 5 RED FSM tests → 5 GREEN.
 **Commits:**
+
 - `5b5f9304` — Active+GameStopped→WaitingForGame, WaitingForGame+End→Completed, WaitingForGame+EndEarly→EndedEarly + 5 #[ignore] removed + #[allow(dead_code)] removed + W3 closure comment
 
 **Test result:** `cargo test -p racecontrol-crate --lib billing_fsm` = 35 passed, 0 ignored, 0 failed (was 30 passed, 5 ignored)
@@ -255,7 +270,8 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
+*Last updated: 2026-04-18T08:45 IST — Phase 414-02 (Wave 2 BillingTimer idle counter) closed; 2 fields added + tick() arm extended + tick_all_timers branch + 3 Wave-0 tests GREEN; 975 lib tests passing (`c5d45d44` + `8a271ecf`)*
+*Previous: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
 *Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
 *Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
 *Previous: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
