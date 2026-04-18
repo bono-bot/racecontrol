@@ -2207,10 +2207,10 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 
 **Dependencies:** Phase 413 Plans 1-10 (shipped + pushed). Plan 11 partial (Tasks 1 + 2-prep committed, Task 2 failed, R1 recovered).
 
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
-- [ ] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
+- [x] 413.1-01-PLAN.md — deploy-server.sh Step 4 swap-line fix (3-step ren + auto-recover + backslash paths, addresses R1)
 - [ ] 413.1-02-PLAN.md — !errorlevel! elimination sweep across deploy-server.sh (R2 Permanence Gate via grep invariant)
 - [ ] 413.1-03-PLAN.md — racecontrol-prev.exe 72h preservation guard in start-racecontrol.bat via forfiles (R3)
 - [ ] 413.1-04-PLAN.md — StartRCTemp vs StartRCDirect investigation + decision (Option A/B/C, R4)
