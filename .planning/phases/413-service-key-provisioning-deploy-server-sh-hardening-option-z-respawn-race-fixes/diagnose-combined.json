@@ -1,0 +1,345 @@
+[
+  {
+    "file": "diagnose-deepseek_deepseek-chat-v3-0324.json",
+    "model": "deepseek/deepseek-chat-v3-0324",
+    "usage": {
+      "prompt_tokens": 3252,
+      "completion_tokens": 451,
+      "total_tokens": 3703,
+      "cost": 0.001264,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.001264,
+        "upstream_inference_prompt_cost": 0.000813,
+        "upstream_inference_completions_cost": 0.000451
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "raw_content": "```json\n{\n  \"model\": \"claude-3-opus-20240229\",\n  \"score_deploy_ready\": 4.0,\n  \"consensus_concerns\": [\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 1,\n      \"issue\": \"Pod IP gating may not be sufficient - customer WiFi on 192.168.31.* could access the endpoint (crates/racecontrol/src/network_source.rs: classify_ip). Tailscale traffic from any Tailnet node could also access.\",\n      \"mitigation_suggested\": \"Add additional auth layer for /pods/mesh-service-key endpoint\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 2,\n      \"issue\": \"Empty TOML value causes all pods to overwrite cache to None (crates/racecontrol/src/api/mesh_intelligence.rs) - could lead to silent failures\",\n      \"mitigation_suggested\": \"Add server-side validation to reject empty keys\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"WMIC deprecation in Windows 11 24H2+ (deploy-server.sh) - will break silently on future updates\",\n      \"mitigation_suggested\": \"Replace WMIC with PowerShell alternative\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 7,\n      \"issue\": \"Initial boot race condition - if server unreachable, no auth for 300s (crates/rc-agent/src/main.rs)\",\n      \"mitigation_suggested\": \"Implement immediate retry with backoff on first fetch\"\n    },\n    {\n      \"severity\": \"LOW\",\n      \"question\": 4,\n      \"issue\": \"Missing integration test for periodic refetch execution (crates/rc-agent/src/mesh_key_cache.rs)\",\n      \"mitigation_suggested\": \"Add integration test for timer behavior\"\n    }\n  ],\n  \"one_liner_summary\": \"Generally sound but with critical auth boundary concerns and several medium-risk issues requiring attention before full deployment.\"\n}\n```",
+    "findings": {
+      "model": "claude-3-opus-20240229",
+      "score_deploy_ready": 4,
+      "consensus_concerns": [
+        {
+          "severity": "HIGH",
+          "question": 1,
+          "issue": "Pod IP gating may not be sufficient - customer WiFi on 192.168.31.* could access the endpoint (crates/racecontrol/src/network_source.rs: classify_ip). Tailscale traffic from any Tailnet node could also access.",
+          "mitigation_suggested": "Add additional auth layer for /pods/mesh-service-key endpoint"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 2,
+          "issue": "Empty TOML value causes all pods to overwrite cache to None (crates/racecontrol/src/api/mesh_intelligence.rs) - could lead to silent failures",
+          "mitigation_suggested": "Add server-side validation to reject empty keys"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "WMIC deprecation in Windows 11 24H2+ (deploy-server.sh) - will break silently on future updates",
+          "mitigation_suggested": "Replace WMIC with PowerShell alternative"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 7,
+          "issue": "Initial boot race condition - if server unreachable, no auth for 300s (crates/rc-agent/src/main.rs)",
+          "mitigation_suggested": "Implement immediate retry with backoff on first fetch"
+        },
+        {
+          "severity": "LOW",
+          "question": 4,
+          "issue": "Missing integration test for periodic refetch execution (crates/rc-agent/src/mesh_key_cache.rs)",
+          "mitigation_suggested": "Add integration test for timer behavior"
+        }
+      ],
+      "one_liner_summary": "Generally sound but with critical auth boundary concerns and several medium-risk issues requiring attention before full deployment."
+    }
+  },
+  {
+    "file": "diagnose-deepseek_deepseek-r1-0528.json",
+    "model": "deepseek/deepseek-r1-0528",
+    "usage": {
+      "prompt_tokens": 3252,
+      "completion_tokens": 4142,
+      "total_tokens": 7394,
+      "cost": 0.01065556,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.01065556,
+        "upstream_inference_prompt_cost": 0.001626,
+        "upstream_inference_completions_cost": 0.00902956
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 3548,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "raw_content": "{\n  \"model\": \"claude-3-opus-20240229\",\n  \"score_deploy_ready\": 3.0,\n  \"consensus_concerns\": [\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 2,\n      \"issue\": \"crates/racecontrol/src/api/mesh_intelligence.rs: handler returns empty key when state.config.pods.sentry_service_key is empty, causing pods to overwrite cache to None → fleet-wide Tier 0/remote_ops failure. No server-side guard against empty key.\",\n      \"mitigation_suggested\": \"Add server-side validation to reject empty keys in TOML config\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"deploy-server.sh:~215: WMIC command deprecated in Win11 24H2+ → future Factor 3 (watchdog kill) failure. Line ~268: OTA_DEPLOYING sentinel deletion occurs after curl; interrupt during curl leaves stale sentinel → watchdog blocked.\",\n      \"mitigation_suggested\": \"Replace WMIC with Get-CimInstance; add pre-curl sentinel cleanup trap\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 7,\n      \"issue\": \"crates/rc-agent/src/main.rs: initial sync fetch best-effort; if server unreachable and env unset (post-Plan 11), remote_ops rejects all requests, ai_debugger Tier 0 disabled for ≤300s → customer-facing outage during bootstrap.\",\n      \"mitigation_suggested\": \"Implement blocking retry for initial fetch or preserve env until first successful cache\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 8,\n      \"issue\": \"crates/rc-agent/src/ws_handler.rs: csv_lap_fallback lacks 401 warn equivalent to ai_debugger's W5 fix → silent 401s on push paths won't trigger alerts. No log line surfaces key mismatch.\",\n      \"mitigation_suggested\": \"Add tracing::warn! on 401 response in csv_lap_fallback push logic\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 4,\n      \"issue\": \"Missing integration test: periodic refetch timer (300s) actually triggers. Missing unit test: remote_ops middleware behavior when get_key_or_env returns None → rejects with 401?\",\n      \"mitigation_suggested\": \"Add tokio-test interval mock; test middleware None→401 behavior\"\n    }\n  ],\n  \"one_liner_summary\": \"Fleet-wide outage risk if server key emptied (HIGH), plus medium risks in deploy future-proofing, bootstrap resilience, push observability, and test coverage.\"\n}",
+    "findings": {
+      "model": "claude-3-opus-20240229",
+      "score_deploy_ready": 3,
+      "consensus_concerns": [
+        {
+          "severity": "HIGH",
+          "question": 2,
+          "issue": "crates/racecontrol/src/api/mesh_intelligence.rs: handler returns empty key when state.config.pods.sentry_service_key is empty, causing pods to overwrite cache to None → fleet-wide Tier 0/remote_ops failure. No server-side guard against empty key.",
+          "mitigation_suggested": "Add server-side validation to reject empty keys in TOML config"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "deploy-server.sh:~215: WMIC command deprecated in Win11 24H2+ → future Factor 3 (watchdog kill) failure. Line ~268: OTA_DEPLOYING sentinel deletion occurs after curl; interrupt during curl leaves stale sentinel → watchdog blocked.",
+          "mitigation_suggested": "Replace WMIC with Get-CimInstance; add pre-curl sentinel cleanup trap"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 7,
+          "issue": "crates/rc-agent/src/main.rs: initial sync fetch best-effort; if server unreachable and env unset (post-Plan 11), remote_ops rejects all requests, ai_debugger Tier 0 disabled for ≤300s → customer-facing outage during bootstrap.",
+          "mitigation_suggested": "Implement blocking retry for initial fetch or preserve env until first successful cache"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 8,
+          "issue": "crates/rc-agent/src/ws_handler.rs: csv_lap_fallback lacks 401 warn equivalent to ai_debugger's W5 fix → silent 401s on push paths won't trigger alerts. No log line surfaces key mismatch.",
+          "mitigation_suggested": "Add tracing::warn! on 401 response in csv_lap_fallback push logic"
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 4,
+          "issue": "Missing integration test: periodic refetch timer (300s) actually triggers. Missing unit test: remote_ops middleware behavior when get_key_or_env returns None → rejects with 401?",
+          "mitigation_suggested": "Add tokio-test interval mock; test middleware None→401 behavior"
+        }
+      ],
+      "one_liner_summary": "Fleet-wide outage risk if server key emptied (HIGH), plus medium risks in deploy future-proofing, bootstrap resilience, push observability, and test coverage."
+    }
+  },
+  {
+    "file": "diagnose-google_gemini-2_5-flash.json",
+    "model": "google/gemini-2.5-flash",
+    "usage": {
+      "prompt_tokens": 3541,
+      "completion_tokens": 1700,
+      "total_tokens": 5241,
+      "cost": 0.0053123,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0053123,
+        "upstream_inference_prompt_cost": 0.0010623,
+        "upstream_inference_completions_cost": 0.00425
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "raw_content": "```json\n{\n  \"model\": \"Claude 3.5 Sonnet\",\n  \"score_deploy_ready\": 3.0,\n  \"consensus_concerns\": [\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 1,\n      \"issue\": \"crates/racecontrol/src/network_source.rs:classify_ip: The classification of `192.168.31.130` as `Pod` is problematic. Customer WiFi on the LAN segment `192.168.31.*` could potentially spoof this IP or a misconfigured device could acquire it, allowing unauthorized access to `/pods/mesh-service-key`. While `require_pod_source` is fail-closed, the IP classification itself is a weak authentication boundary for a secret.\",\n      \"mitigation_suggested\": \"Implement a stronger authentication mechanism for `/pods/mesh-service-key` that doesn't rely solely on IP address, e.g., mutual TLS or a pre-shared key in the request header, especially for LAN-based access. If IP-based is strictly required, narrow the IP range or use a dedicated, non-routable IP for the POS.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 1,\n      \"issue\": \"crates/racecontrol/src/network_source.rs:classify_ip: The `require_pod_source` middleware relies on `ConnectInfo` for the client IP. If the server is behind a proxy that doesn't correctly pass the client IP (e.g., misconfigured `X-Forwarded-For` or `Forwarded` headers, or if the proxy itself is trusted), an attacker could potentially spoof the source IP to gain access to `/pods/mesh-service-key`.\",\n      \"mitigation_suggested\": \"Ensure the server's proxy configuration (e.g., `axum::extract::ConnectInfo` setup) is robust against IP spoofing, especially if it's exposed to untrusted networks. Document the expected proxy setup and its implications for `ConnectInfo`.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 2,\n      \"issue\": \"crates/rc-agent/src/mesh_key_cache.rs:fetch_from_server: The behavior of `200 + empty mesh_service_key OR missing field ? cache = None` is a silent failure mode. If an operator accidentally empties `pods.sentry_service_key` in `racecontrol.toml`, all pods will overwrite their cache to `None` within 300s, leading to all Tier 0 checks going silent without an explicit error or warning in the server logs.\",\n      \"mitigation_suggested\": \"The server's `pods_mesh_service_key` handler should return a 4xx error (e.g., 404 Not Found or 400 Bad Request) if `sentry_service_key` is empty or missing, instead of an empty string with 200 OK. This would cause `fetch_from_server` to log a warning and preserve the last-known-good key, alerting the operator to the misconfiguration.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"deploy-server.sh:line ~215, ~268, ~336: The `WMIC` command for killing the watchdog process is deprecated in Windows 11 24H2+. While the current server `.23` might support it, future OS updates could silently break this critical step in the deploy script, leading to watchdog processes persisting during deployment and potential conflicts or data corruption.\",\n      \"mitigation_suggested\": \"Replace `WMIC` with a more future-proof method for process termination, such as `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*start-racecontrol-watchdog.ps1*' } | Invoke-CimMethod -MethodName Terminate` using PowerShell, or a direct `taskkill /F /IM powershell.exe /FI \\\"COMMANDLINE eq *start-racecontrol-watchdog.ps1*\\\"` if `taskkill` supports commandline filtering (it doesn't, so PowerShell is better).\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"deploy-server.sh:line ~215: The `%%` escape in the WMIC command `commandline like '%%start-racecontrol-watchdog.ps1%%'` is sensitive to the execution environment. If `rc-sentry`'s exec handler or the underlying shell changes how it invokes `cmd /C` (e.g., direct `CreateProcessW` without `cmd /C`), the `%%` might be interpreted literally, causing the WMIC command to match nothing and fail to kill the watchdog.\",\n      \"mitigation_suggested\": \"Test the WMIC command's behavior thoroughly in the exact execution environment of `rc-sentry`. Consider using a more robust and less shell-dependent method for process matching, or ensure the `rc-sentry` execution environment guarantees `cmd /C` behavior for `%%` escapes.\"\n    },\n    {\n      \"severity\": \"LOW\",\n      \"question\": 8,\n      \"issue\": \"crates/rc-agent/src/ws_handler.rs: The `csv_lap_fallback` path resolves the key inside `tokio::spawn` and uses it for `analyze_crash`. While `fetch_from_server` and `ai_debugger::check_audit_known_issues` emit `tracing::warn!` on 403, there's no explicit mention of similar logging for the `csv_lap_fallback` path if the key is `None` or if the subsequent HTTP request (e.g., to Sentry) fails due to an invalid key. This could lead to silent failures of CSV pushes.\",\n      \"mitigation_suggested\": \"Add explicit `tracing::warn!` or `tracing::error!` statements within the `csv_lap_fallback` logic in `ws_handler.rs` if `get_key_or_env` returns `None` or if the subsequent API call using the key results in a 401/403, to ensure observability of silent failures.\"\n    },\n    {\n      \"severity\": \"LOW\",\n      \"question\": 7,\n      \"issue\": \"crates/rc-agent/src/main.rs: The initial synchronous best-effort `fetch_from_server` at boot is designed not to block startup. However, if the server is unreachable at first boot and the cache remains `None`, and `RCAGENT_SERVICE_KEY` is also unset (per Plan 11), `remote_ops` middleware will reject requests (as `require_service_key` gets `None` from `get_key_or_env`), leading to a customer-visible outage for up to 300 seconds until the periodic refetch succeeds.\",\n      \"mitigation_suggested\": \"Consider a short, blocking retry loop for the initial `fetch_from_server` at boot (e.g., 3 retries with 1-second backoff) to increase the chance of successful key acquisition before the agent starts serving requests. Alternatively, document this potential 300s outage window and ensure monitoring is in place to detect it.\"\n    }\n  ],\n  \"one_liner_summary\": \"The phase introduces critical security and reliability improvements, but IP-based authentication for the secret endpoint and silent failure modes for empty keys pose significant risks, alongside deploy script fragility.\"\n}\n```",
+    "findings": {
+      "model": "Claude 3.5 Sonnet",
+      "score_deploy_ready": 3,
+      "consensus_concerns": [
+        {
+          "severity": "HIGH",
+          "question": 1,
+          "issue": "crates/racecontrol/src/network_source.rs:classify_ip: The classification of `192.168.31.130` as `Pod` is problematic. Customer WiFi on the LAN segment `192.168.31.*` could potentially spoof this IP or a misconfigured device could acquire it, allowing unauthorized access to `/pods/mesh-service-key`. While `require_pod_source` is fail-closed, the IP classification itself is a weak authentication boundary for a secret.",
+          "mitigation_suggested": "Implement a stronger authentication mechanism for `/pods/mesh-service-key` that doesn't rely solely on IP address, e.g., mutual TLS or a pre-shared key in the request header, especially for LAN-based access. If IP-based is strictly required, narrow the IP range or use a dedicated, non-routable IP for the POS."
+        },
+        {
+          "severity": "HIGH",
+          "question": 1,
+          "issue": "crates/racecontrol/src/network_source.rs:classify_ip: The `require_pod_source` middleware relies on `ConnectInfo` for the client IP. If the server is behind a proxy that doesn't correctly pass the client IP (e.g., misconfigured `X-Forwarded-For` or `Forwarded` headers, or if the proxy itself is trusted), an attacker could potentially spoof the source IP to gain access to `/pods/mesh-service-key`.",
+          "mitigation_suggested": "Ensure the server's proxy configuration (e.g., `axum::extract::ConnectInfo` setup) is robust against IP spoofing, especially if it's exposed to untrusted networks. Document the expected proxy setup and its implications for `ConnectInfo`."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 2,
+          "issue": "crates/rc-agent/src/mesh_key_cache.rs:fetch_from_server: The behavior of `200 + empty mesh_service_key OR missing field ? cache = None` is a silent failure mode. If an operator accidentally empties `pods.sentry_service_key` in `racecontrol.toml`, all pods will overwrite their cache to `None` within 300s, leading to all Tier 0 checks going silent without an explicit error or warning in the server logs.",
+          "mitigation_suggested": "The server's `pods_mesh_service_key` handler should return a 4xx error (e.g., 404 Not Found or 400 Bad Request) if `sentry_service_key` is empty or missing, instead of an empty string with 200 OK. This would cause `fetch_from_server` to log a warning and preserve the last-known-good key, alerting the operator to the misconfiguration."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "deploy-server.sh:line ~215, ~268, ~336: The `WMIC` command for killing the watchdog process is deprecated in Windows 11 24H2+. While the current server `.23` might support it, future OS updates could silently break this critical step in the deploy script, leading to watchdog processes persisting during deployment and potential conflicts or data corruption.",
+          "mitigation_suggested": "Replace `WMIC` with a more future-proof method for process termination, such as `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*start-racecontrol-watchdog.ps1*' } | Invoke-CimMethod -MethodName Terminate` using PowerShell, or a direct `taskkill /F /IM powershell.exe /FI \"COMMANDLINE eq *start-racecontrol-watchdog.ps1*\"` if `taskkill` supports commandline filtering (it doesn't, so PowerShell is better)."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "deploy-server.sh:line ~215: The `%%` escape in the WMIC command `commandline like '%%start-racecontrol-watchdog.ps1%%'` is sensitive to the execution environment. If `rc-sentry`'s exec handler or the underlying shell changes how it invokes `cmd /C` (e.g., direct `CreateProcessW` without `cmd /C`), the `%%` might be interpreted literally, causing the WMIC command to match nothing and fail to kill the watchdog.",
+          "mitigation_suggested": "Test the WMIC command's behavior thoroughly in the exact execution environment of `rc-sentry`. Consider using a more robust and less shell-dependent method for process matching, or ensure the `rc-sentry` execution environment guarantees `cmd /C` behavior for `%%` escapes."
+        },
+        {
+          "severity": "LOW",
+          "question": 8,
+          "issue": "crates/rc-agent/src/ws_handler.rs: The `csv_lap_fallback` path resolves the key inside `tokio::spawn` and uses it for `analyze_crash`. While `fetch_from_server` and `ai_debugger::check_audit_known_issues` emit `tracing::warn!` on 403, there's no explicit mention of similar logging for the `csv_lap_fallback` path if the key is `None` or if the subsequent HTTP request (e.g., to Sentry) fails due to an invalid key. This could lead to silent failures of CSV pushes.",
+          "mitigation_suggested": "Add explicit `tracing::warn!` or `tracing::error!` statements within the `csv_lap_fallback` logic in `ws_handler.rs` if `get_key_or_env` returns `None` or if the subsequent API call using the key results in a 401/403, to ensure observability of silent failures."
+        },
+        {
+          "severity": "LOW",
+          "question": 7,
+          "issue": "crates/rc-agent/src/main.rs: The initial synchronous best-effort `fetch_from_server` at boot is designed not to block startup. However, if the server is unreachable at first boot and the cache remains `None`, and `RCAGENT_SERVICE_KEY` is also unset (per Plan 11), `remote_ops` middleware will reject requests (as `require_service_key` gets `None` from `get_key_or_env`), leading to a customer-visible outage for up to 300 seconds until the periodic refetch succeeds.",
+          "mitigation_suggested": "Consider a short, blocking retry loop for the initial `fetch_from_server` at boot (e.g., 3 retries with 1-second backoff) to increase the chance of successful key acquisition before the agent starts serving requests. Alternatively, document this potential 300s outage window and ensure monitoring is in place to detect it."
+        }
+      ],
+      "one_liner_summary": "The phase introduces critical security and reliability improvements, but IP-based authentication for the secret endpoint and silent failure modes for empty keys pose significant risks, alongside deploy script fragility."
+    }
+  },
+  {
+    "file": "diagnose-qwen_qwen3-235b-a22b-2507.json",
+    "model": "qwen/qwen3-235b-a22b-07-25",
+    "usage": {
+      "prompt_tokens": 3220,
+      "completion_tokens": 1077,
+      "total_tokens": 4297,
+      "cost": 0.000936,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.000936,
+        "upstream_inference_prompt_cost": 0.0002898,
+        "upstream_inference_completions_cost": 0.0006462
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "raw_content": "```json\n{\n  \"model\": \"audit-mma-v4\",\n  \"score_deploy_ready\": 2.5,\n  \"consensus_concerns\": [\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 1,\n      \"issue\": \"crates/racecontrol/src/network_source.rs: classify_ip treats 192.168.31.130 (POS LAN) as Pod, but customer WiFi shares 192.168.31.* LAN; no VLAN or L2 isolation mentioned. An attacker on customer WiFi can spoof source IP to 192.168.31.130 and access /pods/mesh-service-key if they bypass DHCP or ARP spoofing defenses. ConnectInfo (IP) is not authenticated; X-Forwarded-For not mentioned as filtered. Tailscale traffic from any node in Tailnet with IP 100.95.211.1 can access the endpoint. Bono VPS (100.70.177.44) is Cloud but could spoof 100.95.211.1. No proof that IP source is trusted.\",\n      \"mitigation_suggested\": \"Add mutual TLS or API key requirement for /pods/mesh-service-key; do not rely solely on IP.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 2,\n      \"issue\": \"crates/rc-agent/src/mesh_key_cache.rs: fetch_from_server overwrites cache with None on 200+empty response (line 142-145). If operator clears pods.sentry_service_key in TOML, all pods lose Tier 0 within 300s with no alarm. No guard against empty string in server handler. Silent total failure mode.\",\n      \"mitigation_suggested\": \"Server should return 500 or refuse to load config if pods.sentry_service_key is missing/empty.\"\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 7,\n      \"issue\": \"crates/rc-agent/src/main.rs: initial fetch_from_server at boot is best-effort (line ~320); if server is unreachable, cache remains None. remote_ops::require_service_key (src/remote_ops.rs) returns 401 if get_key_or_env returns None (no permissive mode). ai_debugger degrades open (returns None). Customer impact: remote_ops blocks all ops for 300s until next refetch. No retry backoff or fast retry on boot.\",\n      \"mitigation_suggested\": \"Add exponential backoff retry loop on boot fetch until success or timeout.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 3,\n      \"issue\": \"crates/rc-agent/src/mesh_key_cache.rs: RwLock usage is correct per semantics (no await under lock), but under heavy reader load (100s req/s), periodic writer may starve. tokio::sync::RwLock does not guarantee fairness. Possible liveness issue if readers never drain.\",\n      \"mitigation_suggested\": \"Consider using a mutex with explicit timeouts or switch to mpsc broadcast channel for cache updates.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"deploy-server.sh: WMIC command uses `%%` escaping for `cmd /C` context. If rc-sentry exec changes to CreateProcessW without cmd.exe (line ~215), `%%` becomes literal `%`, WMIC pattern fails to match, watchdog not killed. Also, WMIC deprecated in Win11 24H2+; server reimaging breaks deploy.\",\n      \"mitigation_suggested\": \"Use PowerShell Get-WmiObject or migrate to CIM cmdlets with backward compatibility shim.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 8,\n      \"issue\": \"crates/rc-agent/src/ws_handler.rs: csv_lap_fallback uses get_key_or_env but does not log if key is None or request fails with 401. No tracing::warn emitted on 401 push. Silent failure possible. No alert defined for failed csv fallback pushes.\",\n      \"mitigation_suggested\": \"Add explicit warn log on 401/403 in csv_lap_fallback push path.\"\n    },\n    {\n      \"severity\": \"LOW\",\n      \"question\": 4,\n      \"issue\": \"crates/rc-agent/src/mesh_key_cache.rs: Tests cover unit logic but no integration test verifies that spawn_periodic_refetch actually triggers every 300s (e.g., via tokio::time::pause). No test for cache = Some(\\\"\\\") state and how remote_ops handles it (treated as None).\",\n      \"mitigation_suggested\": \"Add integration test with virtual time to validate timer execution and edge case for empty string in cache.\"\n    }\n  ],\n  \"one_liner_summary\": \"Critical auth boundary and silent failure risks in key distribution prevent safe deployment.\"\n}\n```",
+    "findings": {
+      "model": "audit-mma-v4",
+      "score_deploy_ready": 2.5,
+      "consensus_concerns": [
+        {
+          "severity": "HIGH",
+          "question": 1,
+          "issue": "crates/racecontrol/src/network_source.rs: classify_ip treats 192.168.31.130 (POS LAN) as Pod, but customer WiFi shares 192.168.31.* LAN; no VLAN or L2 isolation mentioned. An attacker on customer WiFi can spoof source IP to 192.168.31.130 and access /pods/mesh-service-key if they bypass DHCP or ARP spoofing defenses. ConnectInfo (IP) is not authenticated; X-Forwarded-For not mentioned as filtered. Tailscale traffic from any node in Tailnet with IP 100.95.211.1 can access the endpoint. Bono VPS (100.70.177.44) is Cloud but could spoof 100.95.211.1. No proof that IP source is trusted.",
+          "mitigation_suggested": "Add mutual TLS or API key requirement for /pods/mesh-service-key; do not rely solely on IP."
+        },
+        {
+          "severity": "HIGH",
+          "question": 2,
+          "issue": "crates/rc-agent/src/mesh_key_cache.rs: fetch_from_server overwrites cache with None on 200+empty response (line 142-145). If operator clears pods.sentry_service_key in TOML, all pods lose Tier 0 within 300s with no alarm. No guard against empty string in server handler. Silent total failure mode.",
+          "mitigation_suggested": "Server should return 500 or refuse to load config if pods.sentry_service_key is missing/empty."
+        },
+        {
+          "severity": "HIGH",
+          "question": 7,
+          "issue": "crates/rc-agent/src/main.rs: initial fetch_from_server at boot is best-effort (line ~320); if server is unreachable, cache remains None. remote_ops::require_service_key (src/remote_ops.rs) returns 401 if get_key_or_env returns None (no permissive mode). ai_debugger degrades open (returns None). Customer impact: remote_ops blocks all ops for 300s until next refetch. No retry backoff or fast retry on boot.",
+          "mitigation_suggested": "Add exponential backoff retry loop on boot fetch until success or timeout."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 3,
+          "issue": "crates/rc-agent/src/mesh_key_cache.rs: RwLock usage is correct per semantics (no await under lock), but under heavy reader load (100s req/s), periodic writer may starve. tokio::sync::RwLock does not guarantee fairness. Possible liveness issue if readers never drain.",
+          "mitigation_suggested": "Consider using a mutex with explicit timeouts or switch to mpsc broadcast channel for cache updates."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "deploy-server.sh: WMIC command uses `%%` escaping for `cmd /C` context. If rc-sentry exec changes to CreateProcessW without cmd.exe (line ~215), `%%` becomes literal `%`, WMIC pattern fails to match, watchdog not killed. Also, WMIC deprecated in Win11 24H2+; server reimaging breaks deploy.",
+          "mitigation_suggested": "Use PowerShell Get-WmiObject or migrate to CIM cmdlets with backward compatibility shim."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 8,
+          "issue": "crates/rc-agent/src/ws_handler.rs: csv_lap_fallback uses get_key_or_env but does not log if key is None or request fails with 401. No tracing::warn emitted on 401 push. Silent failure possible. No alert defined for failed csv fallback pushes.",
+          "mitigation_suggested": "Add explicit warn log on 401/403 in csv_lap_fallback push path."
+        },
+        {
+          "severity": "LOW",
+          "question": 4,
+          "issue": "crates/rc-agent/src/mesh_key_cache.rs: Tests cover unit logic but no integration test verifies that spawn_periodic_refetch actually triggers every 300s (e.g., via tokio::time::pause). No test for cache = Some(\"\") state and how remote_ops handles it (treated as None).",
+          "mitigation_suggested": "Add integration test with virtual time to validate timer execution and edge case for empty string in cache."
+        }
+      ],
+      "one_liner_summary": "Critical auth boundary and silent failure risks in key distribution prevent safe deployment."
+    }
+  },
+  {
+    "file": "diagnose-xiaomi_mimo-v2-pro.json",
+    "model": "xiaomi/mimo-v2-pro-20260318",
+    "usage": {
+      "prompt_tokens": 3461,
+      "completion_tokens": 2924,
+      "total_tokens": 6385,
+      "cost": 0.0120794,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 192,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0120794,
+        "upstream_inference_prompt_cost": 0.0033074,
+        "upstream_inference_completions_cost": 0.008772
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 2444,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "raw_content": "{\n  \"model\": \"MiMo-v2-pro\",\n  \"score_deploy_ready\": 3.0,\n  \"consensus_concerns\": [\n    {\n      \"severity\": \"HIGH\",\n      \"question\": 2,\n      \"issue\": \"In crates/rc-agent/src/mesh_key_cache.rs, fetch_from_server overwrites cache to None on 200+empty key from server; if operator accidentally empties pods.sentry_service_key in TOML, all pods lose auth within 300s with no alert, silencing Tier 0 checks.\",\n      \"mitigation_suggested\": \"Add server-side guard in mesh_intelligence.rs to log error or refuse serving empty key.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 5,\n      \"issue\": \"In deploy-server.sh, WMIC command for watchdog kill is deprecated in Windows 11 24H2+; if server is reimaged, factor 3 breaks silently.\",\n      \"mitigation_suggested\": \"Replace WMIC with taskkill using commandline filter or PowerShell CimInstance for future compatibility.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 7,\n      \"issue\": \"In crates/rc-agent/src/main.rs, boot fetch is best-effort; if server unreachable at first boot, cache stays None for 300s, causing remote_ops to reject requests (fail-closed) and ai_debugger Tier 0 unavailable during window.\",\n      \"mitigation_suggested\": \"Implement retry with exponential backoff on boot or ensure server availability during deploy.\"\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"question\": 8,\n      \"issue\": \"In crates/rc-agent/src/ws_handler.rs, csv_lap_fallback push path lacks warn log on auth failure; if key is wrong, silent 401 errors may persist without alerting.\",\n      \"mitigation_suggested\": \"Add tracing::warn! in push_csv_fallback when HTTP response indicates auth error (e.g., 401).\"\n    }\n  ],\n  \"one_liner_summary\": \"Phase 413's cross-system bridge has sound architecture but risks in empty-key handling, deploy script future-proofing, bootstrap resilience, and observability gaps.\"\n}",
+    "findings": {
+      "model": "MiMo-v2-pro",
+      "score_deploy_ready": 3,
+      "consensus_concerns": [
+        {
+          "severity": "HIGH",
+          "question": 2,
+          "issue": "In crates/rc-agent/src/mesh_key_cache.rs, fetch_from_server overwrites cache to None on 200+empty key from server; if operator accidentally empties pods.sentry_service_key in TOML, all pods lose auth within 300s with no alert, silencing Tier 0 checks.",
+          "mitigation_suggested": "Add server-side guard in mesh_intelligence.rs to log error or refuse serving empty key."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 5,
+          "issue": "In deploy-server.sh, WMIC command for watchdog kill is deprecated in Windows 11 24H2+; if server is reimaged, factor 3 breaks silently.",
+          "mitigation_suggested": "Replace WMIC with taskkill using commandline filter or PowerShell CimInstance for future compatibility."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 7,
+          "issue": "In crates/rc-agent/src/main.rs, boot fetch is best-effort; if server unreachable at first boot, cache stays None for 300s, causing remote_ops to reject requests (fail-closed) and ai_debugger Tier 0 unavailable during window.",
+          "mitigation_suggested": "Implement retry with exponential backoff on boot or ensure server availability during deploy."
+        },
+        {
+          "severity": "MEDIUM",
+          "question": 8,
+          "issue": "In crates/rc-agent/src/ws_handler.rs, csv_lap_fallback push path lacks warn log on auth failure; if key is wrong, silent 401 errors may persist without alerting.",
+          "mitigation_suggested": "Add tracing::warn! in push_csv_fallback when HTTP response indicates auth error (e.g., 401)."
+        }
+      ],
+      "one_liner_summary": "Phase 413's cross-system bridge has sound architecture but risks in empty-key handling, deploy script future-proofing, bootstrap resilience, and observability gaps."
+    }
+  }
+]

@@ -1,0 +1,41 @@
+[
+  {
+    "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "findings": {
+      "model": "GPT-5.4 Nano",
+      "score_deploy_ready": 4,
+      "whitespace_fix_adequate": "YES",
+      "c1_accepted_risk_defensible_after_full_mitigation_disclosure": "PARTIAL",
+      "any_new_HIGH_concerns": [],
+      "recommendation": "SHIP",
+      "one_liner": "Ship with documented risks and mitigations in place."
+    },
+    "tokens": 1017
+  },
+  {
+    "model": "mistralai/mistral-large-2512",
+    "findings": {
+      "model": "GPT-5.4 Nano",
+      "score_deploy_ready": 4,
+      "whitespace_fix_adequate": "YES",
+      "c1_accepted_risk_defensible_after_full_mitigation_disclosure": "PARTIAL",
+      "any_new_HIGH_concerns": [],
+      "recommendation": "SHIP",
+      "one_liner": "Whitespace fix resolves prior HIGH; C-1 risk documented and mitigated per trust model constraints."
+    },
+    "tokens": 1097
+  },
+  {
+    "model": "x-ai/grok-4.1-fast",
+    "findings": {
+      "model": "Grok",
+      "score_deploy_ready": 4,
+      "whitespace_fix_adequate": "YES",
+      "c1_accepted_risk_defensible_after_full_mitigation_disclosure": "PARTIAL",
+      "any_new_HIGH_concerns": [],
+      "recommendation": "SHIP",
+      "one_liner": "Whitespace fix solid with tests; C-1 partial-defensible via mitigations/docs. Ship."
+    },
+    "tokens": 1806
+  }
+]

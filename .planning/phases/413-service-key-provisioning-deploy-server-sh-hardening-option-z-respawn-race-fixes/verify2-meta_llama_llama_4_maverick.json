@@ -1,0 +1,19 @@
+
+         
+
+         
+
+         
+
+         
+
+         
+
+         
+
+         
+
+         
+
+         
+{"id":"gen-1776474114-OLwj08x7CSnQwD4qBSjg","object":"chat.completion","created":1776474114,"model":"meta-llama/llama-4-maverick-17b-128e-instruct","provider":"DeepInfra","system_fingerprint":null,"choices":[{"index":0,"logprobs":null,"finish_reason":"stop","native_finish_reason":"stop","message":{"role":"assistant","content":"```json\n{\n  \"model\": \"GPT-5.4 Nano\",\n  \"score_deploy_ready\": 4.0,\n  \"whitespace_fix_adequate\": \"YES\",\n  \"c1_accepted_risk_defensible_after_full_mitigation_disclosure\": \"PARTIAL\",\n  \"any_new_HIGH_concerns\": [],\n  \"recommendation\": \"SHIP\",\n  \"one_liner\": \"Ship with documented risks and mitigations in place.\"\n}\n```","refusal":null,"reasoning":null}}],"usage":{"prompt_tokens":917,"completion_tokens":100,"total_tokens":1017,"cost":0.00019755,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"cache_write_tokens":0,"audio_tokens":0,"video_tokens":0},"cost_details":{"upstream_inference_cost":0.00019755,"upstream_inference_prompt_cost":0.00013755,"upstream_inference_completions_cost":0.00006},"completion_tokens_details":{"reasoning_tokens":0,"image_tokens":0,"audio_tokens":0}}}

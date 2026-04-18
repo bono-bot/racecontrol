@@ -1,0 +1,91 @@
+[
+  {
+    "model": "moonshotai/kimi-k2.5-0127",
+    "findings": {
+      "model": "adversarial-reviewer-456",
+      "score_deploy_ready": 2,
+      "close_c2_fix": "INADEQUATE",
+      "close_c5_fix": "INADEQUATE",
+      "c1_accepted_risk_defensible": "PARTIAL",
+      "new_concerns_after_fix": [
+        {
+          "severity": "HIGH",
+          "issue": "Whitespace-only TOML key (e.g., \"   \") bypasses !k.is_empty() check, served as 200 OK and cached as valid key, causing silent fleet-wide auth failures for 300s until next fetch (crates/racecontrol/src/api/mesh_intelligence.rs:Some(k) if !k.is_empty() arm)"
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "Server-side tracing::error! on empty key lacks alerting hook; operator emptying key produces no page/alert without external log aggregation (crates/racecontrol/src/api/mesh_intelligence.rs:tracing::error! line)"
+        },
+        {
+          "severity": "HIGH",
+          "issue": "C-1 acceptance ignores material blast radius change: HKLM required local admin/pod compromise, network endpoint requires only LAN access (shared with customer WiFi), removing a security boundary layer"
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "WMIC deprecation deferred but silent failure mode (exit 0 with 0 matches) allows deploy to report success while watchdog survives, risking 03:13-race recurrence on 24H2+ (deploy-server.sh:WMIC commandline kill)"
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "C-4 300s unauthenticated window during peak reboots may cause telemetry blackouts; no customer-visible impact assessment provided (rc-agent/src/mesh_key_cache.rs:fetch_interval)"
+        }
+      ],
+      "recommendation": "FIX_BLOCKING",
+      "one_liner": "Whitespace key bypasses empty-check causing silent auth failures; IP-gated endpoint materially expands blast radius vs HKLM."
+    },
+    "tokens": 6222
+  },
+  {
+    "model": "nvidia/nemotron-3-super-120b-a12b-20230311",
+    "findings": {
+      "model": "reviewer-4-5-6",
+      "score_deploy_ready": 2,
+      "close_c2_fix": "ADEQUATE",
+      "close_c5_fix": "ADEQUATE",
+      "c1_accepted_risk_defensible": "NO",
+      "new_concerns_after_fix": [
+        {
+          "severity": "HIGH",
+          "issue": "src/api/mesh_intelligence.rs: mesh service key exposed via IP-authenticated endpoint; pod IP spoofing on shared LAN could leak key"
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "deploy-server.sh: WMIC deprecation may fail on Win11 24H2+, leaving zombie watchdog undetected"
+        },
+        {
+          "severity": "LOW",
+          "issue": "rc-agent/src/csv_lap_fallback.rs: AUTH REJECTED logged at warn level may lack alerting"
+        }
+      ],
+      "recommendation": "FIX_BLOCKING",
+      "one_liner": "Key exposure via IP-authenticated endpoint poses unacceptable spoof risk; WMIC defer and auth-logging gaps also remain."
+    },
+    "tokens": 4269
+  },
+  {
+    "model": "openai/gpt-5.4-nano-20260317",
+    "findings": {
+      "model": "adversarial-reviewer-456",
+      "score_deploy_ready": 3,
+      "close_c2_fix": "INADEQUATE",
+      "close_c5_fix": "INADEQUATE",
+      "c1_accepted_risk_defensible": "PARTIAL",
+      "new_concerns_after_fix": [
+        {
+          "severity": "HIGH",
+          "issue": "racecontrol/api/mesh_intelligence.rs pods_mesh_service_key returns 503 only; rc-agent fetch_from_server uses fetch interval 300s, but preserves cache on error. If server restarts with empty/unset TOML and cache is empty on first boot, pods may run without key (potential auth break) for up to first successful fetch window; no explicit 'bootstrap_required' guard observed from the described change."
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "racecontrol/api/mesh_intelligence.rs: condition uses as_deref() then k.is_empty(); whitespace-only (\"   \") passes is_empty and will be served as a key (render_mesh_service_key_body(k)). This reintroduces a 'bad key' failure mode (not covered by provided tests). File: crates/racecontrol/src/api/mesh_intelligence.rs in handler pods_mesh_service_key."
+        },
+        {
+          "severity": "MEDIUM",
+          "issue": "rc-agent csv_lap_fallback: change appears log-level only (401/403 => distinct WARN). If deploy monitoring only alerts on ERROR/5xx patterns, auth failures can still be missed; described fix does not add metrics/alerting or escalation logic. File: crates/rc-agent/src/csv_lap_fallback.rs."
+        }
+      ],
+      "recommendation": "DEFER",
+      "one_liner": "Fixes reduce silent outages but whitespace/boot-edge cases and log-only auth surfacing remain; challenge deploy until these are proven safe."
+    },
+    "tokens": 2088
+  }
+]
