@@ -61,9 +61,8 @@ pub enum BillingEvent {
     CancelNoPlayable,
     /// Game crash while Active — Active → PausedCrashRecovery
     CrashPause,
-    /// Phase 414: Game stopped cleanly while Active — Active → WaitingForGame (between-games state)
-    /// Added in Wave 0 so tests compile; TRANSITION_TABLE row added in Plan 01 Wave 1.
-    #[allow(dead_code)]
+    /// Phase 414: Game stopped cleanly while Active — Active → WaitingForGame (between-games state).
+    /// D-FSM-01: row in TRANSITION_TABLE added in Plan 01 Wave 1.
     GameStopped,
 }
 
@@ -102,6 +101,25 @@ const TRANSITION_TABLE: &[(BillingSessionStatus, BillingEvent, BillingSessionSta
     (BillingSessionStatus::PausedCrashRecovery, BillingEvent::End, BillingSessionStatus::Completed),
     (BillingSessionStatus::PausedCrashRecovery, BillingEvent::EndEarly, BillingSessionStatus::EndedEarly),
     (BillingSessionStatus::PausedCrashRecovery, BillingEvent::Cancel, BillingSessionStatus::Cancelled),
+    // ─── Phase 414: continuous billing session transitions ────────────────────
+    // Row 1: Active → WaitingForGame on game stop (mid-stream).
+    // Trigger: billing_game_status::handle_game_off (single-player path) fires GameStopped
+    // when AC reports Off and the meter is currently Active. Replaces the pre-414 behavior
+    // of immediately calling end_billing_session(EndedEarly) on game stop.
+    (BillingSessionStatus::Active, BillingEvent::GameStopped, BillingSessionStatus::WaitingForGame),
+    // Row 2: End from mid-stream WaitingForGame → Completed.
+    // USED BY: 15-min idle auto-end loop in tick_all_timers (Plan 04). Per CONTEXT.md D-IDLE-AUTOEND,
+    // the auto-end path uses BillingEvent::End → Completed (NOT EndEarly → EndedEarly) to signal
+    // the customer completed their session naturally (just walked away after the warning).
+    (BillingSessionStatus::WaitingForGame, BillingEvent::End, BillingSessionStatus::Completed),
+    // Row 3: EndEarly from mid-stream WaitingForGame → EndedEarly.
+    // USED BY: (a) the stop_billing HTTP handler when staff/customer hits End Session mid-stream
+    // (elapsed_seconds > 0) — per CONTEXT.md edge case 4 "customer stops game then immediately
+    // ends session". (b) the kiosk paused-meter "End session" button (Plan 05). NOT used by
+    // the auto-end loop — that uses End → Completed (row 2 above).
+    // NOTE: No WaitingForGame + Disconnect transition is added intentionally (W3 closure):
+    // the meter is already paused in WaitingForGame state, so a disconnect does not change billing.
+    (BillingSessionStatus::WaitingForGame, BillingEvent::EndEarly, BillingSessionStatus::EndedEarly),
 ];
 
 /// Validate a billing state transition.
@@ -424,7 +442,6 @@ mod tests {
     // Plan 01 Task 1 removes the #[ignore] attributes once TRANSITION_TABLE has the new rows.
 
     #[test]
-    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
     fn test_active_game_stopped_to_waiting() {
         // Phase 414-FSM-02: New transition Active + GameStopped → WaitingForGame
         // RED until Plan 01 adds BillingEvent::GameStopped + TRANSITION_TABLE row.
@@ -433,7 +450,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
     fn test_waiting_end_to_completed() {
         // Phase 414-FSM-03: New transition WaitingForGame + End → Completed
         let result = validate_transition(BillingSessionStatus::WaitingForGame, BillingEvent::End);
@@ -441,7 +457,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
     fn test_waiting_end_early_to_ended_early() {
         // Phase 414-FSM-04: New transition WaitingForGame + EndEarly → EndedEarly
         let result = validate_transition(BillingSessionStatus::WaitingForGame, BillingEvent::EndEarly);
@@ -449,7 +464,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
     fn test_completed_game_stopped_rejected() {
         // Phase 414-FSM-05: Terminal state must reject GameStopped
         let result = validate_transition(BillingSessionStatus::Completed, BillingEvent::GameStopped);
@@ -457,7 +471,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
     fn test_pending_game_stopped_rejected() {
         // Phase 414-FSM-05 negative: Pending state must reject GameStopped (only Active can fire it)
         let result = validate_transition(BillingSessionStatus::Pending, BillingEvent::GameStopped);
