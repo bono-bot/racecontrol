@@ -209,6 +209,12 @@ impl BillingTimer {
             } else {
                 None
             },
+            // Phase 414: Populate the mid-stream idle counter only when meaningful
+            between_games_idle_seconds: if self.status == BillingSessionStatus::WaitingForGame && self.elapsed_seconds > 0 {
+                Some(self.between_games_idle_seconds)
+            } else {
+                None
+            },
         }
     }
 

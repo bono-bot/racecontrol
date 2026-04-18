@@ -1525,6 +1525,17 @@ pub enum DashboardEvent {
         pod_id: String,
         error: String,
     },
+
+    /// Phase 414: Mid-session idle warning at 10-min mark (5 min before auto-end at 15 min).
+    /// Server broadcasts ONCE per between-games wait — guarded by BillingTimer.idle_warning_sent flag.
+    /// Kiosk consumes via useKioskSocket and renders IdleWarningDialog modal.
+    IdleWarning {
+        pod_id: String,
+        session_id: String,
+        balance_paise: u64,
+        seconds_remaining: u32,
+        can_continue: bool,
+    },
 }
 
 /// Messages on the AI ↔ AI WebSocket channel (Bono ↔ James)
@@ -2014,21 +2025,35 @@ mod tests {
     // ── Phase 414 Wave 0 stubs ───────────────────────────────────────────
 
     #[test]
-    #[ignore = "Phase 414 Plan 03 will add DashboardEvent::IdleWarning variant"]
     fn test_idle_warning_serde_roundtrip() {
-        // Phase 414-PROTOCOL-01: IdleWarning round-trips through serde
-        // Stub — uncomment Plan 03 body:
-        // let event = DashboardEvent::IdleWarning {
-        //     pod_id: "pod_3".to_string(),
-        //     session_id: "sess_abc".to_string(),
-        //     balance_paise: 24500,
-        //     seconds_remaining: 300,
-        //     can_continue: true,
-        // };
-        // let json = serde_json::to_string(&event).expect("serialize");
-        // let parsed: DashboardEvent = serde_json::from_str(&json).expect("deserialize");
-        // assert_eq!(parsed, event);
-        panic!("Wave 0 stub — Plan 03 implements");
+        // Phase 414-PROTOCOL-01: IdleWarning round-trips through serde (tagged-union format)
+        let event = DashboardEvent::IdleWarning {
+            pod_id: "pod_3".to_string(),
+            session_id: "sess_abc123".to_string(),
+            balance_paise: 24500,
+            seconds_remaining: 300,
+            can_continue: true,
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        // Tagged-union format with snake_case rename: { "event": "idle_warning", "data": { ... } }
+        // DashboardEvent uses #[serde(rename_all = "snake_case")] so IdleWarning → "idle_warning"
+        assert!(json.contains("\"event\":\"idle_warning\""), "expected event tag, got: {}", json);
+        assert!(json.contains("\"pod_id\":\"pod_3\""), "expected pod_id, got: {}", json);
+        assert!(json.contains("\"can_continue\":true"), "expected can_continue, got: {}", json);
+        assert!(json.contains("\"balance_paise\":24500"), "expected balance_paise, got: {}", json);
+        assert!(json.contains("\"seconds_remaining\":300"), "expected seconds_remaining, got: {}", json);
+
+        let parsed: DashboardEvent = serde_json::from_str(&json).expect("deserialize");
+        match parsed {
+            DashboardEvent::IdleWarning { pod_id, session_id, balance_paise, seconds_remaining, can_continue } => {
+                assert_eq!(pod_id, "pod_3");
+                assert_eq!(session_id, "sess_abc123");
+                assert_eq!(balance_paise, 24500);
+                assert_eq!(seconds_remaining, 300);
+                assert!(can_continue);
+            }
+            _ => panic!("expected IdleWarning variant, got different variant"),
+        }
     }
 
     // ── Phase 03 Plan 01 tests ───────────────────────────────────────────

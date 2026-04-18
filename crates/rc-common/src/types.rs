@@ -435,6 +435,12 @@ pub struct BillingSessionInfo {
     /// Shown on dashboard and receipt so customers can see excluded time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_pause_seconds: Option<u32>,
+
+    /// Phase 414: Mid-stream idle counter (Some only when status == WaitingForGame AND elapsed_seconds > 0).
+    /// Used by kiosk to display the auto-end countdown after the 10-min warning fires.
+    /// Backwards-compatible additive field — old clients ignore unknown JSON keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub between_games_idle_seconds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1600,6 +1606,7 @@ mod tests {
             rate_per_min_paise: Some(2330),
             billing_mode: Some("per_minute".to_string()),
             recovery_pause_seconds: None,
+            between_games_idle_seconds: None,
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"elapsed_seconds\":900"));
@@ -1640,22 +1647,48 @@ mod tests {
     // ── Phase 414 Wave 0 stubs ───────────────────────────────────────────
 
     #[test]
-    #[ignore = "Phase 414 Plan 03 will add BillingSessionInfo.between_games_idle_seconds field"]
     fn test_billing_info_idle_seconds_roundtrip() {
         // Phase 414-PROTOCOL-02: between_games_idle_seconds round-trips Some + None
-        // Stub — uncomment Plan 03 body:
-        // let mut info = BillingSessionInfo { /* ...minimum required fields... */ };
-        // // Case 1: Some(720)
-        // info.between_games_idle_seconds = Some(720);
-        // let json = serde_json::to_string(&info).expect("serialize Some");
-        // let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize Some");
-        // assert_eq!(parsed.between_games_idle_seconds, Some(720));
-        // // Case 2: None
-        // info.between_games_idle_seconds = None;
-        // let json = serde_json::to_string(&info).expect("serialize None");
-        // let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize None");
-        // assert_eq!(parsed.between_games_idle_seconds, None);
-        panic!("Wave 0 stub — Plan 03 implements");
+        let mut info = BillingSessionInfo {
+            id: "sess-414".to_string(),
+            driver_id: "drv-414".to_string(),
+            driver_name: "Test Driver".to_string(),
+            pod_id: "pod_3".to_string(),
+            pricing_tier_name: "per-minute".to_string(),
+            allocated_seconds: 86400,
+            driving_seconds: 1500,
+            remaining_seconds: 84900,
+            status: BillingSessionStatus::WaitingForGame,
+            driving_state: DrivingState::Idle,
+            started_at: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            elapsed_seconds: Some(1500),
+            cost_paise: Some(62500),
+            rate_per_min_paise: Some(2500),
+            billing_mode: Some("per_minute".to_string()),
+            recovery_pause_seconds: None,
+            between_games_idle_seconds: Some(720),
+        };
+
+        // Case 1: Some(720) — field must appear in JSON
+        let json = serde_json::to_string(&info).expect("serialize Some");
+        assert!(json.contains("\"between_games_idle_seconds\":720"), "expected field present, got: {}", json);
+        let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize Some");
+        assert_eq!(parsed.between_games_idle_seconds, Some(720));
+
+        // Case 2: None — skip_serializing_if must omit the field from JSON
+        info.between_games_idle_seconds = None;
+        let json = serde_json::to_string(&info).expect("serialize None");
+        assert!(!json.contains("between_games_idle_seconds"), "skip_serializing_if must omit field when None, got: {}", json);
+        let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize None");
+        assert_eq!(parsed.between_games_idle_seconds, None);
+
+        // Case 3: Old client — JSON without the field deserializes with None (serde default)
+        let old_json = r#"{"id":"sess-old","driver_id":"drv-1","driver_name":"Old","pod_id":"pod_1","pricing_tier_name":"30min","allocated_seconds":1800,"driving_seconds":100,"remaining_seconds":1700,"status":"active","driving_state":"active","started_at":null,"split_count":1,"current_split_number":1}"#;
+        let parsed_old: BillingSessionInfo = serde_json::from_str(old_json).expect("deserialize old client");
+        assert_eq!(parsed_old.between_games_idle_seconds, None, "old client JSON must deserialize with None");
     }
 
     // ── WaitingSession tests (Task 1 - 04-03) ───────────────────────────────

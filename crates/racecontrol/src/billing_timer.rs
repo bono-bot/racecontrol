@@ -469,6 +469,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 rate_per_min_paise: Some(0),
                 billing_mode: None, // Not yet known during waiting_for_game
                 recovery_pause_seconds: None,
+                between_games_idle_seconds: None,
             };
             events_to_broadcast.push(DashboardEvent::BillingTick(info));
         }

@@ -1623,6 +1623,7 @@
             rate_per_min_paise: Some(0),
             billing_mode: None,
             recovery_pause_seconds: None,
+            between_games_idle_seconds: None,
         };
         // Verify the simulated tick has the correct status
         assert_eq!(
