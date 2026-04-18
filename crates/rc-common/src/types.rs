@@ -1637,6 +1637,27 @@ mod tests {
         assert_eq!(parsed.rate_per_min_paise, None);
     }
 
+    // ── Phase 414 Wave 0 stubs ───────────────────────────────────────────
+
+    #[test]
+    #[ignore = "Phase 414 Plan 03 will add BillingSessionInfo.between_games_idle_seconds field"]
+    fn test_billing_info_idle_seconds_roundtrip() {
+        // Phase 414-PROTOCOL-02: between_games_idle_seconds round-trips Some + None
+        // Stub — uncomment Plan 03 body:
+        // let mut info = BillingSessionInfo { /* ...minimum required fields... */ };
+        // // Case 1: Some(720)
+        // info.between_games_idle_seconds = Some(720);
+        // let json = serde_json::to_string(&info).expect("serialize Some");
+        // let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize Some");
+        // assert_eq!(parsed.between_games_idle_seconds, Some(720));
+        // // Case 2: None
+        // info.between_games_idle_seconds = None;
+        // let json = serde_json::to_string(&info).expect("serialize None");
+        // let parsed: BillingSessionInfo = serde_json::from_str(&json).expect("deserialize None");
+        // assert_eq!(parsed.between_games_idle_seconds, None);
+        panic!("Wave 0 stub — Plan 03 implements");
+    }
+
     // ── WaitingSession tests (Task 1 - 04-03) ───────────────────────────────
 
     #[test]

@@ -61,6 +61,10 @@ pub enum BillingEvent {
     CancelNoPlayable,
     /// Game crash while Active — Active → PausedCrashRecovery
     CrashPause,
+    /// Phase 414: Game stopped cleanly while Active — Active → WaitingForGame (between-games state)
+    /// Added in Wave 0 so tests compile; TRANSITION_TABLE row added in Plan 01 Wave 1.
+    #[allow(dead_code)]
+    GameStopped,
 }
 
 /// Static transition table — the ONLY source of allowed billing state transitions.
@@ -414,5 +418,49 @@ mod tests {
         // Pending sessions should not be cancellable via Cancel event (use CancelNoPlayable path from Waiting)
         let result = validate_transition(BillingSessionStatus::Pending, BillingEvent::Cancel);
         assert!(result.is_err(), "pending+Cancel should be rejected");
+    }
+
+    // ── Phase 414 Wave 0 stubs — all #[ignore]'d so pre-commit gate passes ──────────────
+    // Plan 01 Task 1 removes the #[ignore] attributes once TRANSITION_TABLE has the new rows.
+
+    #[test]
+    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
+    fn test_active_game_stopped_to_waiting() {
+        // Phase 414-FSM-02: New transition Active + GameStopped → WaitingForGame
+        // RED until Plan 01 adds BillingEvent::GameStopped + TRANSITION_TABLE row.
+        let result = validate_transition(BillingSessionStatus::Active, BillingEvent::GameStopped);
+        assert_eq!(result, Ok(BillingSessionStatus::WaitingForGame));
+    }
+
+    #[test]
+    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
+    fn test_waiting_end_to_completed() {
+        // Phase 414-FSM-03: New transition WaitingForGame + End → Completed
+        let result = validate_transition(BillingSessionStatus::WaitingForGame, BillingEvent::End);
+        assert_eq!(result, Ok(BillingSessionStatus::Completed));
+    }
+
+    #[test]
+    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
+    fn test_waiting_end_early_to_ended_early() {
+        // Phase 414-FSM-04: New transition WaitingForGame + EndEarly → EndedEarly
+        let result = validate_transition(BillingSessionStatus::WaitingForGame, BillingEvent::EndEarly);
+        assert_eq!(result, Ok(BillingSessionStatus::EndedEarly));
+    }
+
+    #[test]
+    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
+    fn test_completed_game_stopped_rejected() {
+        // Phase 414-FSM-05: Terminal state must reject GameStopped
+        let result = validate_transition(BillingSessionStatus::Completed, BillingEvent::GameStopped);
+        assert!(result.is_err(), "Completed + GameStopped must be rejected");
+    }
+
+    #[test]
+    #[ignore = "Wave 1 fills TRANSITION_TABLE — Plan 01 removes this attribute"]
+    fn test_pending_game_stopped_rejected() {
+        // Phase 414-FSM-05 negative: Pending state must reject GameStopped (only Active can fire it)
+        let result = validate_transition(BillingSessionStatus::Pending, BillingEvent::GameStopped);
+        assert!(result.is_err(), "Pending + GameStopped must be rejected");
     }
 }

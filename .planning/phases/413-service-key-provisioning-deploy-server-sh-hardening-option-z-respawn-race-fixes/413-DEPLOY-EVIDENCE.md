@@ -107,3 +107,107 @@ This is consistent with Plan 11's explicit design: **`autonomous: false`** in fr
 
 **Current state preserved:** No production mutations have been made. Evidence gathered + staged binaries ready. The executor cannot unblock itself — only the user can.
 
+---
+
+## Task 2 FAILURE — Server deploy swap failed mid-flight (2026-04-18, continuation agent)
+
+**User approval received** (canary-only scope: Tasks 2 → 2b → 3). HEAD at execution: `d68285b5` (docs-only over staged `1318883c`).
+
+**Command run (WHERE = James terminal):**
+```
+cd /c/Users/bono/racingpoint/racecontrol && export SENTRY_KEY="478a3688..." && SKIP_CLOUD=1 bash scripts/deploy-server.sh 2>&1 | tee /tmp/phase413-deploy-server.log
+```
+
+**Raw output (/tmp/phase413-deploy-server.log — execution summary):**
+
+```
+Manifest git_commit=1318883c vs HEAD=d68285b5 — staged binary may be stale  [WARN — docs-only diff, continued]
+Security gate passed
+rc-sentry reachable
+rc-sentry /exec authenticated
+Binary valid (60302336 bytes)
+Local SHA256: 9e26f3da06c57ff0...
+Expected build_id: d68285b5
+Pre-deploy build_id: 45d03bd5-dirty
+HTTP server started (PID 1546779)
+Downloaded to server (60302336 bytes)
+SHA256 verified (9e26f3da06c5...)
+Clearing sentinel files on server...
+Watchdog disabled + deploy sentinel set       <-- 8 schtasks disabled, OTA_DEPLOYING sentinel written
+racecontrol stopped                            <-- taskkill ran, old process killed
+Preserving rollback binary (racecontrol-prev.exe)
+Swapping binary...
+FAIL Swap failed (likely file lock from respawned racecontrol.exe):
+  {"exit_code":0,"stderr":"The system cannot find the path specified.\n",
+   "stdout":"SWAP_FAILED_EL=!errorlevel!\n","timed_out":false,"truncated":false}
+```
+
+**Root cause analysis of the swap failure:**
+
+deploy-server.sh Step 4 line:
+```bash
+move /Y C:/RacingPoint/racecontrol-new.exe C:/RacingPoint/racecontrol.exe && echo SWAPPED || echo SWAP_FAILED_EL=!errorlevel!
+```
+
+Two defects:
+1. **Forward-slash paths on `move /Y` via rc-sentry/cmd.exe context** — stderr is "The system cannot find the path specified." The move actually fails. Same failure pattern on both source and destination argument paths.
+2. **`!errorlevel!` requires DelayedExpansion (`cmd /v:on`)** which is not set in the rc-sentry /exec shell invocation. The literal string `SWAP_FAILED_EL=!errorlevel!` is echoed (evidence: stdout value), indicating the `||` branch ran but the variable was never expanded.
+
+The outer rc-sentry wrapper returns `exit_code=0` because the final `echo` command succeeded — masking the underlying move failure. The script's own SWAPPED-string detection catches this correctly and aborts.
+
+**Verified server state AFTER failed swap (read-only probes via rc-sentry /exec, James terminal):**
+
+| Artifact | State | Evidence (raw stdout from `/exec`) |
+|---|---|---|
+| `racecontrol.exe` on disk | UNCHANGED (old binary) | SHA256 `428ff5a2c92669e5b24eed8c3ab972922ed3d12cc4f833c54587d75a37c70f8e` = pre-deploy binary |
+| `racecontrol-new.exe` on disk | PRESENT (new binary, not moved) | SHA256 `9e26f3da06c57ff076cbed35c239e4cd0105a427dade5eb2164ddd3cd54564d8` = staged `1318883c` racecontrol |
+| `racecontrol-prev.exe` on disk | PRESENT (backup made by Step 4a) | SHA256 `428ff5a2c92669e5b24eed8c3ab972922ed3d12cc4f833c54587d75a37c70f8e` (identical to current racecontrol.exe — correct backup snapshot) |
+| `racecontrol.exe` process | NOT RUNNING | `tasklist /FO CSV \| findstr racecontrol` returns empty stdout, exit_code=1 |
+| `OTA_DEPLOYING` sentinel | STILL PRESENT | `if exist OTA_DEPLOYING` → `OTA_DEPLOYING_EXISTS` |
+| `MAINTENANCE_MODE` sentinel | NOT present | `MAINTENANCE_MODE_MISSING` |
+| `GRACEFUL_RELAUNCH` sentinel | NOT present | `GRACEFUL_RELAUNCH_MISSING` |
+| 8 schtasks (StartRCOnBoot, StartRCTemp, RCWatchdog, RaceControlStartup, StartRCDirect, StartRaceControl, StartRCWatchdog, StartFrontendWatchdog) | DISABLED (Step 3a) | NOT re-enabled — script aborted before Step 5b |
+| `/api/v1/health` | empty/dead response | server HTTP :8080 unreachable |
+
+**Impact (P0 venue state):**
+
+- racecontrol binary NOT running on server
+- rc-agents on all 8 pods + POS cannot reach server WS
+- Admin dashboard, kiosk backend, billing, audit endpoints ALL DOWN on .23
+- Watchdog DISABLED — manual recovery required; won't auto-restart
+- Cloud Bono VPS still on `dc83f28d` (unaffected — Task 2b not attempted)
+- Pod rc-agents still running on `5f80fc6a` (unaffected binary-wise but losing WS connectivity)
+
+**Rollback options (NOT executed — awaiting user approval):**
+
+- **Option R1 (fastest, safest — recommended):** Roll BACK by deleting `racecontrol-new.exe`, leaving existing `racecontrol.exe` (old `45d03bd5-dirty` binary) in place, clearing `OTA_DEPLOYING` sentinel, re-enabling 8 schtasks, starting racecontrol via `schtasks /Run /TN StartRCTemp`. Returns to exact pre-deploy state. Plan 413 Phase 11 can be retried after fixing deploy-server.sh.
+- **Option R2 (roll FORWARD):** Manually execute the swap with correct cmd.exe syntax via rc-sentry /exec, skipping the broken script line. Specifically: `ren C:\RacingPoint\racecontrol.exe racecontrol-prev.exe` (overwrite prev) then `ren C:\RacingPoint\racecontrol-new.exe racecontrol.exe`, then clear sentinel + re-enable schtasks + start. Server ends up on `1318883c`. Risk: this bypasses the deploy-script's auto-rollback so any further failure is manual recovery.
+- **Option R3 (investigate first, no further mutation):** Open SSH to server, inspect deploy-server.sh Step 4 behavior directly, validate whether forward-slash paths + `!errorlevel!` are the only defect or if there's a deeper rc-sentry /exec issue. NO production mutation. Server stays DOWN until user commits to R1 or R2.
+
+**Which pods/cloud will Option R1 affect?** Only server .23 state (delete new binary, clear sentinel, re-enable schtasks, start). Cloud untouched. Pods untouched.
+
+**Which pods/cloud will Option R2 affect?** Only server .23 (forward roll). Cloud untouched. Pods untouched.
+
+**Why this is NOT a Rule 3 auto-fix situation:** deploy-server.sh is a scripted, tested-claim fix from Plans 05/06/07 of this same phase. The failure on first live run is itself evidence that Plans 05/06/07 did NOT fully cover the swap-step failure mode. Rolling forward with an out-of-band hand-crafted ren sequence bypasses the tested script. This is an architectural decision (Rule 4): do we prefer the fastest return-to-known-good (R1 = back to 45d03bd5-dirty + re-file 413 deploy-server.sh defect for a Plan 12) or the fastest roll-forward-with-risk (R2)?
+
+**Tasks 2b, 3, 4, 5: NOT EXECUTED** — canary-only scope is paused at Task 2 failure. Fleet expansion does not run. Bono VPS cloud deploy does not run. Canary pod 3 Option Z proof does not run.
+
+**NOT TESTED this continuation run:**
+
+- Pod 3 rc-agent Option Z behavior (Task 3 blocked by Task 2 failure — rc-agent binary deploy requires server-side route `/api/v1/pods/mesh-service-key` which can't be verified while server is down)
+- `AUDIT KNOWN ISSUE matched` log line on pod 3 (Task 3d, requires rc-agent deployed + server mesh endpoint live)
+- Cloud VPS `dc83f28d → 1318883c` transition (Task 2b not attempted)
+- Fleet-wide rc-agent deploy (Task 4 explicitly held per user directive)
+- LOGBOOK entry + Bono comms (Task 5 explicitly held per user directive)
+- deploy-server.sh successful completion (the script itself — its Plans 05/06/07 fixes verified "no mid-swap watchdog respawn" but did NOT cover the move/!errorlevel! defect that aborted this run)
+
+**Decision required from user:**
+
+| Option | Action | Outcome | Risk |
+|---|---|---|---|
+| R1 | Roll back to `45d03bd5-dirty` (pre-deploy state) | Server back up in ~30s on OLD binary. Phase 413 Plan 11 retried later after a Plan-12-style deploy-server.sh swap-step fix. | Lowest — restores known-good state. No forward progress on 413 this session. |
+| R2 | Manually complete the swap to `1318883c` via rc-sentry ren sequence | Server up on NEW binary with Phase 413 changes live. Can continue Task 2b → 3. | Medium — bypasses tested script path. Any further script-native rollback won't work (script already exited). Manual ren handling during production outage. |
+| R3 | Investigate deploy-server.sh defect before ANY further action | Server stays DOWN pending investigation. Zero additional risk but extends the outage. | Highest venue impact (P0 downtime while investigating). |
+
+Continuation agent stops here. No further mutation without explicit R1/R2/R3 selection.
+

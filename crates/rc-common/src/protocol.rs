@@ -2011,6 +2011,26 @@ mod tests {
         }
     }
 
+    // ── Phase 414 Wave 0 stubs ───────────────────────────────────────────
+
+    #[test]
+    #[ignore = "Phase 414 Plan 03 will add DashboardEvent::IdleWarning variant"]
+    fn test_idle_warning_serde_roundtrip() {
+        // Phase 414-PROTOCOL-01: IdleWarning round-trips through serde
+        // Stub — uncomment Plan 03 body:
+        // let event = DashboardEvent::IdleWarning {
+        //     pod_id: "pod_3".to_string(),
+        //     session_id: "sess_abc".to_string(),
+        //     balance_paise: 24500,
+        //     seconds_remaining: 300,
+        //     can_continue: true,
+        // };
+        // let json = serde_json::to_string(&event).expect("serialize");
+        // let parsed: DashboardEvent = serde_json::from_str(&json).expect("deserialize");
+        // assert_eq!(parsed, event);
+        panic!("Wave 0 stub — Plan 03 implements");
+    }
+
     // ── Phase 03 Plan 01 tests ───────────────────────────────────────────
 
     #[test]
