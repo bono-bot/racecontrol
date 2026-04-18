@@ -211,3 +211,143 @@ The outer rc-sentry wrapper returns `exit_code=0` because the final `echo` comma
 
 Continuation agent stops here. No further mutation without explicit R1/R2/R3 selection.
 
+---
+
+## Task 2 Failure Recovery (R1 rollback)
+
+**Executor:** James (auto-mode, separate continuation agent, 2026-04-18 ~08:00 IST)
+**Authority:** R1 selected by user (P0 venue outage, objective-scoped to recovery only — no Phase 413 forward work)
+**WHERE probes ran FROM:** James workstation (.27) calling rc-sentry on server .23 via `http://192.168.31.23:8091/exec` with `X-Service-Key` header. All file-based JSON payloads written to the racecontrol repo root (`r1-step*.json`) to avoid cmd.exe quote-mangling. Payload field is `cmd` (not `command`).
+**Completed:** Saturday 2026-04-18 08:07 IST
+
+### Step 1 — Clear OTA_DEPLOYING sentinel
+
+Command: `del /Q C:\RacingPoint\OTA_DEPLOYING`
+
+```
+Step 1a (delete): {"exit_code":0,"stderr":"","stdout":"","timed_out":false,"truncated":false}
+Step 1b (verify): {"exit_code":0,"stderr":"","stdout":"SENTINEL_CLEARED\r\n","timed_out":false,"truncated":false}
+```
+
+Outcome: Sentinel cleared.
+
+### Step 2 — Re-enable 8 schtasks
+
+Command (chained): `schtasks /Change /TN <name> /Enable` for all 8 tasks.
+
+```
+Step 2a (enable):
+SUCCESS: The parameters of scheduled task "StartRCOnBoot" have been changed.
+SUCCESS: The parameters of scheduled task "StartRCTemp" have been changed.
+SUCCESS: The parameters of scheduled task "RCWatchdog" have been changed.
+SUCCESS: The parameters of scheduled task "RaceControlStartup" have been changed.
+SUCCESS: The parameters of scheduled task "StartRCDirect" have been changed.
+SUCCESS: The parameters of scheduled task "StartRaceControl" have been changed.
+SUCCESS: The parameters of scheduled task "StartRCWatchdog" have been changed.
+SUCCESS: The parameters of scheduled task "StartFrontendWatchdog" have been changed.
+
+Step 2b (per-task Status verification via for-loop + schtasks /Query /FO LIST | findstr Status):
+--- StartRCOnBoot ---         Status:        Ready
+--- StartRCTemp ---            Status:        Ready
+--- RCWatchdog ---             Status:        Ready
+--- RaceControlStartup ---     Status:        Ready
+--- StartRCDirect ---          Status:        Ready
+--- StartRaceControl ---       Status:        Ready
+--- StartRCWatchdog ---        Status:        Ready
+--- StartFrontendWatchdog ---  Status:        Ready
+```
+
+Outcome: All 8 schtasks `Status: Ready`.
+
+### Step 3 — Delete staged racecontrol-new.exe
+
+Command: `del /Q C:\RacingPoint\racecontrol-new.exe`
+
+```
+Step 3a (delete): {"exit_code":0,"stderr":"","stdout":"","timed_out":false,"truncated":false}
+Step 3b (verify files):
+NEW_EXE_DELETED
+CURRENT_PRESENT
+(PREV state not echoed due to cmd.exe & short-circuit; re-probed separately)
+Step 3c (verify prev): PREV_PRESENT
+```
+
+Outcome: `racecontrol-new.exe` deleted. At Step 3c, `racecontrol-prev.exe` was present (backup intact).
+
+### Step 4 — Start racecontrol on OLD binary
+
+First attempt — `schtasks /Run /TN StartRCTemp`: returned "SUCCESS: Attempted" but after 15s, tasklist showed no `racecontrol.exe` process AND netstat showed `SYN_SENT` to :8080 (port NOT LISTENING). StartRCTemp bat apparently failed silently (no sentinels blocking — all 4 sentinel files verified missing at that point). No stuck powershell/cmd/racecontrol processes.
+
+Second attempt — `schtasks /Run /TN StartRCDirect`: succeeded.
+
+```
+Step 4h (StartRCDirect run): {"stdout":"SUCCESS: Attempted to run the scheduled task \"StartRCDirect\".\r\n"}
+Step 4i (after 10s, tasklist /FO CSV /NH | findstr racecontrol.exe):
+"racecontrol.exe","21204","Services","0","49,724 K"
+
+Step 4j (curl http://192.168.31.23:8080/api/v1/health):
+{
+  "build_id":"45d03bd5-dirty",
+  "deploy_context":"v34-v39 merged: metrics TSDB, config management, data durability, security hardening, meshed intelligence v2, session trace ID. Skip-once pod offline detection. Audit hash chain. 44-table venue_id migration.",
+  "service":"racecontrol",
+  "status":"ok",
+  "subsystems":{
+    "admin_db":{"detail":"admin.db not found at expected paths (separate deployment)","ok":true},
+    "cloud_sync":{"detail":"Last sync 19s ago","ok":true},
+    "db_sync_lag":{"detail":"Last sync 0m 21s ago","ok":true},
+    "db_writable":{"ok":true},
+    "disk_free":{"detail":"1439.5 GB free","ok":true},
+    "fleet_connectivity":{"detail":"9/9 pods connected","ok":true},
+    "rc_backend":{"ok":true},
+    "whatsapp_api":{"ok":true}
+  },
+  "version":"0.1.0",
+  "whatsapp":"ok"
+}
+
+Final verification (netstat + dir):
+  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       21204
+racecontrol.exe  60,294,144 bytes  2026-04-18 03:51 (file mtime)
+```
+
+Outcome: racecontrol process running (PID 21204), port 8080 LISTENING, health 200 with build_id `45d03bd5-dirty` (matches OLD binary), 9/9 pods WS connected.
+
+### Before / After state matrix
+
+| Artifact | BEFORE (pre-recovery) | AFTER (post-recovery) |
+|---|---|---|
+| `OTA_DEPLOYING` sentinel | PRESENT | CLEARED |
+| `MAINTENANCE_MODE` / `GRACEFUL_RELAUNCH` / `DEPLOY_IN_PROGRESS` sentinels | MISSING (unchanged) | MISSING (unchanged) |
+| 8 schtasks | DISABLED | `Status: Ready` (all 8) |
+| `racecontrol-new.exe` (staged `1318883c` binary) | PRESENT (60302336 bytes, sha `9e26f3da...`) | DELETED |
+| `racecontrol-prev.exe` (backup of OLD) | PRESENT (sha `428ff5a2...`) | GONE (see Observations) |
+| `racecontrol.exe` on disk | OLD `45d03bd5-dirty` (sha `428ff5a2...`) | UNCHANGED — OLD `45d03bd5-dirty` |
+| racecontrol process | NOT RUNNING | RUNNING (PID 21204, port 8080 LISTENING) |
+| `/api/v1/health` | unreachable | 200 OK, build_id `45d03bd5-dirty`, status `ok` |
+| Fleet WS | unreachable | 9/9 pods connected |
+
+### Observations / anomalies (non-blocking for recovery)
+
+1. **`racecontrol-prev.exe` disappeared between Step 3c (PREV_PRESENT) and Step 4-final (only `racecontrol.exe` in dir listing).** No explicit cleanup in the recovery recipe. The `StartRCTemp` bat's watchdog-cleanup or `StartRCDirect`-triggered script likely removed it. Not a rollback blocker — current `racecontrol.exe` IS the OLD `45d03bd5` binary (verified by build_id at /health). But the 72-hour rollback safety net per CLAUDE.md standing rule is now thinner — if the server crashes, there is no `*-prev.exe` to fall back to. Orchestrator should consider whether to re-stage a prev copy.
+2. **`StartRCTemp` first attempt reported success but did NOT start the process.** Script-layer defect in the bat chain (StartRCTemp → start-racecontrol.bat → WMIC watchdog cleanup → `schtasks /Run /TN StartRCDirect`). Either the WMIC cleanup hung, or the nested schtasks call in non-interactive context failed silently. Recovery worked via DIRECT `schtasks /Run /TN StartRCDirect`, bypassing the parent. Separate defect — feeds into the pending deploy-server.sh fix phase.
+3. **racecontrol is running in Session 0 (`"Services"` in tasklist).** Per CLAUDE.md, rc-AGENT must be Session 1 (needs GUI for Edge/games); racecontrol is the backend and does not need Session 1 — health + fleet connectivity + DB + WhatsApp all OK so the Session 0 context is not a functional blocker here. Flagging for completeness.
+
+### NOT TESTED (scope boundary — recovery only, not forward progress)
+
+- Bono VPS state (separate concern — cloud was never deployed in the aborted Task 2, remains on `dc83f28d`)
+- Pod WS reconnect behavior on reconnect (subsystem reports 9/9 connected, but individual pod health/build_id not probed — will self-heal via existing fleet mechanisms)
+- racecontrol functional behavior beyond `/health` (needs manual kiosk/billing smoke — billing, admin dashboard, game launch, session lifecycle, wallet topup, WS push to kiosk all untested this recovery)
+- POS rc-agent state on .130 (SAC-blocked per prior evidence, not touched this recovery)
+- Web dashboard :3200 / admin :3201 / kiosk :3300 frontend serving — not re-verified (should be unchanged since they serve from separate schtasks)
+- `/api/v1/fleet/health` detailed output — only the health subsystem summary (`9/9 pods connected`) was captured; individual pod build_ids + WS uptimes not re-snapshotted
+- Whether `racecontrol-prev.exe` needs to be re-staged to restore the 72-hour rollback safety net (see Observation 1)
+- deploy-server.sh Step 4 swap defect (explicitly out of scope per objective — separate phase)
+
+### R1 success criteria (from objective) — all PASS
+
+- [x] OTA_DEPLOYING sentinel gone on server .23
+- [x] All 8 schtasks in `Status: Ready`
+- [x] racecontrol-new.exe deleted
+- [x] racecontrol process running on OLD `45d03bd5` binary (PID 21204, Services/Session 0 — functional; see Obs. 3)
+- [x] /api/v1/health returns 200 with OLD build_id (`45d03bd5-dirty`)
+
