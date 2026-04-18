@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { KioskHeader } from "@/components/KioskHeader";
 import { PodKioskView } from "@/components/PodKioskView";
 import { SidePanel } from "@/components/SidePanel";
 import { CafeMenuPanel } from "@/components/CafeMenuPanel";
+import { ConfirmDialog, type ConfirmDialogState } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { KioskExperience, KioskSettings, Pod } from "@/lib/types";
@@ -18,6 +19,8 @@ export default function ControlPage() {
   const [venueName, setVenueName] = useState("Racing Point");
   const [lockedPods, setLockedPods] = useState<Set<string>>(new Set());
   const [showCafeMenu, setShowCafeMenu] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmDialogState | null>(null);
+  const dismissConfirm = useCallback(() => setPendingConfirm(null), []);
 
   const { toastError } = useToast();
 
@@ -112,21 +115,36 @@ export default function ControlPage() {
     }
   };
 
-  const handleRestartPod = async (podId: string) => {
-    try {
-      await api.restartPod(podId);
-    } catch (err) {
-      toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleRestartPod = (podId: string) => {
+    setPendingConfirm({
+      title: `Restart ${podId}?`,
+      description: "Any active session on this pod will be interrupted. The pod will be unreachable for ~90 seconds.",
+      confirmLabel: "Restart Pod",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.restartPod(podId);
+        } catch (err) {
+          toastError(`Restart failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
-  const handleShutdownPod = async (podId: string) => {
-    if (!window.confirm("Shutdown this pod?")) return;
-    try {
-      await api.shutdownPod(podId);
-    } catch (err) {
-      toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleShutdownPod = (podId: string) => {
+    setPendingConfirm({
+      title: `Shutdown ${podId}?`,
+      description: "The pod will power off. Someone will need to physically press the power button to restart it.",
+      confirmLabel: "Shutdown",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.shutdownPod(podId);
+        } catch (err) {
+          toastError(`Shutdown failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
   const handleWakeAll = async () => {
@@ -137,35 +155,56 @@ export default function ControlPage() {
     }
   };
 
-  const handleShutdownAll = async () => {
-    if (!window.confirm("Shutdown ALL pods? This will force-close everything.")) return;
-    try {
-      await api.shutdownAllPods();
-    } catch (err) {
-      toastError(`Shutdown all failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleShutdownAll = () => {
+    setPendingConfirm({
+      title: "Shutdown ALL pods?",
+      description: "Every online pod will power off. Someone will need to physically press each pod's power button to restart. This will force-close any active sessions.",
+      confirmLabel: "Shutdown All",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.shutdownAllPods();
+        } catch (err) {
+          toastError(`Shutdown all failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
-  const handleRestartAll = async () => {
-    if (!window.confirm("Restart ALL pods? Active sessions will be interrupted.")) return;
-    try {
-      await api.restartAllPods();
-    } catch (err) {
-      toastError(`Restart all failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleRestartAll = () => {
+    setPendingConfirm({
+      title: "Restart ALL pods?",
+      description: "Every online pod will restart. Active sessions will be interrupted. Fleet will be unreachable for ~90 seconds.",
+      confirmLabel: "Restart All",
+      variant: "destructive",
+      onConfirm: async () => {
+        try {
+          await api.restartAllPods();
+        } catch (err) {
+          toastError(`Restart all failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
-  const handleLockAll = async () => {
-    if (!window.confirm("Lock ALL pods? Taskbar and keyboard will be restricted.")) return;
-    const allOnlineIds = sortedPods
-      .filter((p) => p.status !== "offline" && p.status !== "disabled")
-      .map((p) => p.id);
-    setLockedPods(new Set(allOnlineIds));
-    try {
-      await api.lockdownAllPods(true);
-    } catch (err) {
-      toastError(`Lock all failed: ${err instanceof Error ? err.message : "Network error"}`);
-    }
+  const handleLockAll = () => {
+    setPendingConfirm({
+      title: "Lock ALL pods?",
+      description: "Taskbar and keyboard will be restricted on every online pod. Customers cannot exit kiosk mode until unlocked.",
+      confirmLabel: "Lock All",
+      variant: "destructive",
+      onConfirm: async () => {
+        const allOnlineIds = sortedPods
+          .filter((p) => p.status !== "offline" && p.status !== "disabled")
+          .map((p) => p.id);
+        setLockedPods(new Set(allOnlineIds));
+        try {
+          await api.lockdownAllPods(true);
+        } catch (err) {
+          toastError(`Lock all failed: ${err instanceof Error ? err.message : "Network error"}`);
+        }
+      },
+    });
   };
 
   const handleUnlockAll = async () => {
@@ -397,6 +436,9 @@ export default function ControlPage() {
           <CafeMenuPanel />
         </SidePanel>
       </div>
+
+      {/* Destructive-action confirmation modal (replaces window.confirm) */}
+      <ConfirmDialog state={pendingConfirm} onDismiss={dismissConfirm} />
     </div>
   );
 }
