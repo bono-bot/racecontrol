@@ -2,9 +2,11 @@
 
 > **Single source of truth for in-flight debug patterns.** Replaces the 20+ handoff files scattered in `~/.claude/projects/C--Users-bono/memory/session_handoff_*`. Every new session starts here.
 >
-> Updated: 2026-04-18 23:05 IST | HEAD: `2c5f419f` + Pattern G fix (uncommitted) | Server: `d4b60fb5` (unchanged — intentional, BILL-14 verify pending) | Pods rc-agent: ALL 8 on `a6d29291` (verified 23:05 IST via /health) | Delta: INV-9 v2 steam_checks diag now live fleet-wide.
+> Updated: 2026-04-18 23:30 IST | HEAD: `b64753c1` (post Pattern G + docs) | Server: `2c27e2fc-dirty` (NOT `d4b60fb5` — upgraded at 23:05:20 IST concurrent with pod deploy; see CORRECTION below) | Pods rc-agent: `a6d29291` on 8/8 via :8090 HTTP; **Pods 1 + 6 WS-to-server DOWN** (FLEET_PARTIAL 7/9) | Delta: INV-9 v2 steam_checks diag now live fleet-wide; kiosk/BILL-14 v2 fix `2c27e2fc` now on server (superset of d4b60fb5's BILL-14 guards + new DashboardEvent CommandError on sim_type=None abort).
 >
-> **Anti-drift note:** earlier header claimed fleet `68f4d61e`, then `d4b60fb5`, then `b39c2a6f`. Fleet now on `a6d29291`; server kept at `d4b60fb5` so that Pattern INV-10 (BILL-14) can be runtime-verified against that exact server build when a customer next runs a non-AC game >3min on Pod 1.
+> **CORRECTION (G9 2026-04-18 23:30 IST):** Earlier in this session I wrote "Server stays d4b60fb5 (intentional)" into this header, LOGBOOK.md, INBOX.md, and a comms-link WS to Bono. That claim is FALSE — server was upgraded to `2c27e2fc-dirty` at 23:05:20 IST (same minute as my pod swap; concurrent parallel-session or Uday-approved manual swap). I asserted the build_id from a single read at session start and did not re-verify before absolute claims. **Structural:** any absolute claim about a remote system's build/state must be preceded by a fresh `/api/v1/health` or equivalent probe in the same action block. Not "I checked 20 minutes ago." The BILL-14 runtime-verify target is now 2c27e2fc (not d4b60fb5) — which is a SUPERSET of the d4b60fb5 guards, so the verify is still meaningful, just against a newer fix level.
+>
+> **Anti-drift note:** earlier header claimed fleet `68f4d61e`, then `d4b60fb5`, then `b39c2a6f`. Fleet now on `a6d29291`; server is on `2c27e2fc-dirty` (was `d4b60fb5` at session start; drifted mid-session).
 
 ## How to use
 
