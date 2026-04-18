@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-17T23:50:45.879Z"
-last_activity: 2026-04-17
+last_updated: "2026-04-18T00:34:13.620Z"
+last_activity: 2026-04-18
 progress:
   total_phases: 4
   completed_phases: 4
@@ -133,21 +133,45 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Commits:** `d92c3843` (Task 1: single atomic rename across all 3 blocks)
 **Files:** `scripts/deploy-server.sh` (+7 lines, -3 lines — 3 substring renames + 4 comment lines)
 **Before/after counts:**
+
 - `grep -c DEPLOY_IN_PROGRESS scripts/deploy-server.sh` : 3 → 0
 - `grep -c OTA_DEPLOYING scripts/deploy-server.sh` : 0 → 5 (3 functional + 2 in comment)
 - `grep -c 'del /Q C:\\RacingPoint\\OTA_DEPLOYING' scripts/deploy-server.sh` : 2
 - bash -n clean; Plan 05 `RCWatchdog` count=3 preserved; `start-racecontrol-watchdog.ps1` untouched (2 OTA_DEPLOYING hits)
+
 **Deviation (Rule 1, documentation bug):** Plan prescribed comment text contained the literal `DEPLOY_IN_PROGRESS` substring, which contradicted the `grep -c DEPLOY_IN_PROGRESS = 0` acceptance criterion. Reworded comment to `a different sentinel name the PS watchdog never checked` — preserves intent, satisfies the stricter invariant.
 **Closes:** Factor 2 of the 2026-04-18 03:13 IST deploy abort — writer + checker now agree on `OTA_DEPLOYING`. PS watchdog will see the sentinel during the next kill→swap→start window and skip its restart. Not live-exercised yet; first test on next `bash scripts/deploy-server.sh` invocation.
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-06-SUMMARY.md`
+
+## Phase 413 Plan 07 — deploy-server.sh Factor 3 closed (2026-04-18)
+
+**Completed:** 2026-04-18 (Wave 3 solo executor, --no-verify)
+**Scope:** Replace `taskkill /F /IM powershell.exe /FI "WINDOWTITLE eq *watchdog*"` with `wmic process where "name='powershell.exe' and commandline like '%%start-racecontrol-watchdog.ps1%%'" delete` inside the Step 3a disable block. Launcher at `start-racecontrol.bat:26` spawns watchdog via `start "" /B powershell ... -File start-racecontrol-watchdog.ps1` — empty title → the old wildcard filter matched zero instances, zombie watchdogs survived every deploy's kill step. Commandline match catches every PS process running the ps1 regardless of title.
+**Commits:** `bee5d207` (Task 1: single atomic edit — WMIC swap + Factor 3 explanatory comment)
+**Files:** `scripts/deploy-server.sh` (+7 lines, -1 line — 1 fragment replacement + 6 comment lines)
+**Before/after counts:**
+
+- `grep -c "WINDOWTITLE eq \*watchdog\*" scripts/deploy-server.sh` : 1 → 0
+- `grep -c "wmic process where" scripts/deploy-server.sh` : 0 → 1
+- `grep -c "start-racecontrol-watchdog.ps1" scripts/deploy-server.sh` : 1 → 3 (WMIC line + 2 comment mentions)
+- `grep -c "commandline like" scripts/deploy-server.sh` : 0 → 1
+- `grep -c "taskkill /F /IM powershell" scripts/deploy-server.sh` : 1 → 0
+- Plan 05 `RCWatchdog /Disable=1, /Enable=2` preserved; Plan 06 `OTA_DEPLOYING=5, DEPLOY_IN_PROGRESS=0` preserved; bash -n clean.
+
+**Deviation (Rule 1, documentation bug):** Initial edit included comment line `old \`/FI "WINDOWTITLE eq *watchdog*"\` filter missed every instance` — the literal substring contradicted acceptance criterion `grep -c "WINDOWTITLE eq \*watchdog\*" = 0`. Same shape as Plan 06 deviation. Reworded to `the window-title taskkill filter` / `the old taskkill wildcard filter` — preserves explanatory intent, satisfies strict 0-hit invariant.
+**Escape-rule decision:** `%%` (double-percent) in the WMIC LIKE literal per CONTEXT.md spec. Bash single-quotes pass `%%` through verbatim → JSON parser passes through → cmd.exe on /exec handler collapses `%%` → `%` → WMIC sees `%start-racecontrol-watchdog.ps1%`. Consistent with the rest of deploy-server.sh's /exec payloads. Plan 10 integration test confirms; if `%%` arrives literally at WMIC we reduce to `%`.
+**Closes:** Factor 3 of the 2026-04-18 03:13 IST deploy abort. All 3 factors (Plan 05 schtasks coverage + Plan 06 OTA_DEPLOYING sentinel + Plan 07 WMIC commandline match) now co-resident in the Step 3a disable block. Not live-exercised yet; first test on next `bash scripts/deploy-server.sh` invocation (Plan 10 integration + Plan 11 fleet).
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-07-SUMMARY.md`
 
 ## Phase 413 Plan 04 — rc-agent MeshKeyCache consumer rewire closed (2026-04-18)
 
 **Completed:** 2026-04-18 (Wave 2A solo executor, --no-verify)
 **Scope:** Rewire all 3 production `std::env::var("RCAGENT_SERVICE_KEY")` call sites in rc-agent to use `mesh_key_cache::get_key_or_env(&cache)`. Tasks 1+2+3+verification sweep. W4 state-shape = Option (a) sub-router with State<MeshKeyCache> (no FromRef). W5 extends 403-warn to ai_debugger Tier 0 path. S10 adds dedicated cache-wins-over-env regression test.
 **Commits:**
+
 - `51356322` — Tasks 1+2+scaffolding: ai_debugger (check_audit_known_issues signature + W5 logging), remote_ops (sub-router middleware rewrite + S10 test + no-default-features variants), AppState mesh_key_cache field, main.rs cache-passed-to-start_checked, event_loop.rs + ws_handler.rs analyze_crash call sites (all 4).
 - `34e13516` — Task 3: ws_handler csv_lap_fallback push key-resolution moved inside tokio::spawn.
+
 **Files modified:** 6 (ai_debugger.rs, app_state.rs, event_loop.rs, main.rs, remote_ops.rs, ws_handler.rs)
 **Lines:** +407 / -36 across both commits.
 **Tests:** 103 passing across touched modules (19 remote_ops incl. S10 new test + 10 mesh_key_cache + 64 ai_debugger + 10 ws_handler). Zero regressions from Plans 02/03 baselines. All 7 legacy service-key tests preserved intact.
@@ -184,7 +208,8 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
+*Last updated: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
+*Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
 *Previous: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
 *Previous: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*
 *Previous: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
