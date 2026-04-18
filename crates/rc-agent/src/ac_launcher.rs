@@ -2405,13 +2405,22 @@ pub fn cleanup_after_session() {
 pub fn enforce_safe_state(skip_conspit_restart: bool) {
     tracing::info!(target: LOG_TARGET, "Enforcing default safe state...");
 
-    // 1. Kill ALL known game processes
+    // 1. Kill ALL known game processes.
+    //
+    // iRacingService*.exe DELIBERATELY EXCLUDED (2026-04-18):
+    // It is the persistent Windows helper service (iRacingService64.exe
+    // under SCM, auto-start, subscription/auth layer), NOT a per-session
+    // game process. Killing it here correlated with fleet-wide Service
+    // Control Manager Event 7034 "terminated unexpectedly" — 9+ crashes
+    // / day across 7 pods, tight time correlation with rc-agent restarts.
+    // The actual iRacing game binaries are iRacingSim64DX11.exe and
+    // iRacingSim64DX12.exe — those ARE safe to kill on session end.
     let game_processes = [
         "acs.exe", "AssettoCorsa.exe", "Content Manager.exe",
         "AssettoCorsaEVO.exe", "AssettoCorsa2.exe", "AC2-Win64-Shipping.exe",
         "acr.exe",
         "F1_25.exe",
-        "iRacingService.exe", "iRacingSim64DX11.exe",
+        "iRacingSim64DX11.exe", "iRacingSim64DX12.exe",
         "LMU.exe", "Le Mans Ultimate.exe",
         "ForzaMotorsport.exe", "ForzaHorizon5.exe",
     ];
