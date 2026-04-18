@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3300 -H 0.0.0.0 --webpack",
-    "prebuild": "bash ../scripts/validate-frontend-env.sh && node ../scripts/inject-git-commit.js",
+    "prebuild": "node ../scripts/inject-git-commit.js && bash ../scripts/validate-frontend-env.sh",
     "build": "next build && node ../scripts/postbuild-standalone.js",
     "start": "next start -p 3300",
     "lint": "next lint",

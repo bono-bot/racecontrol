@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "bash ../scripts/validate-frontend-env.sh && node ../scripts/inject-git-commit.js",
+    "prebuild": "node ../scripts/inject-git-commit.js && bash ../scripts/validate-frontend-env.sh",
     "build": "next build && node ../scripts/postbuild-standalone.js",
     "start": "next start",
     "lint": "eslint"

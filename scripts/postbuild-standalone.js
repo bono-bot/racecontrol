@@ -48,15 +48,24 @@ if (fs.existsSync(publicSrc)) {
   console.log('postbuild: copied public/ -> standalone');
 }
 
-// Write git commit to standalone root for /api/health build_id reporting.
+// Write git commit to standalone for /api/health reporting. Belt-and-suspenders:
+// write to BOTH standalone/public/git-commit.txt (health route's first fallback
+// path at process.cwd()+public/) AND standalone/git-commit.txt (third fallback).
+// This ensures the truth-ledger survives even when the prebuild inject was
+// skipped or failed on the host — observed on Bono VPS 2026-04-19 where
+// validate-frontend-env.sh in the prebuild chain prevented inject from running.
+//
 // Run git from the racecontrol repo root (scripts/..), NOT kiosk/web cwd —
-// those dirs contain stray .git/ scaffolding (no commits) from shadcn/Next scaffolds
-// that hijacks git resolution and fails with "Needed a single revision".
+// those dirs contain stray .git/ scaffolding (no commits) from shadcn/Next
+// scaffolds that hijacks git resolution and fails with "Needed a single revision".
 const REPO_ROOT = path.resolve(__dirname, '..');
 try {
   const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: REPO_ROOT }).trim();
   fs.writeFileSync(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
-  console.log(`postbuild: wrote git-commit.txt (${gitCommit})`);
+  const standalonePublic = path.join(standaloneDir, 'public');
+  fs.mkdirSync(standalonePublic, { recursive: true });
+  fs.writeFileSync(path.join(standalonePublic, 'git-commit.txt'), gitCommit);
+  console.log(`postbuild: wrote git-commit.txt (${gitCommit}) to standalone/ and standalone/public/`);
 } catch (e) {
   console.warn('postbuild: could not determine git commit:', e.message);
 }
