@@ -104,9 +104,26 @@ pub(crate) async fn escalate_to_ai(
                 suggestion.chars().take(100).collect::<String>()
             );
 
+            // LOG-MIS-ATTRIB-FIX: When pod.current_game is None, the healer is
+            // diagnosing pod-level (network/process/hardware) issues, not sim-specific
+            // ones. The AiDebugSuggestion.sim_type field is non-Option so a default is
+            // structurally required; AssettoCorsa silently mis-tagged all pod-level
+            // diagnostics for months. Emit a warning so DB consumers know the tag is
+            // a fallback, not a factual sim attribution. Longer-term fix: migrate
+            // AiDebugSuggestion.sim_type to Option<SimType> (cross-cutting, deferred).
+            let healer_sim_type = match pod.current_game {
+                Some(sim) => sim,
+                None => {
+                    tracing::warn!(
+                        "Pod healer: pod {} has no current_game — AI suggestion will be DB-tagged AssettoCorsa by default (not an actual sim attribution). Diagnosis is pod-level. See LOG-MIS-ATTRIB-FIX.",
+                        pod.id
+                    );
+                    SimType::AssettoCorsa
+                }
+            };
             let debug_suggestion = AiDebugSuggestion {
                 pod_id: pod.id.clone(),
-                sim_type: pod.current_game.unwrap_or(SimType::AssettoCorsa),
+                sim_type: healer_sim_type,
                 error_context: context,
                 suggestion,
                 model,

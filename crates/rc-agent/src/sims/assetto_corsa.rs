@@ -46,6 +46,12 @@ pub struct AssettoCorsaAdapter {
     using_rc_plugin: bool,
     /// Telemetry read counter — used for periodic diagnostic logging.
     telemetry_read_count: u64,
+    /// LOG-SPAM-FIX: True if "plugin not found" was already logged once for this
+    /// connection lifecycle. Reset on successful plugin attach so a later plugin
+    /// drop re-logs once. Prevents the 100ms telemetry-interval retry loop from
+    /// flooding the log with the same fallback notice (observed ~10 lines/sec on
+    /// pod_6 2026-04-18).
+    plugin_missing_logged: bool,
 }
 
 /// Wrapper for a Windows memory-mapped file handle + view pointer
@@ -148,6 +154,7 @@ impl AssettoCorsaAdapter {
             rc_plugin_handle: None,
             using_rc_plugin: false,
             telemetry_read_count: 0,
+            plugin_missing_logged: false,
         }
     }
 
@@ -523,6 +530,9 @@ impl SimAdapter for AssettoCorsaAdapter {
                 self.rc_plugin_handle = Some(rc_handle);
                 self.using_rc_plugin = true;
                 self.connected = true;
+                // LOG-SPAM-FIX: plugin is back — allow a fresh "not found" log if
+                // it drops again later in the session.
+                self.plugin_missing_logged = false;
                 // IMPORTANT: Do NOT open acpmf_* when plugin is active.
                 // Having handles to AC's shared memory may trigger CSP/anti-cheat
                 // or Steam to terminate our process. The plugin provides all data
@@ -530,7 +540,14 @@ impl SimAdapter for AssettoCorsaAdapter {
                 return Ok(());
             }
             Err(_) => {
-                tracing::info!(target: LOG_TARGET, "RC AC plugin not found — using direct AC shared memory (less safe)");
+                // LOG-SPAM-FIX: log the fallback ONCE per plugin-gone episode.
+                // The telemetry polling interval fires every ~100ms — without this
+                // guard the log fills with hundreds of identical lines per minute,
+                // masking real errors (seen on pod_6 2026-04-18 ~10 lines/sec).
+                if !self.plugin_missing_logged {
+                    tracing::info!(target: LOG_TARGET, "RC AC plugin not found — using direct AC shared memory (less safe). Suppressing further fallback logs until plugin returns.");
+                    self.plugin_missing_logged = true;
+                }
             }
         }
 

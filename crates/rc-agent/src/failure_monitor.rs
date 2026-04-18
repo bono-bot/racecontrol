@@ -172,18 +172,31 @@ pub fn spawn(
                 if udp_silent_60 && !telem_gap_fired {
                     telem_gap_fired = true;
                     let gap = state.last_udp_secs_ago.unwrap_or(TELEM_GAP_SECS);
-                    tracing::warn!(
-                        target: LOG_TARGET,
-                        "TELEM-01: UDP silent {}s on pod {} — sending TelemetryGap",
-                        gap,
-                        pod_id
-                    );
-                    let msg = AgentMessage::TelemetryGap {
-                        pod_id: pod_id.clone(),
-                        sim_type: state.sim_type.unwrap_or(SimType::AssettoCorsa),
-                        gap_seconds: gap as u32,
-                    };
-                    let _ = agent_msg_tx.try_send(msg);
+                    // SIM-DEFAULT-FIX: don't emit TelemetryGap with a guessed sim_type
+                    // — the server routes the gap to sim-specific recovery. Tagging an
+                    // iRacing silence as AssettoCorsa triggered the wrong fallback.
+                    match state.sim_type {
+                        Some(sim) => {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                "TELEM-01: UDP silent {}s on pod {} (sim={:?}) — sending TelemetryGap",
+                                gap, pod_id, sim
+                            );
+                            let msg = AgentMessage::TelemetryGap {
+                                pod_id: pod_id.clone(),
+                                sim_type: sim,
+                                gap_seconds: gap as u32,
+                            };
+                            let _ = agent_msg_tx.try_send(msg);
+                        }
+                        None => {
+                            tracing::warn!(
+                                target: LOG_TARGET,
+                                "TELEM-01: UDP silent {}s on pod {} but sim_type is None — suppressing TelemetryGap (refusing to default to AssettoCorsa; would mis-route recovery)",
+                                gap, pod_id
+                            );
+                        }
+                    }
                 }
 
                 // Reset flag when data resumes

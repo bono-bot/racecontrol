@@ -1181,9 +1181,8 @@ pub async fn run(
                                 if !billing_pause_sent {
                                     tracing::error!(target: LOG_TARGET, "FSM-04: Failed to pause billing on crash — skipping relaunch, auto-ending session");
                                     conn.crash_recovery = CrashRecoveryState::AutoEndPending;
-                                } else {
+                                } else if let Some(last_sim) = conn.current_sim_type {
                                     state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
-                                    let last_sim = conn.current_sim_type.unwrap_or(SimType::AssettoCorsa);
                                     // Act 2: 30s crash recovery countdown — gives staff time to
                                     // switch games via kiosk if customer wants a different game
                                     conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
@@ -1192,6 +1191,18 @@ pub async fn run(
                                         last_sim_type: last_sim,
                                         last_launch_args: conn.last_launch_args_stored.clone(),
                                     };
+                                } else {
+                                    // SIM-DEFAULT-FIX: current_sim_type is None — refuse to guess.
+                                    // Prior code defaulted to AssettoCorsa, which would re-launch the
+                                    // wrong game after a crash on F1 25/iRacing/etc. Safer behavior:
+                                    // notify operator, auto-end session so staff can re-launch the
+                                    // correct game manually.
+                                    tracing::error!(
+                                        target: LOG_TARGET,
+                                        "Crash recovery ABORTED: current_sim_type is None — cannot determine which game to relaunch (refusing to default to AssettoCorsa). Auto-ending session for staff intervention."
+                                    );
+                                    state.overlay.show_toast("Game crashed \u{2014} staff, please re-launch.".to_string());
+                                    conn.crash_recovery = CrashRecoveryState::AutoEndPending;
                                 }
                             } else {
                                 tracing::info!(target: LOG_TARGET, "Game exited with no active billing — enforcing safe state");

@@ -402,13 +402,24 @@ pub async fn launch_game(
         tracing::warn!("dashboard broadcast failed for pod {}: {}", pod_id, e);
     }
 
-    // CLOSED-LOOP VERIFICATION: Wait up to 20s for the game process to actually start.
+    // CLOSED-LOOP VERIFICATION: Wait for the game process to actually start.
     // The agent ACK above only proves the message was received — NOT that the game launched.
     // Poll the game tracker for state transition from Launching → Loading/Running.
     // This makes the API response truthful: ok=true means the game IS running.
+    //
+    // VERIFY-TIMEOUT-FIX: timeout is per-sim. AC/ACE/ACR/LMU reach Running in <10s.
+    // Steam/EA games (F1 25, iRacing) need ~40s for Steam client + EA Anti-Cheat +
+    // launcher + game window. Using 20s for all sims caused false-negative warnings
+    // on pod_6 F1 25 launch 2026-04-18 (server warned "NOT verified after 20.5s" at
+    // 02:04:34, game actually reached Running at 02:04:53).
+    let verify_secs: u64 = match sim_type {
+        SimType::AssettoCorsa | SimType::AssettoCorsaEvo | SimType::AssettoCorsaRally => 30,
+        SimType::F125 | SimType::IRacing | SimType::LeMansUltimate => 60,
+        _ => 60, // default generous (Forza, FH5, generic Steam) — slow Steam bootstraps
+    };
     let mut verified = false;
     let verify_start = std::time::Instant::now();
-    let verify_timeout = std::time::Duration::from_secs(20);
+    let verify_timeout = std::time::Duration::from_secs(verify_secs);
     while verify_start.elapsed() < verify_timeout {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         let games = state.game_launcher.active_games.read().await;
@@ -446,8 +457,8 @@ pub async fn launch_game(
 
     if !verified {
         tracing::warn!(
-            "CLOSED-LOOP: Game launch NOT verified on pod {} after {:.1}s — process may not have started",
-            pod_id, verify_start.elapsed().as_secs_f64()
+            "CLOSED-LOOP: Game launch NOT verified on pod {} (sim={:?}) after {:.1}s (budget {}s) — process may not have started",
+            pod_id, sim_type, verify_start.elapsed().as_secs_f64(), verify_secs
         );
     }
 
