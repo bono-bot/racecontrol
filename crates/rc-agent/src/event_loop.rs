@@ -160,6 +160,12 @@ pub(crate) struct ConnectionState {
     /// AI suggestions stamped with a stale epoch are discarded on receipt,
     /// preventing fixes from a previous crash from killing a freshly launched game.
     pub(crate) launch_epoch: u64,
+    /// CRASH-CASCADE-FIX: timestamps of recent crash events (pruned to last 10 min on access).
+    /// If ≥3 crashes fall inside the 10-min window, auto-end the session instead of
+    /// crash-recovering — cascading re-launches were observed on pod_4 (Pattern A, F1 25
+    /// 06:46 UTC 2026-04-17) and pod_6 (Pattern E, AC 12:36 UTC 2026-04-17) where each
+    /// crash resets `attempt=1` and the loop never breaks.
+    pub(crate) recent_crash_history: Vec<std::time::Instant>,
 }
 
 impl ConnectionState {
@@ -215,6 +221,7 @@ impl ConnectionState {
             config_verified: false,
             last_adapter_connect_error: None,
             launch_epoch: 0,
+            recent_crash_history: Vec::new(),
         }
     }
 }
@@ -1182,15 +1189,35 @@ pub async fn run(
                                     tracing::error!(target: LOG_TARGET, "FSM-04: Failed to pause billing on crash — skipping relaunch, auto-ending session");
                                     conn.crash_recovery = CrashRecoveryState::AutoEndPending;
                                 } else if let Some(last_sim) = conn.current_sim_type {
-                                    state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
-                                    // Act 2: 30s crash recovery countdown — gives staff time to
-                                    // switch games via kiosk if customer wants a different game
-                                    conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
-                                        attempt: 1,
-                                        timer: Box::pin(tokio::time::sleep(Duration::from_secs(30))),
-                                        last_sim_type: last_sim,
-                                        last_launch_args: conn.last_launch_args_stored.clone(),
-                                    };
+                                    // CRASH-CASCADE-FIX: record this crash + prune old entries.
+                                    // If ≥3 crashes happened in the last 10 minutes, the customer
+                                    // is likely intentionally quitting (ALT-F4 / End Session spam)
+                                    // or the game is repeatedly failing for a systemic reason —
+                                    // either way, relaunch is not safe. Auto-end the session for
+                                    // staff intervention instead of an infinite cascade.
+                                    let now = std::time::Instant::now();
+                                    conn.recent_crash_history.retain(|t| now.duration_since(*t) < Duration::from_secs(600));
+                                    conn.recent_crash_history.push(now);
+                                    if conn.recent_crash_history.len() >= 3 {
+                                        tracing::error!(
+                                            target: LOG_TARGET,
+                                            "CRASH-CASCADE-FIX: {} crashes in last 10 min on pod {} — refusing to auto-relaunch (likely customer-quit loop or systemic failure). Auto-ending session.",
+                                            conn.recent_crash_history.len(),
+                                            state.pod_id
+                                        );
+                                        state.overlay.show_toast("Repeated crashes \u{2014} please ask staff for help.".to_string());
+                                        conn.crash_recovery = CrashRecoveryState::AutoEndPending;
+                                    } else {
+                                        state.overlay.show_toast("Game crashed \u{2014} relaunching...".to_string());
+                                        // Act 2: 30s crash recovery countdown — gives staff time to
+                                        // switch games via kiosk if customer wants a different game
+                                        conn.crash_recovery = CrashRecoveryState::PausedWaitingRelaunch {
+                                            attempt: 1,
+                                            timer: Box::pin(tokio::time::sleep(Duration::from_secs(30))),
+                                            last_sim_type: last_sim,
+                                            last_launch_args: conn.last_launch_args_stored.clone(),
+                                        };
+                                    }
                                 } else {
                                     // SIM-DEFAULT-FIX: current_sim_type is None — refuse to guess.
                                     // Prior code defaulted to AssettoCorsa, which would re-launch the
