@@ -40,17 +40,42 @@
 | Blocker | Pod-local log access (SSH aliases reported broken in prior sessions — check rc-agent `:8090/exec` or rc-sentry `:8091/exec` instead) |
 | Notes | INV-1 exit-code capture is LIVE in `68f4d61e` — next F1 25 storm WILL log an exit code automatically. Wait for next storm rather than chase old logs. |
 
-### Pattern E — Pod 6 AC rapid-crash cluster
+### Pattern E — Pod 6 AC "Process exited unexpectedly" cluster
+
+#### Sub-pattern E.1 — today's exit-0 multi-minute events (2026-04-18) — RESOLVED
+
 | Field | Value |
 |---|---|
-| State | EVIDENCE-FLOOR (pending pod-local log) |
-| First seen | 2026-04-17 18:06-18:08 IST (3 AC crashes in 51s) |
-| Last seen | 2026-04-18 16:42:21 IST (multi-minute exit-0 variant; older 51s rapid cluster did not recur today) |
-| Classification | INV-1 class. INV-1 fix LIVE on `d4b60fb5` — exit codes ARE captured today (e.g., `Process exited unexpectedly (exit code: 0)` on Pod 6 at 12:11/12:18/12:24/16:36/16:42 IST). Sub-class: clean game exit, not crash dump. |
-| Evidence floor | **Missing pod-local.** `game_launch_events` confirms the exit code = 0 (clean exit) for today's instances. Need Pod 6 `%USERPROFILE%\Documents\Assetto Corsa\logs\log.txt` for one of those crash windows + `python.ini` contents. |
-| Hypotheses remaining | (1) Customer ALT-F4'd cleanly each time; (2) AC content (mod / car / track) crashed AC cleanly; (3) ZL-1 plugin still broken on this pod specifically; (4) Single-instance check kicking AC out when something tries a re-launch. Exit-code-0 rules out hard segfault. |
-| Blocker | Pod-local log access. Try rc-agent `:8090/exec` with `type` command. |
-| Notes | Today's data is on the fixed binary (16:42 IST is on `d4b60fb5`'s prev — actually mtime 13:58 IST so 16:42 is on prev binary). The 12:18-12:24 cluster was on the morning binary. Mixed-binary data — be careful with attribution. |
+| State | RESOLVED — misclassification, not a crash |
+| Window | 2026-04-18 12:02-16:44 IST, 6 instances of `Process exited unexpectedly (exit code: 0)` on Pod 6 AC |
+| Evidence | Pod 6 `C:\Users\User\Documents\Assetto Corsa\logs\py_log.txt` for the 16:42:21 session (mtime 16:44:20) shows the full RaceControl plugin shutdown sequence: `RaceControl: shutting down...` → `RC Plugin: shared memory marked SHUTDOWN` → `RC Plugin: shared memory closed` → `RaceControl: shutdown complete` → `VMS Connect: shutdown`. Exit code 0 = clean OS-level exit. No crash dump file written for any 2026-04-18 session. errors.txt only contains unrelated `INIReader` warnings about missing `[ASSISTS] STABILITY_CONTROL` / `TYRE_WEAR` keys. Source: rc-agent `:8090/exec` (authenticated, service key from server `racecontrol.toml`), command was a `Get-Content` PowerShell call against the Pod 6 logs directory. |
+| Bonus finding | ZL-1/ZL-2 plugin fix is functional on Pod 6 — `RC Plugin: shared memory initialized (400 bytes)` + telemetry writer initialized + on-track state-change events all logged. python.ini `[RACECONTROL]` section is working. |
+| Why misclassified | rc-agent's event taxonomy reports any non-rc-agent-initiated process exit as `"Process exited unexpectedly"`. Exit code 0 + RaceControl shutdown lines = customer/staff used the AC menu / ALT-F4 / Drive→Exit. Not a crash. |
+| Follow-up | See Pattern H — rc-agent should distinguish clean exits from crashes. |
+
+#### Sub-pattern E.2 — 2026-04-17 51-second 3-PID rapid cluster — UNVERIFIABLE NOW, WATCH
+
+| Field | Value |
+|---|---|
+| State | EVIDENCE-FLOOR (stale — log files overwritten by today's sessions) |
+| Window | 2026-04-17 18:06:50, 18:07:17, 18:07:41 IST (PIDs 17584, 8776, 27692 — three distinct AC processes crashed within 51s) |
+| Evidence available | `game_launch_events` rows only. Per-event metadata is empty (no exit code captured at the time — pre-INV-1 binary). Pod 6 AC `log.txt`, `py_log.txt`, etc. were overwritten by 2026-04-18 sessions. |
+| Hypotheses remaining | (1) Genuine fast-crash from corrupt preset; (2) AC single-instance guard kicked subsequent launches; (3) Customer rapid-clicked launch button; (4) FFB/Conspit HID handshake failure causing immediate exit. |
+| Next step | Wait for recurrence on a binary with INV-1 capture (i.e., `b39c2a6f` or later — ALL pods are now on `b39c2a6f` per fleet check). Next AC rapid-crash on Pod 6 will have the exit code logged + py_log.txt should contain whether shutdown sequence ran or got cut off mid-init. |
+| Blocker | No recurrence signal — close after N days clean? |
+
+### Pattern H — rc-agent event taxonomy: clean exit misclassified as "Process exited unexpectedly"
+
+| Field | Value |
+|---|---|
+| State | OPEN — design proposed, not implemented |
+| Source of bug | rc-agent emits the same `event_type=crashed` + `error_message="Process exited unexpectedly (exit code: N)"` for ALL non-rc-agent-initiated exits, regardless of whether the game shut down cleanly. |
+| Evidence | Pattern E.1 — Pod 6 AC sessions 2026-04-18 12:02-16:44 IST all reported as `crashed exit 0`, but py_log.txt shows the full RaceControl plugin shutdown sequence ran cleanly. Customer simply quit the game. Same misclassification likely affects every pod for every game when customer ends session via game UI rather than kiosk End-Session button. |
+| Impact | Inflates apparent crash counts → noise drowns out real crashes → Pattern E.1 was investigated as a possible bug for two days when it was just normal customer behavior. Real crashes (Pattern A storms, AC Rally 3-min, etc.) are harder to spot in the noise. |
+| Proposed fix | At the rc-agent crash-event emission site (`event_loop.rs:1065` per BUG-TRACKER INV-1), check whether: (a) `exit_code == 0`, AND (b) RaceControl plugin emitted a shutdown line in py_log.txt within the last N seconds, OR (c) no Windows Error Reporting crash dump was written. If clean → emit `event_type=stopped` + `error_message=null` (or a new event_type=ended). If unclean → keep current `crashed` taxonomy. |
+| Risks | (a) py_log.txt scan is filesystem I/O on every exit — may need a cheaper signal (exit code threshold + time-since-launch heuristic). (b) Steam-launched games (F1 25, iRacing) may not write a known shutdown marker — would need per-sim heuristics. (c) Changing the event taxonomy breaks existing `WHERE event_type='crashed'` queries fleet-wide — needs migration plan. |
+| Lower-bound fix (no behavior change) | Add a `clean_exit_heuristic: bool` column to `game_launch_events` that's true when `exit_code == 0` AND `seconds_since_launch > 30`. Then DB queries can filter `WHERE clean_exit_heuristic = false` to see real crashes. Doesn't fix the misleading `error_message` text but lets dashboards split the noise out. |
+| Cross-ref | Pattern E.1 resolution depends on this taxonomy decision — without it, every customer end-of-session looks like a crash in the DB. |
 
 ### Pattern G — Dynamic-timeout under-estimation triggers BILL-14 retry cascade
 
