@@ -370,13 +370,18 @@ pub(crate) async fn pods_mesh_service_key(
     // makes the misconfig observable. See 413-MMA-AUDIT.md Section DIAGNOSE / Q2.
     let key_opt = state.config.pods.sentry_service_key.as_deref();
     match key_opt {
-        Some(k) if !k.is_empty() => {
+        // Phase 413 MMA VERIFY NEW-1 fix: use .trim().is_empty() not .is_empty()
+        // so whitespace-only keys (e.g., "   " from operator fat-finger) are treated
+        // the same as empty/unset. Without .trim() a whitespace key would be served
+        // as 200 OK and cached as a valid key → all auth fails 401 fleet-wide.
+        // Flagged by Kimi K2.5 + GPT-5.4-nano in VERIFY step.
+        Some(k) if !k.trim().is_empty() => {
             Json(render_mesh_service_key_body(k)).into_response()
         }
         _ => {
             tracing::error!(
                 target: "mesh_intelligence",
-                "/pods/mesh-service-key: pods.sentry_service_key is empty/unset in racecontrol.toml — refusing to serve so pod caches preserve last-known-good. Fix the TOML and reload."
+                "/pods/mesh-service-key: pods.sentry_service_key is empty/whitespace/unset in racecontrol.toml — refusing to serve so pod caches preserve last-known-good. Fix the TOML and reload."
             );
             (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
@@ -484,10 +489,11 @@ mod phase413_tests {
     }
 
     // Phase 413 MMA-C2 (Q2 HIGH consensus) — refuse-to-serve when key is empty.
-    // The handler's dispatch logic is `match key_opt { Some(k) if !k.is_empty() => 200, _ => 503 }`.
+    // The handler's dispatch logic is `match key_opt { Some(k) if !k.trim().is_empty() => 200, _ => 503 }`.
     // We assert the decision predicate here to lock the behavior.
+    // Phase 413 MMA VERIFY NEW-1 update: use .trim() to block whitespace-only.
     fn mesh_key_should_serve(key_opt: Option<&str>) -> bool {
-        matches!(key_opt, Some(k) if !k.is_empty())
+        matches!(key_opt, Some(k) if !k.trim().is_empty())
     }
 
     #[test]
@@ -500,5 +506,25 @@ mod phase413_tests {
     fn mma_c2_non_empty_toml_key_serves() {
         assert!(mesh_key_should_serve(Some("abc")), "non-empty key must serve 200");
         assert!(mesh_key_should_serve(Some("x")), "single-char key must serve 200");
+    }
+
+    // Phase 413 MMA VERIFY NEW-1 fix — whitespace-only keys must not be served.
+    #[test]
+    fn mma_verify_new1_whitespace_key_does_not_serve() {
+        assert!(!mesh_key_should_serve(Some(" ")), "single space must map to 503");
+        assert!(!mesh_key_should_serve(Some("   ")), "multiple spaces must map to 503");
+        assert!(!mesh_key_should_serve(Some("\t")), "tab-only must map to 503");
+        assert!(!mesh_key_should_serve(Some("\n")), "newline-only must map to 503");
+        assert!(!mesh_key_should_serve(Some(" \t\n ")), "mixed whitespace must map to 503");
+    }
+
+    #[test]
+    fn mma_verify_new1_whitespace_surrounding_real_key_still_serves() {
+        // Real keys with accidental leading/trailing whitespace still serve (use-as-is).
+        // This is intentional: we don't trim the served value — only the check — because
+        // an operator that fat-fingers whitespace on a real key is a different bug class
+        // and changing what we serve could break a key that currently works.
+        assert!(mesh_key_should_serve(Some(" abc ")), "key with surrounding ws still serves");
+        assert!(mesh_key_should_serve(Some("abc123")), "normal key serves");
     }
 }
