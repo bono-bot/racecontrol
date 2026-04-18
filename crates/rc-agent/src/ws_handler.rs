@@ -427,10 +427,16 @@ pub async fn handle_ws_message(
                     .next()
                     .unwrap_or("http://127.0.0.1:8080")
                     .to_string();
-                // Service key: pods use RCAGENT_SERVICE_KEY env var (matches sentry_service_key on server)
-                let service_key = std::env::var("RCAGENT_SERVICE_KEY").unwrap_or_default();
+                // Phase 413 Plan 04: service key comes from the Option Z mesh key cache.
+                // Fallback to legacy RCAGENT_SERVICE_KEY env var (test + pre-wire-up boots).
+                // push_csv_fallback takes the key as a String param, so we resolve it INSIDE
+                // the spawned task — the cache Arc clone moves cleanly into the async block.
+                let cache_clone = state.mesh_key_cache.clone();
                 let sid = billing_session_id.clone();
                 tokio::spawn(async move {
+                    let service_key = crate::mesh_key_cache::get_key_or_env(&cache_clone)
+                        .await
+                        .unwrap_or_default();
                     if let Err(e) = crate::csv_lap_fallback::push_csv_fallback(
                         server_http_base,
                         service_key,
