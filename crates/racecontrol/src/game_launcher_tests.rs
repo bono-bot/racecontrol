@@ -1554,3 +1554,172 @@
         assert!(!map.contains_key("pod_stale_2"), "stale entry (>30s) must be pruned");
         assert!(map.contains_key("pod_fresh"), "fresh entry must survive pruning");
     }
+
+    // ── BILL-14: handle_launch_timeouts guard tests ─────────────────────────
+    //
+    // Regression tests for the root cause found 2026-04-18: the 180s launch-timeout
+    // retry was firing even when the game had reached GameState::Running, causing
+    // a second LaunchGame (defaulting to AssettoCorsa on sim_type=None) that swapped
+    // out the currently-playing game. Confirmed on pod_1 AC Rally (2026-04-17) and
+    // pod_6 F1 25 (2026-04-18).
+
+    fn make_waiting_entry_with_sim(
+        pod_id: &str,
+        sim_type: Option<SimType>,
+        attempt: u8,
+    ) -> crate::billing::WaitingForGameEntry {
+        crate::billing::WaitingForGameEntry {
+            pod_id: pod_id.to_string(),
+            driver_id: format!("driver-{}", pod_id),
+            pricing_tier_id: "tier1".to_string(),
+            custom_price_paise: None,
+            custom_duration_minutes: None,
+            staff_id: None,
+            split_count: None,
+            split_duration_minutes: None,
+            waiting_since: std::time::Instant::now() - std::time::Duration::from_secs(181),
+            attempt,
+            group_session_id: None,
+            sim_type,
+            launch_args: None,
+            pre_committed: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn bill14_launch_timeout_suppressed_when_game_running() {
+        let state = make_state().await;
+        // Seed waiting_for_game with a pending entry (attempt=1, F1 25, 181s elapsed).
+        {
+            let mut waiting = state.billing.waiting_for_game.write().await;
+            waiting.insert(
+                "pod_1".to_string(),
+                make_waiting_entry_with_sim("pod_1", Some(SimType::F125), 1),
+            );
+        }
+        // Seed active_games with Running — this is the condition that must suppress retry.
+        state.game_launcher.active_games.write().await.insert(
+            "pod_1".to_string(),
+            GameTracker {
+                pod_id: "pod_1".to_string(),
+                sim_type: SimType::F125,
+                game_state: GameState::Running,
+                pid: Some(17428),
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+                dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
+                playable_at: Some(Utc::now()),
+                ready_delay_ms: Some(40_000),
+                billing_session_id: None,
+                launch_id: "test-bill14-001".to_string(),
+            },
+        );
+
+        // Call the handler with the timed-out pod.
+        crate::billing_timer_expiry_timeout::handle_launch_timeouts(
+            &state,
+            vec![("pod_1".to_string(), 1)],
+        )
+        .await;
+
+        // Guard must clear the stale waiting entry without firing a retry.
+        let waiting = state.billing.waiting_for_game.read().await;
+        assert!(
+            waiting.get("pod_1").is_none(),
+            "BILL-14: waiting_for_game entry must be cleared when game is Running"
+        );
+        // active_games must NOT be touched — the game is still valid.
+        let games = state.game_launcher.active_games.read().await;
+        assert!(
+            games.get("pod_1").is_some(),
+            "BILL-14: active_games entry must remain — guard only clears the stale waiting entry"
+        );
+    }
+
+    #[tokio::test]
+    async fn bill14_launch_timeout_aborts_when_sim_type_none() {
+        let state = make_state().await;
+        // waiting entry with sim_type=None (regression: old code defaulted to AssettoCorsa).
+        {
+            let mut waiting = state.billing.waiting_for_game.write().await;
+            waiting.insert(
+                "pod_3".to_string(),
+                make_waiting_entry_with_sim("pod_3", None, 1),
+            );
+        }
+        // No active_games entry — simulate genuine timeout where launch never reported Running.
+
+        crate::billing_timer_expiry_timeout::handle_launch_timeouts(
+            &state,
+            vec![("pod_3".to_string(), 1)],
+        )
+        .await;
+
+        // Entry must still exist (so the next tick fires cancel path) but attempt advanced to 2.
+        let waiting = state.billing.waiting_for_game.read().await;
+        let entry = waiting.get("pod_3").expect(
+            "BILL-14: waiting entry must remain so the next tick cancels — not removed by None path",
+        );
+        assert_eq!(
+            entry.attempt, 2,
+            "BILL-14: attempt must advance to 2 even when sim_type is None, so check_launch_timeouts routes to cancel-with-refund instead of infinite retry"
+        );
+    }
+
+    #[tokio::test]
+    async fn bill14_launch_timeout_retries_with_original_sim_when_loading() {
+        // When the game is still Loading (not yet Running) and sim_type is known,
+        // retry must fire with the ORIGINAL sim_type — not AssettoCorsa default.
+        let state = make_state().await;
+        {
+            let mut waiting = state.billing.waiting_for_game.write().await;
+            waiting.insert(
+                "pod_4".to_string(),
+                make_waiting_entry_with_sim("pod_4", Some(SimType::F125), 1),
+            );
+        }
+        state.game_launcher.active_games.write().await.insert(
+            "pod_4".to_string(),
+            GameTracker {
+                pod_id: "pod_4".to_string(),
+                sim_type: SimType::F125,
+                game_state: GameState::Loading,
+                pid: None,
+                launched_at: Some(Utc::now()),
+                error_message: None,
+                launch_args: None,
+                auto_relaunch_count: 0,
+                externally_tracked: false,
+                dynamic_timeout_secs: None,
+                exit_codes: Vec::new(),
+                max_auto_relaunch: 2,
+                playable_at: None,
+                ready_delay_ms: None,
+                billing_session_id: None,
+                launch_id: "test-bill14-002".to_string(),
+            },
+        );
+
+        crate::billing_timer_expiry_timeout::handle_launch_timeouts(
+            &state,
+            vec![("pod_4".to_string(), 1)],
+        )
+        .await;
+
+        // Entry must advance to attempt 2 with its sim_type preserved (F1_25, never AC).
+        let waiting = state.billing.waiting_for_game.read().await;
+        let entry = waiting.get("pod_4").expect(
+            "BILL-14: Loading-state launches must still trigger retry (not suppressed)",
+        );
+        assert_eq!(entry.attempt, 2, "attempt must advance to 2 on legit retry");
+        assert_eq!(
+            entry.sim_type,
+            Some(SimType::F125),
+            "BILL-14: sim_type must be preserved (not replaced with AssettoCorsa)"
+        );
+    }

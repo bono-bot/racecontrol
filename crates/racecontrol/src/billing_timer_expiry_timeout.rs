@@ -285,9 +285,14 @@ pub(crate) async fn handle_launch_timeouts(
                         }
                         None => {
                             tracing::error!(
-                                "BILL-14: Launch timeout retry aborted for pod {}: sim_type is None (refusing to default to AssettoCorsa — would swap out customer's game)",
+                                "BILL-14: Launch timeout retry aborted for pod {}: sim_type is None (refusing to default to AssettoCorsa — would swap out customer's game). Advancing to attempt 2 so next tick fires the cancel-with-refund path instead of looping.",
                                 pod_id
                             );
+                            // Advance to attempt 2 anyway so next tick cancels session + refunds.
+                            // Without this, attempt stays at 1 and check_launch_timeouts fires
+                            // every poll cycle, flooding logs with the same error.
+                            entry.attempt = 2;
+                            entry.waiting_since = std::time::Instant::now();
                             None
                         }
                     },
