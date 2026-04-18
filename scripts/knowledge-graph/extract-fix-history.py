@@ -504,6 +504,24 @@ def main():
     print(f"  Annotated {len(node_fixes)} nodes with fix history")
     print(f"  Created {len(symptom_index)} symptom lookups")
 
+    # Commit-level index so keyword searches still find commits that touch files
+    # outside the code graph (docs-only, tests not indexed by AST, etc.).
+    all_fix_commits = sorted(
+        [
+            {
+                "hash": c["hash"],
+                "date": c["date"],
+                "message": c["message"][:200],
+                "symptoms": extract_symptoms(c["message"]),
+                "file_count": len(c.get("files", [])),
+            }
+            for c in commits
+        ],
+        key=lambda x: x["date"],
+        reverse=True,
+    )
+    print(f"  Indexed {len(all_fix_commits)} fix commits (commit-level keyword search)")
+
     # G8 fix: Use Python datetime instead of shell `date` command
     print("[5/5] Writing fix-history.json...")
     output = {
@@ -521,6 +539,7 @@ def main():
         "hotspots": hotspots,
         "symptom_index": symptom_index,
         "node_fixes": node_fixes,
+        "all_fix_commits": all_fix_commits,
     }
 
     with open(OUTPUT_PATH, "w") as f:

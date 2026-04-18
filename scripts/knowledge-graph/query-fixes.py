@@ -225,13 +225,22 @@ def search(query, data):
             if match_count >= 1:
                 direct_matches.append((fix, match_count))
 
+    # Also search commit-level index so docs-only / test-only fix commits
+    # surface even when they don't map to any code graph node.
+    for fix in data.get("all_fix_commits", []):
+        msg_lower = fix["message"].lower()
+        match_count = sum(1 for w in query_words if w in msg_lower)
+        if match_count >= 1:
+            direct_matches.append((fix, match_count))
+
     seen_direct = set()
     unique_direct = []
-    for fix, score in sorted(direct_matches, key=lambda x: (-x[1], x[0]["date"]), reverse=False):
+    for fix, score in sorted(direct_matches, key=lambda x: (x[1], x[0]["date"]), reverse=True):
         if fix["hash"] not in seen_direct:
             seen_direct.add(fix["hash"])
             unique_direct.append((fix, score))
-    unique_direct.sort(key=lambda x: (-x[1], x[0]["date"]))
+    # Sort by match_count DESC, then date DESC (newest fix first within tier)
+    unique_direct.sort(key=lambda x: (x[1], x[0]["date"]), reverse=True)
 
     if unique_direct:
         print(f"--- Most Relevant Commits (keyword match) ---\n")
