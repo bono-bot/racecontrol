@@ -21,6 +21,16 @@ use rc_common::types::*;
 
 const LOG_TARGET: &str = "event-loop";
 
+/// Pattern I liveness threshold. If no frame has arrived from the server in
+/// this many seconds, we break the inner loop so the outer reconnect loop
+/// re-handshakes. Chosen at 90s because the client pings every 5s and the
+/// server heartbeat interval is configured around 30s — 90s means ~18 missed
+/// pong responses, which is well past normal network lag but still short
+/// enough that a stuck socket unblocks within two minutes instead of
+/// indefinitely. Can be lowered later if measurements show tighter bounds
+/// are safe.
+pub(crate) const WS_LIVENESS_TIMEOUT_SECS: u64 = 90;
+
 /// Type alias for the WebSocket receive half.
 pub type WsRx = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<
@@ -69,6 +79,19 @@ pub(crate) enum CrashRecoveryState {
 /// as opposed to AppState fields which survive across reconnections.
 pub(crate) struct ConnectionState {
     pub(crate) heartbeat_interval: tokio::time::Interval,
+    /// Pattern I liveness guard: ticks every 15s; if more than
+    /// `WS_LIVENESS_TIMEOUT_SECS` have elapsed since the last server-sourced
+    /// frame (Text/Pong/Binary/Ping/Close — any Ok variant from ws_rx),
+    /// break the inner loop so the outer reconnect loop re-handshakes.
+    /// Forces detection of half-open sockets where `connect_async` resolved
+    /// Ok, the TCP socket is still open locally, but the server never
+    /// processed Register or has since silently gone away.
+    pub(crate) liveness_check_interval: tokio::time::Interval,
+    /// Timestamp of the most recent Ok frame received on ws_rx.
+    /// Initialized to `Instant::now()` at connection start so a brand-new
+    /// connection doesn't immediately fail the liveness check before the
+    /// first server frame arrives.
+    pub(crate) last_server_frame_at: std::time::Instant,
     pub(crate) telemetry_interval: tokio::time::Interval,
     pub(crate) detector_interval: tokio::time::Interval,
     pub(crate) game_check_interval: tokio::time::Interval,
@@ -172,6 +195,8 @@ impl ConnectionState {
     pub fn new() -> Self {
         Self {
             heartbeat_interval: tokio::time::interval(Duration::from_secs(5)),
+            liveness_check_interval: tokio::time::interval(Duration::from_secs(15)),
+            last_server_frame_at: std::time::Instant::now(),
             telemetry_interval: tokio::time::interval(Duration::from_millis(100)),
             detector_interval: tokio::time::interval(Duration::from_millis(100)),
             game_check_interval: tokio::time::interval(Duration::from_secs(2)),
@@ -2393,7 +2418,37 @@ pub async fn run(
                 }
             }
 
+            _ = conn.liveness_check_interval.tick() => {
+                // Pattern I: detect half-open sockets where connect_async resolved Ok
+                // but the server silently went away (or never accepted Register).
+                // Without this, rc-agent can sit in "phase=connected, success=1"
+                // forever with no further reconnect attempts — the exact state
+                // observed on Pod 1 + Pod 6 for 53 minutes tonight.
+                let elapsed = conn.last_server_frame_at.elapsed();
+                if elapsed > Duration::from_secs(WS_LIVENESS_TIMEOUT_SECS) {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "WS liveness: no server frame in {}s (>{}s threshold) — forcing reconnect",
+                        elapsed.as_secs(), WS_LIVENESS_TIMEOUT_SECS
+                    );
+                    // Record in Pattern I snapshot so /debug/ws-state surfaces
+                    // the reason on the next probe (before the outer loop's
+                    // record_attempt overwrites the phase).
+                    crate::ws_state::record_failure(&format!(
+                        "liveness_timeout_{}s_no_server_frame", elapsed.as_secs()
+                    )).await;
+                    break;
+                }
+            }
+
             msg = ws_rx.next() => {
+                // Pattern I: every Ok frame from the server (Text/Ping/Pong/Binary/Close)
+                // refreshes the liveness timestamp. The None/Err arms below
+                // fall through to the `break` or error log without refreshing,
+                // which is correct — a broken stream is not a liveness signal.
+                if matches!(msg, Some(Ok(_))) {
+                    conn.last_server_frame_at = std::time::Instant::now();
+                }
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         tracing::debug!(target: LOG_TARGET, "Received from core: {}", text);
