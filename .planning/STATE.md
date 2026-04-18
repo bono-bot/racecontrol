@@ -141,6 +141,23 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Closes:** Factor 2 of the 2026-04-18 03:13 IST deploy abort — writer + checker now agree on `OTA_DEPLOYING`. PS watchdog will see the sentinel during the next kill→swap→start window and skip its restart. Not live-exercised yet; first test on next `bash scripts/deploy-server.sh` invocation.
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-06-SUMMARY.md`
 
+## Phase 413 Plan 04 — rc-agent MeshKeyCache consumer rewire closed (2026-04-18)
+
+**Completed:** 2026-04-18 (Wave 2A solo executor, --no-verify)
+**Scope:** Rewire all 3 production `std::env::var("RCAGENT_SERVICE_KEY")` call sites in rc-agent to use `mesh_key_cache::get_key_or_env(&cache)`. Tasks 1+2+3+verification sweep. W4 state-shape = Option (a) sub-router with State<MeshKeyCache> (no FromRef). W5 extends 403-warn to ai_debugger Tier 0 path. S10 adds dedicated cache-wins-over-env regression test.
+**Commits:**
+- `51356322` — Tasks 1+2+scaffolding: ai_debugger (check_audit_known_issues signature + W5 logging), remote_ops (sub-router middleware rewrite + S10 test + no-default-features variants), AppState mesh_key_cache field, main.rs cache-passed-to-start_checked, event_loop.rs + ws_handler.rs analyze_crash call sites (all 4).
+- `34e13516` — Task 3: ws_handler csv_lap_fallback push key-resolution moved inside tokio::spawn.
+**Files modified:** 6 (ai_debugger.rs, app_state.rs, event_loop.rs, main.rs, remote_ops.rs, ws_handler.rs)
+**Lines:** +407 / -36 across both commits.
+**Tests:** 103 passing across touched modules (19 remote_ops incl. S10 new test + 10 mesh_key_cache + 64 ai_debugger + 10 ws_handler). Zero regressions from Plans 02/03 baselines. All 7 legacy service-key tests preserved intact.
+**Production env reads:** 3 → 0 in http-client builds. Remaining 2 occurrences: (a) `mesh_key_cache.rs:137` documented env fallback in `get_key_or_env`, (b) `remote_ops.rs:220` `#[cfg(not(feature = "http-client"))]` variant (env-only by design for no-default-features builds — never deployed to production).
+**Closes:** Gap 4 (pod HKLM key ≠ server TOML key, silent 401 fleet-wide since MMA-v29) structurally unreachable in http-client builds. Single source of truth: server `racecontrol.toml` → HTTP `/pods/mesh-service-key` → `MeshKeyCache` → consumer.
+**Deviations:** (1) Rule 3 — ws_handler had both Task 1 (analyze_crash x2) + Task 3 (csv_lap_fallback) changes intermingled; temporarily reverted Task 3 hunk, committed Tasks 1+2, re-applied Task 3, committed separately. (2) Rule 3 — `analyze_crash` has 4 call sites across event_loop.rs + ws_handler.rs (not just ai_debugger.rs + main.rs as plan implied); all 4 updated. (3) Rule 2 — added `#[cfg(not(feature = "http-client"))]` middleware + start* variants so no-default-features CI builds don't regress (pre-existing 33 unrelated errors in mma_engine/tier_engine/openrouter remain, out of scope, logged to `deferred-items.md`).
+**Deferred (pre-existing, unrelated):** `rc-sentry-ai` release-build linker failure (LNK4286 MSVCRT/libucrt conflict via ort/ONNX + static CRT), `--no-default-features` 33 errors in mma_engine/tier_engine/openrouter. Both verified pre-existing on clean HEAD. Logged to `.planning/phases/413.../deferred-items.md`.
+**Next plan (09):** MMA audit. After that, (10) runtime verification on canary pod, (11) fleet deploy.
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-04-SUMMARY.md`
+
 ## Phase 413 Plan 03 — rc-agent MeshKeyCache boot wire-up closed (2026-04-18)
 
 **Completed:** 2026-04-18 (parallel Wave 2 executor)
@@ -167,7 +184,8 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
+*Last updated: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
+*Previous: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
 *Previous: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*
 *Previous: 2026-04-17 IST — Phase 413-02 (rc-agent MeshKeyCache) closed; 10 tests green, release build clean*
 *Previous: 2026-04-14 12:00 IST — 7 commits pushed, 6 file splits shipped, James server rebuilt*

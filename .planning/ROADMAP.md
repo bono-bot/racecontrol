@@ -1996,11 +1996,14 @@ Wave 1: Deploy & Verify (383)
 **Goal:** rc-agent Tier 0 oracle live fleet-wide; deploy-server.sh respawn race eliminated.
 **Requirements**: TBD
 **Depends on:** Phase 392.1 (prior active phase)
-**Plans:** 6/11 plans executed
+**Plans:** 7/11 plans executed
 
 Plans:
 - [x] 413-02-PLAN.md — rc-agent mesh_key_cache module (Option Z data layer): MeshKeyCache type + fetch_from_server + get_key_or_env with W5 403-warn observability; 10 unit tests passing. Commits `45d85c14` (module+deps, labeled 413-01 due to parallel-agent commit collision) + `85b1968e` (mod declaration in main.rs — no lib.rs deviation documented)
+- [x] 413-03-PLAN.md — rc-agent MeshKeyCache boot wire-up: main.rs instantiates cache + initial fetch + spawn_periodic_refetch at 300s interval. Commit `28de9e30`. 10 mesh_key_cache tests still green; release build clean.
+- [x] 413-04-PLAN.md — rc-agent MeshKeyCache consumer rewire (3 env-readers → cache-first): ai_debugger::check_audit_known_issues + remote_ops::require_service_key (W4 Option (a) sub-router with State<MeshKeyCache>) + ws_handler csv_lap_fallback. W5 extends 403-warn to Tier 0. S10 new test_service_key_cache_wins_over_env. AppState.mesh_key_cache field. 103 tests passing incl. all 7 legacy service-key tests. Production env reads: 3 → 0 in http-client builds. Commits `51356322` (Tasks 1+2+scaff) + `34e13516` (Task 3). Closes Gap 4 structurally.
 - [x] 413-05-PLAN.md — deploy-server.sh Factor 1: schtasks disable/re-enable coverage extended from 2 → 8 tasks (commits `0fc38726`, `e38a9e81`, `7c7af7ec`) — shipped 2026-04-17 IST as script-only change; first exercise on next `bash scripts/deploy-server.sh` run
+- [x] 413-06-PLAN.md — deploy-server.sh Factor 2: deploy sentinel renamed from DEPLOY_IN_PROGRESS → OTA_DEPLOYING in all 3 blocks. Commit `d92c3843`. Writer + checker now agree on sentinel name; PS watchdog will skip its restart during kill→swap→start window.
 
 ---
 
