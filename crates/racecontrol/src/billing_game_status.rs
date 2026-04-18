@@ -24,7 +24,6 @@ use crate::billing::{
     finalize_billing_start, start_billing_session,
     pause_multiplayer_group, resume_multiplayer_group,
 };
-use crate::billing_session_lifecycle::end_billing_session;
 use crate::state::AppState;
 
 // ─── Game Status Handling ───────────────────────────────────────────────────
@@ -248,7 +247,17 @@ async fn handle_live_resume(state: &Arc<AppState>, pod_id: &str) {
                     timer.pause_seconds = 0;
                     // BILL-06: Clear pause reason on resume
                     timer.pause_reason = PauseReason::None;
-                    tracing::info!("Billing resumed on LIVE for pod {} (was PausedGamePause)", pod_id);
+                    // Phase 414: Reset between-games idle counter on resume to Active.
+                    // Covers the WaitingForGame → Active path (GameLive event fires on next game launch).
+                    // between_games_idle_seconds and idle_warning_sent are reset so the next
+                    // game-stop starts a fresh 15-min window (D-IDLE-AUTOEND).
+                    timer.between_games_idle_seconds = 0;
+                    timer.idle_warning_sent = false;
+                    tracing::info!(
+                        pod_id = %pod_id,
+                        session_id = %timer.session_id,
+                        "Phase 414: Billing resumed on LIVE, idle counter reset (WaitingForGame→Active or PausedGamePause→Active)"
+                    );
                     (was_crash, true)
                 }
                 Err(e) => {
@@ -319,15 +328,35 @@ async fn handle_game_off(state: &Arc<AppState>, pod_id: &str) {
         );
         pause_multiplayer_group(state, gid, "crash_recovery").await;
     } else {
-        // Single-player path: end billing session normally
-        let session_id = {
-            let timers = state.billing.active_timers.read().await;
-            timers.get(pod_id).map(|t| t.session_id.clone())
-        };
-        if let Some(session_id) = session_id {
-            tracing::info!("Game exited (STATUS=Off) for pod {}, ending billing session {}", pod_id, session_id);
-            end_billing_session(state, &session_id, BillingSessionStatus::EndedEarly).await;
+        // Single-player path: Phase 414 — fire GameStopped FSM event to pause meter.
+        // Game stop no longer ends billing; meter moves to WaitingForGame (between-games state).
+        // The 15-min idle counter starts in tick_all_timers (Plan 04 Task 2a).
+        // D-FSM-01: Active + GameStopped → WaitingForGame (Plan 01 added this transition).
+        let mut timers = state.billing.active_timers.write().await;
+        if let Some(timer) = timers.get_mut(pod_id) {
+            match crate::billing_fsm::validate_transition(timer.status, crate::billing_fsm::BillingEvent::GameStopped) {
+                Ok(new_status) => {
+                    timer.status = new_status; // → WaitingForGame
+                    timer.between_games_idle_seconds = 0;
+                    timer.idle_warning_sent = false;
+                    tracing::info!(
+                        pod_id = %pod_id,
+                        session_id = %timer.session_id,
+                        "Phase 414: Game stopped on single-player pod, billing paused (mid-stream WaitingForGame)"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        pod_id = %pod_id,
+                        session_id = %timer.session_id,
+                        err = %e,
+                        status = ?timer.status,
+                        "Phase 414: GameStopped FSM transition rejected (status not Active); skipping pause"
+                    );
+                }
+            }
         }
+        drop(timers);
     }
     // Also remove from waiting_for_game if present (game crashed during loading)
     // BILL-06: Insert cancelled_no_playable record — customer charged nothing
