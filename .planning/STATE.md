@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T08:20:00.000Z"
+last_updated: "2026-04-18T03:05:00.000Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 4
@@ -106,14 +106,28 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 - Start Phase 386 (autonomous pricing) or Phase 387 (opt-in/opt-out)
 - Phase 386 needs James's Phase 356 (business_rules table) — check status
 
+## Phase 414 Plan 01 — Wave 1 FSM table extension closed (2026-04-18)
+
+**Completed:** 2026-04-18 (GSD executor)
+**Scope:** 3 new TRANSITION_TABLE rows + remove 5 #[ignore] attributes. Pure const-array data change. 5 RED FSM tests → 5 GREEN.
+**Commits:**
+- `5b5f9304` — Active+GameStopped→WaitingForGame, WaitingForGame+End→Completed, WaitingForGame+EndEarly→EndedEarly + 5 #[ignore] removed + #[allow(dead_code)] removed + W3 closure comment
+
+**Test result:** `cargo test -p racecontrol-crate --lib billing_fsm` = 35 passed, 0 ignored, 0 failed (was 30 passed, 5 ignored)
+**Decisions:** D-FSM-01 (3 rows locked); D-IDLE-AUTOEND (End→Completed for auto-end, EndEarly→EndedEarly for staff-stop); W3 closure (no WaitingForGame+Disconnect — meter already paused)
+**Next plan:** 414-02 Wave 2 (BillingTimer field + tick branch — now unblocked by FSM transitions)
+**Summary:** `.planning/phases/414-continuous-billing-session/414-01-SUMMARY.md`
+
 ## Phase 414 Plan 00 — Wave 0 TDD scaffolding closed (2026-04-18)
 
 **Completed:** 2026-04-18 (GSD executor)
 **Scope:** 14 stubbed RED tests + 2 fixtures + 1 e2e file. All Rust stubs `#[ignore]`'d, TS stubs `describe.skip`'d for pre-commit gate compatibility.
 **Commits:**
+
 - `92888a19` — 5 FSM stubs + BillingEvent::GameStopped variant + 2 protocol/types round-trip stubs
 - `18d52955` — 7 timer/integration stubs in billing_tests.rs + NEW billing_session_e2e.rs
 - `ff74cad6` — 2 new fixtures (idle_warning, billing_tick_between_games) + 3 TS tests (2 passing, 1 skipped)
+
 **Pre-commit gate:** `cargo test -p racecontrol-crate --lib billing_fsm` = 30 passed, 5 ignored, 0 failed. `cargo test -p rc-common --lib` = 252 passed, 2 ignored. vitest = 53 passed, 1 skipped.
 **Next plan:** 414-01 Wave 1 (FSM transitions — remove 5 FSM #[ignore] attributes + add TRANSITION_TABLE rows)
 **Summary:** `.planning/phases/414-continuous-billing-session/414-00-SUMMARY.md`
