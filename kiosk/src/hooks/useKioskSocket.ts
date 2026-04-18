@@ -18,6 +18,7 @@ import type {
   LaunchStatusCard,
   LaunchNoteEvent,
 } from "@/lib/types";
+import type { IdleWarningPayload } from "@/components/IdleWarningDialog";
 
 const WS_BASE =
   process.env.NEXT_PUBLIC_WS_URL ||
@@ -53,7 +54,20 @@ export interface GameLaunchRequest {
 
 export type { AssistanceRequest };
 
-export function useKioskSocket() {
+interface UseKioskSocketOptions {
+  // Phase 414: callback to hoist IdleWarning events to the parent page
+  onIdleWarning?: (payload: IdleWarningPayload) => void;
+}
+
+export function useKioskSocket(options: UseKioskSocketOptions = {}) {
+  const { onIdleWarning } = options;
+  // Stable ref so the WS message handler (inside useCallback with [] deps)
+  // always calls the latest version of onIdleWarning without needing to
+  // re-create the WebSocket on every render.
+  const onIdleWarningRef = useRef(onIdleWarning);
+  useEffect(() => {
+    onIdleWarningRef.current = onIdleWarning;
+  });
   const ws = useRef<WebSocket | null>(null);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -359,6 +373,13 @@ export function useKioskSocket() {
             setTimeout(() => {
               setCommandErrors((prev) => prev.filter((e) => e !== err));
             }, 10_000);
+            break;
+          }
+          case "idle_warning": {
+            // Phase 414: hoist IdleWarning payload to staff/page.tsx via stable ref
+            if (onIdleWarningRef.current) {
+              onIdleWarningRef.current(msg.data as IdleWarningPayload);
+            }
             break;
           }
         }

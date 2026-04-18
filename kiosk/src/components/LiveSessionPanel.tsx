@@ -69,6 +69,10 @@ export function LiveSessionPanel({
   }
   const stableCar = stableCarRef.current;
 
+  // Phase 414: true when billing is mid-stream between games (paused meter)
+  const isMidStreamWaiting =
+    billing.status === "waiting_for_game" && (billing.elapsed_seconds ?? 0) > 0;
+
   return (
     <div className="flex flex-col h-full p-5 gap-5">
       {/* Driver + Session Info */}
@@ -112,8 +116,40 @@ export function LiveSessionPanel({
         )}
       </div>
 
-      {/* Game Loading spinner + launch timer — when billing is waiting_for_game */}
-      {billing.status === "waiting_for_game" && (
+      {/* Phase 414: Paused-meter branch — between games (elapsed_seconds > 0) */}
+      {billing.status === "waiting_for_game" && (billing.elapsed_seconds ?? 0) > 0 && (
+        <div className="rounded-xl bg-rp-surface border border-rp-border p-5 flex flex-col gap-4">
+          <span className="text-xs font-semibold uppercase tracking-wider text-rp-grey">
+            PAUSED &mdash; BETWEEN GAMES
+          </span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold font-mono tabular-nums text-white">
+              {Math.floor((billing.cost_paise ?? 0) / 100)}
+            </span>
+            <span className="text-sm text-rp-grey">cr</span>
+          </div>
+          <p className="text-xs text-rp-grey">
+            Drove {formatTime(billing.driving_seconds ?? 0)} so far &middot; Meter resumes when a new game starts
+          </p>
+          <div className="grid grid-cols-1 gap-3 mt-2">
+            <button
+              onClick={() => onLaunchGame?.(pod.id)}
+              className="py-4 bg-rp-red hover:bg-rp-red-hover text-white font-semibold rounded-xl text-base transition-colors"
+            >
+              Continue with another game
+            </button>
+            <button
+              onClick={() => onEndSession(billing.id)}
+              className="py-3 border-2 border-rp-red text-rp-red hover:bg-rp-red hover:text-white font-semibold rounded-xl text-sm transition-colors"
+            >
+              End session
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Game Loading spinner + launch timer — first-wait only (elapsed_seconds === 0) */}
+      {billing.status === "waiting_for_game" && (billing.elapsed_seconds ?? 0) === 0 && (
         <LaunchTimerBanner elapsedSeconds={billing.elapsed_seconds ?? 0} />
       )}
 
@@ -174,8 +210,10 @@ export function LiveSessionPanel({
         <div className="flex justify-between items-baseline mb-2">
           <span className="text-xs text-rp-grey uppercase tracking-wider">
             {billing.status === "paused_manual" ? "Paused" :
-             billing.status === "waiting_for_game" ? "Game Loading" :
-             billing.status === "paused_game_pause" ? "Relaunching \u2014 Not Charged" :
+             billing.status === "waiting_for_game"
+               // Phase 414: differentiate first-wait vs between-games (AC-1)
+               ? ((billing.elapsed_seconds ?? 0) > 0 ? "Between Games" : "Game Loading")
+               : billing.status === "paused_game_pause" ? "Relaunching \u2014 Not Charged" :
              billing.status === "paused_crash_recovery" ? "Crash Recovery \u2014 Not Charged" :
              billing.status === "paused_disconnect" ? "Disconnected" :
              "Session Time"}
@@ -299,12 +337,16 @@ export function LiveSessionPanel({
           </button>
         </div>
 
-        <button
-          onClick={() => onEndSession(billing.id)}
-          className="w-full py-3 border-2 border-rp-red text-rp-red hover:bg-rp-red hover:text-white font-semibold rounded-xl text-sm transition-colors"
-        >
-          End Session
-        </button>
+        {/* Phase 414: hide when paused-meter branch is showing its own End session button
+            to avoid two End Session buttons on the same panel (UI-SPEC discretionary call 1) */}
+        {!isMidStreamWaiting && (
+          <button
+            onClick={() => onEndSession(billing.id)}
+            className="w-full py-3 border-2 border-rp-red text-rp-red hover:bg-rp-red hover:text-white font-semibold rounded-xl text-sm transition-colors"
+          >
+            End Session
+          </button>
+        )}
       </div>
     </div>
   );

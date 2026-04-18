@@ -2,6 +2,10 @@
 
 // Label overrides for statuses whose raw value is not user-friendly
 const STATUS_LABELS: Record<string, string> = {
+  // Phase 414 decision: keep coarse "Loading..." label for both first-wait AND between-games
+  // on the admin dashboard. The kiosk uses "Between Games" specifically when elapsed_seconds > 0,
+  // but the admin StatusBadge render context does not always have access to elapsed_seconds.
+  // Accepted coarse label per UI-SPEC.md "Decision deferred to planner" note.
   waiting_for_game: "Loading...",
   paused_disconnect: "Disconnected",
   paused_game_pause: "Game Crashed",

@@ -13,6 +13,7 @@ import { AssistanceAlert } from "@/components/AssistanceAlert";
 import { GamePickerPanel } from "@/components/GamePickerPanel";
 import { GameLaunchRequestBanner } from "@/components/GameLaunchRequestBanner";
 import { ConfirmDialog, type ConfirmDialogState } from "@/components/ConfirmDialog";
+import { IdleWarningDialog, type IdleWarningPayload } from "@/components/IdleWarningDialog";
 import { useToast } from "@/components/Toast";
 import { api } from "@/lib/api";
 import type { AuthTokenInfo, PanelMode, RecentSession, PodInventoryResponse } from "@/lib/types";
@@ -56,6 +57,10 @@ export default function StaffTerminal() {
     };
   }, [staffName]);
 
+  // ─── Phase 414: IdleWarning Modal state (declared before useKioskSocket so
+  //     the callback passed to the hook can reference setIdleWarning) ─────
+  const [idleWarning, setIdleWarning] = useState<IdleWarningPayload | null>(null);
+
   const {
     connected,
     pods,
@@ -74,7 +79,10 @@ export default function StaffTerminal() {
     acServerInfo,
     multiplayerGroup,
     commandErrors,
-  } = useKioskSocket();
+  } = useKioskSocket({
+    // Phase 414: hoist DashboardEvent::IdleWarning to page state so IdleWarningDialog can mount
+    onIdleWarning: (payload) => setIdleWarning(payload),
+  });
 
   // ─── Panel State ──────────────────────────────────────────────────────
   const [selectedPodId, setSelectedPodId] = useState<string | null>(null);
@@ -204,6 +212,9 @@ export default function StaffTerminal() {
   // Replaces native window.confirm() which is jarring on touch kiosk + can't be styled.
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmDialogState | null>(null);
   const dismissConfirm = useCallback(() => setPendingConfirm(null), []);
+
+  // ─── Phase 414: IdleWarning Modal ────────────────────────────────────
+  // State declared above useKioskSocket (see earlier in component).
 
   // ─── Session Controls ─────────────────────────────────────────────────
   const handleGameLaunch = async (simType: string, launchArgs: string) => {
@@ -707,6 +718,27 @@ export default function StaffTerminal() {
           </div>
         )}
       </main>
+
+      {/* Phase 414: Idle Warning Modal — overlays the entire staff page when server
+          sends DashboardEvent::IdleWarning (10 min idle in WaitingForGame mid-stream) */}
+      <IdleWarningDialog
+        warning={idleWarning}
+        podNumber={
+          idleWarning
+            ? Array.from(pods.values()).find((p) => p.id === idleWarning.pod_id)?.number
+            : undefined
+        }
+        onContinue={(podId) => {
+          setIdleWarning(null);
+          setSelectedPodId(podId);
+          setPanelMode("game_picker");
+        }}
+        onEndSession={(sessionId) => {
+          setIdleWarning(null);
+          handleEndSession(sessionId);
+        }}
+        onDismiss={() => setIdleWarning(null)}
+      />
 
       {/* Global confirmation modal — replaces window.confirm for destructive actions */}
       <ConfirmDialog state={pendingConfirm} onDismiss={dismissConfirm} />
