@@ -6,7 +6,7 @@
 
 **Goal:** Kotlin Android agent on 1× Lenovo Tab Plus + 1× Samsung Galaxy M07 that automates reception-workflow apps via Accessibility Service. Priority order: Zomato Partner (P1) → HyperPure (P2) → Blinkit (P3) → cardboard vendor (P4, deferred pending app identification).
 
-**Phase range:** 409–424 (16 phases, concrete numbers assigned at kickoff)
+**Phase range:** 429–444 (16 phases; v52.0 holds 393–412, v49.0 uses 413 for service key)
 
 **Key non-negotiable:** 10 extensibility features MUST ship in v50.0 for future-proofing — pluggable driver framework, selector DSL with hot-reload, capability registry, credential abstraction, protocol versioning, feature flags, humanize layer, audit log, remote selector push, multi-device-type readiness. See `.planning/REQUIREMENTS-v50.md` + `.planning/ROADMAP-v50.md`.
 

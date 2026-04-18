@@ -2175,3 +2175,106 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 | 412. Milestone Close | 0/TBD | Not started | - |
 
 *v52.0 defined: 2026-04-15. Restructured 2026-04-16 (Option A: +4 phases for secrets/agents/repo-gate/drift-remainder). Parallel to v49.0 (not blocking). Core gate: `cgp-distribution-probe.js` 100% parity on cross-platform hooks.*
+
+---
+
+## v50.0 — rc-agent-mobile (Reception Automation Hub) — Phases 429–444
+
+**Started:** 2026-04-18 (Planning phase)
+**Status:** Kickoff-ready. Phase 429 plan pending.
+**Requirements:** `.planning/REQUIREMENTS-v50.md` (54 requirements across 14 categories)
+**Roadmap detail:** `.planning/ROADMAP-v50.md` (full phase breakdown, dependency graph, ship-gate checklist)
+**Source spec:** `~/.claude/projects/C--Users-bono/memory/project_v50_rc_agent_mobile.md`
+
+**Goal:** Kotlin Android agent on 1× Lenovo Tab Plus + 1× Samsung Galaxy M07 automating reception-workflow apps (Zomato Partner P1, HyperPure P2, Blinkit P3, cardboard vendor P4-deferred) via Accessibility Service. Registers with comms-link relay like existing Windows rc-agent.
+
+**10 extensibility features (non-negotiable for future-proofing):** pluggable driver framework, selector DSL + hot-reload, capability registry, credential abstraction, protocol versioning, per-device + per-driver feature flags, humanize layer, audit log, remote selector push, multi-device-type readiness.
+
+### Phases
+
+### Phase 429: Kotlin Scaffold + HTTP Server + Comms-link Registration
+**Goal:** Agent installs on Tab Plus + M07, runs Foreground Service, exposes local HTTP endpoints, registers with comms-link, sends heartbeat, survives reboot.
+**Requirements:** AGENT-01..08
+
+### Phase 430: Accessibility Service Foundation
+**Goal:** Agent reads screen-tree and dispatches tap/swipe/text on any foreground app.
+**Requirements:** ACCESS-01..05
+
+### Phase 431: Bootstrap Install + First-run UX
+**Goal:** Non-technical staff installs agent via MTP sideload + Files app, completes first-run permissions in < 5min.
+**Requirements:** INSTALL-01..03
+
+### Phase 432: Driver Framework + Capability Registry
+**Goal:** Drivers are plugins registered via manifest; device declares supported driver types; failures isolated.
+**Requirements:** DRIVER-01..05, CAPREG-01..04
+
+### Phase 433: Selector DSL + Hot-Reload
+**Goal:** YAML selectors are source of truth; hot-reload within 10s; versioned per app version; fallback chain.
+**Requirements:** SELECTOR-01..06
+
+### Phase 434: Credential Abstraction
+**Goal:** `CredentialStrategy` interface with `PersistentSession` impl; OTP/OAuth slots ready.
+**Requirements:** CRED-01..04
+
+### Phase 435: Humanize Layer + Audit Log
+**Goal:** All UI actions pass through humanize interceptor (delays, business-hours, rate limit) and emit audit events with screenshot hash.
+**Requirements:** HUMANIZE-01..04, AUDIT-01..04
+
+### Phase 436: Feature Flag System
+**Goal:** Server-side per-device + per-driver flags push-sync to agent within 10s; kill-switch halts all drivers fleet-wide.
+**Requirements:** FLAG-01..04
+
+### Phase 437: Zomato Partner Driver (P1)
+**Goal:** Auto-accept (capacity-gated) / auto-reject / mark-ready Zomato orders; WhatsApp + Discord forwarding; session-expiry alerting.
+**Requirements:** ZOMATO-01..06
+
+### Phase 438: HyperPure Driver (P2)
+**Goal:** Accept bulk order from Core inventory trigger, navigate HyperPure app, check out, log confirmation.
+**Requirements:** HYPER-01..05
+
+### Phase 439: Blinkit Driver (P3)
+**Goal:** Accept emergency top-up from staff trigger; navigate Blinkit; log order + ETA.
+**Requirements:** BLINK-01..04
+
+### Phase 440: Cardboard Vendor Driver (P4, deferred)
+**Goal:** Drop-in driver when vendor app is identified (open question Q2). Auto-skips ship gate if Q2 unresolved.
+**Requirements:** CARDBOARD-01..02
+
+### Phase 441: Admin Dashboard Reception View
+**Goal:** Unified reception page in admin dashboard showing orders/deliveries/device status.
+**Requirements:** ADMIN-01..03
+
+### Phase 442: Feature Flag + Capability UI
+**Goal:** Admin toggles driver enablement and views per-device capability list.
+**Requirements:** ADMIN-04, FLAG-01..04
+
+### Phase 443: Selector-Map Remote Push UI
+**Goal:** Admin uploads signed selector YAML, targets devices, rolls back on failure.
+**Requirements:** ADMIN-05, SELECTOR-04
+
+### Phase 444: E2E Drills + ToS Incident Playbook
+**Goal:** All failure paths drilled end-to-end; ToS-incident runbook documented.
+**Requirements:** E2E-01..04, ADMIN-06
+
+### v50.0 Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 429. Kotlin Scaffold + HTTP + Registration | 0/TBD | Ready to plan | - |
+| 430. Accessibility Service Foundation | 0/TBD | Blocked on 429 | - |
+| 431. Bootstrap Install + First-run UX | 0/TBD | Blocked on 429 | - |
+| 432. Driver Framework + Capability Registry | 0/TBD | Blocked on 430 | - |
+| 433. Selector DSL + Hot-Reload | 0/TBD | Blocked on 432 | - |
+| 434. Credential Abstraction | 0/TBD | Blocked on 432 | - |
+| 435. Humanize Layer + Audit Log | 0/TBD | Blocked on 432 | - |
+| 436. Feature Flag System | 0/TBD | Blocked on 432 | - |
+| 437. Zomato Partner Driver (P1) | 0/TBD | Blocked on 433,434,435,436 | - |
+| 438. HyperPure Driver (P2) | 0/TBD | Blocked on 437 | - |
+| 439. Blinkit Driver (P3) | 0/TBD | Blocked on 437 | - |
+| 440. Cardboard Vendor Driver (deferred) | 0/TBD | Blocked on 437 + vendor app | - |
+| 441. Admin Dashboard Reception View | 0/TBD | Blocked on 437 | - |
+| 442. Feature Flag + Capability UI | 0/TBD | Blocked on 436,441 | - |
+| 443. Selector-Map Remote Push UI | 0/TBD | Blocked on 433,441 | - |
+| 444. E2E Drills + ToS Playbook | 0/TBD | Blocked on 437,438,439,441 | - |
+
+*v50.0 defined: 2026-04-18. Greenfield Kotlin/Android project; shared JSON protocol with Rust rc-agent, no shared code. Runs parallel to v48/v49/v52 (not blocking).*

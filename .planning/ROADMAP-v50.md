@@ -2,7 +2,7 @@
 
 **Milestone:** v50.0 rc-agent-mobile — Reception Automation Hub
 **Created:** 2026-04-18
-**Phase range:** 409–424 (16 phases, concrete numbers assigned at kickoff)
+**Phase range:** 429–444 (16 phases, concrete numbers assigned at kickoff)
 **Source spec:** `~/.claude/projects/C--Users-bono/memory/project_v50_rc_agent_mobile.md`
 **Requirements:** `.planning/REQUIREMENTS-v50.md`
 
@@ -12,7 +12,7 @@ Ship a Kotlin Android agent that automates reception-workflow apps (Zomato Partn
 
 ## Starting phase number
 
-Will be determined at kickoff (`/gsd:plan-phase` for phase 1). Suggested: **409** (after v52.0 range 393-408). Actual number assigned when v52.0 completes or at explicit user direction.
+**Phase 429** (v52.0 uses 393–412; v49.0 uses 413 for service-key work; v50.0 starts at 429). Concrete phase numbers: 429–444.
 
 ## Phase summary
 

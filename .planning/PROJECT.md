@@ -7,7 +7,7 @@
 
 **Source spec:** `~/.claude/projects/C--Users-bono/memory/project_v50_rc_agent_mobile.md`
 **Requirements:** `.planning/REQUIREMENTS-v50.md` (54 requirements across 14 categories)
-**Roadmap:** `.planning/ROADMAP-v50.md` (16 phases, range 409–424 TBD)
+**Roadmap:** `.planning/ROADMAP-v50.md` (16 phases, range 429–444)
 
 **Target features:**
 - Kotlin Android agent with Foreground Service, local :8090 HTTP, comms-link registration (matches existing rc-agent pattern on pods/POS)
