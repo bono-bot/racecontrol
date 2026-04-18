@@ -1,0 +1,50 @@
+{
+  "_comment": "Symptom-class synonym map. Mirrors crates/racecontrol/src/api/triage.rs symptom_class_map(). Keep in sync manually; tests in api/triage.rs validate server-side behavior. Consumed by scripts/diagnose/triage.js (hints) and the planned L1 retrieval helper in multi-model-audit.js (Commit 3 of the MMA triage spec).",
+  "_spec": ".planning/specs/MMA-TRIAGE-ROUTER.md",
+  "classes": {
+    "exit-code-1": [
+      "exit 1",
+      "exit code 1",
+      "exited unexpectedly",
+      "crash on start"
+    ],
+    "orphan-process": [
+      "orphan",
+      "f1_25.exe running",
+      "won't kill",
+      "resists taskkill",
+      "ea anti-cheat"
+    ],
+    "steam-dialog": [
+      "steam dialog",
+      "vguipopupwindow",
+      "dialog visible",
+      "60s timeout"
+    ],
+    "zero-laps": [
+      "no laps",
+      "laps not recorded",
+      "0 laps",
+      "empty lap table"
+    ],
+    "rally-3min": [
+      "ac rally",
+      "assetto corsa rally",
+      "3 minute",
+      "3-min",
+      "180s"
+    ],
+    "launch-timeout": [
+      "launch timed out",
+      "stuck launching",
+      "stopping state",
+      "30s timeout"
+    ],
+    "python-ini": [
+      "python.ini",
+      "racecontrol section",
+      "plugin not loaded",
+      "python plugin"
+    ]
+  }
+}
