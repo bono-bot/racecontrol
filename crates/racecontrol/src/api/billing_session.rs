@@ -266,6 +266,80 @@ pub(crate) async fn stop_billing(
     .ok()
     .flatten();
 
+    // Phase 414 Plan 04 Task 2b: branch staff-triggered stop_billing on elapsed_seconds for waiting_for_game.
+    // Two distinct paths:
+    //   - elapsed_seconds == 0  → first-wait (customer never drove). Existing CancelledNoPlayable + full refund.
+    //   - elapsed_seconds  > 0  → mid-stream WaitingForGame (customer drove, game stopped, staff/customer
+    //                              ends from kiosk). STAFF-TRIGGERED EndEarly → EndedEarly + bill cumulative.
+    // CRITICAL (B4): staff-stop uses BillingEvent::EndEarly → EndedEarly (NOT End → Completed).
+    // The auto-end loop in tick_all_timers (Task 2a) is the only path that uses End → Completed.
+    if db_status.as_deref() == Some("waiting_for_game") {
+        // Read elapsed_seconds from the in-memory timer first (most accurate; BillingTimer.elapsed_seconds
+        // ticks every second), falling back to the persisted DB column (synced every 60s by sync_timers_to_db).
+        let elapsed_in_memory: Option<u32> = {
+            let timers = state.billing.active_timers.read().await;
+            timers
+                .values()
+                .find(|t| t.session_id == id)
+                .map(|t| t.elapsed_seconds)
+        };
+        let elapsed_db: Option<i64> = sqlx::query_scalar(
+            "SELECT elapsed_seconds FROM billing_sessions WHERE id = ?",
+        )
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+        let elapsed_seconds: u32 = elapsed_in_memory
+            .or_else(|| elapsed_db.map(|e| e.max(0) as u32))
+            .unwrap_or(0);
+
+        if elapsed_seconds > 0 {
+            // Phase 414: mid-stream WaitingForGame STAFF-TRIGGERED end → EndedEarly + bill cumulative.
+            // Per CONTEXT.md edge case 4: explicit termination uses EndEarly → EndedEarly via FSM-04
+            // (Plan 01 added the WaitingForGame + EndEarly transition).
+            // end_billing_session_public maps BillingSessionStatus::EndedEarly → BillingEvent::EndEarly
+            // via its match table (billing_session_end.rs:54).
+            let ended = billing::end_billing_session_public(
+                &state,
+                &id,
+                rc_common::types::BillingSessionStatus::EndedEarly,
+                Some("Phase 414: stop_billing mid-stream from waiting_for_game"),
+            ).await;
+
+            if ended {
+                tracing::info!(
+                    session_id = %id,
+                    elapsed_seconds = elapsed_seconds,
+                    "Phase 414: stop_billing mid-stream → EndedEarly + bill cumulative"
+                );
+                crate::activity_log::log_pod_activity(
+                    &state, "server", "billing", "Session Ended (Mid-Stream)",
+                    &format!("session_id={} — staff/customer end from waiting_for_game (elapsed_seconds={})", id, elapsed_seconds),
+                    "staff", Some(&id),
+                );
+                crate::billing_replay::insert_audit_log(
+                    &state.db, &id, "unknown", "stop", "waiting_for_game", "ended_early",
+                    None, "staff", &state.config.venue.venue_id,
+                ).await;
+                state.billing_nonce_store.remove(&id).await;
+                return Json(json!({ "ok": true, "end_status": "ended_early", "billed_cumulative": true, "elapsed_seconds": elapsed_seconds }));
+            } else {
+                tracing::warn!(
+                    session_id = %id,
+                    "Phase 414: stop_billing mid-stream → end_billing_session_public returned false (already finalized?)"
+                );
+                return Json(json!({ "ok": false, "error": "Session not found or already ended" }));
+            }
+        }
+        // elapsed_seconds == 0 — fall through to first-wait CancelledNoPlayable path below (existing behaviour).
+        tracing::info!(
+            session_id = %id,
+            "Phase 414: stop_billing first-wait (elapsed_seconds=0) → CancelledNoPlayable + full refund (existing behaviour)"
+        );
+    }
+
     let (end_status, log_action, audit_to) = match db_status.as_deref() {
         Some("waiting_for_game") | Some("pending") => {
             // Cancel with full refund — game never became playable

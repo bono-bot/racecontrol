@@ -258,12 +258,26 @@ if [ -n "$LOCAL_SHA256" ] && [ -n "$POST_SWAP_SHA256" ] && [ "$LOCAL_SHA256" != 
 fi
 pass "Binary swapped (rollback: racecontrol-prev.exe)"
 
-# ─── Step 5: Start racecontrol ──────────────────────────────────────
-info "Starting racecontrol..."
+# ─── Step 5: Start racecontrol via StartRCDirect ────────────────────
+# Phase 413.1-04 Defect 4 fix: retire StartRCTemp, use StartRCDirect exclusively.
+# StartRCTemp schtask is registered as Run-As-User=ADMIN + Logon Mode=Interactive
+# only (InteractiveToken under a human-user SID). When ADMIN is not interactively
+# logged in (typical for non-attended deploys via rc-sentry), `schtasks /Run`
+# returns SUCCESS exit 0 but silently no-ops — the documented failure mode
+# provision-startrcdirect.ps1:12-18 explicitly warns about. Additionally,
+# StartRCTemp's target (start-racecontrol.bat) never executes `racecontrol.exe`
+# directly — it only does binary-swap + spawns the watchdog.ps1 via
+# `start "" /B powershell`, a 4-hop indirect chain that also runs under
+# Interactive-only and silent-fails for the same reason. StartRCDirect runs
+# as SYSTEM/Interactive-Background via start-racecontrol-direct.bat which
+# directly launches racecontrol.exe — the configuration the R1 recovery
+# proved works (2026-04-18 09:29 IST after StartRCTemp's 08:05 silent-fail).
+# See .planning/phases/413.1-.../413.1-04-INVESTIGATION.md for full evidence.
+info "Starting racecontrol via StartRCDirect (Plan 413.1-04 — retired StartRCTemp)..."
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Run /TN StartRCDirect & echo STARTED_VIA_STARTRCDIRECT"}' > /dev/null 2>&1
 
 # ─── Step 5b: Re-enable watchdog + clear deploy sentinel ────────────
 # Phase 413 Factor 1: re-enable all 8 schtasks (symmetric with Step 3a disable).
@@ -345,10 +359,12 @@ curl -s --max-time 15 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d '{"cmd":"taskkill /F /IM racecontrol.exe 2>nul & ping -n 3 127.0.0.1 >nul & move /Y C:\\RacingPoint\\racecontrol-prev.exe C:\\RacingPoint\\racecontrol.exe 2>nul & echo ROLLED_BACK"}' > /dev/null 2>&1
+# Phase 413.1-04 Defect 4 fix: rollback startup also uses StartRCDirect
+# (same rationale as Step 5 above — StartRCTemp silent-no-ops under non-interactive context).
 curl -s --max-time 10 "http://${SERVER_IP}:${SENTRY_PORT}/exec" \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
-    -d '{"cmd":"start \"RaceControl Server\" C:/RacingPoint/start-racecontrol.bat & echo STARTED"}' > /dev/null 2>&1
+    -d '{"cmd":"schtasks /Run /TN StartRCDirect & echo STARTED_VIA_STARTRCDIRECT"}' > /dev/null 2>&1
 sleep 10
 ROLLBACK_HEALTH=$(curl -s --max-time 5 "http://${SERVER_IP}:${HEALTH_PORT}/api/v1/health" 2>/dev/null || echo "")
 if echo "$ROLLBACK_HEALTH" | grep -q '"status":"ok"'; then
