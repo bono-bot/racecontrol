@@ -58,6 +58,26 @@ describe('DashboardEvent::BillingTick — payload shape validation', () => {
   });
 });
 
+describe('Phase 414 — IdleWarning + between-games BillingTick', () => {
+  test('idle_warning fixture has all 5 required fields', () => {
+    const f = wsDashboardFixture.idle_warning;
+    expect(f.event).toBe('IdleWarning');
+    expect(typeof f.data.pod_id).toBe('string');
+    expect(typeof f.data.session_id).toBe('string');
+    expect(typeof f.data.balance_paise).toBe('number');
+    expect(typeof f.data.seconds_remaining).toBe('number');
+    expect(typeof f.data.can_continue).toBe('boolean');
+  });
+
+  test('billing_tick_between_games has elapsed_seconds > 0 and between_games_idle_seconds set', () => {
+    const f = wsDashboardFixture.billing_tick_between_games;
+    expect(f.event).toBe('BillingTick');
+    expect(f.data.status).toBe('waiting_for_game');
+    expect(f.data.elapsed_seconds).toBeGreaterThan(0);
+    expect(typeof f.data.between_games_idle_seconds).toBe('number');
+  });
+});
+
 describe('DashboardEvent::GameStateChanged — payload shape validation', () => {
   test('GameStateChanged fixture has required fields', () => {
     const event = wsDashboardFixture.game_state_changed;

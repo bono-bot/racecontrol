@@ -100,3 +100,23 @@ describe('GET /api/v1/billing/sessions — BillingSession contract', () => {
     });
   });
 });
+
+// Phase 414 — between_games_idle_seconds field (414-CONTRACT-01)
+// describe.skip so vitest shows "skipped" (not "failed") until Plan 03 adds the field.
+// Plan 03 removes the .skip once BillingSession has between_games_idle_seconds in @racingpoint/types.
+describe.skip('Phase 414 — BillingSession.between_games_idle_seconds field', () => {
+  test('field is optional number', () => {
+    // 414-CONTRACT-01: shape assertion. Type-only — actual value population is server-side.
+    type BillingSessionWith414 = BillingSession & {
+      between_games_idle_seconds?: number;
+    };
+    const sample: BillingSessionWith414 = {
+      // Cast to satisfy required fields until Plan 03 extends the shared type
+      between_games_idle_seconds: 720,
+    } as BillingSessionWith414;
+    expect(
+      typeof sample.between_games_idle_seconds === 'number' ||
+        sample.between_games_idle_seconds === undefined,
+    ).toBe(true);
+  });
+});

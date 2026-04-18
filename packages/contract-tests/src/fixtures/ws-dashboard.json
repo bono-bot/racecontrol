@@ -22,5 +22,27 @@
     "pod_id": "pod-3",
     "game_state": "loading",
     "game_name": "assetto_corsa"
+  },
+  "idle_warning": {
+    "event": "IdleWarning",
+    "data": {
+      "pod_id": "pod_3",
+      "session_id": "sess_abcdef123456",
+      "balance_paise": 24500,
+      "seconds_remaining": 300,
+      "can_continue": true
+    }
+  },
+  "billing_tick_between_games": {
+    "event": "BillingTick",
+    "data": {
+      "id": "sess_abcdef123456",
+      "pod_id": "pod_3",
+      "status": "waiting_for_game",
+      "elapsed_seconds": 1500,
+      "between_games_idle_seconds": 720,
+      "cost_paise": 62500,
+      "rate_paise_per_minute": 2500
+    }
   }
 }
