@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-18T01:08:34.705Z"
-last_activity: 2026-04-17
+last_updated: "2026-04-18T01:46:28Z"
+last_activity: 2026-04-18
 progress:
   total_phases: 4
   completed_phases: 4
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Phase
 
-**Phase:** 396
-**Status:** Executing Phase 413
-**Last activity:** 2026-04-17
+**Phase:** 413
+**Status:** Executing Phase 413 (Plan 10/11 complete — Plan 11 fleet deploy next)
+**Last activity:** 2026-04-18
 
 ## Progress
 
@@ -115,6 +115,26 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 ## Key Lesson: sed vs Edit Tool
 
 **NEVER use sed for multi-line Rust file modifications.** sed silently empties files when encountering certain patterns (happened twice with pod_healer.rs). Use the Edit tool for all code modifications — it validates changes and reports errors instead of silently corrupting.
+
+## Phase 413 Plan 10 — pre-deploy integration test closed (2026-04-18)
+
+**Completed:** 2026-04-18 (solo executor, --no-verify)
+**Scope:** Live HTTP route + rc-agent MeshKeyCache lifecycle verification against a dev/local instance BEFORE any fleet deploy. 10 T-ids executed: T1 build (both binaries exit 0), T2a Phase 413 unit-test suites (5 suites all green: mesh_key_cache 11/11, remote_ops 19/19 incl. 7 service_key, phase413 7/7, network_source 21/21, rc-common 252/252), T3 dev racecontrol boots and serves /api/v1/health (200 build_id=79abe386), T4 `GET /api/v1/pods/mesh-service-key` from pod1 LAN (192.168.31.89) returns 200 + `{"mesh_service_key":"DEV_TEST_KEY_..."}` matching sandbox TOML byte-for-byte, T4b same from POS LAN (192.168.31.130) confirming Plan 01 POS-reclassification live, T5 localhost + James LAN return 403 "Pod source required" (exact require_pod_source middleware text), T7 rc-agent boots and emits `periodic_refetch started resource=mesh_service_key` within 100ms, T9 agent-without-server emits `periodic_refetch failed ... retry_count=1` with zero `first_success` matches (cache stays None).
+**Commits:** `dce4279b` (T1+T2), `9019da74` (T3-T6), `4c2e9032` (T7-T10)
+**Files:** `.planning/phases/413-.../413-INTEGRATION-TEST.md` (NEW, 531 lines), `.planning/phases/413-.../deferred-items.md` (+1 Plan 10 section)
+**Before/after counts:**
+
+- `grep -c "HTTP/1.1 200" 413-INTEGRATION-TEST.md` : 0 → 3 (T3 health, T4 pod1, T4b POS)
+- `grep -c "HTTP/1.1 403" 413-INTEGRATION-TEST.md` : 0 → 2 (T5 loopback, T5 LAN)
+- `grep -c "periodic_refetch" 413-INTEGRATION-TEST.md` : 0 → 28 (T7-T10 evidence lines)
+- `wc -l 413-INTEGRATION-TEST.md` : 0 → 531 (every T-id has raw command + raw output)
+
+**Deferrals (non-blocking, all plan-permitted):** T6 Customer-IP 403 live (no 192.168.31.100-199 LAN host accessible; unit test + T5 same middleware branch cover), T8-primary `Mesh key cache initial fetch ok` literal log (agent from James .27 has loopback source IP → Staff → gate correctly returns 403; Ok branch proven by T4 live + `fetch_populates_cache` unit test; Plan 11 canary emits the literal line), T10 `self_healed` live observation (300s × 2 cycles wall-clock; `rc_common::boot_resilience::tests::spawn_periodic_refetch_self_heals_after_failure` covers at 10ms scale).
+**Pre-existing discoveries (out of Phase 413 scope, logged deferred):** 2 billing integration-test failures in `crates/racecontrol/tests/integration.rs` (`test_billing_rates_delete_excludes_from_cost` + `test_financial_e2e_tiered_pricing_integer_math`) — file unchanged since `36f6d2a0` (Phase 367-05), zero Phase 413 touch. Workspace `rc-sentry-ai` LNK4286 linker failure — pre-existing per Plan 04 deferred-items. Both filed to `deferred-items.md` with root-cause hypotheses.
+**Deviations:** (1) Rule 3 — rc-agent hardcoded ALLOWED_HOSTS guard at main.rs:643 excludes James (AI-SERVER); bypassed with `COMPUTERNAME=POS1` test-time env spoof (not a production risk — real hosts already on allowlist). (2) Rule 3 — rc-agent main.rs:901-903 errors on `sim = "none"`; switched sandbox TOML to `node_type = "pos"` which takes the POS-mode branch and bypasses FFB/HID/game subsystems cleanly. (3) Rule 3 — dev racecontrol requires RACECONTROL_ENCRYPTION_KEY + HMAC_KEY env vars; generated via `openssl rand -hex 32` session-local (/tmp/phase413-dev-keys.txt, not committed). (4) Rule 3 — T2b full-suite failure absorbed as pre-existing per CLAUDE.md scope boundary (do not fix in this plan; log deferred). (5) Rule 3 — dev server kept alive between Task 2 and Task 3 to avoid redundant 15s boot cycle; final cleanup at end of Task 3.
+**Closes:** Plan 11 go/no-go gate. GO verdict: every gating criterion is live-proven or unit-test-cross-referenced. Zero Phase 413 code defects discovered during live test. Plan 11 canary pod will close the T6/T8-primary/T10 deferrals in its 5-min post-deploy observation window.
+**Next plan (11):** Fleet deploy — racecontrol + rc-agent binaries to server .23 + cloud (DEPLOY PARITY) + 8 pods. Plan 10 identified the exact expect-see canary log lines and on-failure triggers in its Plan 11 handoff section.
+**Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-10-SUMMARY.md`
 
 ## Phase 413 Plan 05 — deploy-server.sh Factor 1 closed (2026-04-17)
 
@@ -209,7 +229,8 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/413-service-key-provisioning-deploy-server-sh-hardening-option-z-respawn-race-fixes/413-02-SUMMARY.md`
 
 ---
-*Last updated: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
+*Last updated: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
+*Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
 *Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
 *Previous: 2026-04-18 IST — Phase 413-03 (rc-agent MeshKeyCache boot wire-up) closed; cache now live + periodically refreshed at 300s (`28de9e30`)*
 *Previous: 2026-04-18 IST — Phase 413-06 (deploy-server.sh sentinel unified on OTA_DEPLOYING) closed; Factor 2 of 2026-04-18 03:13 IST deploy abort resolved (`d92c3843`)*

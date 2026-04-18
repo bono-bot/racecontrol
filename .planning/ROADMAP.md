@@ -481,7 +481,8 @@ Plans:
 - [x] **Phase 321: External Monitoring & Alert Chain** — MON-01, MON-02, MON-03, MON-04, MON-05 (completed 2026-04-06)
 - [x] **Phase 322: MI Core Engine Migration** — MIG-01, MIG-02, MIG-03, MIG-05 (completed 2026-04-06)
 - [x] **Phase 323: MMA Engine & Cognitive Gate Migration** — MIG-04, MIG-06 (completed 2026-04-07)
-- [x] **Phase 324: True Mesh Intelligence** — MESH-01, MESH-02, MESH-03 (completed 2026-04-06)
+- [x] **Phase 324: True Mesh Intelligence** — MESH-01, MESH-02, MESH-03
+ (completed 2026-04-06)
 
 ---
 
@@ -1996,7 +1997,7 @@ Wave 1: Deploy & Verify (383)
 **Goal:** rc-agent Tier 0 oracle live fleet-wide; deploy-server.sh respawn race eliminated.
 **Requirements**: TBD
 **Depends on:** Phase 392.1 (prior active phase)
-**Plans:** 9/11 plans executed
+**Plans:** 10/11 plans executed
 
 Plans:
 - [x] 413-02-PLAN.md — rc-agent mesh_key_cache module (Option Z data layer): MeshKeyCache type + fetch_from_server + get_key_or_env with W5 403-warn observability; 10 unit tests passing. Commits `45d85c14` (module+deps, labeled 413-01 due to parallel-agent commit collision) + `85b1968e` (mod declaration in main.rs — no lib.rs deviation documented)
@@ -2004,6 +2005,7 @@ Plans:
 - [x] 413-04-PLAN.md — rc-agent MeshKeyCache consumer rewire (3 env-readers → cache-first): ai_debugger::check_audit_known_issues + remote_ops::require_service_key (W4 Option (a) sub-router with State<MeshKeyCache>) + ws_handler csv_lap_fallback. W5 extends 403-warn to Tier 0. S10 new test_service_key_cache_wins_over_env. AppState.mesh_key_cache field. 103 tests passing incl. all 7 legacy service-key tests. Production env reads: 3 → 0 in http-client builds. Commits `51356322` (Tasks 1+2+scaff) + `34e13516` (Task 3). Closes Gap 4 structurally.
 - [x] 413-05-PLAN.md — deploy-server.sh Factor 1: schtasks disable/re-enable coverage extended from 2 → 8 tasks (commits `0fc38726`, `e38a9e81`, `7c7af7ec`) — shipped 2026-04-17 IST as script-only change; first exercise on next `bash scripts/deploy-server.sh` run
 - [x] 413-06-PLAN.md — deploy-server.sh Factor 2: deploy sentinel renamed from DEPLOY_IN_PROGRESS → OTA_DEPLOYING in all 3 blocks. Commit `d92c3843`. Writer + checker now agree on sentinel name; PS watchdog will skip its restart during kill→swap→start window.
+- [x] 413-10-PLAN.md — pre-deploy integration test: 10 T-ids exercised against a local/dev sandbox. T1+T2 build + all Phase 413 unit-test suites green (mesh_key_cache 11/11, remote_ops 19/19 incl. 7 service_key, phase413 7/7, network_source 21/21, rc-common 252/252). T3 dev racecontrol boots on /tmp/phase413-dev/, /api/v1/health 200 build_id=79abe386. T4+T4b `GET /api/v1/pods/mesh-service-key` from pod1 (192.168.31.89) AND POS (192.168.31.130) both return 200 + `{"mesh_service_key":"DEV_TEST_KEY_..."}` — Plan 01 POS-reclassification live-verified. T5 loopback + James LAN both return 403 "Pod source required". T7 rc-agent emits `periodic_refetch started resource=mesh_service_key` within 100ms. T9 server-down degrade emits `periodic_refetch failed ... retry_count=1` with ZERO `first_success` matches (cache stays None). T6 DEFERRED (no Customer-class LAN host). T8-primary DEFERRED (loopback source IP → Staff → gate rejects by design, Ok branch proven by T4 + unit test). T10 DEFERRED (rc-common `spawn_periodic_refetch_self_heals_after_failure` unit test covers). Commits `dce4279b` + `9019da74` + `4c2e9032`. **Go/no-go verdict: GO for Plan 11 fleet deploy.** 2 pre-existing billing integration-test failures logged to deferred-items.md (out of Phase 413 scope).
 
 ---
 
@@ -2198,10 +2200,16 @@ Before any hook migration (405+), Bono needs to (1) review canonical decisions o
 5. Server restart mid-WaitingForGame → idle counter resets (customer-favourable but undocumented).
 6. Balance gate threshold definition (< 1 min @ ₹25/min = ₹25 floor?).
 
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 414 to break down)
+- [ ] 414-00-PLAN.md — Wave 0 TDD scaffolding (5 RED FSM tests + 9 ignored stubs + 2 fixtures)
+- [ ] 414-01-PLAN.md — Wave 1 FSM TRANSITION_TABLE extension (Active+GameStopped, WaitingForGame+End/EndEarly)
+- [ ] 414-02-PLAN.md — Wave 2 BillingTimer.between_games_idle_seconds + tick branch + tick_all_timers candidate collection
+- [ ] 414-03-PLAN.md — Wave 3 protocol additions (DashboardEvent::IdleWarning + BillingSessionInfo field) + TS cascade + IdleWarning broadcast
+- [ ] 414-04-PLAN.md — Wave 4 handle_game_off rewrite + handle_live_resume reset + tick_all_timers auto-end + stop_billing branch + stale query fix
+- [ ] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (with venue visual checkpoint)
+- [ ] 414-06-PLAN.md — Wave 6 MMA audit + venue financial E2E + deploy parity (server .23 + Bono VPS + 3 frontends) + LOGBOOK
 
 ---
 
