@@ -9,7 +9,7 @@
 //!   GET  /info       — hostname, IP, OS, memory, CPU
 //!   POST /exec       — execute shell command (semaphore-gated, CREATE_NO_WINDOW)
 //!   GET  /files      — list directory contents
-//!   GET  /file       — read file (max 50MB)
+//!   GET  /file       — read file (50MB per-response cap; use ?offset= + ?max_bytes= or ?tail=true for larger)
 //!   POST /write      — write file
 //!   POST /mkdir      — create directory
 //!   GET  /screenshot — capture screen as JPEG
@@ -877,6 +877,19 @@ fn validate_file_path(requested: &str) -> Result<std::path::PathBuf, (StatusCode
 #[derive(Deserialize)]
 struct PathQuery {
     path: String,
+    /// Pattern I part 2: byte offset to start reading from. When set, response returns
+    /// the slice [offset..offset+max_bytes] instead of the whole file.
+    #[serde(default)]
+    offset: Option<u64>,
+    /// Pattern I part 2: maximum bytes to return in this response (capped at 50MB).
+    /// When `offset` is set without `max_bytes`, defaults to 50MB.
+    /// Ignored when neither `offset` nor `tail` is set (full-file read uses legacy 50MB whole-file cap).
+    #[serde(default)]
+    max_bytes: Option<u64>,
+    /// Pattern I part 2: when true, read the LAST `max_bytes` bytes of the file.
+    /// Useful for reading recent log tail without needing to know file size first.
+    #[serde(default)]
+    tail: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -931,10 +944,62 @@ async fn read_file(Query(q): Query<PathQuery>) -> Result<impl IntoResponse, (Sta
         return Err((StatusCode::BAD_REQUEST, "Not a file".into()));
     }
 
-    if let Ok(meta) = path.metadata() {
-        if meta.len() > 50 * 1024 * 1024 {
-            return Err((StatusCode::BAD_REQUEST, "File too large (>50MB)".into()));
+    // Pattern I part 2: bounded response cap — we cannot ever return more than 50MB
+    // per call to protect rc-agent memory. For larger files, callers paginate with offset.
+    const MAX_RESPONSE_BYTES: u64 = 50 * 1024 * 1024;
+    let max_bytes = q.max_bytes.unwrap_or(MAX_RESPONSE_BYTES).min(MAX_RESPONSE_BYTES);
+
+    let file_len = match path.metadata() {
+        Ok(m) => m.len(),
+        Err(e) => return Err((StatusCode::FORBIDDEN, format!("Cannot stat file: {}", e))),
+    };
+
+    // Decide read mode based on params
+    let range_requested = q.offset.is_some() || q.tail.unwrap_or(false);
+
+    if range_requested {
+        // Range-read path: compute (start, len) for the requested slice
+        let (start, len) = if q.tail.unwrap_or(false) {
+            let len = max_bytes.min(file_len);
+            let start = file_len.saturating_sub(len);
+            (start, len)
+        } else {
+            let start = q.offset.unwrap_or(0).min(file_len);
+            let len = max_bytes.min(file_len.saturating_sub(start));
+            (start, len)
+        };
+
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = match fs::File::open(&path) {
+            Ok(f) => f,
+            Err(e) => return Err((StatusCode::FORBIDDEN, format!("Cannot open file: {}", e))),
+        };
+        if let Err(e) = file.seek(SeekFrom::Start(start)) {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Seek failed: {}", e)));
         }
+        let mut buf = vec![0u8; len as usize];
+        if let Err(e) = file.read_exact(&mut buf) {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Read failed: {}", e)));
+        }
+        let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let headers = [
+            ("content-disposition", format!("inline; filename=\"{}\"", filename)),
+            ("x-file-size", file_len.to_string()),
+            ("x-range-start", start.to_string()),
+            ("x-range-end", (start + len).to_string()),
+        ];
+        return Ok((headers, buf));
+    }
+
+    // Legacy whole-file path: preserved for backwards compat. 50MB hard cap.
+    if file_len > MAX_RESPONSE_BYTES {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "File too large ({} bytes > 50MB); use ?offset= and ?max_bytes= to paginate, or ?tail=true for the last slice",
+                file_len
+            ),
+        ));
     }
 
     match fs::read(&path) {
@@ -942,6 +1007,9 @@ async fn read_file(Query(q): Query<PathQuery>) -> Result<impl IntoResponse, (Sta
             let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
             let headers = [
                 ("content-disposition", format!("inline; filename=\"{}\"", filename)),
+                ("x-file-size", file_len.to_string()),
+                ("x-range-start", "0".to_string()),
+                ("x-range-end", file_len.to_string()),
             ];
             Ok((headers, bytes))
         }
