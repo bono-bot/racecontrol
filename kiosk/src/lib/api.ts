@@ -38,6 +38,10 @@ export async function fetchApi<T>(path: string, options?: RequestInit): Promise<
         sessionStorage.removeItem("kiosk_staff_token");
         if (hadToken && !onStaffPage) {
           window.location.href = "/";
+        } else if (!onStaffPage) {
+          // No prior token + not on staff page: page-level guard or click handler
+          // will pick this up. Without this signal the click silently no-ops.
+          window.dispatchEvent(new CustomEvent("kiosk:auth-required", { detail: { path } }));
         }
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Unauthorized — session expired");
