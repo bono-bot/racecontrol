@@ -297,6 +297,14 @@ pub(crate) async fn migrate_game(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // Pattern H: lower-bound clean-exit signal — TRUE when exit_code == 0 AND
+    // seconds_since_launch >= 30 AND no WerFault.exe child for the PID in last 10s.
+    // Written by rc-agent at crash-event emission; consumers filter with WHERE clean_exit_heuristic = 0
+    // to see real crashes. event_type stays "crashed" for all non-agent-initiated exits (no query churn).
+    // See OPEN-PATTERNS.md Pattern H for full rationale.
+    let _ = sqlx::query("ALTER TABLE game_launch_events ADD COLUMN clean_exit_heuristic INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
 
     let _ = sqlx::query("ALTER TABLE launch_events ADD COLUMN session_id TEXT")
         .execute(pool)
