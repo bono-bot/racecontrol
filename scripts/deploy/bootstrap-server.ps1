@@ -124,6 +124,10 @@ try {
 Write-Host "`n[PHASE 6] Firewall rules..." -ForegroundColor Cyan
 New-NetFirewallRule -Name "RC-ServerOps" -DisplayName "RaceControl Server Ops (8090)" -Protocol TCP -LocalPort 8090 -Action Allow -Direction Inbound -ErrorAction SilentlyContinue | Out-Null
 New-NetFirewallRule -Name "RC-Kiosk" -DisplayName "RaceControl Kiosk (3300)" -Protocol TCP -LocalPort 3300 -Action Allow -Direction Inbound -ErrorAction SilentlyContinue | Out-Null
+# AC multiplayer dedicated server — PortAllocator ranges. UDP+TCP 9600-9615 = game traffic, TCP 8081-8096 = HTTP/INFO.
+New-NetFirewallRule -Name "RC-AcServer-UDP" -DisplayName "AC Server UDP 9600-9615" -Protocol UDP -LocalPort 9600-9615 -Action Allow -Direction Inbound -Profile Domain,Private -ErrorAction SilentlyContinue | Out-Null
+New-NetFirewallRule -Name "RC-AcServer-TCP" -DisplayName "AC Server TCP 9600-9615" -Protocol TCP -LocalPort 9600-9615 -Action Allow -Direction Inbound -Profile Domain,Private -ErrorAction SilentlyContinue | Out-Null
+New-NetFirewallRule -Name "RC-AcServer-HTTP" -DisplayName "AC Server HTTP 8081-8096" -Protocol TCP -LocalPort 8081-8096 -Action Allow -Direction Inbound -Profile Domain,Private -ErrorAction SilentlyContinue | Out-Null
 Write-Host "  Firewall rules created" -ForegroundColor Green
 
 # SUMMARY
