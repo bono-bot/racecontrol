@@ -121,27 +121,29 @@ ENDJSON
   rm -f "$TMPFILE"
 }
 
-# --- Helper: start node on server ---
-# .ps1-file pattern (same reason as stop_node_on_port + Backup/Extract step):
-# inline multi-line PowerShell over SSH silently no-ops under triple-escape,
-# leaving Start-Process never executed and no new node spawned.
+# --- Helper: wait for FrontendWatchdog to restart the app ---
+# The canonical start mechanism on .23 is `frontend-watchdog.ps1` (schtask)
+# which uses System.Diagnostics.Process.Start with explicit
+# EnvironmentVariables assignment. PowerShell Start-Process (what we used
+# previously) silently drops env vars under SSH+redirect, so the child node
+# binds to port 3000 (Next.js default) instead of 3300 and never becomes
+# reachable on the target port. Rather than duplicate the watchdog's env
+# setup in our own script, we just trigger it: kill the PID + extract new
+# files, then wait for the watchdog's 30s health-check loop to restart
+# kiosk with the new bundle.
 start_node_on_server() {
-  local START_PS1_SCP="C:/RacingPoint/.deploy-start.ps1"
-  local START_PS1_PS='C:\RacingPoint\.deploy-start.ps1'
-  local TMP_PS1
-  TMP_PS1=$(mktemp /tmp/start-XXXXXX.ps1)
-  cat > "$TMP_PS1" <<PSEOF
-\$ErrorActionPreference = 'Stop'
-\$env:PORT = '$PORT'
-\$env:HOSTNAME = '0.0.0.0'
-\$env:RC_URL = '$RC_URL'
-\$env:RC_JWT_SECRET = '$RC_JWT_SECRET'
-\$proc = Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'server.js' -WorkingDirectory '$REMOTE_DIR' -WindowStyle Hidden -RedirectStandardOutput 'C:\RacingPoint\\$APP-stdout.log' -RedirectStandardError 'C:\RacingPoint\\$APP-stderr.log' -PassThru
-Write-Output ('Node started PID=' + \$proc.Id + ' on port $PORT')
-PSEOF
-  scp -q -o StrictHostKeyChecking=no "$TMP_PS1" "$SERVER:$START_PS1_SCP"
-  rm -f "$TMP_PS1"
-  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File \"$START_PS1_PS\""
+  echo "  Waiting for FrontendWatchdog to restart $APP on :$PORT (up to 60s)..."
+  for i in 1 2 3 4 5 6; do
+    sleep 10
+    # Use netstat on remote to test — lower-cost than full curl
+    LISTENING=$(ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -Command \"if (Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue) { 'yes' } else { 'no' }\"" 2>/dev/null | tr -d '[:space:]')
+    if [ "$LISTENING" = "yes" ]; then
+      echo "  Watchdog restarted $APP on :$PORT after ${i}0s"
+      return 0
+    fi
+  done
+  echo "  WARNING: FrontendWatchdog did not restart $APP within 60s — health check will fail"
+  return 1
 }
 
 # --- Helper: stop node on target port ---
