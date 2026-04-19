@@ -36,32 +36,44 @@ impl AppState {
             .map(|v| v == "true")
             .unwrap_or(false);
 
-        let pods = self.pods.read().await;
-        let agent_senders = self.agent_senders.read().await;
-        let active_timers = self.billing.active_timers.read().await;
+        // SCALE-01 (2026-04-20): clone-before-await. Previously held three
+        // RwLock read guards (pods, agent_senders, active_timers) across 8
+        // sequential sender.send(...).await calls — under 8-pod load this
+        // starved pods.write() and active_timers.write() for the duration of
+        // the slowest agent channel send. Same class as 90b04d71 elsewhere.
+        let sends: Vec<(String, tokio::sync::mpsc::Sender<CoreMessage>, HashMap<String, String>)> = {
+            let pods = self.pods.read().await;
+            let agent_senders = self.agent_senders.read().await;
+            let active_timers = self.billing.active_timers.read().await;
 
-        for (pod_id, sender) in agent_senders.iter() {
-            let mut pod_settings = settings.clone();
+            agent_senders
+                .iter()
+                .map(|(pod_id, sender)| {
+                    let mut pod_settings = settings.clone();
 
-            // Pods with active billing sessions must NEVER be blanked
-            if active_timers.contains_key(pod_id) {
-                pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
-            } else {
-                // Apply per-pod blanking override
-                if let Some(ref pod_list) = blanking_pods
-                    && !pod_list.trim().is_empty() {
+                    // Pods with active billing sessions must NEVER be blanked
+                    if active_timers.contains_key(pod_id) {
+                        pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
+                    } else if let Some(ref pod_list) = blanking_pods
+                        && !pod_list.trim().is_empty()
+                    {
                         let pod_number = pods.get(pod_id).map(|p| p.number);
-                        let is_blanking_pod = pod_number.map(|n| {
-                            pod_list.split(',')
-                                .any(|s| s.trim().parse::<u32>().ok() == Some(n))
-                        }).unwrap_or(false);
+                        let is_blanking_pod = pod_number
+                            .map(|n| pod_list.split(',').any(|s| s.trim().parse::<u32>().ok() == Some(n)))
+                            .unwrap_or(false);
 
                         if blanking_enabled && !is_blanking_pod {
                             pod_settings.insert("screen_blanking_enabled".to_string(), "false".to_string());
                         }
                     }
-            }
 
+                    (pod_id.clone(), sender.clone(), pod_settings)
+                })
+                .collect()
+            // guards dropped here
+        };
+
+        for (_pod_id, sender, pod_settings) in sends {
             let msg = CoreToAgentMessage::SettingsUpdated { settings: pod_settings };
             let _ = sender.send(CoreMessage::wrap(msg)).await;
         }
@@ -165,21 +177,35 @@ impl AppState {
     pub async fn broadcast_flag_sync(&self) {
         use rc_common::types::FlagSyncPayload;
 
-        let cache = self.feature_flags.read().await;
-        let version = cache.values().map(|r| r.version as u64).max().unwrap_or(0);
-        let agent_senders = self.agent_senders.read().await;
-        for (pod_id, sender) in agent_senders.iter() {
-            let flags: HashMap<String, bool> = cache
-                .values()
-                .map(|row| {
-                    let effective = serde_json::from_str::<HashMap<String, bool>>(&row.overrides)
-                        .ok()
-                        .and_then(|ovr| ovr.get(pod_id).copied())
-                        .unwrap_or(row.enabled);
-                    (row.name.clone(), effective)
+        // SCALE-01 (2026-04-20): clone-before-await. Previously held
+        // feature_flags.read() AND agent_senders.read() across 8 sequential
+        // sender.send(...).await calls — flag updates would block behind
+        // every broadcast.
+        let sends: Vec<(String, tokio::sync::mpsc::Sender<CoreMessage>, FlagSyncPayload)> = {
+            let cache = self.feature_flags.read().await;
+            let version = cache.values().map(|r| r.version as u64).max().unwrap_or(0);
+            let agent_senders = self.agent_senders.read().await;
+
+            agent_senders
+                .iter()
+                .map(|(pod_id, sender)| {
+                    let flags: HashMap<String, bool> = cache
+                        .values()
+                        .map(|row| {
+                            let effective = serde_json::from_str::<HashMap<String, bool>>(&row.overrides)
+                                .ok()
+                                .and_then(|ovr| ovr.get(pod_id).copied())
+                                .unwrap_or(row.enabled);
+                            (row.name.clone(), effective)
+                        })
+                        .collect();
+                    (pod_id.clone(), sender.clone(), FlagSyncPayload { flags, version })
                 })
-                .collect();
-            let payload = FlagSyncPayload { flags, version };
+                .collect()
+            // guards dropped here
+        };
+
+        for (pod_id, sender, payload) in sends {
             if let Err(e) = sender
                 .send(CoreMessage::wrap(rc_common::protocol::CoreToAgentMessage::FlagSync(payload)))
                 .await
