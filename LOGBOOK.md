@@ -1589,3 +1589,5 @@ Mis-anchored on cloud hash; extended cloud scope without consent; SSH to product
 without consent; attempted secret-file read via approved SSH; bundled pod wave with
 venue-deploy consent. User wrote structural-rule feedback files mid-session covering
 all 5 classes.
+
+| 2026-04-19 07:59 IST | James | 021cbaf4 | feat(pattern-h): wire clean_exit_heuristic end-to-end (surfaces 2-5) — rc-agent emission + server ingestion + API filter. Surface 4 no-op (venue-local table). 47 game_launcher tests pass. NOT DEPLOYED. |

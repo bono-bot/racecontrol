@@ -80,7 +80,7 @@ Captured at session end; these are watch/queue items, not active investigations.
 
 | Field | Value |
 |---|---|
-| State | DECISION — **lower-bound `clean_exit_heuristic` column chosen for Step 1**; full taxonomy split deferred. Implementation not yet started. |
+| State | FIX (code complete, NOT DEPLOYED). Surfaces 1+2+3+5 shipped in `aa52b813` (SQL migration) + `021cbaf4` (rc-agent emission, server ingestion, API filter). Surface 4 (cloud sync manifest) is a documented no-op — `game_launch_events` is venue-local, not in SYNC_TABLES. All 47 game_launcher unit tests pass on 2026-04-19. |
 | Source of bug | rc-agent emits the same `event_type=crashed` + `error_message="Process exited unexpectedly (exit code: N)"` for ALL non-rc-agent-initiated exits, regardless of whether the game shut down cleanly. |
 | Evidence | Pattern E.1 — Pod 6 AC sessions 2026-04-18 12:02-16:44 IST all reported as `crashed exit 0`, but py_log.txt shows the full RaceControl plugin shutdown sequence ran cleanly. Customer simply quit the game. Same misclassification likely affects every pod for every game when customer ends session via game UI rather than kiosk End-Session button. |
 | Impact | Inflates apparent crash counts → noise drowns out real crashes → Pattern E.1 was investigated as a possible bug for two days when it was just normal customer behavior. Real crashes (Pattern A storms, AC Rally 3-min, etc.) are harder to spot in the noise. |
