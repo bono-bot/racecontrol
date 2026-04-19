@@ -1,18 +1,25 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent, EscalationPayload};
 use rc_common::types::{ProcessViolation, BillingSessionStatus, GameState};
 use crate::{activity_log::log_pod_activity, event_archive, state::AppState, billing};
 
 // Phase 206 (OBS-04): Rate-limit sentinel WhatsApp alerts per pod per 5 min.
+//
+// SCALE-03 (2026-04-20): tokio::sync::Mutex instead of std::sync::Mutex.
+// std::sync::Mutex.lock() parks the Tokio worker thread on contention;
+// tokio::sync::Mutex yields the task, preserving parallelism under
+// simultaneous sentinel events on 8 pods (e.g., deploy wave creating
+// OTA_DEPLOYING sentinels fleet-wide).
 static SENTINEL_ALERT_COOLDOWN: std::sync::LazyLock<Mutex<HashMap<String, Instant>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Check and update sentinel alert cooldown. Returns true if the alert should fire.
-fn check_sentinel_cooldown(key: &str) -> bool {
+async fn check_sentinel_cooldown(key: &str) -> bool {
     const COOLDOWN_SECS: u64 = 300;
-    let mut map = SENTINEL_ALERT_COOLDOWN.lock().unwrap_or_else(|p| p.into_inner());
+    let mut map = SENTINEL_ALERT_COOLDOWN.lock().await;
     let now = Instant::now();
     if let Some(last) = map.get(key)
         && now.duration_since(*last).as_secs() < COOLDOWN_SECS {
@@ -318,7 +325,7 @@ pub(crate) async fn handle_sentinel_change(
 
     if file == "MAINTENANCE_MODE" && action == "created" {
         let cooldown_key = format!("sentinel_{}_{}", file, pod_number);
-        if check_sentinel_cooldown(&cooldown_key) {
+        if check_sentinel_cooldown(&cooldown_key).await {
             let alert_msg = format!(
                 "[ALERT] Pod {} entered MAINTENANCE_MODE at {} (IST). \
                 Sentinel file created — all restarts are now blocked. \

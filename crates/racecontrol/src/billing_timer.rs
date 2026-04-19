@@ -441,6 +441,16 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     }
 
     // Act 2: Process per-minute wallet debits (async DB operations, lock released)
+    //
+    // SCALE-02 (2026-04-20): Consolidate per-iteration active_timers re-locks
+    // into a single write-lock scope after the loop. Previously this loop
+    // acquired active_timers.write() up to 2x per iteration (failure path +
+    // low-balance-check), totalling up to 16 write-lock acquisitions per tick
+    // with 8 concurrent sessions — contending with the 1s tick cadence of
+    // this very function. Now the loop does only the async DB work; the
+    // write-lock acquisitions are batched after.
+    let mut failed_debits: Vec<(String, String, String)> = Vec::new(); // (pod_id, session_id, err_msg)
+    let mut low_balance_candidates: Vec<(String, i64)> = Vec::new();   // (pod_id, balance) to evaluate under lock
     for (session_id, pod_id, wallet_owner_id, rate_paise) in &per_minute_debits {
         let debit_result = crate::wallet::debit_wallet(
             &state.db,
@@ -464,36 +474,15 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 .await;
             }
             Err(e) => {
-                // Wallet empty — auto-end this session
                 tracing::warn!(
                     "Per-minute debit failed for session {} (pod {}): {} — auto-ending session",
                     session_id, pod_id, e
                 );
-                // Re-acquire lock to mark session as ended
-                let rate_tiers = state.billing.rate_tiers.read().await;
-                let mut timers = state.billing.active_timers.write().await;
-                if let Some(timer) = timers.get_mut(pod_id.as_str()) {
-                    if let Ok(new_status) = crate::billing_fsm::validate_transition(
-                        timer.status,
-                        crate::billing_fsm::BillingEvent::End,
-                    ) {
-                        timer.status = new_status;
-                        events_to_broadcast.push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
-                    }
-                    expired_sessions.push((
-                        pod_id.clone(),
-                        timer.session_id.clone(),
-                        timer.driving_seconds,
-                        timer.driver_name.clone(),
-                    ));
-                    timers.remove(pod_id.as_str());
-                }
-                drop(timers);
-                drop(rate_tiers);
+                failed_debits.push((pod_id.clone(), session_id.clone(), e.to_string()));
             }
         }
 
-        // Check low balance warning
+        // Read balance for low-balance-warning evaluation (no lock needed for DB read)
         if let Ok(Some((balance,))) = sqlx::query_as::<_, (i64,)>(
             "SELECT balance_paise FROM wallets WHERE driver_id = ?",
         )
@@ -501,17 +490,47 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
         .fetch_optional(&state.db)
         .await
         {
-            // Re-acquire lock briefly to check/set warning flag
-            let mut timers = state.billing.active_timers.write().await;
-            if let Some(timer) = timers.get_mut(pod_id.as_str())
-                && balance <= timer.low_balance_warning_paise as i64 && !timer.low_balance_warned {
-                    timer.low_balance_warned = true;
-                    tracing::info!(
-                        "Low balance warning: session {} (pod {}), wallet balance {}p",
-                        session_id, pod_id, balance
-                    );
-                    // TODO: Send WS event to kiosk for audible alert
+            low_balance_candidates.push((pod_id.clone(), balance));
+        }
+    }
+
+    // Batched write-lock: process all debit failures + low-balance flags in one scope.
+    if !failed_debits.is_empty() || !low_balance_candidates.is_empty() {
+        let rate_tiers = state.billing.rate_tiers.read().await;
+        let mut timers = state.billing.active_timers.write().await;
+
+        for (pod_id, _session_id, _err_msg) in &failed_debits {
+            if let Some(timer) = timers.get_mut(pod_id.as_str()) {
+                if let Ok(new_status) = crate::billing_fsm::validate_transition(
+                    timer.status,
+                    crate::billing_fsm::BillingEvent::End,
+                ) {
+                    timer.status = new_status;
+                    events_to_broadcast
+                        .push(DashboardEvent::BillingSessionChanged(timer.to_info(&rate_tiers)));
                 }
+                expired_sessions.push((
+                    pod_id.clone(),
+                    timer.session_id.clone(),
+                    timer.driving_seconds,
+                    timer.driver_name.clone(),
+                ));
+                timers.remove(pod_id.as_str());
+            }
+        }
+
+        for (pod_id, balance) in &low_balance_candidates {
+            if let Some(timer) = timers.get_mut(pod_id.as_str())
+                && *balance <= timer.low_balance_warning_paise as i64
+                && !timer.low_balance_warned
+            {
+                timer.low_balance_warned = true;
+                tracing::info!(
+                    "Low balance warning: session {} (pod {}), wallet balance {}p",
+                    timer.session_id, pod_id, balance
+                );
+                // TODO: Send WS event to kiosk for audible alert
+            }
         }
     }
 
