@@ -74,15 +74,12 @@ pub async fn start_ac_server(
 ) -> anyhow::Result<String> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // Check if another session is already running
-    {
-        let instances = state.ac_server.instances.read().await;
-        for inst in instances.values() {
-            if matches!(inst.status, AcServerStatus::Starting | AcServerStatus::Running) {
-                anyhow::bail!("An AC server session is already running: {}", inst.session_id);
-            }
-        }
-    }
+    // Phase 373-04: single-session guard removed. Concurrent AC server sessions are
+    // required for multi-group multiplayer (Pods 1-2 racing Monza while Pods 3-4 race
+    // Spa). PortAllocator (state.port_allocator) assigns disjoint UDP/TCP/HTTP triplets
+    // from 9600-9615 + 8081-8096, so 2+ servers cannot collide. Guard kept until
+    // 2026-04-19 because dynamic port allocation wasn't trusted at scale — the
+    // Phase 373 plan verifies separation via `test_concurrent_sessions_different_ports`.
 
     // Allocate dynamic ports for this session
     let allocated = state.port_allocator.allocate(&session_id).await?;

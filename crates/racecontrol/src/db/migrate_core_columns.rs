@@ -239,6 +239,19 @@ pub(super) async fn migrate_core_columns(pool: &SqlitePool) -> anyhow::Result<()
     .execute(pool)
     .await?;
 
+    // Phase 373-02: tag laps recorded during a multiplayer group session.
+    // Server-resolved at lap ingestion from AcServerInstance.group_session_id
+    // (pod → active ac_server instance → group). NULL for solo laps.
+    let _ = sqlx::query("ALTER TABLE laps ADD COLUMN group_session_id TEXT")
+        .execute(pool)
+        .await;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_laps_group_session ON laps(group_session_id)",
+    )
+    .execute(pool)
+    .await?;
+
 
     // ─── Linked racers: parent account can add up to 3 guest racers ────────────
     let _ = sqlx::query("ALTER TABLE drivers ADD COLUMN linked_to TEXT REFERENCES drivers(id)")

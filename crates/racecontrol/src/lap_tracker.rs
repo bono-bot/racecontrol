@@ -100,6 +100,23 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
         timers.get(&lap.pod_id).map(|t| t.session_id.clone())
     };
 
+    // Phase 373-02: resolve group_session_id by finding the active ac_server
+    // instance whose assigned_pods contains this lap's pod. Server-side only
+    // — no protocol addition needed because each pod's billing session already
+    // resolves to the correct single driver via resolve_driver_for_pod.
+    // NULL for solo laps (no active AC MP instance contains the pod).
+    let group_session_id: Option<String> = {
+        use rc_common::types::AcServerStatus;
+        let instances = state.ac_server.instances.read().await;
+        instances.values()
+            .filter(|inst| matches!(
+                inst.status,
+                AcServerStatus::Starting | AcServerStatus::Running
+            ))
+            .find(|inst| inst.assigned_pods.iter().any(|p| p == &lap.pod_id))
+            .and_then(|inst| inst.group_session_id.clone())
+    };
+
     // UX-04: Log when no billing session exists but still record the lap.
     // Previously this was a hard gate that rejected all laps without billing,
     // causing zero laps to be recorded for 43 days. Laps during free trials,
@@ -187,8 +204,8 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     };
 
     let result = sqlx::query(
-        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, assist_config_hash, assist_tier, billing_session_id, validity, created_at, venue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', datetime('now'), ?)",
+        "INSERT INTO laps (id, session_id, driver_id, pod_id, sim_type, track, car, lap_number, lap_time_ms, sector1_ms, sector2_ms, sector3_ms, valid, car_class, suspect, session_type, assist_config_hash, assist_tier, billing_session_id, group_session_id, validity, created_at, venue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', datetime('now'), ?)",
     )
     .bind(&lap.id)
     .bind(&lap.session_id)
@@ -209,6 +226,7 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     .bind(&assist_config_hash)
     .bind(&assist_tier)
     .bind(&billing_session_id)
+    .bind(&group_session_id)
     .bind(&state.config.venue.venue_id)
     .execute(&mut *tx)
     .await;

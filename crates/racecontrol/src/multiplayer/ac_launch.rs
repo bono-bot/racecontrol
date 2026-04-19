@@ -137,7 +137,12 @@ pub(crate) async fn start_ac_lan_for_group(
                 session_type: rc_common::types::SessionType::Race,
                 duration_minutes: 0,
                 laps: 10,
-                wait_time_secs: 10,
+                // Phase 373-01: wait_time 10s → 60s for synchronized launch.
+                // 10s was the SP default; MP needs enough time for every invited
+                // driver to boot AC, load the track, and connect before the race
+                // timer starts. 60s covers worst-case track load (Nordschleife +
+                // high-fidelity car) and gives late-clicking players a grace window.
+                wait_time_secs: 60,
             }],
             entries: entry_slots,
             weather: vec![rc_common::types::AcWeatherConfig {
