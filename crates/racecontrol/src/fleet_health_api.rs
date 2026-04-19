@@ -102,6 +102,12 @@ pub struct PodFleetStatus {
     /// Current game state: "idle", "loading", "running", "error", etc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game_state: Option<String>,
+    /// Pattern I part 3: TRUE when pod's HTTP is reachable but WS is not connected —
+    /// strongly suggests the silent-reconnect-forever pathology (seen 2026-04-18 23:05→00:09 IST
+    /// on Pods 1+6). Staff should investigate the pod's WS reconnect loop.
+    /// Derived server-side from `http_reachable && !ws_connected`.
+    #[serde(default)]
+    pub silent_reconnect_suspected: bool,
 }
 
 // ── GET /api/v1/fleet/health ──────────────────────────────────────────────────
@@ -219,6 +225,7 @@ pub async fn fleet_health_handler(
                     freedom_mode: None,
                     screen_blanked: None,
                     game_state: None,
+                    silent_reconnect_suspected: false,
                 });
             }
             Some(info) => {
@@ -280,6 +287,9 @@ pub async fn fleet_health_handler(
                 let ws_reconnect_count = store.map(|s| s.ws_reconnect_count).unwrap_or(0);
 
                 let node_type = if pod_number >= 9 { "pos" } else { "pod" };
+                // Pattern I part 3: flag silent-reconnect-forever — HTTP ok + WS down
+                // is the observable signature of the 2026-04-18 incident.
+                let silent_reconnect_suspected = http_reachable && !ws_connected;
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -316,6 +326,7 @@ pub async fn fleet_health_handler(
                     freedom_mode: info.freedom_mode,
                     screen_blanked: info.screen_blanked,
                     game_state: info.game_state.as_ref().map(|g| format!("{:?}", g).to_lowercase()),
+                    silent_reconnect_suspected,
                 });
             }
         }
