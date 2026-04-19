@@ -1511,3 +1511,5 @@ Pattern I DiD fix-forward (venue `84a8b69a` → `c1f4950e`, bundles
 `09acbbe4` rc-agent WS Ping + `90b04d71` server clone-before-await at
 12 dispatch sites). Venue currently degraded: FLEET_PARTIAL 7/9 with
 Pod 1 + Pod 6 silent-reconnect-forever. Fix exists on cloud, not venue.
+
+| 2026-04-19 07:36 IST | James | aa52b813 | feat(db): Pattern H commit 1 — add game_launch_events.clean_exit_heuristic column (ALTER TABLE migration only; rc-agent emission + downstream wiring in follow-up commits). |
