@@ -12,7 +12,7 @@ use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
 use crate::ffb_controller;
 use crate::game_process;
 use crate::kiosk;
-use crate::lock_screen::LockScreenEvent;
+use crate::lock_screen::{LockScreenEvent, LockScreenState};
 use crate::off_track_detector::OverlayChange;
 use crate::udp_heartbeat;
 use crate::ws_handler::{HandleResult, WsTx};
@@ -215,6 +215,13 @@ pub(crate) struct ConnectionState {
     /// 06:46 UTC 2026-04-17) and pod_6 (Pattern E, AC 12:36 UTC 2026-04-17) where each
     /// crash resets `attempt=1` and the loop never breaks.
     pub(crate) recent_crash_history: Vec<std::time::Instant>,
+    /// SAFETY-NET-01: timestamp when we first observed `state=ActiveSession` with
+    /// no game process alive and no crash-recovery pause. After 15 seconds of this
+    /// inconsistency we force the lock screen back to the idle state to prevent
+    /// the customer from seeing the raw Windows desktop. Reset to `None` as soon
+    /// as the condition clears (game comes back alive, state leaves ActiveSession,
+    /// or crash-recovery window opens).
+    pub(crate) stuck_active_session_since: Option<std::time::Instant>,
 }
 
 impl ConnectionState {
@@ -273,6 +280,7 @@ impl ConnectionState {
             last_adapter_connect_error: None,
             launch_epoch: 0,
             recent_crash_history: Vec::new(),
+            stuck_active_session_since: None,
         }
     }
 }
@@ -1449,6 +1457,50 @@ pub async fn run(
                             }
                         }
                     }
+                }
+
+                // ─── SAFETY-NET-01: prevent stuck ActiveSession from exposing desktop ─────
+                // Invariant: if the lock-screen state is ActiveSession, a game MUST be running
+                // on this pod. If the invariant breaks and we stay that way for >15s, force
+                // the lock screen back to the idle state (blank or PIN per venue config).
+                //
+                // Why: show_active_session() hides the native lock window so the game is
+                // visible. If the game process dies and we never transition out of ActiveSession
+                // (e.g. WS to server dropped before session_ended arrived, or crash event was
+                // missed), the customer sees the raw Windows desktop. Observed on Pod 3 on
+                // 2026-04-19: stuck in ActiveSession for 3h+ while WS was down.
+                //
+                // Respects intentional pauses: CrashRecoveryState::PausedWaitingRelaunch holds
+                // ActiveSession for up to 30s while the agent relaunches the crashed game.
+                let game_alive = state.game_process.as_mut()
+                    .map(|g| g.is_running())
+                    .unwrap_or(false);
+                let crash_recovery_pause = matches!(
+                    conn.crash_recovery,
+                    CrashRecoveryState::PausedWaitingRelaunch { .. }
+                );
+                let is_active_session = {
+                    let guard = state.lock_screen.state_handle();
+                    let s = guard.lock().unwrap_or_else(|e| e.into_inner());
+                    matches!(*s, LockScreenState::ActiveSession { .. })
+                };
+                if is_active_session && !game_alive && !crash_recovery_pause {
+                    let first_seen = *conn.stuck_active_session_since
+                        .get_or_insert_with(std::time::Instant::now);
+                    let elapsed = first_seen.elapsed();
+                    if elapsed >= Duration::from_secs(15) {
+                        tracing::warn!(
+                            target: LOG_TARGET,
+                            elapsed_secs = elapsed.as_secs(),
+                            "SAFETY-NET-01: state=ActiveSession but no game running \
+                             for {}s — forcing idle state to prevent desktop exposure",
+                            elapsed.as_secs()
+                        );
+                        state.lock_screen.show_idle_state();
+                        conn.stuck_active_session_since = None;
+                    }
+                } else {
+                    conn.stuck_active_session_since = None;
                 }
             }
 
