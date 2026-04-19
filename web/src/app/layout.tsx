@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthGate } from "@/components/AuthGate";
+import { BuildIdRefresh } from "@/components/BuildIdRefresh";
 import { ChunkErrorRecovery } from "@/components/ChunkErrorRecovery";
 import { ToastProvider } from "@/components/Toast";
 
@@ -34,6 +35,7 @@ export default function RootLayout({
       >
         <ChunkErrorRecovery />
         <ToastProvider>
+          <BuildIdRefresh />
           <AuthGate>{children}</AuthGate>
         </ToastProvider>
       </body>

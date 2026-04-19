@@ -88,11 +88,51 @@ function writeVerified(filePath, value) {
 
 try {
   const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: REPO_ROOT }).trim();
+  const gitShaFull = execSync('git rev-parse HEAD', { encoding: 'utf8', cwd: REPO_ROOT }).trim();
+  let dirty = false;
+  try {
+    execSync('git diff --quiet HEAD --', { stdio: 'ignore', cwd: REPO_ROOT });
+  } catch {
+    dirty = true;
+  }
+  const commitLabel = dirty ? `${gitCommit}-dirty` : gitCommit;
+
+  const nowUtc = new Date();
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const nowIst = new Date(nowUtc.getTime() + istOffsetMs);
+  const buildInfo = JSON.stringify(
+    {
+      git_commit: commitLabel,
+      git_sha_full: gitShaFull,
+      dirty,
+      build_time_utc: nowUtc.toISOString(),
+      build_time_ist: nowIst.toISOString().replace('Z', '+05:30'),
+    },
+    null,
+    2
+  ) + '\n';
+
   const standalonePublic = path.join(standaloneDir, 'public');
   fs.mkdirSync(standalonePublic, { recursive: true });
-  writeVerified(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
-  writeVerified(path.join(standalonePublic, 'git-commit.txt'), gitCommit);
-  console.log(`postbuild: wrote git-commit.txt (${gitCommit}) to standalone/ and standalone/public/ (readback-verified)`);
+
+  // git-commit.txt — three-location ledger (standalone/, standalone/public/, repo public/)
+  writeVerified(path.join(standaloneDir, 'git-commit.txt'), commitLabel);
+  writeVerified(path.join(standalonePublic, 'git-commit.txt'), commitLabel);
+  writeVerified(path.join('public', 'git-commit.txt'), commitLabel);
+
+  // build-info.json — drives useBuildIdRefresh + humans reading deploy state.
+  // Must be regenerated post-build so its git_commit matches the binary the
+  // deploy ships. Relying on prebuild alone was observed to fail: the Bono VPS
+  // 2026-04-19 incident + James 2026-04-20 01:20 build both shipped a stale
+  // build-info.json from a prior build because prebuild hooks were skipped or
+  // validate-frontend-env.sh errored out before inject-git-commit.js ran.
+  // Writing here guarantees the value matches HEAD for every build that
+  // reaches postbuild — which is every build that ships.
+  writeVerified(path.join(standaloneDir, 'build-info.json'), buildInfo);
+  writeVerified(path.join(standalonePublic, 'build-info.json'), buildInfo);
+  writeVerified(path.join('public', 'build-info.json'), buildInfo);
+
+  console.log(`postbuild: wrote git-commit.txt + build-info.json (${commitLabel}) to standalone/, standalone/public/, and repo public/ (readback-verified)`);
 } catch (e) {
   console.warn('postbuild: could not determine git commit:', e.message);
 }
