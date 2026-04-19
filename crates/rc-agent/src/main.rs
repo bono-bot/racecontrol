@@ -1898,6 +1898,11 @@ async fn main() -> Result<()> {
         // ConnectionState and was reset on every reconnect, which is why
         // Pod 4 stayed stuck for 3h+ while WS was silent-reconnecting).
         stuck_active_session_since: None,
+        // SAFETY-NET-02 (2026-04-20): stuck-SessionSummary timer survives WS
+        // reconnects. Same root cause class as SAFETY-NET-01 (blank_timer was
+        // on ConnectionState, lost on reconnect → SessionSummary stayed
+        // visible forever when WS flapped inside the 30s post-session window).
+        session_summary_since: None,
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
@@ -2468,10 +2473,13 @@ fn run_safety_net_01_reconnect(state: &mut AppState) {
         .as_mut()
         .map(|g| g.is_running())
         .unwrap_or(false);
-    let is_active_session = {
+    let (is_active_session, is_session_summary) = {
         let guard = state.lock_screen.state_handle();
         let s = guard.lock().unwrap_or_else(|e| e.into_inner());
-        matches!(*s, crate::lock_screen::LockScreenState::ActiveSession { .. })
+        (
+            matches!(*s, crate::lock_screen::LockScreenState::ActiveSession { .. }),
+            matches!(*s, crate::lock_screen::LockScreenState::SessionSummary { .. }),
+        )
     };
     let (should_force_idle, new_first_seen) = event_loop::safety_net_01_decide(
         is_active_session,
@@ -2489,6 +2497,31 @@ fn run_safety_net_01_reconnect(state: &mut AppState) {
              during WS-down — forcing idle state to prevent desktop exposure"
         );
         state.lock_screen.show_idle_state();
+    }
+
+    // SAFETY-NET-02 (2026-04-20): SessionSummary → blank, resilient to WS flaps.
+    // Under the reconnect-loop path billing_active must be false — a session can't
+    // be simultaneously ended AND active. Passing the atomic load for symmetry with
+    // the event-loop callsite.
+    let billing_active_now = state
+        .heartbeat_status
+        .billing_active
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let (should_force_blank, new_summary_seen) = event_loop::safety_net_02_decide(
+        is_session_summary,
+        billing_active_now,
+        state.session_summary_since,
+        std::time::Instant::now(),
+        Duration::from_secs(30),
+    );
+    state.session_summary_since = new_summary_seen;
+    if should_force_blank {
+        tracing::info!(
+            target: LOG_TARGET,
+            "SAFETY-NET-02 (reconnect-loop): SessionSummary held 30s during WS-down \
+             — blanking screen"
+        );
+        state.lock_screen.show_blank_screen();
     }
 }
 

@@ -293,7 +293,11 @@ pub async fn handle_ws_message(
             // MMA-Iter2: Also update the static BILLING_ACTIVE flag used by remote_ops
             // exec_command's RCAGENT_SELF_RESTART guard. Without this, the guard was dead code.
             crate::remote_ops::BILLING_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
-            conn.blank_timer_armed = false;
+            // SAFETY-NET-02: new session starting while in SessionSummary should
+            // cancel the pending blank. The tick's `billing_active` check handles
+            // this automatically; also clear the timestamp so lazy-init in a
+            // later state transition doesn't spuriously fire.
+            state.session_summary_since = None;
             let billing_session_id_clone = billing_session_id.clone();
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = true;
@@ -411,8 +415,10 @@ pub async fn handle_ws_message(
             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
             tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
             conn.current_driver_name = None;
-            conn.blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
-            conn.blank_timer_armed = true;
+            // SAFETY-NET-02 (2026-04-20): replaces old conn.blank_timer. Record
+            // the SessionSummary entry timestamp on AppState so the 30s →
+            // ScreenBlanked transition survives WS reconnects.
+            state.session_summary_since = Some(std::time::Instant::now());
 
             // GLD-C-03: Conditional CSV fallback push at session end (D-07).
             // Detached tokio::spawn so SessionEnded processing is not blocked.
