@@ -1626,3 +1626,5 @@ T+33 min after defense-in-depth deploy (07:29 IST venue+fleet to `66fec05c`). No
   in `fleet/health`) — both deferred per the Pattern I row; small follow-up commits.
 
 
+
+| 2026-04-19 12:58 IST | James | 29167f78 | fix(alerting): crash-detection never fired — wrong event_type literal (crash vs crashed) + Pattern H clean-exit filter. Alerting went from silently-dead to functional fleet-wide. |
