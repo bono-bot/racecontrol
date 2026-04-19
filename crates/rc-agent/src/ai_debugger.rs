@@ -45,6 +45,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use rc_common::spawn_safe::{spawn_safe, spawn_safe_capture};
@@ -200,9 +201,15 @@ struct DebugIncident {
     ai_suggestion: String,
     success_count: u32,
     last_seen: String,
-    /// Timestamps of recent firings (last 5). Used for cooldown detection.
+    /// Wall-clock timestamps of recent firings (last 5). Kept as audit trail
+    /// and for quarantine-TTL auto-recovery across restarts.
     #[serde(default)]
     recent_fires: Vec<String>,
+    /// GAP-2: Monotonic instants matching `recent_fires`, used for the
+    /// quarantine cooldown decision. `Instant` is immune to NTP wall-clock
+    /// jumps. Not persisted — cleared on load, rebuilt in the current session.
+    #[serde(skip)]
+    recent_fire_instants: Vec<Instant>,
     /// Whether this pattern is quarantined (fired too often without real success).
     #[serde(default)]
     quarantined: bool,
@@ -287,12 +294,25 @@ impl DebugMemory {
     }
 
     /// Check if a pattern has fired >3 times in the last 5 minutes (cooldown).
+    /// Wall-clock based; kept for the quarantine-TTL audit and for tests.
     fn is_in_cooldown(recent_fires: &[String]) -> bool {
         let cutoff = Utc::now() - chrono::Duration::minutes(5);
         let recent_count = recent_fires
             .iter()
             .filter_map(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
             .filter(|t| *t > cutoff)
+            .count();
+        recent_count > 3
+    }
+
+    /// GAP-2: NTP-safe cooldown check. Monotonic `Instant` is unaffected by
+    /// wall-clock adjustments, so a forward NTP jump can no longer make recent
+    /// fires appear older than the 5-minute window and silently skip quarantine.
+    fn is_in_cooldown_monotonic(instants: &[Instant]) -> bool {
+        let now = Instant::now();
+        let recent_count = instants
+            .iter()
+            .filter(|&&t| now.duration_since(t) < Duration::from_secs(300))
             .count();
         recent_count > 3
     }
@@ -310,15 +330,20 @@ impl DebugMemory {
     ) {
         let key = Self::pattern_key(sim_type, error_context);
         let now = Utc::now().to_rfc3339();
+        let now_instant = Instant::now();
         if let Some(incident) = self.incidents.iter_mut().find(|i| i.pattern_key == key && i.fix_type == fix_type) {
             incident.last_seen = now.clone();
-            // Track recent fires (keep last 5)
+            // Track recent fires (keep last 5) — parallel wall-clock + monotonic vecs
             incident.recent_fires.push(now);
+            incident.recent_fire_instants.push(now_instant);
             if incident.recent_fires.len() > 5 {
                 incident.recent_fires.remove(0);
             }
-            // Auto-quarantine if firing too often
-            if Self::is_in_cooldown(&incident.recent_fires) {
+            if incident.recent_fire_instants.len() > 5 {
+                incident.recent_fire_instants.remove(0);
+            }
+            // Auto-quarantine if firing too often — monotonic check is NTP-safe.
+            if Self::is_in_cooldown_monotonic(&incident.recent_fire_instants) {
                 tracing::warn!(
                     target: LOG_TARGET,
                     "QUARANTINE: Pattern '{}' ({}) fired >3 times in 5min — quarantining",
@@ -339,6 +364,7 @@ impl DebugMemory {
                 success_count: 0, // Don't credit until validated
                 last_seen: now.clone(),
                 recent_fires: vec![now],
+                recent_fire_instants: vec![now_instant],
                 quarantined: false,
             });
         }
@@ -1938,6 +1964,7 @@ mod tests {
             success_count: 3,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
             recent_fires: vec![],
+            recent_fire_instants: vec![],
             quarantined: false,
         });
         let fix = memory.instant_fix(
@@ -1958,6 +1985,7 @@ mod tests {
             success_count: 1,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
             recent_fires: vec![],
+            recent_fire_instants: vec![],
             quarantined: false,
         });
         memory.incidents.push(DebugIncident {
@@ -1967,6 +1995,7 @@ mod tests {
             success_count: 5,
             last_seen: "2026-03-16T11:00:00Z".to_string(),
             recent_fires: vec![],
+            recent_fire_instants: vec![],
             quarantined: false,
         });
         let fix = memory.instant_fix(
@@ -1986,6 +2015,7 @@ mod tests {
             success_count: 2,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
             recent_fires: vec![],
+            recent_fire_instants: vec![],
             quarantined: false,
         });
         // record_fix would normally save to disk — test the in-memory logic
@@ -2011,6 +2041,7 @@ mod tests {
             success_count: 5,
             last_seen: Utc::now().to_rfc3339(),
             recent_fires: recent,
+            recent_fire_instants: vec![],
             quarantined: true,
         });
         let fix = memory.instant_fix(
@@ -2034,6 +2065,7 @@ mod tests {
             success_count: 5,
             last_seen: Utc::now().to_rfc3339(),
             recent_fires: old,
+            recent_fire_instants: vec![],
             quarantined: true,
         });
         let fix = memory.instant_fix(
@@ -2060,6 +2092,34 @@ mod tests {
     }
 
     #[test]
+    fn test_cooldown_monotonic_detection() {
+        // GAP-2: Instant-based check is NTP-safe.
+        let now = Instant::now();
+        let recent: Vec<Instant> = (0..4)
+            .map(|i| now.checked_sub(Duration::from_secs(i * 60)).unwrap_or(now))
+            .collect();
+        assert!(
+            DebugMemory::is_in_cooldown_monotonic(&recent),
+            "4 fires in 5min should trigger monotonic cooldown"
+        );
+
+        // 4 fires all >=10min old → NOT cooldown
+        let old: Vec<Instant> = (0..4)
+            .map(|i| now.checked_sub(Duration::from_secs(600 + i * 60)).unwrap_or(now))
+            .collect();
+        assert!(
+            !DebugMemory::is_in_cooldown_monotonic(&old),
+            "old fires should not trigger monotonic cooldown"
+        );
+
+        // Empty vec → NOT cooldown (common case after load-from-disk)
+        assert!(
+            !DebugMemory::is_in_cooldown_monotonic(&[]),
+            "empty instants vec should not trigger cooldown"
+        );
+    }
+
+    #[test]
     fn test_success_count_capped_at_max() {
         let mut memory = DebugMemory::default();
         memory.incidents.push(DebugIncident {
@@ -2069,6 +2129,7 @@ mod tests {
             success_count: MAX_SUCCESS_COUNT,
             last_seen: "2026-03-16T10:00:00Z".to_string(),
             recent_fires: vec![],
+            recent_fire_instants: vec![],
             quarantined: false,
         });
         let i = &mut memory.incidents[0];
