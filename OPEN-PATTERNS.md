@@ -52,6 +52,17 @@ Captured at session end; these are watch/queue items, not active investigations.
 | Blocker | Pod-local log access (SSH aliases reported broken in prior sessions — check rc-agent `:8090/exec` or rc-sentry `:8091/exec` instead) |
 | Notes | INV-1 exit-code capture is LIVE in `68f4d61e` — next F1 25 storm WILL log an exit code automatically. Wait for next storm rather than chase old logs. |
 
+### Pattern A-valve — blanking + session-summary stuck when WS is down
+| Field | Value |
+|---|---|
+| State | FIX (`a13942f2` committed, NOT DEPLOYED) |
+| Symptom | Pod 4 2026-04-19 ~18:30-21:40 IST: lock_screen_state=ActiveSession with no game alive, `ws_connected=false`, `silent_reconnect_suspected=true` for 3.2h+. Customer sees raw desktop after game end/crash; no session-summary card. |
+| Root cause | safety-net-01 tick (added in `0306fe17`) lives inside the WS-connected tokio::select! arm and stores `stuck_active_session_since` on `ConnectionState`. `ConnectionState` is dropped on every WS disconnect, so during silent-reconnect-forever the 15s stuck window can never accumulate. Comment at `event_loop.rs:1511-1512` already documented this class ("Observed on Pod 3 on 2026-04-19: stuck in ActiveSession for 3h+ while WS was down") — same mechanism now hit Pod 4. Session-summary rides the same WS signal pipeline so is also silently suppressed while WS is down. |
+| Fix applied | `a13942f2`: move `stuck_active_session_since` from `ConnectionState` to `AppState`; make `safety_net_01_decide` `pub(crate)`; add `run_safety_net_01_reconnect` + `sleep_with_safety_net` helpers in `main.rs`; replace the three `tokio::time::sleep(delay)` calls in the reconnect loop with the new helper (wakes every 5s, runs the same invariant, force-idles lock screen on fire). Pure function untouched → 8/8 existing unit tests still pass + 2 lock_screen SAFETY-NET-01 invariant tests still green. |
+| Deploy gate | Pods 2-8 via rc-sentry atomic swap (Pod 8 canary first). Pod 1 held per Pattern I DiD policy. Server unaffected. Bono VPS N/A (rc-agent is pod-only). Binary staged at `deploy-staging/rc-agent-a13942f2.exe` (26706432 bytes, sha256 `9ddf6dd44adf3687…`). |
+| Remaining gap | This is a **safety valve** — it keeps the customer-visible screen correct when WS is down. It does NOT fix the underlying WS reconnect failure (Pattern I class). Whatever left Pod 4 silent-reconnecting today is separately tracked as a Pattern I recurrence. |
+| Verification target | After deploy to Pod 4: observe `lock_screen_state` leave `active_session` within 20s even if WS remains down (force-idle path); after WS recovers, kiosk "Thank you for racing!" summary card should render on next session-end. |
+
 ### Pattern E — Pod 6 AC "Process exited unexpectedly" cluster
 
 #### Sub-pattern E.1 — today's exit-0 multi-minute events (2026-04-18) — RESOLVED
