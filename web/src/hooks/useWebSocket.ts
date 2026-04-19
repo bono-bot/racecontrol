@@ -36,14 +36,144 @@ export function useWebSocket() {
   const [pendingAuthTokens, setPendingAuthTokens] = useState<Map<string, AuthTokenInfo>>(new Map());
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagRow[]>([]);
 
-  const sendCommand = useCallback(
-    (command: string, data: Record<string, unknown>) => {
-      if (ws.current?.readyState === WebSocket.OPEN) {
-        ws.current.send(JSON.stringify({ command, data }));
+  // ─── Command ack tracking (P1 B1 structural fix) ────────────────────────
+  //
+  // Problem: sendCommand was fire-and-forget. UI showed "success" toast
+  // immediately, regardless of whether the server actually accepted the
+  // command. Silent failures (session already ended, state race, ws drop)
+  // showed green toasts while customers got overcharged / kicked / locked out.
+  //
+  // Fix: sendCommand now returns Promise<void>. Resolves when the expected
+  // state-change event arrives on the WS (using existing events as acks —
+  // no new backend protocol needed). Rejects on command_error from the
+  // server, on timeout (5s), or on disconnected WS.
+  //
+  // Expected acks per command (derived from existing DashboardEvents):
+  //   pause_billing        → billing_session_changed (status = paused_manual)
+  //   resume_billing       → billing_session_changed (status = active)
+  //   end_billing          → billing_session_changed (status ∈ {completed, cancelled, ended_early})
+  //   cancel_billing       → billing_session_changed (status ∈ {completed, cancelled, ended_early})
+  //   extend_billing       → billing_session_changed OR billing_tick with matching session id
+  //   cancel_assignment    → auth_token_cleared (matching token_id)
+  type CommandAckMatcher = (event: string, data: unknown) => boolean;
+  interface PendingCommand {
+    command: string;
+    matcher: CommandAckMatcher;
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }
+  const pendingCommandsRef = useRef<Map<string, PendingCommand>>(new Map());
+  const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
+
+  const buildMatcher = (command: string, data: Record<string, unknown>): CommandAckMatcher => {
+    const sessionId = data.session_id as string | undefined;
+    const tokenId = data.token_id as string | undefined;
+    switch (command) {
+      case "pause_billing":
+        return (ev, d) =>
+          ev === "billing_session_changed" &&
+          (d as { id?: string; status?: string })?.id === sessionId &&
+          (d as { status?: string })?.status === "paused_manual";
+      case "resume_billing":
+        return (ev, d) =>
+          ev === "billing_session_changed" &&
+          (d as { id?: string; status?: string })?.id === sessionId &&
+          (d as { status?: string })?.status === "active";
+      case "end_billing":
+      case "cancel_billing": {
+        const terminal = new Set(["completed", "cancelled", "ended_early"]);
+        return (ev, d) =>
+          ev === "billing_session_changed" &&
+          (d as { id?: string; status?: string })?.id === sessionId &&
+          terminal.has((d as { status?: string })?.status ?? "");
       }
+      case "extend_billing":
+        // Weak matcher — accepts any tick with matching session id. The spec
+        // for a strong matcher would require capturing pre-send allocated_seconds
+        // and matching on an increase. Deferred; current matcher catches the
+        // "server acknowledged the session" signal, which is what staff needs.
+        return (ev, d) =>
+          (ev === "billing_session_changed" || ev === "billing_tick") &&
+          (d as { id?: string })?.id === sessionId;
+      case "cancel_assignment":
+        return (ev, d) =>
+          ev === "auth_token_cleared" &&
+          (d as { token_id?: string })?.token_id === tokenId;
+      default:
+        // Unknown command — resolve immediately so caller is not blocked forever
+        return () => true;
+    }
+  };
+
+  const sendCommand = useCallback(
+    (command: string, data: Record<string, unknown>): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        if (ws.current?.readyState !== WebSocket.OPEN) {
+          reject(new Error("Not connected to server"));
+          return;
+        }
+        const requestId = `${command}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const matcher = buildMatcher(command, data);
+        const timeoutId = setTimeout(() => {
+          pendingCommandsRef.current.delete(requestId);
+          setPendingCommands((prev) => {
+            const next = new Set(prev);
+            next.delete(requestId);
+            return next;
+          });
+          reject(new Error(`Command timed out — no server response in 5s`));
+        }, 5000);
+        pendingCommandsRef.current.set(requestId, { command, matcher, resolve, reject, timeoutId });
+        setPendingCommands((prev) => new Set(prev).add(requestId));
+        ws.current.send(JSON.stringify({ command, data }));
+      });
     },
     []
   );
+
+  const resolvePending = useCallback((event: string, data: unknown) => {
+    const toResolve: string[] = [];
+    for (const [key, pending] of pendingCommandsRef.current.entries()) {
+      if (pending.matcher(event, data)) {
+        clearTimeout(pending.timeoutId);
+        pending.resolve();
+        toResolve.push(key);
+      }
+    }
+    if (toResolve.length > 0) {
+      for (const k of toResolve) pendingCommandsRef.current.delete(k);
+      setPendingCommands((prev) => {
+        const next = new Set(prev);
+        for (const k of toResolve) next.delete(k);
+        return next;
+      });
+    }
+  }, []);
+
+  const rejectPending = useCallback((commandName: string, error: string) => {
+    // Reject the oldest matching pending command (FIFO) for this command name.
+    let target: string | null = null;
+    for (const [key, pending] of pendingCommandsRef.current.entries()) {
+      if (pending.command === commandName) {
+        target = key;
+        break;
+      }
+    }
+    if (target) {
+      const pending = pendingCommandsRef.current.get(target);
+      if (pending) {
+        clearTimeout(pending.timeoutId);
+        pending.reject(new Error(error));
+      }
+      pendingCommandsRef.current.delete(target);
+      setPendingCommands((prev) => {
+        const next = new Set(prev);
+        next.delete(target!);
+        return next;
+      });
+    }
+  }, []);
 
   const connect = useCallback(() => {
     // SSR guard: WebSocket must only run in the browser, not during server-side rendering.
@@ -230,7 +360,20 @@ export function useWebSocket() {
             });
             break;
           }
+          case "command_error": {
+            // B1 STRUCTURAL FIX: surface server-side command rejections.
+            // Server emits DashboardEvent::CommandError from billing_session_lifecycle.rs
+            // at 9+ sites (pause/resume/end/cancel/extend/start). Previously ignored
+            // here, so every silent rejection resulted in a false green toast.
+            const d = msg.data as { command: string; pod_id?: string; error: string };
+            rejectPending(d.command, d.error);
+            break;
+          }
         }
+        // B1: resolve any pending sendCommand Promise whose matcher accepts
+        // this event as the ack. Using existing state-change events as acks
+        // avoids a new backend protocol. See buildMatcher() above.
+        resolvePending(msg.event, msg.data);
       } catch (e) {
         console.warn("[RaceControl] Parse error:", e);
       }
@@ -281,5 +424,6 @@ export function useWebSocket() {
     pendingAuthTokens,
     featureFlags,
     sendCommand,
+    pendingCommands,
   };
 }

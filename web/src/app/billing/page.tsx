@@ -1,5 +1,24 @@
 "use client";
 
+// ─── BILLING MODULE SCOPE ──────────────────────────────────────────────────
+// Billing is billing + customer registration ONLY.
+// DO NOT add links/buttons to flows that include game-launch UI.
+//
+// ALLOWED: pod occupancy, active-session cards (driver/tier/countdown/elapsed),
+//          pause/resume/end/extend/cancel controls, pending auth token +
+//          Cancel Assignment, wallet top-up, customer registration modal
+//          (walk-in form only, no game picker).
+// FORBIDDEN: game launch / game picker / "Launch Game" buttons → kiosk :3300/staff
+//            telemetry / lap times → /telemetry
+//            pod diagnostics → /fleet
+//            driver CRUD → /drivers read-only; edits → admin :3201
+//
+// Before adding any link, trace the destination FLOW end-to-end. A URL that
+// *sounds* in-scope can route staff INTO an out-of-scope flow (e.g. Setup
+// Wizard includes game picker). The scope is the flow the user experiences,
+// not the string of the URL.
+// ───────────────────────────────────────────────────────────────────────────
+
 import { useEffect, useState } from "react";
 import { AlertTriangle, Server } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -13,9 +32,12 @@ import { racingWsPodsOnly } from "@/lib/api";
 import type { Pod } from "@/lib/api";
 
 export default function BillingPage() {
-  const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand } = useWebSocket();
+  const { pods, billingTimers, billingWarnings, pendingAuthTokens, sendCommand, pendingCommands } = useWebSocket();
   const [showTopup, setShowTopup] = useState(false);
   const [initialising, setInitialising] = useState(true);
+  // Tracks per-session/per-token "in flight" so individual buttons can disable
+  // without blocking the whole page. Keys: session_id or token_id.
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   // Flip initialising to false after 200ms (P2-C: reduced from 800ms)
@@ -26,33 +48,76 @@ export default function BillingPage() {
 
   // POS is monitoring-only — billing starts from Staff Kiosk (:3300/staff)
 
-
-
-  function handleCancelToken(tokenId: string) {
-    sendCommand("cancel_assignment", { token_id: tokenId });
-    toast({ message: "Assignment cancelled", type: "success" });
-  }
-
-  function handlePauseResume(sessionId: string, isPaused: boolean) {
-    if (isPaused) {
-      sendCommand("resume_billing", { session_id: sessionId });
-    } else {
-      sendCommand("pause_billing", { session_id: sessionId });
-    }
-    toast({ message: isPaused ? "Session resumed" : "Session paused", type: "success" });
-  }
-
-  function handleEnd(sessionId: string) {
-    sendCommand("end_billing", { session_id: sessionId });
-    toast({ message: "Session ended", type: "success" });
-  }
-
-  function handleExtend(sessionId: string) {
-    sendCommand("extend_billing", {
-      session_id: sessionId,
-      additional_seconds: 600,
+  function markBusy(id: string, busy: boolean) {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
     });
-    toast({ message: "+10 minutes added", type: "success" });
+  }
+
+  // B1 STRUCTURAL FIX: handlers are async and toast based on the REAL server
+  // outcome (resolves via billing_session_changed / auth_token_cleared ack)
+  // instead of the previous optimistic fire-and-forget + unconditional success
+  // toast. Any server rejection now surfaces as an error toast with the real
+  // reason. Timeout (5s) also produces an explicit error, not false success.
+
+  async function handleCancelToken(tokenId: string) {
+    if (busyIds.has(tokenId)) return;
+    markBusy(tokenId, true);
+    try {
+      await sendCommand("cancel_assignment", { token_id: tokenId });
+      toast({ message: "Assignment cancelled", type: "success" });
+    } catch (e) {
+      toast({ message: `Cancel failed: ${(e as Error).message}`, type: "error" });
+    } finally {
+      markBusy(tokenId, false);
+    }
+  }
+
+  async function handlePauseResume(sessionId: string, isPaused: boolean) {
+    if (busyIds.has(sessionId)) return;
+    markBusy(sessionId, true);
+    try {
+      const cmd = isPaused ? "resume_billing" : "pause_billing";
+      await sendCommand(cmd, { session_id: sessionId });
+      toast({ message: isPaused ? "Session resumed" : "Session paused", type: "success" });
+    } catch (e) {
+      const verb = isPaused ? "Resume" : "Pause";
+      toast({ message: `${verb} failed: ${(e as Error).message}`, type: "error" });
+    } finally {
+      markBusy(sessionId, false);
+    }
+  }
+
+  async function handleEnd(sessionId: string) {
+    if (busyIds.has(sessionId)) return;
+    markBusy(sessionId, true);
+    try {
+      await sendCommand("end_billing", { session_id: sessionId });
+      toast({ message: "Session ended", type: "success" });
+    } catch (e) {
+      toast({ message: `End failed: ${(e as Error).message}`, type: "error" });
+    } finally {
+      markBusy(sessionId, false);
+    }
+  }
+
+  async function handleExtend(sessionId: string) {
+    if (busyIds.has(sessionId)) return;
+    markBusy(sessionId, true);
+    try {
+      await sendCommand("extend_billing", {
+        session_id: sessionId,
+        additional_seconds: 600,
+      });
+      toast({ message: "+10 minutes added", type: "success" });
+    } catch (e) {
+      toast({ message: `Extend failed: ${(e as Error).message}`, type: "error" });
+    } finally {
+      markBusy(sessionId, false);
+    }
   }
 
   const sortedPods = racingWsPodsOnly([...pods]).sort((a, b) => a.number - b.number);
