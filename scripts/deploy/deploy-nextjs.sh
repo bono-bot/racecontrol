@@ -122,20 +122,26 @@ ENDJSON
 }
 
 # --- Helper: start node on server ---
+# .ps1-file pattern (same reason as stop_node_on_port + Backup/Extract step):
+# inline multi-line PowerShell over SSH silently no-ops under triple-escape,
+# leaving Start-Process never executed and no new node spawned.
 start_node_on_server() {
-  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -Command \"
-    \\\$env:PORT = '$PORT'
-    \\\$env:HOSTNAME = '0.0.0.0'
-    \\\$env:RC_URL = '$RC_URL'
-    \\\$env:RC_JWT_SECRET = '$RC_JWT_SECRET'
-    Start-Process -FilePath 'C:\\Program Files\\nodejs\\node.exe' \`
-      -ArgumentList 'server.js' \`
-      -WorkingDirectory '$REMOTE_DIR' \`
-      -WindowStyle Hidden \`
-      -RedirectStandardOutput 'C:\\RacingPoint\\$APP-stdout.log' \`
-      -RedirectStandardError 'C:\\RacingPoint\\$APP-stderr.log'
-    Write-Output 'Node started on port $PORT'
-  \""
+  local START_PS1_SCP="C:/RacingPoint/.deploy-start.ps1"
+  local START_PS1_PS='C:\RacingPoint\.deploy-start.ps1'
+  local TMP_PS1
+  TMP_PS1=$(mktemp /tmp/start-XXXXXX.ps1)
+  cat > "$TMP_PS1" <<PSEOF
+\$ErrorActionPreference = 'Stop'
+\$env:PORT = '$PORT'
+\$env:HOSTNAME = '0.0.0.0'
+\$env:RC_URL = '$RC_URL'
+\$env:RC_JWT_SECRET = '$RC_JWT_SECRET'
+\$proc = Start-Process -FilePath 'C:\Program Files\nodejs\node.exe' -ArgumentList 'server.js' -WorkingDirectory '$REMOTE_DIR' -WindowStyle Hidden -RedirectStandardOutput 'C:\RacingPoint\\$APP-stdout.log' -RedirectStandardError 'C:\RacingPoint\\$APP-stderr.log' -PassThru
+Write-Output ('Node started PID=' + \$proc.Id + ' on port $PORT')
+PSEOF
+  scp -q -o StrictHostKeyChecking=no "$TMP_PS1" "$SERVER:$START_PS1_SCP"
+  rm -f "$TMP_PS1"
+  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File \"$START_PS1_PS\""
 }
 
 # --- Helper: stop node on target port ---
@@ -348,36 +354,45 @@ scp -o StrictHostKeyChecking=no "$ZIP_PATH" "$SERVER:C:/RacingPoint/$ZIP_NAME"
 echo "  Stopping existing node on port $PORT..."
 stop_node_on_port
 
-# Create backup of current app, extract new, start
-echo "  Backup + Extract + Start on server..."
-ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -Command \"
-  \\\$ErrorActionPreference = 'Stop'
+# Create backup of current app, extract new — same .ps1-file pattern as
+# stop_node_on_port. Inline multi-line PowerShell over SSH silently no-ops
+# under triple-escape; .ps1 file works reliably (one quoting layer).
+echo "  Backup + Extract on server..."
+TMP_EXTRACT_PS1=$(mktemp /tmp/extract-XXXXXX.ps1)
+EXTRACT_PS1_SCP="C:/RacingPoint/.deploy-extract.ps1"
+EXTRACT_PS1_PS='C:\RacingPoint\.deploy-extract.ps1'
+REMOTE_DIR_PS="${REMOTE_DIR//\\/\\\\}"
+cat > "$TMP_EXTRACT_PS1" <<PSEOF
+\$ErrorActionPreference = 'Stop'
+\$remoteDir = '$REMOTE_DIR'
+\$zipPath = 'C:\RacingPoint\\$ZIP_NAME'
+\$backupZip = 'C:\RacingPoint\\$APP-backup.zip'
 
-  # Backup current app directory if it exists
-  if (Test-Path '$REMOTE_DIR') {
-    Write-Output 'Creating backup...'
-    if (Test-Path 'C:\\RacingPoint\\$APP-backup.zip') {
-      Remove-Item 'C:\\RacingPoint\\$APP-backup.zip' -Force
-    }
-    Compress-Archive -Path '$REMOTE_DIR\\*' -DestinationPath 'C:\\RacingPoint\\$APP-backup.zip' -Force
-    Write-Output 'Backup created: $APP-backup.zip'
-  }
+if (Test-Path \$remoteDir) {
+  Write-Output 'Creating backup...'
+  if (Test-Path \$backupZip) { Remove-Item \$backupZip -Force }
+  Compress-Archive -Path (Join-Path \$remoteDir '*') -DestinationPath \$backupZip -Force
+  Write-Output ("Backup created: " + \$backupZip)
+}
 
-  # Remove old app directory
-  if (Test-Path '$REMOTE_DIR') {
-    Remove-Item -Recurse -Force '$REMOTE_DIR'
-  }
+if (Test-Path \$remoteDir) {
+  Write-Output 'Removing old app dir...'
+  Remove-Item -Recurse -Force \$remoteDir
+}
 
-  # Extract new
-  Write-Output 'Extracting new deploy...'
-  Expand-Archive -Path 'C:\\RacingPoint\\$ZIP_NAME' -DestinationPath '$REMOTE_DIR' -Force
-  Remove-Item 'C:\\RacingPoint\\$ZIP_NAME'
+Write-Output 'Extracting new deploy...'
+Expand-Archive -Path \$zipPath -DestinationPath \$remoteDir -Force
+Remove-Item \$zipPath
 
-  # Verify files exist
-  if (-not (Test-Path '$REMOTE_DIR\\server.js')) { throw 'server.js MISSING after extract' }
-  if (-not (Test-Path '$REMOTE_DIR\\.next\\static')) { throw '.next/static MISSING after extract' }
-  Write-Output 'Extract verified: server.js + .next/static present'
-\""
+\$serverJs = Join-Path \$remoteDir 'server.js'
+\$staticDir = Join-Path \$remoteDir '.next\\static'
+if (-not (Test-Path \$serverJs)) { throw ('server.js MISSING at ' + \$serverJs) }
+if (-not (Test-Path \$staticDir)) { throw ('.next/static MISSING at ' + \$staticDir) }
+Write-Output 'Extract verified: server.js + .next/static present'
+PSEOF
+scp -q -o StrictHostKeyChecking=no "$TMP_EXTRACT_PS1" "$SERVER:$EXTRACT_PS1_SCP"
+rm -f "$TMP_EXTRACT_PS1"
+ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File \"$EXTRACT_PS1_PS\""
 
 # Start node
 echo "  Starting node..."
