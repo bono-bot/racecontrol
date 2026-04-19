@@ -1893,6 +1893,11 @@ async fn main() -> Result<()> {
         // also needs a clone as its axum State.
         #[cfg(feature = "http-client")]
         mesh_key_cache: mesh_key_cache.clone(),
+        // SAFETY-NET-01 (2026-04-19): stuck-ActiveSession timer survives WS
+        // reconnects now that the field lives on AppState (was previously on
+        // ConnectionState and was reset on every reconnect, which is why
+        // Pod 4 stayed stuck for 3h+ while WS was silent-reconnecting).
+        stuck_active_session_since: None,
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────
@@ -2162,7 +2167,7 @@ async fn main() -> Result<()> {
                         tracing::info!(target: LOG_TARGET, "ws-grace: Disconnected {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
                 }
-                tokio::time::sleep(delay).await;
+                sleep_with_safety_net(&mut state, delay).await;
                 reconnect_attempt += 1;
                 continue;
             }
@@ -2181,7 +2186,7 @@ async fn main() -> Result<()> {
                         tracing::info!(target: LOG_TARGET, "ws-grace: Timed out {}s — within 30s grace window, suppressing Disconnected screen", disconnected_for.as_secs());
                     }
                 }
-                tokio::time::sleep(delay).await;
+                sleep_with_safety_net(&mut state, delay).await;
                 reconnect_attempt += 1;
                 continue;
             }
@@ -2202,7 +2207,7 @@ async fn main() -> Result<()> {
         if ws_tx.send(Message::Text(json.into())).await.is_err() {
             let delay = reconnect_delay_for_attempt(reconnect_attempt);
             tracing::warn!(target: LOG_TARGET, "Failed to register with core. Attempt {}. Reconnecting in {:?}...", reconnect_attempt, delay);
-            tokio::time::sleep(delay).await;
+            sleep_with_safety_net(&mut state, delay).await;
             reconnect_attempt += 1;
             continue;
         }
@@ -2440,6 +2445,72 @@ fn reconnect_delay_for_attempt(attempt: u32) -> Duration {
         (hasher.finish() % (base.as_millis() as u64 / 4).max(1)) as u64
     };
     base + Duration::from_millis(jitter_ms)
+}
+
+/// SAFETY-NET-01 reconnect-loop tick (2026-04-19).
+///
+/// Runs the same stuck-ActiveSession invariant check as the in-WS event-loop
+/// arm, but during the reconnect-loop backoff sleep — the window where the
+/// event-loop tick is NOT running. Pod 4 (2026-04-19) was stuck in
+/// `ActiveSession` for 3h+ while WS silent-reconnected; the in-WS tick never
+/// fired because `ConnectionState` was dropped on disconnect. With
+/// `stuck_active_session_since` now on `AppState`, both call sites share the
+/// timer.
+///
+/// WS-down path hard-codes `crash_recovery_pause=false`: the
+/// `CrashRecoveryState::PausedWaitingRelaunch` timer lives in `ConnectionState`
+/// and is dropped on disconnect, so by the time the invariant has been broken
+/// long enough to fire, there is no in-flight intentional relaunch to
+/// preserve.
+fn run_safety_net_01_reconnect(state: &mut AppState) {
+    let game_alive = state
+        .game_process
+        .as_mut()
+        .map(|g| g.is_running())
+        .unwrap_or(false);
+    let is_active_session = {
+        let guard = state.lock_screen.state_handle();
+        let s = guard.lock().unwrap_or_else(|e| e.into_inner());
+        matches!(*s, crate::lock_screen::LockScreenState::ActiveSession { .. })
+    };
+    let (should_force_idle, new_first_seen) = event_loop::safety_net_01_decide(
+        is_active_session,
+        game_alive,
+        false,
+        state.stuck_active_session_since,
+        std::time::Instant::now(),
+        Duration::from_secs(15),
+    );
+    state.stuck_active_session_since = new_first_seen;
+    if should_force_idle {
+        tracing::warn!(
+            target: LOG_TARGET,
+            "SAFETY-NET-01 (reconnect-loop): state=ActiveSession but no game running \
+             during WS-down — forcing idle state to prevent desktop exposure"
+        );
+        state.lock_screen.show_idle_state();
+    }
+}
+
+/// Sleep for `delay`, running SAFETY-NET-01 every 5s while we wait.
+///
+/// Replaces bare `tokio::time::sleep(delay).await` in the reconnect loop so
+/// that long WS-down backoffs don't leave the lock screen stuck in
+/// ActiveSession past the 15s threshold.
+async fn sleep_with_safety_net(state: &mut AppState, delay: Duration) {
+    let start = tokio::time::Instant::now();
+    let end = start + delay;
+    let check_every = Duration::from_secs(5);
+    let mut elapsed = Duration::from_secs(0);
+    while elapsed + check_every < delay {
+        tokio::time::sleep(check_every).await;
+        run_safety_net_01_reconnect(state);
+        elapsed = tokio::time::Instant::now().saturating_duration_since(start);
+    }
+    let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+    if !remaining.is_zero() {
+        tokio::time::sleep(remaining).await;
+    }
 }
 
 fn local_ip() -> String {

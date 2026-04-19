@@ -65,7 +65,7 @@ fn compute_clean_exit_heuristic(exit_code: Option<i32>, seconds_since_launch: u6
 /// with controlled inputs (no AppState, no tokio, no real clock).
 ///
 /// Returns `(should_force_idle, updated_first_seen)`. The caller:
-/// - MUST assign `updated_first_seen` back to `conn.stuck_active_session_since`
+/// - MUST assign `updated_first_seen` back to `state.stuck_active_session_since`
 ///   (may be `None` to reset or `Some(t)` to mark/keep the stuck window open),
 /// - MUST call `state.lock_screen.show_idle_state()` iff `should_force_idle`.
 ///
@@ -75,7 +75,7 @@ fn compute_clean_exit_heuristic(exit_code: Option<i32>, seconds_since_launch: u6
 /// - Otherwise open a stuck-window timestamp if one didn't exist, and fire
 ///   once the window has been open for `threshold` continuously; on fire,
 ///   reset the timestamp so we don't re-fire on the very next tick.
-fn safety_net_01_decide(
+pub(crate) fn safety_net_01_decide(
     is_active_session: bool,
     game_alive: bool,
     crash_recovery_pause: bool,
@@ -256,13 +256,6 @@ pub(crate) struct ConnectionState {
     /// 06:46 UTC 2026-04-17) and pod_6 (Pattern E, AC 12:36 UTC 2026-04-17) where each
     /// crash resets `attempt=1` and the loop never breaks.
     pub(crate) recent_crash_history: Vec<std::time::Instant>,
-    /// SAFETY-NET-01: timestamp when we first observed `state=ActiveSession` with
-    /// no game process alive and no crash-recovery pause. After 15 seconds of this
-    /// inconsistency we force the lock screen back to the idle state to prevent
-    /// the customer from seeing the raw Windows desktop. Reset to `None` as soon
-    /// as the condition clears (game comes back alive, state leaves ActiveSession,
-    /// or crash-recovery window opens).
-    pub(crate) stuck_active_session_since: Option<std::time::Instant>,
 }
 
 impl ConnectionState {
@@ -321,7 +314,6 @@ impl ConnectionState {
             last_adapter_connect_error: None,
             launch_epoch: 0,
             recent_crash_history: Vec::new(),
-            stuck_active_session_since: None,
         }
     }
 }
@@ -1529,11 +1521,11 @@ pub async fn run(
                     is_active_session,
                     game_alive,
                     crash_recovery_pause,
-                    conn.stuck_active_session_since,
+                    state.stuck_active_session_since,
                     std::time::Instant::now(),
                     Duration::from_secs(15),
                 );
-                conn.stuck_active_session_since = new_first_seen;
+                state.stuck_active_session_since = new_first_seen;
                 if should_force_idle {
                     tracing::warn!(
                         target: LOG_TARGET,

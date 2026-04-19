@@ -138,6 +138,16 @@ pub struct AppState {
     /// `RCAGENT_SERVICE_KEY` env var (test + first-boot compatibility).
     #[cfg(feature = "http-client")]
     pub(crate) mesh_key_cache: crate::mesh_key_cache::MeshKeyCache,
+    /// SAFETY-NET-01 (2026-04-19): timestamp when we first observed
+    /// `state=ActiveSession` with no game process alive and no crash-recovery
+    /// pause. Moved from `ConnectionState` to `AppState` so the stuck-detection
+    /// timer survives WS disconnects. Pod 4 observed 2026-04-19: stuck in
+    /// ActiveSession for 3h+ while WS was silent-reconnecting. The original
+    /// in-WS tick never fired because `ConnectionState` is dropped on
+    /// disconnect and the counter was reset on every reconnect. With this
+    /// field on AppState, both the in-WS tick AND the reconnect-loop tick
+    /// share state.
+    pub(crate) stuck_active_session_since: Option<std::time::Instant>,
 }
 
 impl AppState {
