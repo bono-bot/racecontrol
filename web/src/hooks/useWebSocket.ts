@@ -67,7 +67,11 @@ export function useWebSocket() {
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
 
   const buildMatcher = (command: string, data: Record<string, unknown>): CommandAckMatcher => {
-    const sessionId = data.session_id as string | undefined;
+    // Read canonical field per DashboardCommand schema in rc-common/src/protocol.rs:
+    //   PauseBilling/ResumeBilling/EndBilling/CancelBilling/ExtendBilling → billing_session_id
+    //   CancelAssignment → token_id
+    // Accept session_id as legacy fallback so callers that haven't migrated yet still work.
+    const sessionId = (data.billing_session_id ?? data.session_id) as string | undefined;
     const tokenId = data.token_id as string | undefined;
     switch (command) {
       case "pause_billing":

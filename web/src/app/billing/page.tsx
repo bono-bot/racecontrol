@@ -81,7 +81,11 @@ export default function BillingPage() {
     markBusy(sessionId, true);
     try {
       const cmd = isPaused ? "resume_billing" : "pause_billing";
-      await sendCommand(cmd, { session_id: sessionId });
+      // Field name MUST be billing_session_id per DashboardCommand schema
+      // (rc-common/src/protocol.rs:1649-1664). Sending "session_id" caused
+      // silent parse failure at the WS handler for months — fake success
+      // toasts while server never received the command.
+      await sendCommand(cmd, { billing_session_id: sessionId });
       toast({ message: isPaused ? "Session resumed" : "Session paused", type: "success" });
     } catch (e) {
       const verb = isPaused ? "Resume" : "Pause";
@@ -95,7 +99,7 @@ export default function BillingPage() {
     if (busyIds.has(sessionId)) return;
     markBusy(sessionId, true);
     try {
-      await sendCommand("end_billing", { session_id: sessionId });
+      await sendCommand("end_billing", { billing_session_id: sessionId });
       toast({ message: "Session ended", type: "success" });
     } catch (e) {
       toast({ message: `End failed: ${(e as Error).message}`, type: "error" });
@@ -109,7 +113,7 @@ export default function BillingPage() {
     markBusy(sessionId, true);
     try {
       await sendCommand("extend_billing", {
-        session_id: sessionId,
+        billing_session_id: sessionId,
         additional_seconds: 600,
       });
       toast({ message: "+10 minutes added", type: "success" });
