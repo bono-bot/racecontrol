@@ -101,12 +101,28 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     // Subscribe to broadcast events
     let mut rx = state.dashboard_tx.subscribe();
 
+    // SCALE-04 (2026-04-20): shared last_pong timestamp so recv_task Pong
+    // handler can actually reset the send_task pong-timeout. Previously
+    // `last_pong` was a local Instant in send_task, captured at connection
+    // time and never updated — every dashboard client was force-dropped
+    // after 60s (3rd ping tick) regardless of liveness. Root cause of the
+    // observed dashboard_ws_churn=14/min unhealthy at idle (14 clients
+    // cycling once per minute). AtomicU64 of seconds-since-UNIX_EPOCH is
+    // lock-free and sufficient for 45s threshold checks.
+    let last_pong_unix = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    ));
+    let last_pong_for_send = last_pong_unix.clone();
+    let last_pong_for_recv = last_pong_unix.clone();
+
     // Forward broadcast events to this dashboard client (filter non-physical pods)
     // WS-HARDEN: ping every 20s, timeout after 45s no pong, slow client drop after 5s send
     let mut send_task = tokio::spawn(async move {
         // Phase 254: Debounce RecordBroken broadcasts — max 1 per second per (track, sim_type)
         let mut record_debounce: HashMap<(String, String), Instant> = HashMap::new();
-        let last_pong = Instant::now();
         let mut ping_interval = tokio::time::interval(Duration::from_secs(20));
         ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         ping_interval.tick().await; // consume first immediate tick
@@ -114,8 +130,13 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
         loop {
         tokio::select! {
         _ = ping_interval.tick() => {
-            // WS-HARDEN: Check pong timeout (45s)
-            if last_pong.elapsed() > Duration::from_secs(45) {
+            // WS-HARDEN: Check pong timeout (45s) — now uses SHARED last_pong updated by recv_task
+            let last_pong_secs = last_pong_for_send.load(std::sync::atomic::Ordering::Relaxed);
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(last_pong_secs);
+            if now_secs.saturating_sub(last_pong_secs) > 45 {
                 tracing::warn!("Dashboard WS client pong timeout (45s) — dropping");
                 break;
             }
@@ -191,9 +212,18 @@ pub async fn handle_dashboard(socket: WebSocket, state: Arc<AppState>) {
     let mut recv_task = tokio::spawn(async move {
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
-            // WS-HARDEN: Pong received — reset pong timeout in send_task
-            // Note: browser auto-responds to server Ping with Pong, so this fires naturally
-            Message::Pong(_) => continue,
+            // WS-HARDEN: Pong received — reset pong timeout in send_task via shared AtomicU64.
+            // Note: browser auto-responds to server Ping with Pong, so this fires naturally.
+            // SCALE-04 (2026-04-20): actually updates last_pong_unix now; previously this
+            // was a no-op comment and every dashboard client was force-dropped every 60s.
+            Message::Pong(_) => {
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                last_pong_for_recv.store(now_secs, std::sync::atomic::Ordering::Relaxed);
+                continue;
+            }
             Message::Text(text) => {
                 // WS-HARDEN: message size limit (1MB) to prevent DoS
                 if text.len() > 1_048_576 {
