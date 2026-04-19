@@ -129,12 +129,34 @@ start_node_on_server() {
 }
 
 # --- Helper: stop node on target port ---
+# Uses forward lookup (port -> PID via Get-NetTCPConnection -LocalPort) which is
+# more reliable than the reverse lookup (process -> ports) that silently returned
+# empty in prior deploys, leaving the old process alive while the script
+# reported SUCCESS. Fails hard if port is still bound after stop attempts so
+# the deploy cannot silently replay the same bug.
 stop_node_on_port() {
   ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -Command \"
-    Get-Process node -ErrorAction SilentlyContinue | Where-Object {
-      try { (Get-NetTCPConnection -OwningProcess \\\$_.Id -ErrorAction SilentlyContinue).LocalPort -contains $PORT } catch { \\\$false }
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep 2
+    \\\$ErrorActionPreference = 'Stop'
+    \\\$listening = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
+    if (\\\$listening) {
+      \\\$pids = \\\$listening | Select-Object -ExpandProperty OwningProcess -Unique
+      foreach (\\\$pid in \\\$pids) {
+        Write-Output \\\"Killing PID \\\$pid bound to :$PORT\\\"
+        & taskkill.exe /F /PID \\\$pid 2>\\\$null | Out-Null
+      }
+    } else {
+      Write-Output ':$PORT was already free'
+    }
+    # Verify port is actually free — poll up to 10s
+    for (\\\$i = 0; \\\$i -lt 10; \\\$i++) {
+      Start-Sleep 1
+      \\\$still = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
+      if (-not \\\$still) { Write-Output 'Port $PORT confirmed free'; break }
+    }
+    \\\$still = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
+    if (\\\$still) {
+      throw \\\"Port $PORT still bound after 10s (PIDs: \\\$(\\\$still.OwningProcess -join ','))\\\"
+    }
     Write-Output 'Stopped node on port $PORT'
   \""
 }
@@ -150,6 +172,28 @@ check_health() {
     web)   BASE_PATH="" ;;
   esac
   HEALTH_RESPONSE=$(curl -s --max-time 10 "http://192.168.31.23:$PORT${BASE_PATH}/api/health" 2>/dev/null || echo "")
+}
+
+# --- Helper: assert live git_commit matches expected (prevents silent-stale-success) ---
+# Returns 0 when the /api/health response contains the expected commit, non-zero
+# otherwise. Caller prints the response and fails the deploy. Added after a deploy
+# reported SUCCESS while the old node process (holding file handles) survived
+# stop_node_on_port and the extract wrote new files only to unlocked paths.
+assert_git_commit_matches() {
+  local EXPECTED="$1"
+  # Extract "git_commit":"abc1234" from HEALTH_RESPONSE
+  local LIVE
+  LIVE=$(echo "$HEALTH_RESPONSE" | grep -oE '"git_commit":"[^"]+"' | head -1 | sed 's/"git_commit":"//; s/"$//')
+  if [ -z "$LIVE" ]; then
+    echo "  WARNING: no git_commit field in /api/health response — cannot verify freshness"
+    return 1
+  fi
+  if [ "$LIVE" != "$EXPECTED" ]; then
+    echo "  STALE DEPLOY: live git_commit=$LIVE, expected=$EXPECTED"
+    return 2
+  fi
+  echo "  git_commit match: $LIVE"
+  return 0
 }
 
 # =========================================================================
@@ -326,6 +370,11 @@ sleep 5
 # =========================================================================
 echo "[6/9] Health verification..."
 
+# Capture expected commit hash BEFORE health loop — this is the HEAD the deploy
+# built from. The live /api/health response must report the same hash or the
+# deploy is stale (old process still bound to the port).
+EXPECTED_COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo "")
+
 HEALTH_OK=false
 for ATTEMPT in 1 2 3; do
   echo "  Health check attempt $ATTEMPT/3..."
@@ -339,10 +388,31 @@ for ATTEMPT in 1 2 3; do
 
   echo "  Response: $HEALTH_RESPONSE"
 
-  # Check for success: "status":"ok" AND "healthy":true
+  # Check for success: "status":"ok" AND "healthy":true AND fresh commit
+  STATUS_OK=false
   if echo "$HEALTH_RESPONSE" | grep -q '"status":"ok"' && echo "$HEALTH_RESPONSE" | grep -q '"healthy":true'; then
+    STATUS_OK=true
+  fi
+  COMMIT_OK=false
+  if [ -n "$EXPECTED_COMMIT" ]; then
+    if assert_git_commit_matches "$EXPECTED_COMMIT"; then
+      COMMIT_OK=true
+    fi
+  else
+    # No git context — skip the freshness gate but warn
+    echo "  WARNING: no HEAD hash available, skipping git_commit freshness gate"
+    COMMIT_OK=true
+  fi
+  if $STATUS_OK && $COMMIT_OK; then
     HEALTH_OK=true
     DEPLOY_RESULT="success"
+    break
+  fi
+  # Status ok but stale: old process survived stop step. Don't retry, fail loudly.
+  if $STATUS_OK && ! $COMMIT_OK; then
+    echo "  STALE PROCESS DETECTED: /api/health responded but git_commit does not match build HEAD"
+    DEPLOY_RESULT="stale"
+    ERROR="stale process: health ok but git_commit mismatch"
     break
   fi
 
