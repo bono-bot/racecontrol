@@ -57,6 +57,47 @@ fn compute_clean_exit_heuristic(exit_code: Option<i32>, seconds_since_launch: u6
     true
 }
 
+/// SAFETY-NET-01 pure decision function.
+///
+/// Deciders whether the watchdog should force the lock-screen back to idle this
+/// tick, and computes the updated `stuck_active_session_since` timestamp to
+/// carry forward. Extracted from the event_loop tick so it can be unit-tested
+/// with controlled inputs (no AppState, no tokio, no real clock).
+///
+/// Returns `(should_force_idle, updated_first_seen)`. The caller:
+/// - MUST assign `updated_first_seen` back to `conn.stuck_active_session_since`
+///   (may be `None` to reset or `Some(t)` to mark/keep the stuck window open),
+/// - MUST call `state.lock_screen.show_idle_state()` iff `should_force_idle`.
+///
+/// Semantics:
+/// - If the invariant is not broken (not in ActiveSession, or game is alive, or
+///   crash-recovery is intentionally paused), reset and return (false, None).
+/// - Otherwise open a stuck-window timestamp if one didn't exist, and fire
+///   once the window has been open for `threshold` continuously; on fire,
+///   reset the timestamp so we don't re-fire on the very next tick.
+fn safety_net_01_decide(
+    is_active_session: bool,
+    game_alive: bool,
+    crash_recovery_pause: bool,
+    current_first_seen: Option<std::time::Instant>,
+    now: std::time::Instant,
+    threshold: Duration,
+) -> (bool, Option<std::time::Instant>) {
+    // Invariant OK — reset any open window.
+    if !is_active_session || game_alive || crash_recovery_pause {
+        return (false, None);
+    }
+    // Invariant broken — open or keep window.
+    let first_seen = current_first_seen.unwrap_or(now);
+    let elapsed = now.saturating_duration_since(first_seen);
+    if elapsed >= threshold {
+        // Fire this tick + reset so we don't immediately re-fire.
+        (true, None)
+    } else {
+        (false, Some(first_seen))
+    }
+}
+
 /// Type alias for the WebSocket receive half.
 pub type WsRx = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<
@@ -1484,23 +1525,22 @@ pub async fn run(
                     let s = guard.lock().unwrap_or_else(|e| e.into_inner());
                     matches!(*s, LockScreenState::ActiveSession { .. })
                 };
-                if is_active_session && !game_alive && !crash_recovery_pause {
-                    let first_seen = *conn.stuck_active_session_since
-                        .get_or_insert_with(std::time::Instant::now);
-                    let elapsed = first_seen.elapsed();
-                    if elapsed >= Duration::from_secs(15) {
-                        tracing::warn!(
-                            target: LOG_TARGET,
-                            elapsed_secs = elapsed.as_secs(),
-                            "SAFETY-NET-01: state=ActiveSession but no game running \
-                             for {}s — forcing idle state to prevent desktop exposure",
-                            elapsed.as_secs()
-                        );
-                        state.lock_screen.show_idle_state();
-                        conn.stuck_active_session_since = None;
-                    }
-                } else {
-                    conn.stuck_active_session_since = None;
+                let (should_force_idle, new_first_seen) = safety_net_01_decide(
+                    is_active_session,
+                    game_alive,
+                    crash_recovery_pause,
+                    conn.stuck_active_session_since,
+                    std::time::Instant::now(),
+                    Duration::from_secs(15),
+                );
+                conn.stuck_active_session_since = new_first_seen;
+                if should_force_idle {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "SAFETY-NET-01: state=ActiveSession but no game running — \
+                         forcing idle state to prevent desktop exposure"
+                    );
+                    state.lock_screen.show_idle_state();
                 }
             }
 
@@ -2690,6 +2730,92 @@ pub(crate) fn execute_ai_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── SAFETY-NET-01: safety_net_01_decide unit tests ─────────────────────
+    // These tests lock the decision logic of the watchdog that prevents the
+    // customer from seeing the raw Windows desktop when rc-agent is stuck
+    // in ActiveSession with no game process running.
+
+    fn t0() -> std::time::Instant {
+        std::time::Instant::now()
+    }
+
+    #[test]
+    fn safety_net_01_invariant_ok_not_active_session_resets() {
+        let now = t0();
+        let prev = Some(now - Duration::from_secs(60));
+        let (fire, next) = safety_net_01_decide(false, false, false, prev, now, Duration::from_secs(15));
+        assert!(!fire, "no fire when state is not ActiveSession");
+        assert!(next.is_none(), "stuck window must reset when invariant is OK");
+    }
+
+    #[test]
+    fn safety_net_01_invariant_ok_game_alive_resets() {
+        let now = t0();
+        let prev = Some(now - Duration::from_secs(60));
+        let (fire, next) = safety_net_01_decide(true, true, false, prev, now, Duration::from_secs(15));
+        assert!(!fire, "no fire when game is alive even in ActiveSession");
+        assert!(next.is_none(), "stuck window must reset when game is alive");
+    }
+
+    #[test]
+    fn safety_net_01_invariant_ok_crash_recovery_pause_resets() {
+        let now = t0();
+        let prev = Some(now - Duration::from_secs(60));
+        let (fire, next) = safety_net_01_decide(true, false, true, prev, now, Duration::from_secs(15));
+        assert!(!fire, "no fire during intentional PausedWaitingRelaunch window");
+        assert!(next.is_none(), "stuck window must reset during intentional pause");
+    }
+
+    #[test]
+    fn safety_net_01_first_tick_opens_window() {
+        let now = t0();
+        let (fire, next) = safety_net_01_decide(true, false, false, None, now, Duration::from_secs(15));
+        assert!(!fire, "first tick must NOT fire — gives system a grace window");
+        assert_eq!(next, Some(now), "first tick must open the window at `now`");
+    }
+
+    #[test]
+    fn safety_net_01_below_threshold_keeps_window() {
+        let now = t0();
+        let first = now - Duration::from_secs(10);
+        let (fire, next) = safety_net_01_decide(true, false, false, Some(first), now, Duration::from_secs(15));
+        assert!(!fire, "10s elapsed < 15s threshold — must not fire yet");
+        assert_eq!(next, Some(first), "window timestamp must be carried forward untouched");
+    }
+
+    #[test]
+    fn safety_net_01_at_threshold_fires() {
+        let now = t0();
+        let first = now - Duration::from_secs(15);
+        let (fire, next) = safety_net_01_decide(true, false, false, Some(first), now, Duration::from_secs(15));
+        assert!(fire, "elapsed >= threshold must fire the watchdog");
+        assert!(next.is_none(), "firing must reset the window so we don't re-fire next tick");
+    }
+
+    #[test]
+    fn safety_net_01_well_past_threshold_fires() {
+        let now = t0();
+        let first = now - Duration::from_secs(3 * 3600); // 3 hours — Pod 3's observed duration
+        let (fire, next) = safety_net_01_decide(true, false, false, Some(first), now, Duration::from_secs(15));
+        assert!(fire, "3h stuck state (Pod 3 real case) must fire");
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn safety_net_01_post_fire_new_tick_reopens_window() {
+        // Simulate sequence: invariant still broken after a fire. Watchdog must
+        // re-open a fresh window (so if the situation persists after idle_state
+        // was called but didn't take effect, we'll fire again ~15s later).
+        let now = t0();
+        let (fire_first, next_first) = safety_net_01_decide(true, false, false, None, now, Duration::from_secs(15));
+        assert!(!fire_first);
+        assert_eq!(next_first, Some(now));
+        // 16s later, still stuck
+        let later = now + Duration::from_secs(16);
+        let (fire_second, _) = safety_net_01_decide(true, false, false, next_first, later, Duration::from_secs(15));
+        assert!(fire_second, "second evaluation after threshold must fire");
+    }
 
     /// HARD-04: Verify that only F125 is classified as a UDP adapter requiring
     /// Running-state gating. Other sim types (shared memory) must NOT be gated.
