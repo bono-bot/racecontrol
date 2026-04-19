@@ -59,13 +59,40 @@ if (fs.existsSync(publicSrc)) {
 // those dirs contain stray .git/ scaffolding (no commits) from shadcn/Next
 // scaffolds that hijacks git resolution and fails with "Needed a single revision".
 const REPO_ROOT = path.resolve(__dirname, '..');
+
+/**
+ * Write a value to a file, then read back to verify. Retries on mismatch.
+ * Hard-fails after 3 attempts — post-deploy freshness gates depend on this.
+ *
+ * Why: empirically, a prior write to standalone/public/git-commit.txt during
+ * the full `npm run build` pipeline silently reverted to a stale value,
+ * causing deploy freshness-gate rollbacks. Root cause unidentified (possibly
+ * Next.js internal static-copy phase racing with postbuild). This read-back
+ * loop makes the write observably correct or fails LOUD.
+ */
+function writeVerified(filePath, value) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    fs.writeFileSync(filePath, value);
+    const readback = fs.readFileSync(filePath, 'utf8');
+    if (readback === value) {
+      if (attempt > 1) {
+        console.warn(`postbuild: write to ${filePath} succeeded on retry ${attempt}`);
+      }
+      return;
+    }
+    console.warn(`postbuild: WARN attempt ${attempt}: wrote ${JSON.stringify(value)}, read back ${JSON.stringify(readback)} — retrying`);
+  }
+  console.error(`postbuild: FATAL: ${filePath} readback mismatch after 3 attempts — freshness gate will fail`);
+  process.exit(2);
+}
+
 try {
   const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: REPO_ROOT }).trim();
-  fs.writeFileSync(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
   const standalonePublic = path.join(standaloneDir, 'public');
   fs.mkdirSync(standalonePublic, { recursive: true });
-  fs.writeFileSync(path.join(standalonePublic, 'git-commit.txt'), gitCommit);
-  console.log(`postbuild: wrote git-commit.txt (${gitCommit}) to standalone/ and standalone/public/`);
+  writeVerified(path.join(standaloneDir, 'git-commit.txt'), gitCommit);
+  writeVerified(path.join(standalonePublic, 'git-commit.txt'), gitCommit);
+  console.log(`postbuild: wrote git-commit.txt (${gitCommit}) to standalone/ and standalone/public/ (readback-verified)`);
 } catch (e) {
   console.warn('postbuild: could not determine git commit:', e.message);
 }
