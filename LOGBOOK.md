@@ -1628,3 +1628,5 @@ T+33 min after defense-in-depth deploy (07:29 IST venue+fleet to `66fec05c`). No
 
 
 | 2026-04-19 12:58 IST | James | 29167f78 | fix(alerting): crash-detection never fired — wrong event_type literal (crash vs crashed) + Pattern H clean-exit filter. Alerting went from silently-dead to functional fleet-wide. |
+| 2026-04-19 13:09 IST | James | 990ff01d | feat(rc-agent): Pattern I part 2 — /file range-read (offset/max_bytes/tail params, 50MB per-response cap, unblocks >50MB jsonl diagnosis). |
+| 2026-04-19 13:09 IST | James | d71948e3 | feat(fleet-health): Pattern I part 3 — silent_reconnect_suspected flag on PodFleetStatus (derived http_reachable && !ws_connected). |
