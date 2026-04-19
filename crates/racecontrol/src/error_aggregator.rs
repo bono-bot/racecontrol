@@ -134,7 +134,7 @@ async fn check_game_crashes(state: &Arc<AppState>) -> anyhow::Result<Option<Stri
     // Same pod crashing 3+ times in the last hour
     let pod_crashes = sqlx::query_as::<_, (String, i64)>(
         "SELECT pod_id, COUNT(*) as cnt FROM game_launch_events \
-         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > datetime('now', '-1 hour') \
+         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') \
          GROUP BY pod_id HAVING cnt >= 3",
     )
     .fetch_all(db)
@@ -143,7 +143,7 @@ async fn check_game_crashes(state: &Arc<AppState>) -> anyhow::Result<Option<Stri
     // Same sim crashing across multiple pods
     let sim_crashes = sqlx::query_as::<_, (String, i64)>(
         "SELECT sim_type, COUNT(DISTINCT pod_id) as pod_count FROM game_launch_events \
-         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > datetime('now', '-1 hour') \
+         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') \
          GROUP BY sim_type HAVING pod_count >= 2",
     )
     .fetch_all(db)
@@ -152,7 +152,7 @@ async fn check_game_crashes(state: &Arc<AppState>) -> anyhow::Result<Option<Stri
     // Overall crash rate spike
     let total_crashes: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM game_launch_events \
-         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > datetime('now', '-1 hour')",
+         WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')",
     )
     .fetch_one(db)
     .await
@@ -167,7 +167,7 @@ async fn check_game_crashes(state: &Arc<AppState>) -> anyhow::Result<Option<Stri
     for (pod_id, count) in &pod_crashes {
         let errors = sqlx::query_as::<_, (String, Option<String>)>(
             "SELECT sim_type, error_message FROM game_launch_events \
-             WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND pod_id = ? AND created_at > datetime('now', '-1 hour') \
+             WHERE event_type = 'crashed' AND clean_exit_heuristic = 0 AND pod_id = ? AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') \
              ORDER BY created_at DESC LIMIT 3",
         )
         .bind(pod_id)
