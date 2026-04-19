@@ -1591,3 +1591,38 @@ venue-deploy consent. User wrote structural-rule feedback files mid-session cove
 all 5 classes.
 
 | 2026-04-19 07:59 IST | James | 021cbaf4 | feat(pattern-h): wire clean_exit_heuristic end-to-end (surfaces 2-5) — rc-agent emission + server ingestion + API filter. Surface 4 no-op (venue-local table). 47 game_launcher tests pass. NOT DEPLOYED. |
+
+## 2026-04-19 08:02 IST — Pattern I CLOSED (30-min soak PASS)
+
+T+33 min after defense-in-depth deploy (07:29 IST venue+fleet to `66fec05c`). No drift.
+
+- **BEHAVIOR:** Pods 1+6 (original silent-reconnect-forever offenders) still `ws_connected=true`
+  33 minutes after rc-agent swap. Full fleet 9/9 WS. Server status `ok`. The idle-window
+  false-positive that tripped the 90s liveness guard and the half-open TCP case that sent
+  no Ping during quiet periods — both now handled by `09acbbe4` (WS Ping on heartbeat tick,
+  refreshes `last_server_frame_at` via server's auto-Pong) + `90b04d71` (server doesn't
+  serialize fleet broadcasts behind a single stalled WS send anymore).
+- **RAW OUTPUT:** `/api/v1/health` → `build: 66fec05c | status: ok`. `/api/v1/fleet/health`
+  → `WS OUT: (none) | WS IN: 9/9` with Pods 1-8 `build=66fec05c ws=True` and POS `build=e7e01ae3 ws=True`.
+- **WHERE:** Probed from James .27 → venue .23 via LAN. Probe is against the same endpoint
+  the original incident was detected on.
+- **NOT TESTED:** (1) Full customer flow (book → launch → race → end) under the new code —
+  deferred until next customer session; (2) POS (.130) not swapped this wave — still on
+  `e7e01ae3`, WS stayed up through the whole incident so Pattern I isn't affecting it;
+  (3) `/debug/ws-state` endpoint (Part 1 `92e699f4`) not deployed — observability add is
+  deferred to next rc-agent deploy as planned.
+
+### Files
+
+- `OPEN-PATTERNS.md` — Pattern I state changed from `DEPLOYED + 30-min soak PENDING` to
+  `CLOSED — 30-min soak PASS 2026-04-19 08:02 IST`. Header `Updated:` line refreshed to
+  current fleet (HEAD `7375fd9c`, fleet `66fec05c` 9/9).
+
+### Follow-ups (NOT blocking Pattern I closure)
+
+- `deploy-server.sh` SWAPLOG append regex — architectural fix still queued.
+- `ARCHITECTURE.md` §5 Pattern I + WS Ping + clone-before-await documentation.
+- Part 2 of Pattern I (raise `/file` 50 MB cap) + Part 3 (surface `ws_state.consecutive_failures > N`
+  in `fleet/health`) — both deferred per the Pattern I row; small follow-up commits.
+
+
