@@ -39,6 +39,16 @@ PAGES_AFTER=0
 MISSING_PAGES=""
 ERROR=""
 
+# Resolve script dir + expected git_commit BEFORE any `cd` later in the script
+# changes cwd. Computing this lazily inside [6/9] failed because relative
+# ${BASH_SOURCE[0]} no longer resolves after `cd "$SRC"` in [1/9].
+SCRIPT_DIR_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXPECTED_COMMIT=$(git -C "$SCRIPT_DIR_DEPLOY" rev-parse --short HEAD 2>/dev/null || echo "")
+if [ -z "$EXPECTED_COMMIT" ]; then
+  echo "FATAL: could not resolve EXPECTED_COMMIT from $SCRIPT_DIR_DEPLOY — refusing deploy without a freshness gate"
+  exit 4
+fi
+
 # --- App config ---
 case "$APP" in
   admin)
@@ -137,7 +147,9 @@ start_node_on_server() {
 # version: multi-line escapes in -Command are eaten somewhere in the chain and
 # the script silently no-ops. Single .ps1 file = one quoting layer = reliable.
 stop_node_on_port() {
-  local STOP_PS1="C:/RacingPoint/.deploy-stop-port.ps1"
+  # SCP target uses forward-slash (OpenSSH); PowerShell -File needs backslash.
+  local STOP_PS1_SCP="C:/RacingPoint/.deploy-stop-port.ps1"
+  local STOP_PS1_PS='C:\RacingPoint\.deploy-stop-port.ps1'
   # Write the script locally, SCP it, run it via SSH. No inline escapes.
   local TMP_PS1
   TMP_PS1=$(mktemp /tmp/stop-port-XXXXXX.ps1)
@@ -166,9 +178,9 @@ if (\$still) {
 }
 Write-Output ("Stopped node on port " + \$port)
 PSEOF
-  scp -q -o StrictHostKeyChecking=no "$TMP_PS1" "$SERVER:$STOP_PS1"
+  scp -q -o StrictHostKeyChecking=no "$TMP_PS1" "$SERVER:$STOP_PS1_SCP"
   rm -f "$TMP_PS1"
-  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File '$STOP_PS1'"
+  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File \"$STOP_PS1_PS\""
 }
 
 # --- Helper: check health endpoint, sets HEALTH_RESPONSE ---
@@ -210,7 +222,6 @@ assert_git_commit_matches() {
 # [1/9] Pre-build env var audit + Build
 # =========================================================================
 echo "[1/9] Pre-build env var audit..."
-SCRIPT_DIR_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR_DEPLOY/check-frontend-env.sh" "$SRC"
 echo "  Env var audit passed."
 echo ""
@@ -380,22 +391,6 @@ sleep 5
 # =========================================================================
 echo "[6/9] Health verification..."
 
-# Capture expected commit hash BEFORE health loop — this is the HEAD the deploy
-# built from. The live /api/health response must report the same hash or the
-# deploy is stale (old process still bound to the port).
-# Some app SRC dirs (kiosk/) contain a stray empty .git scaffold from a
-# shadcn/Next template — `git -C $SRC rev-parse` fails on that scaffold even
-# though the parent racecontrol repo has commits. Walk to the actual repo root
-# via the script's own location instead.
-SCRIPT_DIR_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EXPECTED_COMMIT=$(git -C "$SCRIPT_DIR_DEPLOY" rev-parse --short HEAD 2>/dev/null || echo "")
-if [ -z "$EXPECTED_COMMIT" ]; then
-  echo "FATAL: could not resolve EXPECTED_COMMIT from $SCRIPT_DIR_DEPLOY — refusing deploy without a freshness gate"
-  DEPLOY_RESULT="failed"
-  ERROR="no expected commit hash"
-  log_deploy "failed" "no expected commit hash"
-  exit 4
-fi
 echo "  Expected git_commit: $EXPECTED_COMMIT"
 
 HEALTH_OK=false
