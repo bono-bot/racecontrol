@@ -954,6 +954,24 @@ fn build_prompt(sim_type: &SimType, error_context: &str, snapshot: &PodStateSnap
 /// Attempt a deterministic auto-fix based on the AI suggestion text.
 /// Only safe, idempotent operations are attempted. Returns None if no known fix matched.
 pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<AutoFixResult> {
+    // GAP-8 Option 8α — acquire process-wide coordination lock before any
+    // destructive action. If System B (tier_engine) is mid-fix on the same
+    // pod, skip this dispatch with a WARN rather than racing.
+    // Tests bypass the coordinator via `#[cfg(test)]` stubs on the individual
+    // fix_* functions; acquiring in tests is safe but not required.
+    #[cfg(not(test))]
+    let _coord_guard = match crate::fix_coordinator::global().try_acquire("system_a") {
+        Some(g) => g,
+        None => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                suggestion = %suggestion,
+                "FIX-COORD: System A skipping fix — System B holds the coordinator lock"
+            );
+            return None;
+        }
+    };
+
     let lower = suggestion.to_lowercase();
 
     // Pattern 1: CLOSE_WAIT / zombie socket — kill stale TCP connections

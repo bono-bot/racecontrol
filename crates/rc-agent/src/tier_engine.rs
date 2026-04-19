@@ -1972,6 +1972,23 @@ async fn tier1_deterministic(
     event: &DiagnosticEvent,
     ws_msg_tx: &mpsc::Sender<rc_common::protocol::AgentMessage>,
 ) -> TierResult {
+    // GAP-8 Option 8α — acquire process-wide coordination lock before Tier 1
+    // destructive actions. If System A (ai_debugger::try_auto_fix) is mid-fix,
+    // skip this tick and let the next 5s poll pick up the anomaly — System A
+    // may have already resolved it, or will have released by then.
+    #[cfg(not(test))]
+    let _coord_guard = match crate::fix_coordinator::global().try_acquire("system_b") {
+        Some(g) => g,
+        None => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                trigger = ?event.trigger,
+                "FIX-COORD: Tier 1 deferring — System A holds the coordinator lock"
+            );
+            return TierResult::NotApplicable { tier: 1 };
+        }
+    };
+
     let trigger = event.trigger.clone();
     let billing_active = event.pod_state.billing_active;
     // Phase 368: pass launch_id (from event, or None) and ws_msg_tx clone into spawn_blocking.

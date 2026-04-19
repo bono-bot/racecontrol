@@ -22,6 +22,7 @@ mod dxgi_capture;
 mod failure_monitor;
 mod ffb_controller;
 mod firewall;
+mod fix_coordinator;
 mod game_doctor;
 mod game_launch_retry;
 mod game_process;
