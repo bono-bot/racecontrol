@@ -132,33 +132,43 @@ start_node_on_server() {
 # Uses forward lookup (port -> PID via Get-NetTCPConnection -LocalPort) which is
 # more reliable than the reverse lookup (process -> ports) that silently returned
 # empty in prior deploys, leaving the old process alive while the script
-# reported SUCCESS. Fails hard if port is still bound after stop attempts so
-# the deploy cannot silently replay the same bug.
+# reported SUCCESS. Calls a remote .ps1 file (not an inline -Command string) to
+# avoid the bash/SSH/PowerShell triple-quoting fragility that broke the inline
+# version: multi-line escapes in -Command are eaten somewhere in the chain and
+# the script silently no-ops. Single .ps1 file = one quoting layer = reliable.
 stop_node_on_port() {
-  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -Command \"
-    \\\$ErrorActionPreference = 'Stop'
-    \\\$listening = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
-    if (\\\$listening) {
-      \\\$pids = \\\$listening | Select-Object -ExpandProperty OwningProcess -Unique
-      foreach (\\\$pid in \\\$pids) {
-        Write-Output \\\"Killing PID \\\$pid bound to :$PORT\\\"
-        & taskkill.exe /F /PID \\\$pid 2>\\\$null | Out-Null
-      }
-    } else {
-      Write-Output ':$PORT was already free'
-    }
-    # Verify port is actually free — poll up to 10s
-    for (\\\$i = 0; \\\$i -lt 10; \\\$i++) {
-      Start-Sleep 1
-      \\\$still = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
-      if (-not \\\$still) { Write-Output 'Port $PORT confirmed free'; break }
-    }
-    \\\$still = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
-    if (\\\$still) {
-      throw \\\"Port $PORT still bound after 10s (PIDs: \\\$(\\\$still.OwningProcess -join ','))\\\"
-    }
-    Write-Output 'Stopped node on port $PORT'
-  \""
+  local STOP_PS1="C:/RacingPoint/.deploy-stop-port.ps1"
+  # Write the script locally, SCP it, run it via SSH. No inline escapes.
+  local TMP_PS1
+  TMP_PS1=$(mktemp /tmp/stop-port-XXXXXX.ps1)
+  cat > "$TMP_PS1" <<PSEOF
+\$ErrorActionPreference = 'Stop'
+\$port = $PORT
+Write-Output ("stop_node_on_port: probing port " + \$port)
+\$listening = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue
+if (\$listening) {
+  \$pids = \$listening | Select-Object -ExpandProperty OwningProcess -Unique
+  foreach (\$p in \$pids) {
+    Write-Output ("Killing PID " + \$p + " bound to :" + \$port)
+    & taskkill.exe /F /PID \$p 2>\$null | Out-Null
+  }
+} else {
+  Write-Output (":" + \$port + " was already free")
+}
+for (\$i = 0; \$i -lt 10; \$i++) {
+  Start-Sleep -Seconds 1
+  \$still = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue
+  if (-not \$still) { Write-Output ("Port " + \$port + " confirmed free after " + \$i + "s"); break }
+}
+\$still = Get-NetTCPConnection -LocalPort \$port -State Listen -ErrorAction SilentlyContinue
+if (\$still) {
+  throw ("Port " + \$port + " still bound after 10s (PIDs: " + (\$still.OwningProcess -join ',') + ")")
+}
+Write-Output ("Stopped node on port " + \$port)
+PSEOF
+  scp -q -o StrictHostKeyChecking=no "$TMP_PS1" "$SERVER:$STOP_PS1"
+  rm -f "$TMP_PS1"
+  ssh -o StrictHostKeyChecking=no "$SERVER" "powershell -NoProfile -ExecutionPolicy Bypass -File '$STOP_PS1'"
 }
 
 # --- Helper: check health endpoint, sets HEALTH_RESPONSE ---
@@ -373,7 +383,20 @@ echo "[6/9] Health verification..."
 # Capture expected commit hash BEFORE health loop — this is the HEAD the deploy
 # built from. The live /api/health response must report the same hash or the
 # deploy is stale (old process still bound to the port).
-EXPECTED_COMMIT=$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo "")
+# Some app SRC dirs (kiosk/) contain a stray empty .git scaffold from a
+# shadcn/Next template — `git -C $SRC rev-parse` fails on that scaffold even
+# though the parent racecontrol repo has commits. Walk to the actual repo root
+# via the script's own location instead.
+SCRIPT_DIR_DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXPECTED_COMMIT=$(git -C "$SCRIPT_DIR_DEPLOY" rev-parse --short HEAD 2>/dev/null || echo "")
+if [ -z "$EXPECTED_COMMIT" ]; then
+  echo "FATAL: could not resolve EXPECTED_COMMIT from $SCRIPT_DIR_DEPLOY — refusing deploy without a freshness gate"
+  DEPLOY_RESULT="failed"
+  ERROR="no expected commit hash"
+  log_deploy "failed" "no expected commit hash"
+  exit 4
+fi
+echo "  Expected git_commit: $EXPECTED_COMMIT"
 
 HEALTH_OK=false
 for ATTEMPT in 1 2 3; do
@@ -394,13 +417,8 @@ for ATTEMPT in 1 2 3; do
     STATUS_OK=true
   fi
   COMMIT_OK=false
-  if [ -n "$EXPECTED_COMMIT" ]; then
-    if assert_git_commit_matches "$EXPECTED_COMMIT"; then
-      COMMIT_OK=true
-    fi
-  else
-    # No git context — skip the freshness gate but warn
-    echo "  WARNING: no HEAD hash available, skipping git_commit freshness gate"
+  # EXPECTED_COMMIT was hard-asserted non-empty above — no skip path.
+  if assert_git_commit_matches "$EXPECTED_COMMIT"; then
     COMMIT_OK=true
   fi
   if $STATUS_OK && $COMMIT_OK; then
