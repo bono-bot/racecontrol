@@ -120,10 +120,15 @@ const BORDER_MAP: Record<ToastType, string> = {
   info: "border-rp-border",
 };
 
+// B4 fix: errors + warnings persist until staff click ×.
+// Success + info still auto-clear so the stack doesn't accumulate chatter.
+// Why sticky: operators were missing billing error toasts that vanished
+// before they could act (10s pre-compact note; actual values were 4-6s —
+// short enough that a glance away hid the problem either way).
 const DEFAULT_DURATION: Record<ToastType, number> = {
   success: 4000,
-  error: 6000,
-  warning: 4000,
+  error: 0,
+  warning: 0,
   info: 4000,
 };
 
@@ -137,6 +142,7 @@ function ToastCard({
   onDismiss: (id: string) => void;
 }) {
   useEffect(() => {
+    if (item.duration <= 0) return;
     const timer = setTimeout(() => onDismiss(item.id), item.duration);
     return () => clearTimeout(timer);
   }, [item.id, item.duration, onDismiss]);
