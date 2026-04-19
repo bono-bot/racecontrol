@@ -148,19 +148,6 @@ pub struct AppState {
     /// field on AppState, both the in-WS tick AND the reconnect-loop tick
     /// share state.
     pub(crate) stuck_active_session_since: Option<std::time::Instant>,
-    /// SAFETY-NET-02 (2026-04-20): timestamp when rc-agent entered
-    /// `LockScreenState::SessionSummary`. The old mechanism armed a 30s
-    /// `tokio::time::Sleep` on `ConnectionState.blank_timer`; if the WS
-    /// reconnected inside that 30s window the timer was dropped and the
-    /// native SessionSummary window stayed visible forever (customer-reported
-    /// symptom: "blanking does not re-apply after session ends"). Moving the
-    /// threshold check to AppState + running it under the same WS-independent
-    /// safety-net infrastructure makes the SessionSummary → ScreenBlanked
-    /// transition resilient to WS flaps. Set to `Some(Instant::now())` by
-    /// `ws_handler::SessionEnded`; lazily initialised by the tick if it finds
-    /// lock_screen in SessionSummary with no timestamp (defence in depth for
-    /// state changes made via remote_ops or debug tooling).
-    pub(crate) session_summary_since: Option<std::time::Instant>,
 }
 
 impl AppState {

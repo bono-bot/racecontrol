@@ -98,45 +98,6 @@ pub(crate) fn safety_net_01_decide(
     }
 }
 
-/// SAFETY-NET-02 pure decision function (2026-04-20, James).
-///
-/// Governs the SessionSummary → ScreenBlanked transition. Replaces the old
-/// `conn.blank_timer` mechanism which armed a 30s `tokio::time::Sleep` on
-/// `ConnectionState`; when WS flapped inside that 30s window the timer was
-/// dropped and the native SessionSummary window stayed visible forever.
-///
-/// With this tick-based check the state lives on `AppState.session_summary_since`
-/// and survives WS reconnects.
-///
-/// Returns `(should_force_blank, updated_first_seen)`. Caller:
-/// - MUST assign `updated_first_seen` back to `state.session_summary_since`,
-/// - MUST call `state.lock_screen.show_blank_screen()` iff `should_force_blank`.
-///
-/// Semantics:
-/// - If we are NOT in SessionSummary, or billing is active (the customer is
-///   still on the pod), reset the window and return (false, None).
-/// - Otherwise open the window lazily (so remote_ops-triggered state changes
-///   also get covered), fire once the threshold has elapsed continuously, and
-///   reset the timestamp so we don't re-fire every tick.
-pub(crate) fn safety_net_02_decide(
-    is_session_summary: bool,
-    billing_active: bool,
-    current_first_seen: Option<std::time::Instant>,
-    now: std::time::Instant,
-    threshold: Duration,
-) -> (bool, Option<std::time::Instant>) {
-    if !is_session_summary || billing_active {
-        return (false, None);
-    }
-    let first_seen = current_first_seen.unwrap_or(now);
-    let elapsed = now.saturating_duration_since(first_seen);
-    if elapsed >= threshold {
-        (true, None)
-    } else {
-        (false, Some(first_seen))
-    }
-}
-
 /// Type alias for the WebSocket receive half.
 pub type WsRx = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<
@@ -209,6 +170,8 @@ pub(crate) struct ConnectionState {
     pub(crate) hw_telemetry_interval: tokio::time::Interval,
     pub(crate) idle_health_interval: tokio::time::Interval,
     pub(crate) idle_health_fail_count: u32,
+    pub(crate) blank_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+    pub(crate) blank_timer_armed: bool,
     pub(crate) crash_recovery: CrashRecoveryState,
     pub(crate) launch_state: LaunchState,
     pub(crate) last_launch_args_stored: Option<String>,
@@ -311,6 +274,8 @@ impl ConnectionState {
             hw_telemetry_interval: tokio::time::interval(Duration::from_secs(60)),
             idle_health_interval: tokio::time::interval(Duration::from_secs(60)),
             idle_health_fail_count: 0,
+            blank_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
+            blank_timer_armed: false,
             crash_recovery: CrashRecoveryState::Idle,
             launch_state: LaunchState::Idle,
             last_launch_args_stored: None,
@@ -1569,41 +1534,6 @@ pub async fn run(
                     );
                     state.lock_screen.show_idle_state();
                 }
-
-                // ─── SAFETY-NET-02 (2026-04-20): SessionSummary → blank ──
-                // Replaces the old `conn.blank_timer` mechanism which was on
-                // ConnectionState and lost on WS reconnect. After a session
-                // ends, lock_screen enters SessionSummary; we stay there for
-                // 30s to show stats, then force a blank. Runs alongside
-                // SAFETY-NET-01 under the same 2s game_check_interval.
-                let is_session_summary = {
-                    let guard = state.lock_screen.state_handle();
-                    let s = guard.lock().unwrap_or_else(|e| e.into_inner());
-                    matches!(*s, LockScreenState::SessionSummary { .. })
-                };
-                let billing_active_now = state
-                    .heartbeat_status
-                    .billing_active
-                    .load(std::sync::atomic::Ordering::Relaxed);
-                let (should_force_blank, new_summary_seen) = safety_net_02_decide(
-                    is_session_summary,
-                    billing_active_now,
-                    state.session_summary_since,
-                    std::time::Instant::now(),
-                    Duration::from_secs(30),
-                );
-                state.session_summary_since = new_summary_seen;
-                if should_force_blank {
-                    tracing::info!(
-                        target: LOG_TARGET,
-                        "SAFETY-NET-02: SessionSummary held 30s — blanking screen (SESSION-02 replacement)"
-                    );
-                    state.lock_screen.show_blank_screen();
-                    ffb_controller::safe_session_end(&state.ffb).await;
-                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
-                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-                }
             }
 
             // ─── GAME-08: ProcessMonitor — poll every 5s for non-AC game crash detection ───
@@ -2241,6 +2171,20 @@ pub async fn run(
                 }
             }
 
+            _ = &mut conn.blank_timer, if conn.blank_timer_armed => {
+                conn.blank_timer_armed = false;
+                if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::info!(target: LOG_TARGET, "Skipping idle PinEntry reset — billing is active");
+                } else {
+                    tracing::info!(target: LOG_TARGET, "Blanking screen after session summary (SESSION-02)");
+                    state.lock_screen.show_blank_screen();
+                    ffb_controller::safe_session_end(&state.ffb).await;
+                    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
+                    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+                    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
+                }
+            }
+
             // ─── Safe Mode: cooldown expiry timer (SAFE-03) ─────────────────
             _ = &mut state.safe_mode_cooldown_timer, if state.safe_mode_cooldown_armed => {
                 // RECOVER-07: Do not deactivate safe mode while crash recovery is in progress.
@@ -2863,88 +2807,6 @@ mod tests {
         let later = now + Duration::from_secs(16);
         let (fire_second, _) = safety_net_01_decide(true, false, false, next_first, later, Duration::from_secs(15));
         assert!(fire_second, "second evaluation after threshold must fire");
-    }
-
-    // ─── SAFETY-NET-02: safety_net_02_decide unit tests (2026-04-20) ────────
-    // Governs SessionSummary → ScreenBlanked transition. Same shape as
-    // SAFETY-NET-01 but different invariant: only fires when lock_screen is
-    // in SessionSummary AND billing is NOT active, after `threshold` has
-    // elapsed continuously.
-
-    #[test]
-    fn safety_net_02_invariant_ok_not_session_summary_resets() {
-        let now = t0();
-        let prev = Some(now - Duration::from_secs(60));
-        let (fire, next) = safety_net_02_decide(false, false, prev, now, Duration::from_secs(30));
-        assert!(!fire, "no fire when state is not SessionSummary");
-        assert!(next.is_none(), "window must reset when invariant is OK");
-    }
-
-    #[test]
-    fn safety_net_02_invariant_ok_billing_active_resets() {
-        let now = t0();
-        let prev = Some(now - Duration::from_secs(60));
-        let (fire, next) = safety_net_02_decide(true, true, prev, now, Duration::from_secs(30));
-        assert!(!fire, "no fire when billing is active (new session started)");
-        assert!(next.is_none(), "window must reset when billing resumes");
-    }
-
-    #[test]
-    fn safety_net_02_first_tick_opens_window() {
-        let now = t0();
-        let (fire, next) = safety_net_02_decide(true, false, None, now, Duration::from_secs(30));
-        assert!(!fire, "first tick must NOT fire — summary deserves the full view window");
-        assert_eq!(next, Some(now), "first tick must open the window at `now`");
-    }
-
-    #[test]
-    fn safety_net_02_below_threshold_keeps_window() {
-        let now = t0();
-        let first = now - Duration::from_secs(20);
-        let (fire, next) = safety_net_02_decide(true, false, Some(first), now, Duration::from_secs(30));
-        assert!(!fire, "20s elapsed < 30s threshold — must not fire yet");
-        assert_eq!(next, Some(first), "window timestamp must carry forward untouched");
-    }
-
-    #[test]
-    fn safety_net_02_at_threshold_fires() {
-        let now = t0();
-        let first = now - Duration::from_secs(30);
-        let (fire, next) = safety_net_02_decide(true, false, Some(first), now, Duration::from_secs(30));
-        assert!(fire, "elapsed >= threshold must fire the blank transition");
-        assert!(next.is_none(), "firing must reset the window so we don't re-fire next tick");
-    }
-
-    #[test]
-    fn safety_net_02_well_past_threshold_fires() {
-        let now = t0();
-        let first = now - Duration::from_secs(3 * 3600);
-        let (fire, next) = safety_net_02_decide(true, false, Some(first), now, Duration::from_secs(30));
-        assert!(fire, "3h stuck SessionSummary must fire");
-        assert!(next.is_none());
-    }
-
-    #[test]
-    fn safety_net_02_post_fire_new_tick_reopens_window() {
-        let now = t0();
-        let (fire_first, next_first) = safety_net_02_decide(true, false, None, now, Duration::from_secs(30));
-        assert!(!fire_first);
-        assert_eq!(next_first, Some(now));
-        let later = now + Duration::from_secs(31);
-        let (fire_second, _) = safety_net_02_decide(true, false, next_first, later, Duration::from_secs(30));
-        assert!(fire_second, "second evaluation after threshold must fire");
-    }
-
-    #[test]
-    fn safety_net_02_billing_active_never_fires_even_at_threshold() {
-        // Defence-in-depth: even if somehow lock_screen is in SessionSummary
-        // AND the window has been open for long enough AND billing is active,
-        // we must NOT blank (customer is driving).
-        let now = t0();
-        let first = now - Duration::from_secs(120);
-        let (fire, next) = safety_net_02_decide(true, true, Some(first), now, Duration::from_secs(30));
-        assert!(!fire, "billing_active trumps threshold");
-        assert!(next.is_none());
     }
 
     /// HARD-04: Verify that only F125 is classified as a UDP adapter requiring
