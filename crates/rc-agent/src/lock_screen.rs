@@ -1266,6 +1266,50 @@ mod tests {
         );
     }
 
+    // SAFETY-NET-01: show_idle_state called from ActiveSession MUST transition to ScreenBlanked.
+    // This is the core invariant the event_loop watchdog relies on: when it detects
+    // state=ActiveSession with no game alive, it calls show_idle_state() — that MUST
+    // land in a customer-safe state (blank screen or PIN pad), never leave ActiveSession.
+    #[test]
+    fn safety_net_active_session_to_idle_reaches_blanked() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager::new(tx);
+        manager.set_browser_disabled(true);
+        // Enter ActiveSession as if a customer launched a game
+        manager.show_active_session("Test Driver".to_string(), 1800, 1800);
+        {
+            let s = manager.state.lock().unwrap();
+            assert!(matches!(*s, LockScreenState::ActiveSession { .. }),
+                "precondition: expected ActiveSession, got {:?}", *s);
+        }
+        // SAFETY-NET-01: watchdog fires show_idle_state() when invariant breaks
+        manager.show_idle_state();
+        let s = manager.state.lock().unwrap();
+        assert!(
+            matches!(*s, LockScreenState::ScreenBlanked),
+            "SAFETY-NET-01 invariant: show_idle_state from ActiveSession must reach ScreenBlanked (customer_self_service_mode=false), got {:?}",
+            *s
+        );
+    }
+
+    // SAFETY-NET-01 variant: customer_self_service_mode=true routes to PinEntry, not ScreenBlanked.
+    // Either way the customer cannot see the desktop.
+    #[test]
+    fn safety_net_active_session_to_idle_reaches_pin_when_self_service() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let mut manager = LockScreenManager::new(tx);
+        manager.set_browser_disabled(true);
+        manager.set_customer_self_service_mode(true);
+        manager.show_active_session("Test Driver".to_string(), 1800, 1800);
+        manager.show_idle_state();
+        let s = manager.state.lock().unwrap();
+        assert!(
+            matches!(*s, LockScreenState::PinEntry { .. }),
+            "SAFETY-NET-01 invariant: show_idle_state with self-service on must reach PinEntry, got {:?}",
+            *s
+        );
+    }
+
     #[test]
     fn idle_state_pin_entry_when_self_service_enabled() {
         // Opt-in config (customer_self_service_mode = true) → PIN pad
