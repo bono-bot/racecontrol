@@ -2260,6 +2260,33 @@ Plans:
 - [x] 414-05-PLAN.md — Wave 5 kiosk paused-meter UI + IdleWarningDialog + 3 surface label fixes (Tasks 1+2 complete `a4654235`+`29508f64`; Task 3 venue checkpoint awaiting)
 - [ ] 414-06-PLAN.md — Wave 6 MMA audit + venue financial E2E + deploy parity (server .23 + Bono VPS + 3 frontends) + LOGBOOK
 
+### Phase 415: VMS-Style Lobby UX for Multiplayer
+
+**Status:** RESERVED 2026-04-19 as deferred follow-on to Phase 373 AC multiplayer (Option B per `session_handoff_20260419_ac_mp_canary_plan.md`). Do NOT start until Phase 373 canary green on Pods 7+8 proves the underlying MP mechanic.
+
+**Goal:** Add VMS-style drop-in lobby UX to the kiosk so a no-show doesn't stall the whole group at `all_validated`. Today's MP flow (Phase 373) requires unanimous consent: host pre-commits group → invitees validate PIN at their pod → ALL must validate → acServer boots. The 4 existing rows in `group_sessions` all sit at `all_validated` waiting for someone who never came.
+
+**Requirements:**
+- BE: `GroupSessionStatus::WaitingRoom` + majority-vote launch policy (≥50% joined OR host-override). Refund no-shows automatically via wallet credit.
+- BE: `lobby_countdown_started_at` + `lobby_countdown_secs` on `group_sessions`. Staff or host can extend.
+- BE: Join-timer broadcast over dashboard WS so the lobby UI sees live join count.
+- FE: Kiosk "Waiting for players..." screen with live join count + countdown + players-in / players-out chips.
+- FE: Drop-in lobby browser — anyone at a kiosk can see OPEN sessions and join (optional, privacy-scoped).
+- FE: Host-override button visible only to the booking driver.
+- TESTS: majority-vote launch at 3/5 joined, countdown refund path for no-shows, host-override path, simultaneous-join race.
+
+**Depends on:** Phase 373 Commit 1+2+3 shipped + canary green. Blocks on real-world MP adoption signals (if MP demand < 1 group/week, deprioritize).
+
+**Open risks (resolve in plan-phase):**
+1. Refund atomicity — no-show refund must not double-credit if the no-show later validates during countdown.
+2. Abuse vector — drop-in lobby could let someone grief another booking unless PIN-scoped.
+3. Kiosk state machine today assumes single-driver flow — need WaitingRoom + Lobby states.
+4. Host-override race with natural majority-reached.
+
+**Not scoped here:** AI-driver fillers for under-filled groups (handled in Phase 373 exec plan via AssettoServer `fixed` AI mode); cross-venue lobbies (not until multi-venue Phase 440+).
+
+**Why reserved as 415 and not 374:** Phase 374 is taken (PWA Self-Service Launch, P1 in main sequence). 413 / 413.1 / 414 are post-v52 phases already in flight. 415 is the first genuinely free slot in the main numbering.
+
 ---
 
 ## v50.0 — rc-agent-mobile (Reception Automation Hub) — Phases 429–444
