@@ -3663,6 +3663,12 @@ async fn test_billing_rates_update_invalidates_cache() {
     );
 }
 
+// TODO: structurally obsolete since 29dd79a8 — compute_session_cost ignores the
+// tiers parameter (underscore-prefixed `_tiers`) and uses hardcoded snap-to-package
+// constants. The "soft-deleting a tier excludes it from cost" behavior no longer
+// exists; tier cache exists for display/API compat only. Re-enable or replace if
+// the pricing model reverts to tier-driven computation.
+#[ignore]
 #[tokio::test]
 async fn test_billing_rates_delete_excludes_from_cost() {
     use racecontrol_crate::billing;
@@ -3874,6 +3880,9 @@ async fn test_financial_e2e_tiered_pricing_integer_math() {
     use racecontrol_crate::billing::compute_session_cost;
     use racecontrol_crate::billing::BillingRateTier;
 
+    // NOTE: tiers are passed but IGNORED by compute_session_cost since 29dd79a8
+    // (snap-to-package pricing uses hardcoded pkg_30=70000, pkg_60=90000).
+    // Kept here for API compat; values below reflect snap-to-package math.
     let tiers = vec![
         BillingRateTier {
             tier_order: 1, tier_name: "Standard".into(),
@@ -3889,17 +3898,18 @@ async fn test_financial_e2e_tiered_pricing_integer_math() {
         },
     ];
 
-    // 30 min = 30 * 2500 = 75000
+    // 30 min snaps to pkg_30 = 70000 (branch: minutes >= 30, extra=0, cost=pkg_30)
     let cost_30 = compute_session_cost(30 * 60, &tiers);
-    assert_eq!(cost_30.total_paise, 75000, "30 min standard tier");
+    assert_eq!(cost_30.total_paise, 70000, "30 min snaps to pkg_30 (70000)");
 
-    // 45 min = 30 * 2500 + 15 * 2000 = 75000 + 30000 = 105000
+    // 45 min: cost = pkg_30 + 15 * (pkg_30/30) = 70000 + 15*2333 = 104995,
+    // but cost.min(pkg_60) caps at 90000 — customer gets best deal.
     let cost_45 = compute_session_cost(45 * 60, &tiers);
-    assert_eq!(cost_45.total_paise, 105000, "45 min crosses into extended tier");
+    assert_eq!(cost_45.total_paise, 90000, "45 min overflow beyond pkg_30 caps at pkg_60 (90000)");
 
-    // 90 min = 30 * 2500 + 30 * 2000 + 30 * 1500 = 75000 + 60000 + 45000 = 180000
+    // 90 min: cost = pkg_60 + 30 * (pkg_60/60) = 90000 + 30*1500 = 135000
     let cost_90 = compute_session_cost(90 * 60, &tiers);
-    assert_eq!(cost_90.total_paise, 180000, "90 min uses all three tiers");
+    assert_eq!(cost_90.total_paise, 135000, "90 min = pkg_60 + 30 × overflow_rate (1500/min)");
 }
 
 /// GAP-6.8: Wallet double-debit prevention (idempotency)
