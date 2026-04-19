@@ -228,7 +228,7 @@ pub async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
         }
 
         // Log event (legacy table)
-        log_game_event(state, pod_id, &sim_type_str, "stopping", None, None).await;
+        log_game_event(state, pod_id, &sim_type_str, "stopping", None, None, None).await;
 
         // Rich stop event recording
         {

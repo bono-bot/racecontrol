@@ -176,7 +176,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None, launch_stage: None,
+            session_id: None, launch_stage: None, clean_exit_heuristic: None,
         };
 
         // Update tracker
@@ -192,7 +192,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
         }
 
         // Log (legacy table)
-        log_game_event(state, &pod_id, &sim_type.to_string(), "timeout", None, None).await;
+        log_game_event(state, &pod_id, &sim_type.to_string(), "timeout", None, None, None).await;
 
         // Rich timeout event recording
         {
@@ -250,14 +250,18 @@ pub async fn log_game_event(
     event_type: &str,
     pid: Option<u32>,
     error_message: Option<&str>,
+    clean_exit_heuristic: Option<bool>,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
+    // Pattern H: bind clean_exit_heuristic as 0/1 (SQLite bool-as-int). Defaults to 0 via schema
+    // when None; rc-agent always sends Some(bool) for crash events.
+    let clean_exit_int: i64 = clean_exit_heuristic.map(|b| if b { 1 } else { 0 }).unwrap_or(0);
     let result = sqlx::query(
-        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message, created_at, venue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, pid, error_message, created_at, venue_id, clean_exit_heuristic)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(pod_id)
@@ -267,6 +271,7 @@ pub async fn log_game_event(
     .bind(error_message)
     .bind(&now)
     .bind(&state.config.venue.venue_id)
+    .bind(clean_exit_int)
     .execute(&state.db)
     .await;
 

@@ -79,7 +79,7 @@ pub async fn relaunch_game(
     .map_err(|e| format!("Failed to send launch command: {}", e))?;
 
     // Log + broadcast
-    log_game_event(state, pod_id, &sim_type.to_string(), "relaunched", None, Some("Manual relaunch from kiosk")).await;
+    log_game_event(state, pod_id, &sim_type.to_string(), "relaunched", None, Some("Manual relaunch from kiosk"), None).await;
 
     // Rich launch event recording for relaunch
     {

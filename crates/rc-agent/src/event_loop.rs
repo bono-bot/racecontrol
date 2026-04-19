@@ -31,6 +31,32 @@ const LOG_TARGET: &str = "event-loop";
 /// are safe.
 pub(crate) const WS_LIVENESS_TIMEOUT_SECS: u64 = 90;
 
+/// Pattern H: lower-bound clean-exit signal.
+///
+/// TRUE when all three hold:
+///   1. Process exited with code 0 (clean OS-level exit)
+///   2. Process ran for ≥ 30 seconds before exit (survived past launch-fail window)
+///   3. No WerFault.exe / WerFaultSecure.exe child currently running (no crash dialog)
+///
+/// Consumers filter `WHERE clean_exit_heuristic = 0` on `game_launch_events` to see real crashes.
+/// The `event_type` column stays "crashed" for all non-agent-initiated exits — no query churn.
+/// See OPEN-PATTERNS.md Pattern H for full rationale + tradeoffs.
+fn compute_clean_exit_heuristic(exit_code: Option<i32>, seconds_since_launch: u64) -> bool {
+    if exit_code != Some(0) {
+        return false;
+    }
+    if seconds_since_launch < 30 {
+        return false;
+    }
+    if ac_launcher::is_process_running("WerFault.exe") {
+        return false;
+    }
+    if ac_launcher::is_process_running("WerFaultSecure.exe") {
+        return false;
+    }
+    true
+}
+
 /// Type alias for the WebSocket receive half.
 pub type WsRx = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<
@@ -1065,7 +1091,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
-                                    session_id: None, launch_stage: None,
+                                    session_id: None, launch_stage: None, clean_exit_heuristic: None,
                                 };
                                 let loading_msg = AgentMessage::GameStateUpdate(loading_info);
                                 if let Ok(json) = serde_json::to_string(&loading_msg) {
@@ -1086,7 +1112,7 @@ pub async fn run(
                                 exit_code: None,
                                 playable_at: None,
                                 ready_delay_ms: None,
-                                session_id: None, launch_stage: None,
+                                session_id: None, launch_stage: None, clean_exit_heuristic: None,
                             };
                             let _ = state.failure_monitor_tx.send_modify(|s| {
                                 s.game_pid = Some(pid);
@@ -1106,6 +1132,11 @@ pub async fn run(
                                 Some(code) => format!("Process exited unexpectedly (exit code: {})", code),
                                 None => "Game process exited unexpectedly".to_string(),
                             };
+                            // Pattern H: compute clean-exit heuristic using seconds-since-Running
+                            let seconds_since_launch = conn.game_running_since
+                                .map(|t| t.elapsed().as_secs())
+                                .unwrap_or(0);
+                            let clean_exit = compute_clean_exit_heuristic(exit_code, seconds_since_launch);
                             let info = GameLaunchInfo {
                                 pod_id: state.pod_id.clone(),
                                 sim_type: game.sim_type,
@@ -1117,7 +1148,7 @@ pub async fn run(
                                 exit_code,
                                 playable_at: None,
                                 ready_delay_ms: None,
-                                session_id: None, launch_stage: None,
+                                session_id: None, launch_stage: None, clean_exit_heuristic: Some(clean_exit),
                             };
                             let msg = AgentMessage::GameStateUpdate(info);
                             let json = serde_json::to_string(&msg)?;
@@ -1438,6 +1469,10 @@ pub async fn run(
                         // A controlled StopGame already clears process_monitor before it fires here.
                         let billing_on = state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed);
 
+                        // Pattern H: compute clean-exit heuristic using seconds-since-monitor-creation
+                        let seconds_since_launch = monitor.started_at.elapsed().as_secs();
+                        let clean_exit = compute_clean_exit_heuristic(exit_code, seconds_since_launch);
+
                         // Send GameState::Crashed to server
                         let crash_info = GameLaunchInfo {
                             pod_id: state.pod_id.clone(),
@@ -1450,7 +1485,7 @@ pub async fn run(
                             exit_code,
                             playable_at: None,
                             ready_delay_ms: None,
-                            session_id: None, launch_stage: None,
+                            session_id: None, launch_stage: None, clean_exit_heuristic: Some(clean_exit),
                         };
                         let crash_msg = AgentMessage::GameStateUpdate(crash_info);
                         if let Ok(json) = serde_json::to_string(&crash_msg) {
@@ -1595,7 +1630,7 @@ pub async fn run(
                                 exit_code: None,
                                 playable_at: None,
                                 ready_delay_ms: None,
-                                session_id: None, launch_stage: None,
+                                session_id: None, launch_stage: None, clean_exit_heuristic: None,
                             };
                             let expire_msg = AgentMessage::GameStateUpdate(expire_info);
                             if let Ok(json) = serde_json::to_string(&expire_msg) {
@@ -2221,7 +2256,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
-                                    session_id: None, launch_stage: None,
+                                    session_id: None, launch_stage: None, clean_exit_heuristic: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 conn.launch_epoch += 1;
@@ -2286,7 +2321,7 @@ pub async fn run(
                                     exit_code: None,
                                     playable_at: None,
                                     ready_delay_ms: None,
-                                    session_id: None, launch_stage: None,
+                                    session_id: None, launch_stage: None, clean_exit_heuristic: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
                                 let _ = state.failure_monitor_tx.send_modify(|s| {

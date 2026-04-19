@@ -69,7 +69,7 @@ impl GameTracker {
             playable_at: self.playable_at,
             ready_delay_ms: self.ready_delay_ms,
             session_id: self.billing_session_id.clone(),
-            launch_stage: None,
+            launch_stage: None, clean_exit_heuristic: None,
         }
     }
 }

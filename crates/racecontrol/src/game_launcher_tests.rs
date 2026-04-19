@@ -408,7 +408,7 @@
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None, launch_stage: None,
+            session_id: None, launch_stage: None, clean_exit_heuristic: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -467,7 +467,7 @@
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None, launch_stage: None,
+            session_id: None, launch_stage: None, clean_exit_heuristic: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -726,7 +726,7 @@
             exit_code: None,
             playable_at: None,
             ready_delay_ms: None,
-            session_id: None, launch_stage: None,
+            session_id: None, launch_stage: None, clean_exit_heuristic: None,
         };
 
         handle_game_state_update(&state, info).await;
@@ -1423,7 +1423,7 @@
             playable_at: None,
             ready_delay_ms: None,
             session_id: None,
-            launch_stage: None,
+            launch_stage: None, clean_exit_heuristic: None,
         };
         handle_game_state_update(&state, zombie).await;
 
@@ -1489,7 +1489,7 @@
             playable_at: None,
             ready_delay_ms: None,
             session_id: None,
-            launch_stage: None,
+            launch_stage: None, clean_exit_heuristic: None,
         };
         handle_game_state_update(&state, idle).await;
 

@@ -542,6 +542,13 @@ pub struct GameLaunchInfo {
     /// Allows kiosk to show honest status ("Loading..." vs "Entering track..." vs "Ready!").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_stage: Option<String>,
+    /// Pattern H: lower-bound clean-exit signal.
+    /// TRUE when exit_code == 0 AND seconds_since_launch >= 30 AND no WerFault child seen for PID.
+    /// Computed by rc-agent at crash-event emission; persisted to game_launch_events.clean_exit_heuristic.
+    /// Consumers filter with `WHERE clean_exit_heuristic = 0` to see real crashes.
+    /// See OPEN-PATTERNS.md Pattern H.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clean_exit_heuristic: Option<bool>,
 }
 
 /// Structured diagnostics from a game launch attempt.

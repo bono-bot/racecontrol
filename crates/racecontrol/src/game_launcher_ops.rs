@@ -476,7 +476,7 @@ pub async fn launch_game(
     state.game_launcher.last_launch_verified.store(verified, std::sync::atomic::Ordering::Relaxed);
 
     // Log event to DB (legacy table, backward compat)
-    log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None).await;
+    log_game_event(state, pod_id, &sim_type.to_string(), "launched", None, None, None).await;
 
     // Rich launch event recording to new launch_events table + JSONL
     {

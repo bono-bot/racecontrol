@@ -142,12 +142,15 @@ impl SessionEnforcer {
 pub struct ProcessMonitor {
     pub(crate) pid: u32,
     pub(crate) sim_type: SimType,
+    /// Pattern H: captured at monitor creation — used to compute seconds-since-launch
+    /// at crash-event emission time for the clean_exit_heuristic.
+    pub(crate) started_at: Instant,
 }
 
 impl ProcessMonitor {
     /// Create a new process monitor for a launched non-AC game.
     pub fn new(pid: u32, sim_type: SimType) -> Self {
-        Self { pid, sim_type }
+        Self { pid, sim_type, started_at: Instant::now() }
     }
 
     /// Check whether the monitored process is still alive.

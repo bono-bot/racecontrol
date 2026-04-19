@@ -140,6 +140,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
     };
 
     // Log to DB (legacy table)
+    // Pattern H: pass through clean_exit_heuristic from rc-agent (Some(bool) for crash events, None otherwise)
     log_game_event(
         state,
         pod_id,
@@ -147,6 +148,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
         event_type,
         info.pid,
         info.error_message.as_deref(),
+        info.clean_exit_heuristic,
     )
     .await;
 
