@@ -1180,6 +1180,17 @@ pub(crate) fn fix_usb_reconnect(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 
 // ─── Auto-Fix Implementations ────────────────────────────────────────────────
 
+#[cfg(test)]
+fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
+    // GAP-11: test guard — prevent real Stop-Process on dev machine when tests replay patterns.
+    AutoFixResult {
+        fix_type: "clear_stale_sockets".to_string(),
+        detail: "test stub — no Stop-Process executed".to_string(),
+        success: true,
+    }
+}
+
+#[cfg(not(test))]
 fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     tracing::info!(target: LOG_TARGET, "Attempting to clear stale sockets");
 
@@ -1220,6 +1231,17 @@ fn fix_stale_sockets(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     }
 }
 
+#[cfg(test)]
+fn fix_kill_stale_game() -> AutoFixResult {
+    // GAP-10: test guard — prevent real taskkill on dev machine when tests replay patterns.
+    AutoFixResult {
+        fix_type: "kill_stale_game".to_string(),
+        detail: "test stub — no taskkill executed".to_string(),
+        success: true,
+    }
+}
+
+#[cfg(not(test))]
 fn fix_kill_stale_game() -> AutoFixResult {
     tracing::info!(target: LOG_TARGET, "Killing stale game processes");
 
