@@ -2291,9 +2291,9 @@ Plans:
 
 **Goal:** Eliminate cross-boundary serialization bugs (`ai_difficulty: "easy"` vs `ai_level: u32` class) by generating TypeScript types directly from Rust route definitions and `rc-common` shared types. Every frontend `fetchApi`/`rcFetch`/`proxyFetch` call must use generated types; TypeScript compile fails on shape mismatch. Contract drift becomes structurally impossible because types are auto-derived from the Rust source of truth.
 
-**Requirements:** TBD (run /gsd:plan-phase 445)
+**Requirements:** TYP-01..TYP-09 (derived from CONTEXT D-01..D-20)
 **Depends on:** Phase 414 (billing FSM stable) + Phase 415 (MP group booking — avoids contract churn mid-migration)
-**Plans:** 0 plans
+**Plans:** 6 plans (00 safety + 01 scaffolding + 02a rc-common derives + 02b utoipa annotations + 03 admin migration + 04 CI gate + 05 phase gate)
 
 **Scope:**
 - racecontrol route definitions annotated with `utoipa`/`aide` for OpenAPI extraction
@@ -2312,7 +2312,13 @@ Plans:
 - [ ] Documented admin-panel API error class disappears post-migration
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 445 to break down)
+- [ ] 445-00-PLAN.md — Safety audits (D-14 enum guard, admin-type whitelist, ts-rs spike, determinism harness)
+- [ ] 445-01-PLAN.md — Workspace deps + feature flags + gen-types binary skeleton
+- [ ] 445-02a-PLAN.md — rc-common TS derives + gen-types body
+- [ ] 445-02b-PLAN.md — utoipa annotations on 43 admin handlers + ApiDoc umbrella
+- [ ] 445-03-PLAN.md — Admin migration (D-12 drift audit + index.ts re-exports)
+- [ ] 445-04-PLAN.md — CI gate + D-20 regression fixture + deploy-audit.sh + pre-commit hook
+- [ ] 445-05-PLAN.md — Cloud parity + phase SUMMARY + STATE/ROADMAP/SWAPLOG update
 
 ---
 
