@@ -188,7 +188,10 @@ if (fs.existsSync(dbEdgesPath)) {
   for (const e of db.edges) {
     const src = aliasOf(e.from), tgt = aliasOf(e.to);
     if (src === tgt) continue;  // self-loop after aliasing
-    if (e.weight < 3) continue;
+    // Threshold lowered to 1: stopword filter now catches prose/import false positives
+    // so a single genuine shared table is already meaningful coupling (admin <-> rc via
+    // `employees`, comms-link <-> whatsapp-bot via `messages`).
+    if (e.weight < 1) continue;
     metaLinks.push({
       source: src, target: tgt,
       weight: e.weight,
@@ -319,6 +322,12 @@ const html = `<!doctype html>
   .edges { margin-top: 14px; }
   .edges h2 { font-size: 12px; color: #aaa; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.05em; }
   .edge-item { padding: 4px 8px; background: #181828; margin-bottom: 3px; border-radius: 3px; font-size: 11px; color: #bbb; }
+  .legend { margin-top: 14px; padding: 8px; background: #181828; border-radius: 4px; font-size: 11px; }
+  .legend h2 { font-size: 12px; color: #aaa; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.05em; }
+  .legend .row { display: flex; align-items: center; margin: 3px 0; gap: 8px; }
+  .legend .swatch { width: 24px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+  .legend .swatch.dashed { background: repeating-linear-gradient(to right, currentColor 0 3px, transparent 3px 6px); height: 2px; }
+  .legend .label { color: #bbb; }
 </style></head>
 <body>
 <div id="graph"></div>
@@ -353,6 +362,14 @@ const html = `<!doctype html>
       return `<div class="edge-item"><span style="color:${style[0]}">${style[1]}</span> <b>${e.source}</b> → <b>${e.target}</b> · ${e.weight} · ${detail}</div>`;
     }).join('')}
     ${metaLinks.length === 0 ? '<div class="edge-item"><em>No label overlap detected between scanned modules.</em></div>' : ''}
+  </div>
+  <div class="legend">
+    <h2>Edge legend</h2>
+    <div class="row"><div class="swatch" style="background:#59A14F;color:#59A14F"></div><span class="label">api-call — HTTP /api/ endpoint</span></div>
+    <div class="row"><div class="swatch" style="background:#E15759;color:#E15759"></div><span class="label">shared-ws-variant — same WS enum variant referenced</span></div>
+    <div class="row"><div class="swatch" style="background:#F1CE63;color:#F1CE63"></div><span class="label">shared-db-table — same SQL table read/written</span></div>
+    <div class="row"><div class="swatch dashed" style="color:#6a7aaa"></div><span class="label">label-overlap — shared top-30 names (weak signal)</span></div>
+    <div class="row"><div class="swatch dashed" style="color:#555"></div><span class="label">contains — slice of parent module</span></div>
   </div>
 </div>
 <script>

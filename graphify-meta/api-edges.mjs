@@ -296,6 +296,11 @@ for (const { id: mod, modDir } of ALL_CONSUMERS) {
     if (matchedRoutes.size === 0) continue;
     // Rank by score desc, take top 3, output one backend_file each (no duplicates)
     const ranked = [...matchedRoutes.values()].sort((a, b) => b.score - a.score).slice(0, 3);
+    const consumerFileRel = loc.file.replace(ROOT, '').replace(/\\/g, '/');
+    // Tag edge source: test-file URLs reveal contract coverage but shouldn't inflate
+    // production-coupling metrics. /test|spec|__tests__|mock|fixture/ in path = 'test'.
+    const edgeSource = /\/(tests?|specs?|__tests__|mocks?|fixtures?)\//i.test(consumerFileRel)
+      ? 'test' : 'production';
     urlEdges.push({
       from: mod, to: 'racecontrol',
       type: 'http-api-call',
@@ -303,13 +308,14 @@ for (const { id: mod, modDir } of ALL_CONSUMERS) {
       url_fragment: loc.first,
       url_path: loc.tail,
       url_normalized: loc.norm,
+      edge_source: edgeSource,
       matched_routes: ranked.map(r => ({
         url_token: r.url_token,
         score: r.score,
         backend_file: r.backend_file,
         backend_label: r.label,
       })),
-      consumer_file: loc.file.replace(ROOT, '').replace(/\\/g, '/'),
+      consumer_file: consumerFileRel,
       consumer_line: loc.line,
       url_sample: loc.url,
       ...(loc.inferred_from ? { inferred_from: loc.inferred_from } : {}),
@@ -356,12 +362,16 @@ for (const target of BACK_EDGE_TARGETS) {
       const key = `${target.mod}:${url}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const consumerFileRel = f.replace(ROOT, '').replace(/\\/g, '/');
+      const edgeSource = /\/(tests?|specs?|__tests__|mocks?|fixtures?)\//i.test(consumerFileRel)
+        ? 'test' : 'production';
       backEdges.push({
         from: 'racecontrol', to: target.mod,
         type: 'http-api-call',
         verb: 'UNKNOWN',
         url_sample: url,
-        consumer_file: f.replace(ROOT, '').replace(/\\/g, '/'),
+        edge_source: edgeSource,
+        consumer_file: consumerFileRel,
         consumer_line: src.slice(0, m.index).split('\n').length,
         direction: 'back-edge',
       });
