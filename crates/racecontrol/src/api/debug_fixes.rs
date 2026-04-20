@@ -24,9 +24,10 @@ pub(crate) async fn execute_fix_action(
     pod: &PodInfo,
     action: &str,
 ) -> Value {
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
     match action {
         "restart_pod" => {
-            match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+            match wol::restart_pod(&state.http_client, &pod.ip_address, service_key).await {
                 Ok(output) => json!({ "ok": true, "action": "restart_pod", "output": output }),
                 Err(e) => json!({ "ok": false, "error": format!("Restart failed: {}", e) }),
             }
@@ -42,7 +43,7 @@ pub(crate) async fn execute_fix_action(
             }
         }
         "shutdown_pod" => {
-            match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+            match wol::shutdown_pod(&state.http_client, &pod.ip_address, service_key).await {
                 Ok(output) => json!({ "ok": true, "action": "shutdown_pod", "output": output }),
                 Err(e) => json!({ "ok": false, "error": format!("Shutdown failed: {}", e) }),
             }

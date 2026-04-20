@@ -193,10 +193,11 @@ async fn bono_fallback_shutdown(state: &Arc<AppState>) -> Json<Value> {
 
     // ─── Step 3b: Shut down pods via internal wol::shutdown_pod ─────────────
     tracing::info!("[venue_shutdown] Bono fallback: shutting down {} pods", POD_IPS.len());
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
     let mut pod_results: Vec<Value> = Vec::new();
 
     for &pod_ip in POD_IPS {
-        match wol::shutdown_pod(&state.http_client, pod_ip).await {
+        match wol::shutdown_pod(&state.http_client, pod_ip, service_key).await {
             Ok(msg) => {
                 tracing::info!("[venue_shutdown] Pod {} shutdown: {}", pod_ip, msg);
                 pod_results.push(json!({"ip": pod_ip, "status": "shutdown_sent", "detail": msg}));

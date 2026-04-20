@@ -36,10 +36,19 @@ pub async fn send_wol(mac: &str) -> Result<()> {
 }
 
 /// Send a shutdown command to a pod via its pod-agent HTTP endpoint.
-pub async fn shutdown_pod(http_client: &reqwest::Client, ip: &str) -> Result<String> {
+///
+/// `service_key` must match the pod's `sentry_service_key` (X-Service-Key header).
+/// rc-agent `/exec` is protected by `require_service_key` middleware — without
+/// a valid key the request returns 401 and this function returns Err.
+pub async fn shutdown_pod(
+    http_client: &reqwest::Client,
+    ip: &str,
+    service_key: &str,
+) -> Result<String> {
     let url = format!("http://{}:{}/exec", ip, POD_AGENT_PORT);
     let resp = http_client
         .post(&url)
+        .header("X-Service-Key", service_key)
         .json(&serde_json::json!({
             "cmd": "shutdown /s /f /t 0",
             "timeout_ms": 5000
@@ -47,6 +56,11 @@ pub async fn shutdown_pod(http_client: &reqwest::Client, ip: &str) -> Result<Str
         .timeout(std::time::Duration::from_secs(8))
         .send()
         .await?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(anyhow!("pod {} /exec returned HTTP {}", ip, status.as_u16()));
+    }
 
     let body: serde_json::Value = resp.json().await?;
     let stdout = body["stdout"].as_str().unwrap_or("");
@@ -57,10 +71,17 @@ pub async fn shutdown_pod(http_client: &reqwest::Client, ip: &str) -> Result<Str
 }
 
 /// Send a restart command to a pod via its pod-agent HTTP endpoint.
-pub async fn restart_pod(http_client: &reqwest::Client, ip: &str) -> Result<String> {
+///
+/// `service_key` must match the pod's `sentry_service_key` (X-Service-Key header).
+pub async fn restart_pod(
+    http_client: &reqwest::Client,
+    ip: &str,
+    service_key: &str,
+) -> Result<String> {
     let url = format!("http://{}:{}/exec", ip, POD_AGENT_PORT);
     let resp = http_client
         .post(&url)
+        .header("X-Service-Key", service_key)
         .json(&serde_json::json!({
             "cmd": "shutdown /r /f /t 0",
             "timeout_ms": 5000
@@ -68,6 +89,11 @@ pub async fn restart_pod(http_client: &reqwest::Client, ip: &str) -> Result<Stri
         .timeout(std::time::Duration::from_secs(8))
         .send()
         .await?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(anyhow!("pod {} /exec returned HTTP {}", ip, status.as_u16()));
+    }
 
     let body: serde_json::Value = resp.json().await?;
     let stdout = body["stdout"].as_str().unwrap_or("");

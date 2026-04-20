@@ -32,6 +32,7 @@ pub(crate) async fn wake_all_pods(State(state): State<Arc<AppState>>) -> Json<Va
 // POST /pods/shutdown-all — Shutdown all reachable pods
 pub(crate) async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
     let mut results = Vec::new();
 
     for pod in &pods {
@@ -39,7 +40,7 @@ pub(crate) async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Jso
             results.push(json!({ "pod_id": pod.id, "status": "skipped" }));
             continue;
         }
-        let status = match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+        let status = match wol::shutdown_pod(&state.http_client, &pod.ip_address, service_key).await {
             Ok(_) => {
                 if let Some(p) = state.pods.write().await.get_mut(&pod.id) {
                     p.status = PodStatus::Disabled;
@@ -58,6 +59,7 @@ pub(crate) async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Jso
 // POST /pods/restart-all — Restart all reachable pods
 pub(crate) async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
     let mut results = Vec::new();
 
     for pod in &pods {
@@ -65,7 +67,7 @@ pub(crate) async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json
             results.push(json!({ "pod_id": pod.id, "status": "skipped" }));
             continue;
         }
-        let status = match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+        let status = match wol::restart_pod(&state.http_client, &pod.ip_address, service_key).await {
             Ok(_) => "sent",
             Err(_) => "failed",
         };

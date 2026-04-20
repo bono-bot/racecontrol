@@ -226,7 +226,8 @@ pub(crate) async fn shutdown_pod(
     };
     drop(pods);
 
-    match wol::shutdown_pod(&state.http_client, &pod.ip_address).await {
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    match wol::shutdown_pod(&state.http_client, &pod.ip_address, service_key).await {
         Ok(output) => {
             // Mark pod as Disabled — prevents auto-recovery from waking it back up
             if let Some(p) = state.pods.write().await.get_mut(&id) {
@@ -333,7 +334,8 @@ pub(crate) async fn restart_pod(
     };
     drop(pods);
 
-    match wol::restart_pod(&state.http_client, &pod.ip_address).await {
+    let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    match wol::restart_pod(&state.http_client, &pod.ip_address, service_key).await {
         Ok(output) => Json(json!({ "status": "restart_sent", "pod_id": id, "output": output })),
         Err(e) => Json(json!({ "error": format!("Restart failed: {}", e) })),
     }
