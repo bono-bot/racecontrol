@@ -1,0 +1,2056 @@
+{
+    "host": "srv1422716",
+    "user": "root",
+    "timestamp_utc": "2026-04-20T01:24:13.000Z",
+    "last_boot_local": "2026-04-14 12:39:19",
+    "os": "Linux 6.8.0-107-generic #107-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar 13 19:51:50 UTC 2026",
+    "surfaces": {
+        "systemd_system_units": [
+            {
+                "unit": "apparmor.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "apport-autoreport.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "apport-coredump-hook@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "apport-forward@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "apport.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "apt-daily-upgrade.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "apt-daily.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "apt-news.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "autovt@.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "blk-availability.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "bolt.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "certbot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "cloud-config.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cloud-final.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cloud-init-hotplugd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "cloud-init-local.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cloud-init.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "code-server@.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "console-getty.service",
+                "state": "disabled",
+                "preset": "disabled"
+            },
+            {
+                "unit": "console-setup.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "container-getty@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "containerd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cron.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cryptdisks-early.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "cryptdisks.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "dbus-org.freedesktop.hostname1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.locale1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.login1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.ModemManager1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.resolve1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.timedate1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus-org.freedesktop.timesync1.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "dbus.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "debug-shell.service",
+                "state": "disabled",
+                "preset": "disabled"
+            },
+            {
+                "unit": "dm-event.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "dmesg.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "docker.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "dpkg-db-backup.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "e2scrub@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "e2scrub_all.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "e2scrub_fail@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "e2scrub_reap.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "emergency.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "esm-cache.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "fail2ban.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "finalrd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "friendly-recovery.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "fstrim.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "fwupd-offline-update.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "fwupd-refresh.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "fwupd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "getty-static.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "getty@.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "grub-common.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "grub-initrd-fallback.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "hwclock.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "initrd-cleanup.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "initrd-parse-etc.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "initrd-switch-root.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "initrd-udevadm-cleanup-db.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "iscsi.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "iscsid.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "keyboard-setup.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "kmod-static-nodes.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "kmod.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "ldconfig.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "logrotate.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "lvm2-lvmpolld.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "lvm2-monitor.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "lxd-agent.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "lxd-installer@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "man-db.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdadm-grow-continue@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdadm-last-resort@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdcheck_continue.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdcheck_start.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdmon@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdmonitor-oneshot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "mdmonitor.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "ModemManager.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "modprobe@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "motd-news.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "multipath-tools-boot.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "multipath-tools.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "multipathd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "netplan-ovs-cleanup.service",
+                "state": "enabled-runtime",
+                "preset": "enabled"
+            },
+            {
+                "unit": "networkd-dispatcher.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "nftables.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "nginx.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "open-iscsi.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "open-vm-tools.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "packagekit-offline-update.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "packagekit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pam_namespace.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pg_basebackup@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pg_compresswal@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pg_dump@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pg_receivewal@.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "plymouth-halt.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-kexec.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-log.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-poweroff.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-quit-wait.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-quit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-read-write.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-reboot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-start.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-switch-root-initramfs.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth-switch-root.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "plymouth.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "pm2-root.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "polkit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "pollinate.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "postgresql.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "postgresql@.service",
+                "state": "indirect",
+                "preset": "enabled"
+            },
+            {
+                "unit": "procps.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "qemu-guest-agent.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "quotaon.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "rc-doctor.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "rc-local.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "rescue.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "rsync.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "rsyslog.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "screen-cleanup.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "secureboot-db.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "serial-getty@.service",
+                "state": "indirect",
+                "preset": "enabled"
+            },
+            {
+                "unit": "setvtrgb.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snap.chromium.daemon.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snap.cups.cups-browsed.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snap.cups.cupsd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snap.mesa-2404.component-monitor.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.apparmor.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.autoimport.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.core-fixup.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.failure.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "snapd.recovery-chooser-trigger.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.seeded.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.snap-repair.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "snapd.system-shutdown.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "ssh.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "sshd.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "ssl-cert.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "sudo.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "syslog.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "sysstat-collect.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "sysstat-summary.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "sysstat.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "system-update-cleanup.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-ask-password-console.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-ask-password-plymouth.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-ask-password-wall.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-backlight@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-battery-check.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-binfmt.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-boot-check-no-failures.service",
+                "state": "disabled",
+                "preset": "disabled"
+            },
+            {
+                "unit": "systemd-bsod.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-confext.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-exit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-firstboot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-fsck-root.service",
+                "state": "enabled-runtime",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-fsck@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-fsckd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-growfs-root.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-growfs@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-halt.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-hibernate-resume.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-hibernate.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-hostnamed.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-hwdb-update.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-hybrid-sleep.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-initctl.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-journal-catalog-update.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-journal-flush.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-journald.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-journald@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-kexec.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-localed.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-logind.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-machine-id-commit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-modules-load.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-network-generator.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-networkd-wait-online.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-networkd-wait-online@.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-networkd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrextend@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrfs-root.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrfs@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrlock-file-system.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-firmware-code.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-firmware-config.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-machine-id.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-make-policy.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-secureboot-authority.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrlock-secureboot-policy.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-pcrmachine.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrphase-initrd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrphase-sysinit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pcrphase.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-poweroff.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-pstore.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-quotacheck.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-random-seed.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-reboot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-remount-fs.service",
+                "state": "enabled-runtime",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-repart.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-resolved.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-rfkill.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-soft-reboot.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-storagetm.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-suspend-then-hibernate.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-suspend.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-sysctl.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-sysext.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-sysext@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-sysupdate-reboot.service",
+                "state": "indirect",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-sysupdate.service",
+                "state": "indirect",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-sysusers.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-time-wait-sync.service",
+                "state": "disabled",
+                "preset": "disabled"
+            },
+            {
+                "unit": "systemd-timedated.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-timesyncd.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "systemd-tmpfiles-clean.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tmpfiles-setup-dev-early.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tmpfiles-setup-dev.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tmpfiles-setup.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tpm2-setup-early.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tpm2-setup.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-udev-settle.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-udev-trigger.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-udevd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-update-done.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-update-utmp-runlevel.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-update-utmp.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-user-sessions.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-volatile-root.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "tailscaled.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "tpm-udev.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "ua-reboot-cmds.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "ua-timer.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "ubuntu-advantage.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "udev.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "udisks2.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "ufw.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "unattended-upgrades.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "update-notifier-download.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "update-notifier-motd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "usb_modeswitch@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "user-runtime-dir@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "user@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "uuidd.service",
+                "state": "indirect",
+                "preset": "enabled"
+            },
+            {
+                "unit": "vgauth.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "vmtoolsd.service",
+                "state": "alias",
+                "preset": "-"
+            },
+            {
+                "unit": "x11-common.service",
+                "state": "masked",
+                "preset": "enabled"
+            },
+            {
+                "unit": "xfs_scrub@.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "xfs_scrub_all.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "xfs_scrub_fail@.service",
+                "state": "static",
+                "preset": "-"
+            }
+        ],
+        "systemd_user_units": [
+            {
+                "unit": "at-spi-dbus-bus.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "code-server.service",
+                "state": "disabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "dbus.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "dconf.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "dirmngr.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "glib-pacrunner.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "gpg-agent.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "keyboxd.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "launchpadlib-cache-clean.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "openclaw-gateway.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "pk-debconf-helper.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "session-migration.service",
+                "state": "enabled",
+                "preset": "enabled"
+            },
+            {
+                "unit": "snapd.session-agent.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "ssh-agent.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-exit.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tmpfiles-clean.service",
+                "state": "static",
+                "preset": "-"
+            },
+            {
+                "unit": "systemd-tmpfiles-setup.service",
+                "state": "disabled",
+                "preset": "enabled"
+            }
+        ],
+        "etc_cron_d": [
+            "/etc/cron.d/certbot",
+            "/etc/cron.d/e2scrub_all",
+            "/etc/cron.d/.placeholder",
+            "/etc/cron.d/sysstat",
+            "/etc/cron.d/docker-image-prune"
+        ],
+        "etc_crontab": "# /etc/crontab: system-wide crontab\n# Unlike any other crontab you don't have to run the `crontab'\n# command to install the new version when you edit this file\n# and files in /etc/cron.d. These files also have username fields,\n# that none of the other crontabs do.\n\nSHELL=/bin/sh\n# You can also override PATH, but by default, newer versions inherit it from the environment\n#PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n\n# Example of job definition:\n# .---------------- minute (0 - 59)\n# |  .------------- hour (0 - 23)\n# |  |  .---------- day of month (1 - 31)\n# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...\n# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat\n# |  |  |  |  |\n# *  *  *  *  * user-name command to be executed\n17 *\t* * *\troot\tcd / && run-parts --report /etc/cron.hourly\n25 6\t* * *\troot\ttest -x /usr/sbin/anacron || { cd / && run-parts --report /etc/cron.daily; }\n47 6\t* * 7\troot\ttest -x /usr/sbin/anacron || { cd / && run-parts --report /etc/cron.weekly; }\n52 6\t1 * *\troot\ttest -x /usr/sbin/anacron || { cd / && run-parts --report /etc/cron.monthly; }\n#\n",
+        "user_crontabs": [
+            "root"
+        ],
+        "root_crontab": null,
+        "etc_rc_local": null,
+        "etc_profile_d": [
+            "/etc/profile.d/01-locale-fix.sh",
+            "/etc/profile.d/gawk.csh",
+            "/etc/profile.d/apps-bin-path.sh",
+            "/etc/profile.d/Z99-cloud-locale-test.sh",
+            "/etc/profile.d/Z97-byobu.sh",
+            "/etc/profile.d/gawk.sh",
+            "/etc/profile.d/bash_completion.sh",
+            "/etc/profile.d/Z99-cloudinit-warnings.sh"
+        ],
+        "user_shell_init": {
+            "bashrc": "# ~/.bashrc: executed by bash(1) for non-login shells.\n# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)\n# for examples\n\n# If not running interactively, don't do anything\n[ -z \"$PS1\" ] && return\n\n# don't put duplicate lines in the history. See bash(1) for more options\n# ... or force ignoredups and ignorespace\nHISTCONTROL=ignoredups:ignorespace\n\n# append to the history file, don't overwrite it\nshopt -s histappend\n\n# for setting history length see HISTSIZE and HISTFILESIZE in bash(1)\nHISTSIZE=1000\nHISTFILESIZE=2000\n\n# check the window size after each command and, if necessary,\n# update the values of LINES and COLUMNS.\nshopt -s checkwinsize\n\n# make less more friendly for non-text input files, see lesspipe(1)\n[ -x /usr/bin/lesspipe ] && eval \"$(SHELL=/bin/sh lesspipe)\"\n\n# set variable identifying the chroot you work in (used in the prompt below)\nif [ -z \"$debian_chroot\" ] && [ -r /etc/debian_chroot ]; then\n    debian_chroot=$(cat /etc/debian_chroot)\nfi\n\n# set a fancy prompt (non-color, unless we know we \"want\" color)\ncase \"$TERM\" in\n    xterm-color) color_prompt=yes;;\nesac\n\n# uncomment for a colored prompt, if the terminal has the capability; turned\n# off by default to not distract the user: the focus in a terminal window\n# should be on the output of commands, not on the prompt\n#force_color_prompt=yes\n\nif [ -n \"$force_color_prompt\" ]; then\n    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then\n\t# We have color support; assume it's compliant with Ecma-48\n\t# (ISO/IEC-6429). (Lack of such support is extremely rare, and such\n\t# a case would tend to support setf rather than setaf.)\n\tcolor_prompt=yes\n    else\n\tcolor_prompt=\n    fi\nfi\n\nif [ \"$color_prompt\" = yes ]; then\n    PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '\nelse\n    PS1='${debian_chroot:+($debian_chroot)}\\u@\\h:\\w\\$ '\nfi\nunset color_prompt force_color_prompt\n\n# If this is an xterm set the title to user@host:dir\ncase \"$TERM\" in\nxterm*|rxvt*)\n    PS1=\"\\[\\e]0;${debian_chroot:+($debian_chroot)}\\u@\\h: \\w\\a\\]$PS1\"\n    ;;\n*)\n    ;;\nesac\n\n# enable color support of ls and also add handy aliases\nif [ -x /usr/bin/dircolors ]; then\n    test -r ~/.dircolors && eval \"$(dircolors -b ~/.dircolors)\" || eval \"$(dircolors -b)\"\n    alias ls='ls --color=auto'\n    #alias dir='dir --color=auto'\n    #alias vdir='vdir --color=auto'\n\n    alias grep='grep --color=auto'\n    alias fgrep='fgrep --color=auto'\n    alias egrep='egrep --color=auto'\nfi\n\n# some more ls aliases\nalias ll='ls -alF'\nalias la='ls -A'\nalias l='ls -CF'\n\n# Alias definitions.\n# You may want to put all your additions into a separate file like\n# ~/.bash_aliases, instead of adding them here directly.\n# See /usr/share/doc/bash-doc/examples in the bash-doc package.\n\nif [ -f ~/.bash_aliases ]; then\n    . ~/.bash_aliases\nfi\n\n# enable programmable completion features (you don't need to enable\n# this, if it's already enabled in /etc/bash.bashrc and /etc/profile\n# sources /etc/bash.bashrc).\n#if [ -f /etc/bash_completion ] && ! shopt -oq posix; then\n#    . /etc/bash_completion\n#fi\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\n. \"$HOME/.cargo/env\"\n",
+            "profile": "# ~/.profile: executed by Bourne-compatible login shells.\n\nif [ \"$BASH\" ]; then\n  if [ -f ~/.bashrc ]; then\n    . ~/.bashrc\n  fi\nfi\n\nmesg n 2> /dev/null || true\n. \"$HOME/.cargo/env\"\n",
+            "bash_profile": null
+        },
+        "xdg_autostart": [
+            "/etc/xdg/autostart/xdg-user-dirs.desktop",
+            "/etc/xdg/autostart/snap-userd-autostart.desktop",
+            "/etc/xdg/autostart/at-spi-dbus-bus.desktop"
+        ],
+        "pm2_list": [
+            {
+                "name": "pm2-logrotate",
+                "pid": 1690148,
+                "status": "online",
+                "exec": "/root/.pm2/modules/pm2-logrotate/node_modules/pm2-logrotate/app.js",
+                "cwd": "/root/.pm2/modules/pm2-logrotate/node_modules/pm2-logrotate",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713064
+            },
+            {
+                "name": "racingpoint-discord-bot",
+                "pid": 1690160,
+                "status": "online",
+                "exec": "/root/racingpoint-discord-bot/src/index.js",
+                "cwd": "/root/racingpoint-discord-bot",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713105
+            },
+            {
+                "name": "racingpoint-api-gateway",
+                "pid": 1690159,
+                "status": "online",
+                "exec": "/root/racingpoint-api-gateway/server.js",
+                "cwd": "/root/racingpoint-api-gateway",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713105
+            },
+            {
+                "name": "james-email-notifier",
+                "pid": 1690166,
+                "status": "online",
+                "exec": "/root/james-email-notifier/index.js",
+                "cwd": "/root/james-email-notifier",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713112
+            },
+            {
+                "name": "racingpoint-bot",
+                "pid": 1690172,
+                "status": "online",
+                "exec": "/root/racingpoint-whatsapp-bot/src/index.js",
+                "cwd": "/root/racingpoint-whatsapp-bot",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713118
+            },
+            {
+                "name": "racingpoint-hiring",
+                "pid": 1690178,
+                "status": "online",
+                "exec": "/root/racingpoint-hiring-bot/src/index.js",
+                "cwd": "/root/racingpoint-hiring-bot",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713122
+            },
+            {
+                "name": "racingpoint-website-api",
+                "pid": 1690185,
+                "status": "online",
+                "exec": "/root/racingpoint-website/backend/server.js",
+                "cwd": "/root/racingpoint-website/backend",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776213713126
+            },
+            {
+                "name": "racingpoint-website",
+                "pid": 1690196,
+                "status": "online",
+                "exec": "/usr/bin/npx",
+                "cwd": "/root/racingpoint-website/frontend",
+                "args": [
+                    "next",
+                    "start",
+                    "-p",
+                    "3600"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776213713144
+            },
+            {
+                "name": "comms-link",
+                "pid": 2823138,
+                "status": "online",
+                "exec": "/root/comms-link/start-bono.js",
+                "cwd": "/root/comms-link",
+                "args": [
+                    "--env",
+                    "INBOX_PATH=/root/comms-link/INBOX.md"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776328615338
+            },
+            {
+                "name": "ramu-oi-alert",
+                "pid": null,
+                "status": "stopped",
+                "exec": "/root/Ramu Bhai/oi_alert.py",
+                "cwd": "/root/Ramu Bhai",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1774437470787
+            },
+            {
+                "name": "racecontrol",
+                "pid": 1976222,
+                "status": "online",
+                "exec": "/root/racecontrol/target/release/racecontrol",
+                "cwd": "/root/racecontrol",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776629958244
+            },
+            {
+                "name": "ramu-virtual-trade",
+                "pid": null,
+                "status": "stopped",
+                "exec": "/usr/bin/python3",
+                "cwd": "/root",
+                "args": [
+                    "/root/ramu-virtual-trade.py"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1774169720280
+            },
+            {
+                "name": "auto-detect",
+                "pid": 0,
+                "status": "stopped",
+                "exec": "/usr/bin/bash",
+                "cwd": "/root/racecontrol",
+                "args": [
+                    "scripts/auto-detect.sh",
+                    "--mode",
+                    "standard"
+                ],
+                "autorestart": false,
+                "uptime_ms": 1776614700003
+            },
+            {
+                "name": "racingpoint-web",
+                "pid": 1133454,
+                "status": "online",
+                "exec": "/usr/bin/bash",
+                "cwd": "/root/racingpoint/racecontrol/web",
+                "args": [
+                    "-c",
+                    "npx next start -p 3200"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776547311865
+            },
+            {
+                "name": "racingpoint-kiosk",
+                "pid": 2167175,
+                "status": "online",
+                "exec": "/usr/bin/bash",
+                "cwd": "/root/racingpoint/racecontrol/kiosk",
+                "args": [
+                    "-c",
+                    "npx next start -p 3300"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776648129757
+            },
+            {
+                "name": "racecontrol-pwa",
+                "pid": 2167154,
+                "status": "online",
+                "exec": "/root/racecontrol/pwa/.next/standalone/server.js",
+                "cwd": "/root/racecontrol/pwa",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776648129466
+            },
+            {
+                "name": "racingpoint-dashboard",
+                "pid": 2167202,
+                "status": "online",
+                "exec": "/root/racingpoint-dashboard/.next/standalone/server.js",
+                "cwd": "/root/racingpoint-dashboard",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776648130007
+            },
+            {
+                "name": "rc-guardian",
+                "pid": null,
+                "status": "online",
+                "exec": "/root/racecontrol/target/release/rc-guardian",
+                "cwd": "/root/comms-link",
+                "args": [
+                    "--config",
+                    "/root/rc-guardian.toml"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776213713257
+            },
+            {
+                "name": "cloud-dashboard",
+                "pid": 3537799,
+                "status": "online",
+                "exec": "/usr/bin/bash",
+                "cwd": "/root/racingpoint-cloud-dashboard",
+                "args": [
+                    "-c",
+                    "npm run start -- -p 3700"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776374828571
+            },
+            {
+                "name": "whatsapp-bot",
+                "pid": 1690280,
+                "status": "online",
+                "exec": "/root/racingpoint/whatsapp-bot/node_modules/.bin/tsx",
+                "cwd": "/root/racingpoint/whatsapp-bot",
+                "args": [
+                    "src/index.ts"
+                ],
+                "autorestart": true,
+                "uptime_ms": 1776213713296
+            },
+            {
+                "name": "racingpoint-admin",
+                "pid": 1800606,
+                "status": "online",
+                "exec": "/root/racingpoint/racingpoint-admin/.next/standalone/server.js",
+                "cwd": "/root/racingpoint/racingpoint-admin",
+                "args": null,
+                "autorestart": true,
+                "uptime_ms": 1776614582064
+            }
+        ],
+        "on_disk_browser_refs": [
+            {
+                "path": "/root/racingpoint-website/frontend/package-lock.json",
+                "size": 253895,
+                "mtime_epoch": 1773086136,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racingpoint-admin/package-lock.json",
+                "size": 271370,
+                "mtime_epoch": 1774740556,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/.claude/settings.local.json",
+                "size": 27848,
+                "mtime_epoch": 1776610472,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racingpoint-dashboard/src/lib/debug-db.ts",
+                "size": 15796,
+                "mtime_epoch": 1772974808,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/kiosk/package-lock.json",
+                "size": 314835,
+                "mtime_epoch": 1776362242,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/e2e-regression/run-regression.sh",
+                "size": 5280,
+                "mtime_epoch": 1775367306,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-games-per-pod.js",
+                "size": 1250,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-debug.js",
+                "size": 2145,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-games-verify.js",
+                "size": 1963,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-f1.js",
+                "size": 2129,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/topup-verify.spec.ts",
+                "size": 5123,
+                "mtime_epoch": 1775905312,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-f1-flow.js",
+                "size": 2133,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-hud.js",
+                "size": 1584,
+                "mtime_epoch": 1774000704,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/screenshot-kiosk-e2e.js",
+                "size": 3375,
+                "mtime_epoch": 1774084060,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/page-crawler/auth-setup.ts",
+                "size": 4659,
+                "mtime_epoch": 1775891748,
+                "matches": "Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/tests/test-pos-pin.js",
+                "size": 2782,
+                "mtime_epoch": 1775890419,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/deploy-staging/racecontrol.toml",
+                "size": 23526,
+                "mtime_epoch": 1776320786,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/training/data/eval.json",
+                "size": 10681,
+                "mtime_epoch": 1773646171,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/training/data/ops_pairs.json",
+                "size": 18724,
+                "mtime_epoch": 1773646171,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/diagnostics/capture-blanking-frames.js",
+                "size": 2184,
+                "mtime_epoch": 1775734516,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/diagnostics/frontend-probe.js",
+                "size": 5008,
+                "mtime_epoch": 1775717961,
+                "matches": "Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/deploy/restart-pos-kiosk.sh",
+                "size": 1541,
+                "mtime_epoch": 1774379347,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/flow-verify.js",
+                "size": 12804,
+                "mtime_epoch": 1775244010,
+                "matches": "Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-or-grok3.json",
+                "size": 4092,
+                "mtime_epoch": 1775015135,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/screenshot-url.js",
+                "size": 2596,
+                "mtime_epoch": 1775244010,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/verify-pos.js",
+                "size": 10141,
+                "mtime_epoch": 1774777730,
+                "matches": "Chromium,Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/rc-doctor.sh",
+                "size": 29807,
+                "mtime_epoch": 1775241055,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-or-deepseek-r1.json",
+                "size": 4096,
+                "mtime_epoch": 1775015135,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/web-verify.js",
+                "size": 10871,
+                "mtime_epoch": 1775246166,
+                "matches": "Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/scripts/audit/autostart-surfaces.sh",
+                "size": 8308,
+                "mtime_epoch": 1776648179,
+                "matches": "--app=http,--kiosk,chromium,msedge,playwright,puppeteer"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-or-deepseek-v3.json",
+                "size": 4106,
+                "mtime_epoch": 1775015135,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-or-gemini-25-pro.json",
+                "size": 4105,
+                "mtime_epoch": 1775015135,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-or-qwen3-coder.json",
+                "size": 4092,
+                "mtime_epoch": 1775015135,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/scripts/mma-edge-popup-audit.json",
+                "size": 4133,
+                "mtime_epoch": 1775882973,
+                "matches": "msEdge"
+            },
+            {
+                "path": "/root/racecontrol/audit/server-23-autostart-baseline-2026-04-20.json",
+                "size": 132756,
+                "mtime_epoch": 1776646515,
+                "matches": "--kiosk,msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pod-8-autostart-baseline-2026-04-20.json",
+                "size": 117535,
+                "mtime_epoch": 1776647489,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pod-3-autostart-baseline-2026-04-20.json",
+                "size": 119038,
+                "mtime_epoch": 1776647489,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pos-verify/results.json",
+                "size": 1502,
+                "mtime_epoch": 1775015135,
+                "matches": "Chromium"
+            },
+            {
+                "path": "/root/racecontrol/audit/pos-autostart-baseline-2026-04-20.json",
+                "size": 100361,
+                "mtime_epoch": 1776645964,
+                "matches": "--kiosk,msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pod-6-autostart-baseline-2026-04-20.json",
+                "size": 116664,
+                "mtime_epoch": 1776647489,
+                "matches": "--kiosk,msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pod-5-autostart-baseline-2026-04-20.json",
+                "size": 121994,
+                "mtime_epoch": 1776647489,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/audit/pod-7-autostart-baseline-2026-04-20.json",
+                "size": 113225,
+                "mtime_epoch": 1776647489,
+                "matches": "--kiosk,msedge"
+            },
+            {
+                "path": "/root/racecontrol/test/e2e/run-e2e.sh",
+                "size": 34487,
+                "mtime_epoch": 1775811666,
+                "matches": "--kiosk"
+            },
+            {
+                "path": "/root/racecontrol/racecontrol.toml",
+                "size": 23559,
+                "mtime_epoch": 1776320786,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/deploy-configs/process-guard-allowlist.toml",
+                "size": 15700,
+                "mtime_epoch": 1775535641,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/racecontrol/web/package-lock.json",
+                "size": 440979,
+                "mtime_epoch": 1776362242,
+                "matches": "chromium,playwright"
+            },
+            {
+                "path": "/root/racecontrol/configs/process-guard-allowlist.toml",
+                "size": 13229,
+                "mtime_epoch": 1775535641,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/action-router.js",
+                "size": 28599,
+                "mtime_epoch": 1772210082,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/cdp-driver.d.ts",
+                "size": 9568,
+                "mtime_epoch": 1772210082,
+                "matches": "Playwright,msedge,playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/computer-use.js",
+                "size": 36462,
+                "mtime_epoch": 1772210082,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/browser-layer.js",
+                "size": 17600,
+                "mtime_epoch": 1772210082,
+                "matches": "Chromium,Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/browser-layer.d.ts",
+                "size": 2536,
+                "mtime_epoch": 1772210082,
+                "matches": "Chromium,Playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/cdp-driver.js",
+                "size": 36253,
+                "mtime_epoch": 1772210082,
+                "matches": "Playwright,chromium,msedge,playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/dist/agent.js",
+                "size": 32918,
+                "mtime_epoch": 1772210082,
+                "matches": "Chromium,Playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/src/agent.ts",
+                "size": 28395,
+                "mtime_epoch": 1772210076,
+                "matches": "Chromium,Playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/src/browser-layer.ts",
+                "size": 15929,
+                "mtime_epoch": 1772210076,
+                "matches": "Chromium,Playwright,chromium,playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/src/cdp-driver.ts",
+                "size": 34493,
+                "mtime_epoch": 1772210076,
+                "matches": "Playwright,chromium,msedge,playwright"
+            },
+            {
+                "path": "/root/clawd-cursor/src/computer-use.ts",
+                "size": 31930,
+                "mtime_epoch": 1772210076,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/clawd-cursor/src/action-router.ts",
+                "size": 25662,
+                "mtime_epoch": 1772210076,
+                "matches": "msedge"
+            },
+            {
+                "path": "/root/package-lock.json",
+                "size": 133130,
+                "mtime_epoch": 1774619267,
+                "matches": "chromium,playwright,puppeteer"
+            },
+            {
+                "path": "/root/bin/rc-doctor.sh",
+                "size": 29807,
+                "mtime_epoch": 1775240934,
+                "matches": "msedge"
+            }
+        ],
+        "running_processes": [
+            {
+                "pid": 1690137,
+                "ppid": 1,
+                "uptime_secs": 434554,
+                "comm": "PM2",
+                "cmd": "v6.0.14: Go PM2 v6.0.14: God Daemon (/root/.pm2)"
+            },
+            {
+                "pid": 1690148,
+                "ppid": 1690137,
+                "uptime_secs": 434554,
+                "comm": "node",
+                "cmd": "/root/.pm2 node /root/.pm2/modules/pm2-logrotate/node_modules/pm2-log"
+            },
+            {
+                "pid": 2167743,
+                "ppid": 2167693,
+                "uptime_secs": 90,
+                "comm": "bash",
+                "cmd": "bash -c set -e DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; if [ $DRONE_SSH_PREV_COMMAND_EXIT_CODE -ne 0 ]; then exit $DRONE_SSH_PREV_COMMAND_EXIT_CODE; fi; echo \"=== Pull racecontrol ===\" DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; if [ $DRONE_SSH_PREV_COMMAND_EXIT_CODE -ne 0 ]; then exit $DRONE_SSH_PREV_COMMAND_EXIT_CODE; fi; cd /root/racingpoint/racecontrol DRONE_SSH_PREV_COMMAND_EXIT_CODE=$? ; if [ $DRONE_"
+            },
+            {
+                "pid": 2177014,
+                "ppid": 2177013,
+                "uptime_secs": 2,
+                "comm": "node",
+                "cmd": "node /root/racecontrol/web/node_modules/.bin/next build"
+            },
+            {
+                "pid": 2178968,
+                "ppid": 2177014,
+                "uptime_secs": 0,
+                "comm": "node",
+                "cmd": "node /root/racecontrol/web/.next/build/postcss.js 33851"
+            }
+        ]
+    }
+}
