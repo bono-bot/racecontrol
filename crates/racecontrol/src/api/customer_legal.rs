@@ -42,17 +42,24 @@ pub(crate) const ERASE_TABLES: &[(&str, &[&str])] = &[
     ("debit_intents", &["driver_id"]),
     ("dispute_requests", &["driver_id"]),
     ("billing_sessions", &["driver_id"]),
-    // Laps + records
-    ("laps", &["driver_id"]),
+    // ── Ordering-critical (FK to laps, must precede it) ─────────────────────
+    // personal_bests.lap_id, track_records.lap_id, hotlap_event_entries.lap_id
+    // all REFERENCE laps(id). personal_bests_v2 / track_records_v2 are the
+    // Phase 88 rebuilt schema — on post-rename DBs these tables no longer
+    // exist and the DELETE is a skippable no-op via is_missing_table_error.
+    // All lap-child rows MUST delete before the laps parent.
     ("personal_bests", &["driver_id"]),
+    ("personal_bests_v2", &["driver_id"]),
     ("track_records", &["driver_id"]),
+    ("track_records_v2", &["driver_id"]),
+    ("hotlap_event_entries", &["driver_id"]),
+    ("laps", &["driver_id"]),
     // Gamification
     ("driver_ratings", &["driver_id"]),
     ("driver_achievements", &["driver_id"]),
     ("streaks", &["driver_id"]),
     ("driving_passport", &["driver_id"]),
     ("variable_reward_log", &["driver_id"]),
-    ("hotlap_event_entries", &["driver_id"]),
     ("championship_standings", &["driver_id"]),
     // Social
     ("friend_requests", &["sender_id", "receiver_id"]),
@@ -112,6 +119,24 @@ pub(crate) const TRANSITIVE_ERASE_SQL: &[(&str, &str)] = &[
         "split_sessions",
         "DELETE FROM split_sessions WHERE parent_session_id IN \
          (SELECT id FROM billing_sessions WHERE driver_id = ?)",
+    ),
+    // billing_events.billing_session_id REFERENCES billing_sessions(id).
+    // Customer's per-session event stream (launch, timeout, refund-trigger,
+    // tier-change). No direct driver_id — must clear transitively before
+    // billing_sessions is deleted.
+    (
+        "billing_events",
+        "DELETE FROM billing_events WHERE billing_session_id IN \
+         (SELECT id FROM billing_sessions WHERE driver_id = ?)",
+    ),
+    // telemetry_samples.lap_id REFERENCES laps(id).
+    // Customer telemetry recorded per-lap. Without this, samples outlive the
+    // lap row and remain attributable to the erased driver via indirect join.
+    // Must clear transitively before laps is deleted.
+    (
+        "telemetry_samples",
+        "DELETE FROM telemetry_samples WHERE lap_id IN \
+         (SELECT id FROM laps WHERE driver_id = ?)",
     ),
 ];
 
