@@ -152,10 +152,48 @@ for (const slice of SLICES) {
     const sf = normSf(n);
     byFile.set(sf, (byFile.get(sf) || 0) + 1);
   }
-  for (const [sf, cnt] of [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+  const topFiles = [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [sf, cnt] of topFiles) {
     report.push(`- \`${sf}\` — ${cnt}`);
   }
   fs.writeFileSync(path.join(outDir, 'GRAPH_REPORT.md'), report.join('\n'));
+
+  // NEW: emit a lightweight vis-network graph.html so the meta-map can drill down.
+  // graphify's own HTML template is too heavyweight for slices (hyperedges, metadata panels);
+  // this is a minimal viewer with community coloring + label search.
+  const visNodes = keptNodes.slice(0, 800).map(n => ({
+    id: n.id,
+    label: (n.label || '').slice(0, 28),
+    title: `${n.label}\n${normSf(n)}\ncommunity=${n.community ?? '?'}`,
+    group: n.community ?? 0,
+  }));
+  const visLinks = keptLinks.filter(e => {
+    const ids = new Set(visNodes.map(n => n.id));
+    return ids.has(e.source) && ids.has(e.target);
+  }).map(e => ({ from: e.source, to: e.target, title: e.relation || 'calls', arrows: 'to' }));
+  const sliceHtml = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${slice.label} — slice of racecontrol</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  body { margin:0; background:#0f0f1a; color:#e0e0e0; font-family:-apple-system,Segoe UI,sans-serif; }
+  #hdr { padding:10px 16px; background:#1a1a2e; border-bottom:1px solid #2a2a4e; font-size:13px; }
+  #hdr b { color:#4E79A7; }
+  #graph { width:100vw; height:calc(100vh - 42px); }
+  #hint { color:#888; font-size:11px; margin-left:10px; }
+</style></head><body>
+<div id="hdr"><b>${slice.label}</b> — ${keptNodes.length} nodes · ${keptLinks.length} edges · ${communitiesPresent.size} communities <span id="hint">(slice of racecontrol · showing top ${visNodes.length} nodes)</span></div>
+<div id="graph"></div>
+<script>
+const nodes = new vis.DataSet(${JSON.stringify(visNodes)});
+const edges = new vis.DataSet(${JSON.stringify(visLinks)});
+new vis.Network(document.getElementById('graph'), { nodes, edges }, {
+  physics: { enabled: true, barnesHut: { gravitationalConstant: -6000, springLength: 110 } },
+  nodes: { shape: 'dot', size: 10, font: { color: '#e0e0e0', size: 11 }, borderWidth: 1 },
+  edges: { color: { color: '#445', opacity: 0.6 }, smooth: { type: 'continuous' }, width: 0.7, arrows: { to: { scaleFactor: 0.5 } } },
+  interaction: { hover: true, tooltipDelay: 200 },
+});
+</script></body></html>`;
+  fs.writeFileSync(path.join(outDir, 'graph.html'), sliceHtml);
   console.log(`  [${slice.id}] ${keptNodes.length} nodes, ${keptLinks.length} edges → ${path.relative(ROOT, outDir)}`);
   results.push({ ...slice, status: 'OK', nodes: keptNodes.length, edges: keptLinks.length, communities: communitiesPresent.size });
 }
@@ -169,17 +207,19 @@ for (const r of results) {
   );
 }
 
-// Persist a manifest so build-meta.mjs can list children without re-reading each slice
+// Persist a manifest so build-meta.mjs can list children without re-reading each slice.
+// graph_path is stored as REPO-ROOT-RELATIVE so the manifest survives graphify-meta moving.
 const manifestPath = path.join(__dirname, 'slices.json');
 fs.writeFileSync(manifestPath, JSON.stringify({
   generated_at: new Date().toISOString(),
-  source: `${RC_OUT}/graph.json`,
+  source: 'racecontrol/graphify-out/graph.json',
   slices: results.filter(r => r.status === 'OK').map(r => ({
     id: r.id,
     label: r.label,
     purpose: r.purpose,
     parent: 'racecontrol',
-    graph_path: path.join(ROOT, 'racecontrol', `graphify-out-${r.id}`, 'graph.json').replace(/\\/g, '/'),
+    graph_path: `racecontrol/graphify-out-${r.id}/graph.json`,  // ROOT-relative
+    html_path:  `racecontrol/graphify-out-${r.id}/graph.html`,  // ROOT-relative
     nodes: r.nodes,
     edges: r.edges,
     communities: r.communities,
