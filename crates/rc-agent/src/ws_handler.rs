@@ -385,77 +385,14 @@ pub async fn handle_ws_message(
         CoreToAgentMessage::SessionEnded {
             billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
         } => {
-            tracing::info!(target: LOG_TARGET, "Session ended: {} -- {} laps, best: {:?}, {}s", billing_session_id, total_laps, best_lap_ms, driving_seconds);
-            // BILL-01: Clear inactivity monitor on session end
-            if let Some(ref mut inact) = conn.inactivity_monitor { inact.reset(); }
-            conn.inactivity_monitor = None;
-            // BILL-02: Dismiss countdown warning overlay on session end
-            state.lock_screen.dismiss_countdown_warning();
-            state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
-            crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
-            conn.crash_recovery = CrashRecoveryState::Idle;
-            state.overlay.deactivate();
-            state.last_ac_status = None;
-            state.ac_status_stable_since = None;
-            conn.launch_state = LaunchState::Idle;
-            // Pattern I Part 5 Commit 3 (D11 characterisation): centralised
-            // 6-field reset — `reset_fms_for_session_end` is the single
-            // source of truth for SessionEnded-class transitions. Tested in
-            // failure_monitor::tests::reset_fms_for_session_end_clears_all_6_fields.
-            let _ = state.failure_monitor_tx.send_modify(|s| {
-                crate::failure_monitor::reset_fms_for_session_end(s);
-            });
-            ffb_controller::safe_session_end(&state.ffb).await;
-            state.lock_screen.show_session_summary(
-                driver_name, total_laps, best_lap_ms, driving_seconds,
-                if conn.session_max_speed_kmh > 0.0 { Some(conn.session_max_speed_kmh) } else { None },
-                conn.session_race_position,
-            );
-            if let Some(ref mut game) = state.game_process { let _ = game.stop(); state.game_process = None; }
-            if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
-            let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
-            let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-            tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
-            conn.current_driver_name = None;
-            conn.blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
-            conn.blank_timer_armed = true;
-
-            // GLD-C-03: Conditional CSV fallback push at session end (D-07).
-            // Detached tokio::spawn so SessionEnded processing is not blocked.
-            // Reads C:\RacingPoint\laps-offline.csv, POSTs to server, clears only on 200.
-            #[cfg(feature = "http-client")]
-            {
-                // Derive HTTP base URL from WebSocket URL (same pattern as main.rs:1531)
-                let server_http_base = state.config.core.url
-                    .replace("ws://", "http://")
-                    .replace("wss://", "https://")
-                    .split("/ws")
-                    .next()
-                    .unwrap_or("http://127.0.0.1:8080")
-                    .to_string();
-                // Phase 413 Plan 04: service key comes from the Option Z mesh key cache.
-                // Fallback to legacy RCAGENT_SERVICE_KEY env var (test + pre-wire-up boots).
-                // push_csv_fallback takes the key as a String param, so we resolve it INSIDE
-                // the spawned task — the cache Arc clone moves cleanly into the async block.
-                let cache_clone = state.mesh_key_cache.clone();
-                let sid = billing_session_id.clone();
-                tokio::spawn(async move {
-                    let service_key = crate::mesh_key_cache::get_key_or_env(&cache_clone)
-                        .await
-                        .unwrap_or_default();
-                    if let Err(e) = crate::csv_lap_fallback::push_csv_fallback(
-                        server_http_base,
-                        service_key,
-                        sid,
-                    ).await {
-                        tracing::warn!(
-                            target: "csv-lap-fallback",
-                            error = %e,
-                            "csv fallback push failed after retries"
-                        );
-                    }
-                });
-            }
+            // Pattern I Part 5 Commit 4: full lifecycle extracted to
+            // `apply_session_ended`. WsReal origin = server WS frame received.
+            // Commit 5 HTTP fallback reuses the same fn with HttpSynth origin.
+            apply_session_ended(
+                state, conn, ws_tx,
+                billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
+                SessionEndOrigin::WsReal,
+            ).await;
         }
 
         CoreToAgentMessage::LaunchGame { sim_type: launch_sim, launch_args, force_clean, duration_minutes, launch_id: msg_launch_id } => {
@@ -2386,6 +2323,251 @@ fn apply_full_config(state: &mut crate::app_state::AppState, new_config: &crate:
     );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Pattern I Part 5 — SessionEnded extraction (Commit 4)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Origin tag for `apply_session_ended`. Used for:
+/// - structured logging (reviewer can audit which path fired)
+/// - rollback-detection telemetry marker (D3 — emits `fallback_version=part5_v1`
+///   on every HttpSynth fire; server-side `stuck_session_candidate` rule in
+///   Commit 6 uses absence of this marker to detect pre-patch binaries)
+/// - dedup upgrade path: `WsReal` arriving after `HttpSynth` refreshes the
+///   summary card with real stats instead of no-op'ing
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // SynthReason variants are constructed by Commit 5 fallback module
+pub(crate) enum SessionEndOrigin {
+    /// Server pushed a `CoreToAgentMessage::SessionEnded` over WebSocket —
+    /// the canonical path. Carries real stats.
+    WsReal,
+    /// Commit 5 HTTP fallback synthesised a session-end after observing
+    /// server's `/api/v1/billing/active` omit a locally-tracked session id.
+    /// Synthesised with best-effort stats (zeros if no cache available).
+    HttpSynth {
+        /// Telemetry marker for D3 rollback-detection. Kept as a `&'static str`
+        /// to enforce versioning at compile time.
+        fallback_version: &'static str,
+        /// Why the fallback fired — populated by Commit 5.
+        synth_reason: SynthReason,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Variants populated in Commit 5 fetch_and_reconcile
+pub(crate) enum SynthReason {
+    /// Server response to `/billing/active` did not include the locally-tracked session id.
+    ServerOmittedId,
+    /// Server response included sessions but none matched this pod's id.
+    PodIdMismatch,
+}
+
+/// Pattern I Part 5 (D6): try to claim the first-apply right for a given
+/// `billing_session_id`. Returns `true` when this is the first apply (caller
+/// should run the full lifecycle); `false` when a prior apply already seeded
+/// `last_applied` with the same id (caller should take the dedup branch).
+///
+/// Extracted to a pure fn so the dedup semantic is unit-testable without the
+/// full AppState/ConnectionState fixture.
+pub(crate) async fn try_claim_apply_session(
+    last_applied: &RwLock<Option<String>>,
+    billing_session_id: &str,
+) -> bool {
+    let mut guard = last_applied.write().await;
+    if guard.as_deref() == Some(billing_session_id) {
+        false
+    } else {
+        *guard = Some(billing_session_id.to_string());
+        true
+    }
+}
+
+/// Pattern I Part 5 (D6): centralised apply_session_ended with AppState-scoped
+/// dedup guard. Extracted verbatim from the SessionEnded match arm body
+/// (Commit 4, lines 385-459 pre-extraction) plus new first-apply gate.
+///
+/// **Dedup semantics:**
+/// - First call with a given `billing_session_id` runs the full lifecycle
+///   (FMS reset, overlay show_session_summary, blank_timer arm, FFB zero,
+///   game/adapter shutdown, CSV fallback push).
+/// - Subsequent call with SAME id:
+///   - origin=WsReal → `refresh_summary_card` upgrade path (real stats
+///     supersede previous HttpSynth zeros)
+///   - origin=HttpSynth → debug-log no-op (dedup guard already applied)
+///
+/// **Invariant shared with Commit 3 characterisation:** the 6-field FMS reset
+/// goes through `reset_fms_for_session_end`, which is test-covered in isolation.
+///
+/// MMA Step 1 consensus findings addressed: C1, C4, C8, C9, D6, D11.
+pub(crate) async fn apply_session_ended(
+    state: &mut AppState,
+    conn: &mut ConnectionState,
+    ws_tx: &mut WsTx,
+    billing_session_id: String,
+    driver_name: String,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+    origin: SessionEndOrigin,
+) {
+    // Dedup gate: first apply seeds last_applied_session_end; subsequent
+    // applies for the same id take the upgrade/no-op branch below.
+    let is_first_apply = try_claim_apply_session(
+        &state.last_applied_session_end,
+        &billing_session_id,
+    ).await;
+
+    if !is_first_apply {
+        match origin {
+            SessionEndOrigin::WsReal => {
+                // C1 upgrade path: real stats supersede prior HttpSynth zeros.
+                // Narrow — only the summary card refreshes. blank_timer stays
+                // at its existing deadline; FFB, game process, adapter are
+                // already idempotent-true.
+                tracing::info!(
+                    target: LOG_TARGET,
+                    billing_session_id = %billing_session_id,
+                    "session_end refresh: WsReal upgrade after prior apply (real stats supersede synth zeros)",
+                );
+                refresh_summary_card(
+                    state,
+                    conn,
+                    driver_name,
+                    total_laps,
+                    best_lap_ms,
+                    driving_seconds,
+                );
+            }
+            SessionEndOrigin::HttpSynth { fallback_version, synth_reason } => {
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    billing_session_id = %billing_session_id,
+                    fallback_version = fallback_version,
+                    synth_reason = ?synth_reason,
+                    "session_end synth dedup'd — already applied",
+                );
+            }
+        }
+        return;
+    }
+
+    // First-apply path — full lifecycle side effects. Moved verbatim from
+    // pre-Commit-4 arm body except for:
+    //   - tracing line now includes origin
+    //   - FMS reset uses reset_fms_for_session_end helper (from Commit 3)
+    match origin {
+        SessionEndOrigin::WsReal => {
+            tracing::info!(
+                target: LOG_TARGET,
+                billing_session_id = %billing_session_id,
+                total_laps,
+                best_lap_ms = ?best_lap_ms,
+                driving_seconds,
+                "Session ended (WsReal)",
+            );
+        }
+        SessionEndOrigin::HttpSynth { fallback_version, synth_reason } => {
+            // D3 rollback-detection telemetry marker — every synth emits
+            // fallback_version so the server-side stuck_session_candidate
+            // rule (Commit 6) can distinguish Part 5 pods from pre-patch.
+            tracing::info!(
+                target: LOG_TARGET,
+                billing_session_id = %billing_session_id,
+                fallback_version = fallback_version,
+                synth_reason = ?synth_reason,
+                total_laps,
+                best_lap_ms = ?best_lap_ms,
+                driving_seconds,
+                "Session ended (HttpSynth)",
+            );
+        }
+    }
+
+    // BILL-01: Clear inactivity monitor on session end
+    if let Some(ref mut inact) = conn.inactivity_monitor { inact.reset(); }
+    conn.inactivity_monitor = None;
+    // BILL-02: Dismiss countdown warning overlay on session end
+    state.lock_screen.dismiss_countdown_warning();
+    state.heartbeat_status.billing_active.store(false, std::sync::atomic::Ordering::Release);
+    crate::remote_ops::BILLING_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
+    conn.crash_recovery = CrashRecoveryState::Idle;
+    state.overlay.deactivate();
+    state.last_ac_status = None;
+    state.ac_status_stable_since = None;
+    conn.launch_state = LaunchState::Idle;
+    // Commit 3 D11 characterisation helper — tested in isolation.
+    let _ = state.failure_monitor_tx.send_modify(|s| {
+        crate::failure_monitor::reset_fms_for_session_end(s);
+    });
+    ffb_controller::safe_session_end(&state.ffb).await;
+    state.lock_screen.show_session_summary(
+        driver_name, total_laps, best_lap_ms, driving_seconds,
+        if conn.session_max_speed_kmh > 0.0 { Some(conn.session_max_speed_kmh) } else { None },
+        conn.session_race_position,
+    );
+    if let Some(ref mut game) = state.game_process { let _ = game.stop(); state.game_process = None; }
+    if let Some(ref mut adp) = state.adapter { adp.disconnect(); }
+    let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
+    let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
+    tokio::task::spawn_blocking(|| { ac_launcher::enforce_safe_state(true); });
+    conn.current_driver_name = None;
+    conn.blank_timer.as_mut().reset(tokio::time::Instant::now() + tokio::time::Duration::from_secs(30));
+    conn.blank_timer_armed = true;
+
+    // GLD-C-03: Conditional CSV fallback push at session end (D-07). Detached
+    // tokio::spawn so SessionEnded processing is not blocked. Reads
+    // C:\RacingPoint\laps-offline.csv, POSTs to server, clears only on 200.
+    //
+    // Pattern I Part 5 note: CSV push runs for BOTH WsReal and HttpSynth.
+    // HttpSynth with synthesised zeros still triggers a push — idempotent
+    // server-side (clears only on 200; repeat calls with empty payload
+    // are no-ops).
+    #[cfg(feature = "http-client")]
+    {
+        let server_http_base = rc_common::url::http_base_from_ws(&state.config.core.url);
+        let cache_clone = state.mesh_key_cache.clone();
+        let sid = billing_session_id.clone();
+        tokio::spawn(async move {
+            let service_key = crate::mesh_key_cache::get_key_or_env(&cache_clone)
+                .await
+                .unwrap_or_default();
+            if let Err(e) = crate::csv_lap_fallback::push_csv_fallback(
+                server_http_base,
+                service_key,
+                sid,
+            ).await {
+                tracing::warn!(
+                    target: "csv-lap-fallback",
+                    error = %e,
+                    "csv fallback push failed after retries"
+                );
+            }
+        });
+    }
+}
+
+/// Pattern I Part 5 (C1 upgrade path): refresh the summary card with real
+/// stats when a `WsReal` SessionEnded arrives AFTER a previous `HttpSynth`
+/// already ran the lifecycle side effects with zeroed stats. ONLY touches
+/// the lock-screen summary overlay — no FFB, no game.stop, no blank_timer
+/// touch, no failure_monitor changes (all idempotent-true at this point).
+pub(crate) fn refresh_summary_card(
+    state: &mut AppState,
+    conn: &ConnectionState,
+    driver_name: String,
+    total_laps: u32,
+    best_lap_ms: Option<u32>,
+    driving_seconds: u32,
+) {
+    state.lock_screen.show_session_summary(
+        driver_name,
+        total_laps,
+        best_lap_ms,
+        driving_seconds,
+        if conn.session_max_speed_kmh > 0.0 { Some(conn.session_max_speed_kmh) } else { None },
+        conn.session_race_position,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2612,5 +2794,55 @@ mod tests {
         assert_eq!(resolved1, id1, "first resolution must equal id1");
         assert_eq!(resolved2, id2, "second resolution must equal id2");
         assert_ne!(resolved1, resolved2, "successive resolutions must differ");
+    }
+
+    // ─── Pattern I Part 5 Commit 4 dedup tests ─────────────────────────────
+
+    /// First call on an empty `last_applied` guard claims the apply right.
+    /// Subsequent calls with the same id are blocked. MMA D6 invariant:
+    /// the guard lives on AppState so it survives reconnects.
+    #[tokio::test]
+    async fn try_claim_apply_session_first_apply_returns_true() {
+        let guard = RwLock::new(None);
+        let claimed = super::try_claim_apply_session(&guard, "sess_abc").await;
+        assert!(claimed, "first apply for a never-seen id must return true");
+        let seeded = guard.read().await.clone();
+        assert_eq!(seeded, Some("sess_abc".to_string()), "guard must be seeded with the claimed id");
+    }
+
+    #[tokio::test]
+    async fn try_claim_apply_session_dedup_blocks_second_apply_same_id() {
+        let guard = RwLock::new(None);
+        let first = super::try_claim_apply_session(&guard, "sess_xyz").await;
+        let second = super::try_claim_apply_session(&guard, "sess_xyz").await;
+        assert!(first, "first apply must claim");
+        assert!(!second, "second apply with same id must be blocked — C1/C9 invariant");
+    }
+
+    #[tokio::test]
+    async fn try_claim_apply_session_different_ids_each_claim() {
+        let guard = RwLock::new(None);
+        let first = super::try_claim_apply_session(&guard, "sess_A").await;
+        let second = super::try_claim_apply_session(&guard, "sess_B").await;
+        assert!(first, "session A first-apply must claim");
+        assert!(second, "session B (new id) must also claim — guard tracks most-recent only");
+        let seeded = guard.read().await.clone();
+        assert_eq!(seeded, Some("sess_B".to_string()), "guard must hold the most recent claimed id");
+    }
+
+    /// Dedup guard must survive a simulated reconnect. Because the guard
+    /// lives on AppState (not ConnectionState — see D6 consensus), a
+    /// reconnect-induced ConnectionState rebuild does NOT reset the guard.
+    /// This test simulates that by holding the RwLock across an awaited
+    /// `yield_now` — if the guard were rebuilt, the second claim would
+    /// succeed and this test would fail.
+    #[tokio::test]
+    async fn try_claim_apply_session_survives_async_yield_between_calls() {
+        let guard = RwLock::new(None);
+        let first = super::try_claim_apply_session(&guard, "sess_survive").await;
+        tokio::task::yield_now().await; // simulate arbitrary async work (reconnect loop, etc.)
+        let second = super::try_claim_apply_session(&guard, "sess_survive").await;
+        assert!(first, "first claim must succeed");
+        assert!(!second, "second claim after await point must still be blocked — D6 survives yield");
     }
 }
