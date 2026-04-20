@@ -1004,6 +1004,148 @@ mod data_rights_tests {
             .expect("count drivers after erase");
         assert_eq!(n_driver, 0, "drivers row not deleted");
     }
+
+    // Full-router integration test for DPDP data-delete.
+    //
+    // The five tests above call `customer_data_delete` in-process, which bypasses
+    // the axum router, JWT extractor middleware, and HTTP method matching. This
+    // test routes a real DELETE request through `crate::api::build_router` so a
+    // regression at the routing / middleware / method-dispatch layer is caught
+    // even when the handler itself is correct. Mirrors the telemetry-fallback
+    // pattern at routes_tests.rs:1680-1720.
+    #[tokio::test]
+    async fn data_delete_via_full_router_erases_all_tables() {
+        use crate::api::customer_legal::{ERASE_TABLES, POINTER_TABLES};
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = make_state_with_db().await;
+        let driver_id = "d-full-router";
+
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind(driver_id).bind("Full Router Test")
+            .execute(&state.db).await.expect("insert driver");
+
+        let mut seeded_tables: Vec<(&str, &[&str])> = Vec::new();
+        for (table, columns) in ERASE_TABLES.iter() {
+            let first_col = columns[0];
+            let sql = format!("INSERT INTO {} ({}) VALUES (?)", table, first_col);
+            if sqlx::query(&sql).bind(driver_id).execute(&state.db).await.is_ok() {
+                seeded_tables.push((*table, *columns));
+            }
+        }
+        let mut seeded_pointers: Vec<(&str, &str)> = Vec::new();
+        for (table, column) in POINTER_TABLES.iter() {
+            let sql = format!("INSERT INTO {} (id, {}) VALUES (?, ?)", table, column);
+            if sqlx::query(&sql)
+                .bind(format!("ptr-{}", table))
+                .bind(driver_id)
+                .execute(&state.db)
+                .await
+                .is_ok()
+            {
+                seeded_pointers.push((*table, *column));
+            }
+        }
+
+        assert!(
+            seeded_tables.len() >= 15,
+            "test harness must seed at least 15 ERASE_TABLES entries, got {}",
+            seeded_tables.len()
+        );
+
+        // Build the full public router (nest at /api/v1 + with_state wiring).
+        let app = crate::api::build_router(state.clone());
+
+        // Mint a real JWT using the same secret the middleware will validate.
+        let token = crate::auth::create_jwt(driver_id, &state.config.auth.jwt_secret)
+            .expect("generate test JWT");
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/api/v1/customer/data-delete")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .expect("build request");
+
+        let resp = app.oneshot(req).await.expect("router oneshot");
+        assert_eq!(
+            resp.status(),
+            StatusCode::NO_CONTENT,
+            "full-router DELETE /api/v1/customer/data-delete must return 204, got {}",
+            resp.status()
+        );
+
+        // Handler ran end-to-end through the router: verify every seeded row is gone.
+        for (table, columns) in &seeded_tables {
+            let where_clause = columns
+                .iter()
+                .map(|c| format!("{} = ?", c))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let sql = format!("SELECT COUNT(*) FROM {} WHERE {}", table, where_clause);
+            let mut q = sqlx::query_as::<_, (i64,)>(&sql);
+            for _ in columns.iter() {
+                q = q.bind(driver_id);
+            }
+            let (n,) = q.fetch_one(&state.db).await.expect("count after erase");
+            assert_eq!(
+                n, 0,
+                "router-layer DPDP erase leaked PII: table={} still has {} rows",
+                table, n
+            );
+        }
+
+        // Pointer tables: rows survive, the column is nulled.
+        for (table, column) in &seeded_pointers {
+            let sql = format!("SELECT COUNT(*) FROM {} WHERE {} = ?", table, column);
+            let (n_stale,): (i64,) = sqlx::query_as(&sql)
+                .bind(driver_id)
+                .fetch_one(&state.db)
+                .await
+                .expect("count pointer rows");
+            assert_eq!(
+                n_stale, 0,
+                "router-layer DPDP erase left dangling pointer: {}.{}",
+                table, column
+            );
+        }
+
+        let (n_driver,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?")
+            .bind(driver_id)
+            .fetch_one(&state.db)
+            .await
+            .expect("count drivers after erase");
+        assert_eq!(n_driver, 0, "router-layer erase: drivers row not deleted");
+    }
+
+    // Falsifiable check: no auth header at the ROUTER layer should return 401
+    // (not 500). Catches regressions where a route is moved out of the JWT-gated
+    // section — the direct-handler test can't see this.
+    #[tokio::test]
+    async fn data_delete_via_full_router_without_jwt_returns_401() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let state = make_state_with_db().await;
+        let app = crate::api::build_router(state);
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/api/v1/customer/data-delete")
+            .body(Body::empty())
+            .expect("build request");
+
+        let resp = app.oneshot(req).await.expect("router oneshot");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "no-JWT must return 401 at router layer, got {}",
+            resp.status()
+        );
+    }
 }
 
 #[cfg(test)]
