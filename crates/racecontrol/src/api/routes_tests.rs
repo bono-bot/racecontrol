@@ -1148,6 +1148,186 @@ mod data_rights_tests {
     }
 }
 
+// Unit tests for game_launch_history `since=` + `sim_type=` filters added in
+// 07b7db55. Covers the 4 branch combos (pod×since, pod×sim, nopod×since,
+// nopod×sim) plus both-filters-together. These exercise the raw SQL branching
+// in game_state.rs:80-139 directly — the full-router layer is out of scope
+// because the endpoint is GET-only and unauthenticated (no middleware gap to
+// close).
+#[cfg(test)]
+mod game_launch_history_filter_tests {
+    use super::*;
+    use axum::extract::{Query, State};
+    use std::sync::Arc;
+
+    async fn make_gsh_state() -> Arc<AppState> {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        // Match production schema including clean_exit_heuristic — the
+        // handler SELECT uses COALESCE(clean_exit_heuristic, 0) which requires
+        // the column to exist (COALESCE handles NULLs, not missing columns).
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS game_launch_events (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT NOT NULL,
+                sim_type TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                pid INTEGER,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                clean_exit_heuristic INTEGER NOT NULL DEFAULT 0
+            )",
+        )
+        .execute(&db)
+        .await
+        .expect("create game_launch_events");
+
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, db, field_cipher))
+    }
+
+    async fn seed_event(
+        state: &AppState,
+        id: &str,
+        pod_id: &str,
+        sim_type: &str,
+        created_at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO game_launch_events (id, pod_id, sim_type, event_type, created_at) \
+             VALUES (?, ?, ?, 'crash', ?)",
+        )
+        .bind(id)
+        .bind(pod_id)
+        .bind(sim_type)
+        .bind(created_at)
+        .execute(&state.db)
+        .await
+        .expect("seed event");
+    }
+
+    fn q(v: serde_json::Value) -> Query<crate::api::game_state::GameHistoryQuery> {
+        Query(
+            serde_json::from_value::<crate::api::game_state::GameHistoryQuery>(v)
+                .expect("deserialize GameHistoryQuery"),
+        )
+    }
+
+    fn event_ids(json: &serde_json::Value) -> Vec<String> {
+        json["events"]
+            .as_array()
+            .expect("events array")
+            .iter()
+            .map(|e| e["id"].as_str().expect("id string").to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn pod_plus_since_returns_only_newer_events_on_that_pod() {
+        let state = make_gsh_state().await;
+        seed_event(&state, "e1", "pod-1", "AssettoCorsa", "2026-04-20T10:00:00Z").await;
+        seed_event(&state, "e2", "pod-1", "AssettoCorsa", "2026-04-20T12:00:00Z").await;
+        seed_event(&state, "e3", "pod-2", "AssettoCorsa", "2026-04-20T12:00:00Z").await;
+
+        let query = q(serde_json::json!({"pod_id": "pod-1", "since": "2026-04-20T11:00:00Z"}));
+        let resp = crate::api::game_state::game_launch_history(State(state), query).await;
+        let ids = event_ids(&resp.0);
+        assert_eq!(ids, vec!["e2"], "pod+since must exclude older row and other pod");
+    }
+
+    #[tokio::test]
+    async fn pod_plus_sim_type_returns_only_matching_sim_on_that_pod() {
+        let state = make_gsh_state().await;
+        seed_event(&state, "e1", "pod-1", "AssettoCorsa", "2026-04-20T10:00:00Z").await;
+        seed_event(&state, "e2", "pod-1", "AssettoCorsaRally", "2026-04-20T10:05:00Z").await;
+        seed_event(&state, "e3", "pod-2", "AssettoCorsaRally", "2026-04-20T10:10:00Z").await;
+
+        let query = q(serde_json::json!({"pod_id": "pod-1", "sim_type": "AssettoCorsaRally"}));
+        let resp = crate::api::game_state::game_launch_history(State(state), query).await;
+        let ids = event_ids(&resp.0);
+        assert_eq!(ids, vec!["e2"], "pod+sim must exclude non-matching sim and other pod");
+    }
+
+    #[tokio::test]
+    async fn nopod_plus_since_returns_newer_events_across_all_pods() {
+        let state = make_gsh_state().await;
+        seed_event(&state, "e1", "pod-1", "AssettoCorsa", "2026-04-20T10:00:00Z").await;
+        seed_event(&state, "e2", "pod-2", "F1_25", "2026-04-20T11:30:00Z").await;
+        seed_event(&state, "e3", "pod-3", "iRacing", "2026-04-20T12:00:00Z").await;
+
+        let query = q(serde_json::json!({"since": "2026-04-20T11:00:00Z"}));
+        let resp = crate::api::game_state::game_launch_history(State(state), query).await;
+        let mut ids = event_ids(&resp.0);
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec!["e2".to_string(), "e3".to_string()],
+            "nopod+since must return all newer events regardless of pod"
+        );
+    }
+
+    #[tokio::test]
+    async fn nopod_plus_sim_type_returns_matching_sim_across_all_pods() {
+        let state = make_gsh_state().await;
+        seed_event(&state, "e1", "pod-1", "AssettoCorsa", "2026-04-20T10:00:00Z").await;
+        seed_event(&state, "e2", "pod-2", "AssettoCorsaRally", "2026-04-20T10:05:00Z").await;
+        seed_event(&state, "e3", "pod-3", "AssettoCorsaRally", "2026-04-20T10:10:00Z").await;
+
+        let query = q(serde_json::json!({"sim_type": "AssettoCorsaRally"}));
+        let resp = crate::api::game_state::game_launch_history(State(state), query).await;
+        let mut ids = event_ids(&resp.0);
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec!["e2".to_string(), "e3".to_string()],
+            "nopod+sim must return matching-sim events across all pods"
+        );
+    }
+
+    #[tokio::test]
+    async fn both_filters_intersect_when_used_together() {
+        let state = make_gsh_state().await;
+        // Intended-match row:
+        seed_event(&state, "e_match", "pod-1", "AssettoCorsaRally", "2026-04-20T12:00:00Z").await;
+        // Excluded by since:
+        seed_event(&state, "e_old", "pod-1", "AssettoCorsaRally", "2026-04-20T10:00:00Z").await;
+        // Excluded by sim_type:
+        seed_event(&state, "e_wrong_sim", "pod-1", "AssettoCorsa", "2026-04-20T12:30:00Z").await;
+        // Excluded by both:
+        seed_event(&state, "e_both_wrong", "pod-1", "F1_25", "2026-04-20T09:00:00Z").await;
+        // Different pod, otherwise matching — passes when no pod_id filter:
+        seed_event(&state, "e_other_pod", "pod-2", "AssettoCorsaRally", "2026-04-20T13:00:00Z").await;
+
+        // With pod_id: only e_match.
+        let query = q(serde_json::json!({
+            "pod_id": "pod-1",
+            "since": "2026-04-20T11:00:00Z",
+            "sim_type": "AssettoCorsaRally",
+        }));
+        let resp = crate::api::game_state::game_launch_history(State(state.clone()), query).await;
+        let ids = event_ids(&resp.0);
+        assert_eq!(ids, vec!["e_match"], "3-filter pod-scoped must intersect all three");
+
+        // Without pod_id: e_match + e_other_pod.
+        let query = q(serde_json::json!({
+            "since": "2026-04-20T11:00:00Z",
+            "sim_type": "AssettoCorsaRally",
+        }));
+        let resp = crate::api::game_state::game_launch_history(State(state), query).await;
+        let mut ids = event_ids(&resp.0);
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec!["e_match".to_string(), "e_other_pod".to_string()],
+            "2-filter no-pod must intersect since+sim across pods"
+        );
+    }
+}
+
 #[cfg(test)]
 mod config_snapshot_tests {
     use super::*;
