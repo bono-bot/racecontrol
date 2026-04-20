@@ -140,6 +140,73 @@ if [ -n "$TS_STAGED" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Check 4: Workflow-plan cascade (Day 3 gate)
+# ---------------------------------------------------------------------------
+# Runs the Day 2 orchestrator (board-state-generate + dpdp-coverage-check +
+# future types/protocol/http/fleet checkers) to block commits that introduce
+# board-state coverage regressions. Uses save/restore on the two working-tree
+# artifacts the orchestrator rewrites (.planning/board-state.json +
+# .planning/board-state/status.json), so the hook leaves no residue in the
+# working tree regardless of outcome.
+#
+# This is the specific regression that would have blocked 4ab2e835 (22-table
+# DPDP rewrite missing 18 FK edges + 2 pointer entries + 1 transitive clear)
+# and later 1257a1b5-era gaps (personal_bests_v2 / track_records_v2 + 3 lap
+# ordering bugs + 2 transitive-to-parent holes).
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+ORCHESTRATOR="$REPO_ROOT/scripts/audit/run-all-checkers.sh"
+BOARD_STATE_JSON="$REPO_ROOT/.planning/board-state.json"
+BOARD_STATE_STATUS="$REPO_ROOT/.planning/board-state/status.json"
+
+if [ -n "$REPO_ROOT" ] && [ -x "$ORCHESTRATOR" ] && [ -z "${WORKFLOW_CASCADE_SKIP:-}" ]; then
+  echo ""
+  echo "Workflow-plan cascade (Day 3 pre-commit gate)..."
+
+  SAVED_BOARD="$(mktemp -t wf-pc-board.XXXXXX)"
+  SAVED_STATUS="$(mktemp -t wf-pc-status.XXXXXX)"
+  # EXIT trap cleans up tmpfiles whether we fail, succeed, or crash mid-check.
+  trap 'rm -f "$SAVED_BOARD" "$SAVED_STATUS"' EXIT
+
+  [ -f "$BOARD_STATE_JSON"   ] && cp "$BOARD_STATE_JSON"   "$SAVED_BOARD"
+  [ -f "$BOARD_STATE_STATUS" ] && cp "$BOARD_STATE_STATUS" "$SAVED_STATUS"
+
+  # Orchestrator exits 1 on red / 2 on generator_error, which 'set -e' would
+  # treat as hook failure. Disable -e around the call, capture exit explicitly.
+  set +e
+  CASCADE_OUT="$(bash "$ORCHESTRATOR" 2>&1)"
+  CASCADE_EXIT=$?
+  set -e
+
+  # Restore saved artifacts — pre-commit hook is NOT allowed to dirty the tree.
+  # (Writes would appear as unstaged diffs the next time the user runs git status.)
+  [ -s "$SAVED_BOARD"  ] && cp "$SAVED_BOARD"  "$BOARD_STATE_JSON"
+  [ -s "$SAVED_STATUS" ] && cp "$SAVED_STATUS" "$BOARD_STATE_STATUS"
+
+  # Surface just the summary line (one-line workflow-check ... line from orchestrator).
+  echo "$CASCADE_OUT" | grep '^workflow-check ' || echo "(orchestrator produced no summary line — see full output below)"
+
+  case "$CASCADE_EXIT" in
+    0) pass "Workflow-plan cascade all-green" ;;
+    1)
+      fail "Workflow-plan cascade RED — at least one checker found a gap"
+      echo "    Full diagnostic: bash scripts/audit/run-all-checkers.sh"
+      echo "    Details:        cat .planning/board-state/status.json"
+      echo "    Bypass (only if you understand the consequence): WORKFLOW_CASCADE_SKIP=1 git commit ..."
+      ;;
+    2)
+      fail "Workflow-plan cascade GENERATOR_ERROR — source unparseable"
+      echo "    Full output (trimmed):"
+      echo "$CASCADE_OUT" | tail -20 | sed 's/^/    /'
+      ;;
+    *)
+      fail "Workflow-plan cascade exited unexpectedly with code $CASCADE_EXIT"
+      echo "$CASCADE_OUT" | tail -10 | sed 's/^/    /'
+      ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
 
@@ -148,7 +215,8 @@ if [ $FAILURES -gt 0 ]; then
   echo "${RED}Pre-commit check FAILED${RESET} ($FAILURES issue(s) found)"
   echo "Fix the issues above or use --no-verify to bypass (NOT recommended)."
   exit 1
-else
-  echo "${GREEN}Pre-commit check passed${RESET}"
-  exit 0
 fi
+echo "${GREEN}Pre-commit check passed${RESET}"
+# NOTE: no `exit 0` here — scripts/install-git-hooks.sh appends a smart-pipes
+# security-scan invocation after this line, and its exit code becomes the
+# hook's exit code. Adding `exit 0` would make that appendix unreachable.
