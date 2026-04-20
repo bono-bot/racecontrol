@@ -214,13 +214,19 @@ If graph.json grows WITHOUT a matching racecontrol commit within the last minute
 - Edge count: **7 → 16** (admin 3 → 12). `/api/rc/staff` now correctly maps to `auth_staff.rs` + `staff_checklists.rs`.
 - One known false-positive: `admin -> scan/bank-statement` resolves to `game_state.rs` via generic `state` token. The `normalized.includes('_' + tok)` match is too permissive for 4-5 char tokens. Noted but not fixed — 1/12 noise rate is acceptable.
 
-### Priority G — Extract kiosk/web/admin-api as sub-modules (1-2 hours)
-Build a sub-module slicer that reads racecontrol/graph.json and filters by source-file prefix to produce:
-- `racecontrol/graphify-out-kiosk/graph.json`
-- `racecontrol/graphify-out-web/graph.json`
-- `racecontrol/graphify-out-admin-api/graph.json`
+### Priority G — DONE in session-2
+- `slice-submodules.mjs` (new file, 188 lines) reads racecontrol/graphify-out/graph.json + 8 slice predicates → writes `racecontrol/graphify-out-<id>/graph.json` per slice + `slices.json` manifest.
+- Slices produced: kiosk (232n/182e/55c), web (342n/308e/68c), pwa-legacy (128n/95e/23c), admin-api (38n/32e/4c), billing-api (85n/108e/5c), customer-api (98n/132e/6c), rc-agent (2247n/4707e/36c), rc-sentry (396n/776e/13c). c = communities present (subset of the 519 in parent).
+- `build-meta.mjs` extended: loads slices.json and adds children with `parent: 'racecontrol'` + `graph_path_override`. Meta-graph now shows 16 modules (was 8). Label-overlap edges surface noise between rc.web/rc.pwa/rc.kiosk — all three are Next.js apps sharing `page.tsx` / `layout.tsx` top labels. Known noise, not yet filtered.
+- Slice output dirs (`graphify-out-*/`) added to racecontrol/.gitignore — regenerable from graph.json + slice-submodules.mjs.
+- Committed in `44ac83b2`. Pushed.
 
-Wire into meta-map as child nodes under racecontrol. Requires extending `build-meta.mjs` with a `parent_module` field.
+### False-positive fix (bonus, session-2)
+- api-edges.mjs matcher rewritten from `tok.includes('_' + normalized)` substring check to `haystack.split(/[_/]/).includes(needle)` segment-boundary check.
+- Before: `/api/scan/bank-statement` matched `game_state.rs` via `_state` substring inside `bank_statement` (false positive).
+- After: no substring-only matches; `hr/attendance` → `admin_hr.rs` still works (segment match).
+- Edge count: 16 → 17. Admin 11, comms-link 3 (+1), whatsapp 3 (+1).
+- Output path for api-edges.json + meta.html/meta-graph.json migrated to `__dirname`-relative so it works after the Priority E relocation.
 
 ---
 
@@ -253,14 +259,18 @@ Wire into meta-map as child nodes under racecontrol. Requires extending `build-m
   - (2) Claimed G11 "fixed" based on `group` field presence without behavior-verifying the legend (proxy test)
   - (3) graph.json drift from 9811 → 9834 during session, root cause unidentified (save_manifest hypothesis untested) — **RESOLVED session-2**: post-commit hook, not save_manifest
 
-### session-2 (2026-04-20 01:10–06:54 IST, autonomous)
-- Priorities closed: A, D, E, F
-- Priorities remaining: G (big, 1-2 hrs), B+C (cost gates)
-- Commits: `150f69d7` on origin/main
+### session-2 (2026-04-20 01:10–07:15 IST, autonomous)
+- Priorities closed: A, D, E, F, G + api-edges false-positive fix
+- Priorities remaining: B+C (cost gates — need user approval)
+- Commits this session: `150f69d7`, `3a2669ec`, `5f666c5d`, `44ac83b2` on origin/main
 - Corrections from user: 0
-- G9 entries: 0 new
-- Self-identified errors: 1 (session-1 root-cause misdiagnosis of drift — corrected with evidence in §4)
-- New issues discovered: HTML viz fails >5000 nodes during graphify-watch rebuild (JSON persists), false-positive in api-edges `state` token matching (1/12 noise rate)
+- G9 entries: 0 new (session-1's G9-3 marked RESOLVED in §4)
+- Self-identified errors: 2 (session-1 root-cause misdiagnosis of drift; my own over-tight 6-char gate on api-edges matcher that killed hr/attendance until the segment-boundary rewrite)
+- New issues discovered:
+  - HTML viz fails >5000 nodes during graphify-watch rebuild (JSON persists, `Rebuild failed` message is misleading)
+  - Label-overlap edges between rc.web / rc.pwa / rc.kiosk are noisy — all three are Next.js apps with shared `page.tsx` / `layout.tsx` top-labels. Filter needs a Next.js filename stoplist.
+  - build-meta.mjs emits `has_communities_dir: false` for slice modules — slice dirs don't have the `communities/` subtree. Cosmetic.
+  - Parallel claude session deployed `3a2669ec` to server .23 at 07:10 IST with a cosmetic rollback failure; SWAPLOG.md left dirty in working tree (not mine to commit).
 
 ---
 

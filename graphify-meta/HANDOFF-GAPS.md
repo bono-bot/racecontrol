@@ -10,7 +10,9 @@ One-page checklist for next session. For context read HANDOFF.md.
 - [~] ~~Restore graph.json from backup~~ — REJECTED session-2: 9834-node state is correct; added nodes are real session-commit files.
 - [ ] Visually verify meta.html in Chrome (kill MCP profile-lock first per memory recipe)
 - [ ] Run subsystem-audit against each per-module graph (currently only racecontrol audited)
-- [ ] Fix false-positive in api-edges.mjs where short (3-5 char) backend tokens like `state` match unrelated URLs via `.includes('_' + tok)`
+- [x] Fix false-positive in api-edges.mjs — DONE session-2 `44ac83b2`. Replaced substring-contains with segment-boundary match. scan/bank-statement false edge gone, hr/attendance true positive preserved, edge count 16 → 17.
+- [x] Priority G: sub-module slicer — DONE session-2 `44ac83b2`. 8 slices emitted (kiosk/web/pwa/admin-api/billing-api/customer-api/rc-agent/rc-sentry). Meta-map now shows 16 modules including sliced children.
+- [ ] Label-overlap edges noisy between rc.kiosk/rc.web/rc.pwa (shared Next.js `page.tsx`/`layout.tsx`). Add a framework-filename stoplist to top_labels extraction in build-meta.mjs.
 
 ## User-decision gates (cost ~$1-20)
 - [ ] Scan marketing module — $5-20 (530 png + 116 mp4 = vision + Whisper)
