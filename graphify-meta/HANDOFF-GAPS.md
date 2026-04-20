@@ -49,7 +49,7 @@ One-page checklist for next session. For context read HANDOFF.md.
 - [x] Kiosk/Web/Admin-API not split out as sub-modules — CLOSED session-2 `44ac83b2` (slicer) + session-3 `2dd12d7e` (added as consumers of their own api). rc.kiosk/rc.web now emit real api-edges to racecontrol; rc.admin-api/billing-api/customer-api are backend-side so no outgoing edges expected.
 - [x] Admin scraped only 3 URL fragments — CLOSED session-3 `6a085e68`. api-edges now finds 11 distinct fragments from admin (89 literals, 19 edges) after regex expansion + `fetchApi`/`apiCall` verb wrappers.
 - [x] No gap-rules evaluated against per-module graphs — CLOSED session-2 (validate-slices.mjs). All 8 slices audited: 12-20 rules hit each.
-- [ ] No watcher auto-rebuilds meta-map when module graphs change — deferred. Add post-commit hook section that runs `node graphify-meta/build-meta.mjs` when any `graphify-out*/graph.json` mtime changes.
+- [x] No watcher auto-rebuilds meta-map when module graphs change — CLOSED session-3 round 5 `e4b227e9`. Added `graphify-meta/rebuild-all.mjs` (5-stage pipeline runner, ~1.7s) + `graphify-meta-rebuild` block in post-commit hook. Triggers when backend graph.json is newer than meta-graph.json OR when any graphify-meta script was in $CHANGED. Non-blocking. Verified: post-commit fired "graphify-meta: rebuilt (backend-rebuilt)" on `e4b227e9`.
 - [x] No regression harness — CLOSED session-3 `19ef7b79`. `graphify-meta/smoke-test.mjs` runs full pipeline + 38 assertions (no duplicate backend_files, no absolute paths, verb capture, stopword leak, per-slice artifact pair check).
 
 ## Session-3 additions (2026-04-20) — NEW infrastructure
