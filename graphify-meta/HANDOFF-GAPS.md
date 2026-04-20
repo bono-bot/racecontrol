@@ -12,7 +12,10 @@ One-page checklist for next session. For context read HANDOFF.md.
 - [ ] Run subsystem-audit against each per-module graph (currently only racecontrol audited)
 - [x] Fix false-positive in api-edges.mjs — DONE session-2 `44ac83b2`. Replaced substring-contains with segment-boundary match. scan/bank-statement false edge gone, hr/attendance true positive preserved, edge count 16 → 17.
 - [x] Priority G: sub-module slicer — DONE session-2 `44ac83b2`. 8 slices emitted (kiosk/web/pwa/admin-api/billing-api/customer-api/rc-agent/rc-sentry). Meta-map now shows 16 modules including sliced children.
-- [ ] Label-overlap edges noisy between rc.kiosk/rc.web/rc.pwa (shared Next.js `page.tsx`/`layout.tsx`). Add a framework-filename stoplist to top_labels extraction in build-meta.mjs.
+- [x] Label-overlap stoplist — DONE session-2 (this message). `FRAMEWORK_STOPLIST` in build-meta.mjs excludes Next.js + Rust + tooling filenames. Noise collapsed; rc.web/rc.pwa/rc.kiosk edges removed, genuine overlaps (racecontrol↔rc-agent via ac_launcher.rs) preserved.
+- [x] Billing route precision — DONE session-2 (this message). api-edges matcher rewritten to score by orderless segment-overlap count; top matches ranked by score. `/api/billing/report/daily` now correctly maps to `billing_daily_report.rs` (score 3) over `billing_coupon.rs` (score 1).
+- [x] Per-slice gap-rules — DONE session-2 (this message). `scripts/graphify-post/validate-slices.mjs` iterates all 8 slice dirs, runs validate.mjs each, writes per-slice GAP_REPORT.md + combined SLICE_GAP_SUMMARY.json. All 8 slices: 12-19 rules hit each.
+- [~] Visual Chrome verify — skipped per MCP profile-lock risk. Structural HTML parse confirms: 16786 bytes, vis-network CDN present, all 8 slice IDs embedded. Full visual check still pending next session.
 
 ## User-decision gates (cost ~$1-20)
 - [ ] Scan marketing module — $5-20 (530 png + 116 mp4 = vision + Whisper)

@@ -183,34 +183,50 @@ for (const mod of CONSUMER_MODULES) {
       const normalized = cand.toLowerCase().replace(/-/g, '_');
       for (const [tok, list] of routeHints) {
         if (tok.length < 3) continue;
-        // Segment-boundary match: `needle` must appear as a COMPLETE segment inside
-        // `haystack` when split by `_` or `/`. This avoids the substring trap where
-        // 'state' (segment of game_state.rs) falsely matches '/api/scan/bank-statement'
-        // because 'bank_statement' contains '_state' as a substring but NOT as a segment.
-        // 'hr' (segment of admin_hr.rs) still legitimately matches '/api/hr/attendance'
-        // because the normalized URL splits cleanly at the slash.
-        const segmentMatch = (haystack, needle) => haystack.split(/[_/]/).includes(needle);
-        if (tok === normalized ||
-            tok === normalized.replace(/\//g, '_') ||
-            tok.startsWith(normalized + '_') ||
-            normalized.startsWith(tok + '_') ||
-            segmentMatch(tok, normalized) ||
-            segmentMatch(normalized, tok)) {
+        // Orderless segment-overlap scoring: count how many `_`/`/`-delimited segments
+        // appear in BOTH the backend token and the URL candidate. Higher score = more
+        // specific match. `billing_daily_report` scores 3 against `/api/billing/report/daily`
+        // (segments {billing,daily,report} all appear in URL). `billing_coupon` scores 1.
+        // `state` scores 0 against `/api/scan/bank-statement` ({state} vs {scan,bank,statement}).
+        // This replaces the old substring/prefix/startsWith rules — segment overlap subsumes
+        // them and fixes the order-mismatch problem where file-name segment order differs
+        // from URL path segment order.
+        const tokSegs = tok.split(/[_/]/).filter(Boolean);
+        const normSegs = new Set(normalized.split(/[_/]/).filter(Boolean));
+        let score = 0;
+        for (const seg of tokSegs) if (normSegs.has(seg)) score++;
+        if (score > 0) {
           const key = tok;
           if (!matchedRoutes.has(key)) {
-            matchedRoutes.set(key, { url_token: tok, backend_files: list.slice(0, 3).map(x => x.sf) });
+            matchedRoutes.set(key, { url_token: tok, score, backend_files: list.slice(0, 3).map(x => x.sf) });
+          } else if (matchedRoutes.get(key).score < score) {
+            // Same tok via different candidate with higher score — keep the better score
+            matchedRoutes.get(key).score = score;
           }
         }
       }
     }
     if (matchedRoutes.size > 0) {
+      // Sort by score desc, dedupe by primary backend file path (first in list).
+      // Then take top 3. This promotes `billing_daily_report` (score 3) above
+      // `billing_coupon` (score 1) for /api/billing/report/daily.
+      const ranked = [...matchedRoutes.values()].sort((a, b) => b.score - a.score);
+      const seenFiles = new Set();
+      const deduped = [];
+      for (const r of ranked) {
+        const primary = r.backend_files[0];
+        if (seenFiles.has(primary)) continue;
+        seenFiles.add(primary);
+        deduped.push(r);
+        if (deduped.length >= 3) break;
+      }
       urlEdges.push({
         from: mod, to: 'racecontrol',
         type: 'http-api-call',
         url_fragment: loc.first,
         url_path: loc.tail,
         url_normalized: loc.norm,
-        matched_routes: [...matchedRoutes.values()].slice(0, 3),
+        matched_routes: deduped,
         consumer_file: loc.file.replace(ROOT, '').replace(/\\/g, '/'),
         consumer_line: loc.line,
         url_sample: loc.url,

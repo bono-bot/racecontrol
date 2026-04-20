@@ -86,7 +86,27 @@ for (const m of MODULES) {
   const byDeg = g.nodes
     .map(n => ({ id: n.id, label: n.label, norm: (n.norm_label || n.label || '').toLowerCase(), deg: deg.get(n.id)||0, sf: n.source_file }))
     .sort((a,b) => b.deg - a.deg);
-  const top_labels = byDeg.slice(0, 30).map(x => x.norm); // for overlap matching
+  // Labels that appear in every Next.js / Rust / common framework project and are therefore
+  // useless for overlap matching — their presence in two modules doesn't indicate coupling.
+  const FRAMEWORK_STOPLIST = new Set([
+    // Next.js
+    'page.tsx', 'layout.tsx', 'route.ts', 'route.tsx', 'loading.tsx', 'error.tsx', 'not-found.tsx',
+    'middleware.ts', 'middleware.tsx', 'globals.css', 'page.jsx', 'layout.jsx',
+    // Generic config + tooling
+    'index.ts', 'index.tsx', 'index.js', 'index.mjs', 'index.jsx',
+    'package.json', 'tsconfig.json', 'next.config.ts', 'next.config.js', 'next.config.mjs',
+    'vite.config.ts', 'vitest.config.ts', 'eslint.config.mjs', 'eslint.config.js',
+    'tailwind.config.ts', 'tailwind.config.js', 'postcss.config.mjs', 'postcss.config.js',
+    'playwright.config.ts', 'jest.config.ts', 'jest.config.js',
+    // Rust
+    'mod.rs', 'lib.rs', 'main.rs', 'build.rs', 'cargo.toml', 'cargo.lock',
+    // Generic
+    '.gitignore', '.env', '.env.local', '.env.production', 'readme.md', 'license',
+  ]);
+  // Exclude stoplist labels AND bare builtin method calls like '.push()' / '.collect()'
+  // that have zero semantic weight when computing inter-module overlap.
+  const isUsefulLabel = lbl => lbl && lbl.length > 3 && !FRAMEWORK_STOPLIST.has(lbl) && !lbl.startsWith('.');
+  const top_labels = [...new Set(byDeg.map(x => x.norm).filter(isUsefulLabel))].slice(0, 30);
   const god_nodes = byDeg.slice(0, 10).map(x => ({ label: x.label, deg: x.deg }));
   const distinct_files = new Set(g.nodes.map(n => (n.source_file||'').replace(/\\/g,'/')).filter(Boolean)).size;
 

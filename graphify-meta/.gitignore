@@ -4,6 +4,7 @@ meta.html
 META_REPORT.md
 api-edges.json
 slices.json
+SLICE_GAP_SUMMARY.json
 # One-off exploration scripts (underscore-prefixed)
 _*.mjs
 _*.py
