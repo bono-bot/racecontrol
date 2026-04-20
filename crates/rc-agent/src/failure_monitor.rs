@@ -94,6 +94,29 @@ impl Default for FailureMonitorState {
     }
 }
 
+/// Pattern I Part 5 Commit 3 (D11 characterisation invariant):
+/// reset FailureMonitorState to its session-ended ground state. This is the
+/// exact mutation set applied by:
+///   - `ws_handler::handle_ws_message` on `CoreToAgentMessage::SessionEnded`
+///   - `event_loop::run` on orphan-auto-end (WaitingForGame idle expiry)
+///
+/// Centralised so the Commit 4 extraction of `apply_session_ended` cannot
+/// silently desync these 6 fields from the original inlined `send_modify`
+/// closures. Characterised by `tests::reset_fms_for_session_end_*` below.
+///
+/// NOTE: `CoreToAgentMessage::BillingStopped` is a RELATED but DIFFERENT
+/// reset — it does NOT clear `recovery_in_progress` (server-side billing
+/// stop is not a recovery-complete event). BillingStopped keeps its own
+/// inline closure to preserve that semantic distinction.
+pub fn reset_fms_for_session_end(s: &mut FailureMonitorState) {
+    s.billing_active = false;
+    s.active_billing_session_id = None;
+    s.active_billing_session_id_set_at = None;
+    s.billing_paused = false;
+    s.launch_started_at = None;
+    s.recovery_in_progress = false;
+}
+
 /// Spawn the failure monitor background task.
 ///
 /// # Arguments
@@ -751,5 +774,91 @@ mod tests {
         let launched_at = state.launch_started_at.unwrap();
         let elapsed_past_threshold = launched_at.elapsed() > Duration::from_secs(LAUNCH_TIMEOUT_SECS);
         assert!(!elapsed_past_threshold, "CRASH-02: 60s elapsed is below 90s LAUNCH_TIMEOUT_SECS");
+    }
+
+    /// Pattern I Part 5 Commit 3 — D11 characterisation.
+    ///
+    /// Captures the 6-field reset invariant for session-end class transitions
+    /// (SessionEnded + orphan-auto-end). The Commit 4 refactor extracts
+    /// `apply_session_ended` but this helper stays — any future contributor
+    /// who re-inlines or diverges one of the 5 fields will trip this test.
+    ///
+    /// This is a NARROW characterisation: covers only the FailureMonitorState
+    /// mutation (highest-value regression risk per MMA D11 flag). The broader
+    /// hardware/UI mutations (ffb, lock_screen, overlay, blank_timer,
+    /// game_process, ws_tx FfbZeroed) are NOT covered here — those require
+    /// fixture infra beyond Commit 3's scope and are covered by the git-diff
+    /// review discipline at Commit 4 (move-only-first pattern).
+    #[test]
+    fn reset_fms_for_session_end_clears_all_6_fields() {
+        // Arrange: FMS in a fully-active-billing shape with recovery flag set
+        let now = Instant::now();
+        let mut s = FailureMonitorState {
+            billing_active: true,
+            billing_paused: true,            // artificial — real SessionEnded shouldn't hit both, but invariant must hold
+            launch_started_at: Some(now),
+            recovery_in_progress: true,
+            active_billing_session_id: Some("sess_characterisation".to_string()),
+            active_billing_session_id_set_at: Some(now),
+            // Fields NOT reset by the helper — must stay untouched
+            game_pid: Some(12345),
+            last_udp_secs_ago: Some(5),
+            hid_connected: true,
+            driving_state: Some(DrivingState::Active),
+            sim_type: Some(SimType::AssettoCorsa),
+        };
+
+        // Act: single source of truth — the helper called from both
+        // ws_handler SessionEnded arm and event_loop orphan auto-end
+        super::reset_fms_for_session_end(&mut s);
+
+        // Assert: all 6 session-end fields reset to ground state
+        assert!(!s.billing_active,                           "billing_active must be false");
+        assert_eq!(s.active_billing_session_id, None,        "active_billing_session_id must be cleared");
+        assert_eq!(s.active_billing_session_id_set_at, None, "active_billing_session_id_set_at must be cleared (C2 freshness pair)");
+        assert!(!s.billing_paused,                           "billing_paused must be false");
+        assert_eq!(s.launch_started_at, None,                "launch_started_at must be cleared");
+        assert!(!s.recovery_in_progress,                     "recovery_in_progress must be false");
+
+        // Assert: unrelated fields NOT touched (narrow contract)
+        assert_eq!(s.game_pid, Some(12345),                  "game_pid must NOT be touched by this helper");
+        assert_eq!(s.last_udp_secs_ago, Some(5),             "last_udp_secs_ago must NOT be touched");
+        assert!(s.hid_connected,                             "hid_connected must NOT be touched");
+        assert!(matches!(s.driving_state, Some(DrivingState::Active)), "driving_state must NOT be touched");
+        assert!(matches!(s.sim_type, Some(SimType::AssettoCorsa)),     "sim_type must NOT be touched");
+    }
+
+    /// Idempotency: running the reset twice must be a no-op on the second call.
+    /// Matters for dedup-guard path in Commit 4 — `apply_session_ended` may be
+    /// invoked repeatedly if WS SessionEnded races HTTP-synth.
+    #[test]
+    fn reset_fms_for_session_end_is_idempotent() {
+        let mut s = FailureMonitorState::default();
+        s.active_billing_session_id = Some("sess_x".to_string());
+        s.active_billing_session_id_set_at = Some(Instant::now());
+        s.billing_active = true;
+
+        super::reset_fms_for_session_end(&mut s);
+        let after_first = (
+            s.billing_active,
+            s.active_billing_session_id.clone(),
+            s.active_billing_session_id_set_at.is_some(),
+            s.billing_paused,
+            s.launch_started_at.is_some(),
+            s.recovery_in_progress,
+        );
+
+        super::reset_fms_for_session_end(&mut s);
+        let after_second = (
+            s.billing_active,
+            s.active_billing_session_id.clone(),
+            s.active_billing_session_id_set_at.is_some(),
+            s.billing_paused,
+            s.launch_started_at.is_some(),
+            s.recovery_in_progress,
+        );
+
+        assert_eq!(after_first, after_second, "reset must be idempotent for dedup-guard safety");
+        assert_eq!(after_first, (false, None, false, false, false, false), "expected cleared-to-default state");
     }
 }

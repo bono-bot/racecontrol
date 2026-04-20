@@ -398,13 +398,12 @@ pub async fn handle_ws_message(
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
             conn.launch_state = LaunchState::Idle;
+            // Pattern I Part 5 Commit 3 (D11 characterisation): centralised
+            // 6-field reset — `reset_fms_for_session_end` is the single
+            // source of truth for SessionEnded-class transitions. Tested in
+            // failure_monitor::tests::reset_fms_for_session_end_clears_all_6_fields.
             let _ = state.failure_monitor_tx.send_modify(|s| {
-                s.billing_active = false;
-                s.active_billing_session_id = None;
-                s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
-                s.billing_paused = false;
-                s.launch_started_at = None;
-                s.recovery_in_progress = false;
+                crate::failure_monitor::reset_fms_for_session_end(s);
             });
             ffb_controller::safe_session_end(&state.ffb).await;
             state.lock_screen.show_session_summary(

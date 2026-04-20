@@ -2447,13 +2447,10 @@ pub async fn run(
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&end_msg).unwrap_or_default().into())).await;
                             }
+                            // Pattern I Part 5 Commit 3 (D11 characterisation): shared
+                            // 6-field reset helper — see failure_monitor::reset_fms_for_session_end.
                             let _ = state.failure_monitor_tx.send_modify(|s| {
-                                s.billing_active = false;
-                                s.billing_paused = false;
-                                s.launch_started_at = None;
-                                s.recovery_in_progress = false;
-                                s.active_billing_session_id = None;
-                                s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
+                                crate::failure_monitor::reset_fms_for_session_end(s);
                             });
                             ffb_controller::safe_session_end(&state.ffb).await;
                             state.lock_screen.show_idle_state();
