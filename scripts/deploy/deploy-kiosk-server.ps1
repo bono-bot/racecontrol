@@ -37,6 +37,19 @@
 #                    -> returns real CommandLine strings
 
 $ErrorActionPreference = "Stop"
+
+# --- 0. Transcript so SSH non-interactive sessions capture ALL steps ---
+# PS 5.1 Write-Host goes to the Information stream, which is buffered/dropped over
+# non-interactive SSH. Start-Transcript mirrors EVERYTHING (Host, Output, Error,
+# Warning, Verbose) to a file the caller can cat after the run. 2026-04-20 deploy
+# had [3/6]-[6/6] Write-Host lines silent over SSH — this fixes that class.
+$transcriptPath = "C:\RacingPoint\kiosk-deploy-transcript.txt"
+try {
+    Start-Transcript -Path $transcriptPath -Force | Out-Null
+} catch {
+    Write-Host "  WARN: Start-Transcript failed: $_" -ForegroundColor Yellow
+}
+
 Write-Host "=== RaceControl Kiosk Deploy ===" -ForegroundColor Cyan
 
 # --- 1. Stop existing kiosk ---
