@@ -77,7 +77,6 @@ export default function StaffTerminal() {
     pendingSplitContinuation,
     clearPendingSplitContinuation,
     acServerInfo,
-    multiplayerGroup,
     commandErrors,
   } = useKioskSocket({
     // Phase 414: hoist DashboardEvent::IdleWarning to page state so IdleWarningDialog can mount
@@ -504,22 +503,6 @@ export default function StaffTerminal() {
                     onWakePod={handleWakePod}
                     onRestartPod={handleRestartPod}
                     onShutdownPod={handleShutdownPod}
-                    acSessionId={
-                      multiplayerGroup?.pod_ids.includes(pod.id)
-                        ? multiplayerGroup.ac_session_id
-                        : undefined
-                    }
-                    onRetryJoin={
-                      multiplayerGroup
-                        ? async (podId) => {
-                            try {
-                              await api.retryPodJoin(multiplayerGroup.ac_session_id, podId);
-                            } catch (err) {
-                              toastError(`Retry join failed: ${err instanceof Error ? err.message : "Network error"}`);
-                            }
-                          }
-                        : undefined
-                    }
                   />
                 );
               })}

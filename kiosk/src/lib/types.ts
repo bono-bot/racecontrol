@@ -190,23 +190,6 @@ export interface FeatureFlagRow {
   updated_at?: string;
 }
 
-// ─── Kiosk Multiplayer ──────────────────────────────────────────────────
-
-export interface KioskMultiplayerAssignment {
-  pin: string;
-  pod_id: string;
-  pod_number: number;
-  role: string; // "host" | "invitee"
-}
-
-export interface KioskMultiplayerResult {
-  group_session_id: string;
-  experience_name: string;
-  tier_name: string;
-  allocated_seconds: number;
-  assignments: KioskMultiplayerAssignment[];
-}
-
 // ─── AC Server (Dashboard) ──────────────────────────────────────────────────
 
 export interface AcServerInfo {
@@ -226,12 +209,6 @@ export interface AcServerInfo {
   connected_pods: string[];
   error_message?: string;
   continuous_mode: boolean;
-}
-
-export interface MultiplayerGroupStatus {
-  group_session_id: string;
-  ac_session_id: string;
-  pod_ids: string[];
 }
 
 // ─── Pod Inventory (Phase 320 — INV-03, COMBO-05) ────────────────────────────
@@ -392,10 +369,8 @@ export type SetupStep =
   | "select_plan"
   | "select_game"
   | "session_splits"
-  | "player_mode"
   | "session_type"
   | "ai_config"
-  | "multiplayer_lobby"
   | "select_experience"
   | "select_track"
   | "select_car"
@@ -403,7 +378,6 @@ export type SetupStep =
   | "review";
 
 export type SessionType = "practice" | "hotlap" | "race" | "trackday" | "race_weekend";
-export type PlayerMode = "single" | "multi";
 export type ExperienceMode = "preset" | "custom";
 export type AiDifficulty = "easy" | "medium" | "hard";
 
@@ -417,7 +391,6 @@ export type KioskPodState =
   | "loading"      // game process detected, billing not yet started
   | "on_track"
   | "crashed"
-  | "join_failed"
   | "ending";
 
 // ─── Pod Activity Log ────────────────────────────────────────────────────

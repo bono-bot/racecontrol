@@ -14,7 +14,6 @@ import type {
   DeployProgressEvent,
   DeployState,
   AcServerInfo,
-  MultiplayerGroupStatus,
   LaunchStatusCard,
   LaunchNoteEvent,
 } from "@/lib/types";
@@ -86,7 +85,6 @@ export function useKioskSocket(options: UseKioskSocketOptions = {}) {
   const [pendingSplitContinuation, setPendingSplitContinuation] = useState<PendingSplitContinuation | null>(null);
   const [deployStates, setDeployStates] = useState<Map<string, DeployState>>(new Map());
   const [acServerInfo, setAcServerInfo] = useState<AcServerInfo | null>(null);
-  const [multiplayerGroup, setMultiplayerGroup] = useState<MultiplayerGroupStatus | null>(null);
   // Phase 368: Live Launch Status cards
   const [launches, setLaunches] = useState<Map<string, LaunchStatusCard>>(new Map());
   const [launchNotes, setLaunchNotes] = useState<Map<string, LaunchNoteEvent[]>>(new Map());
@@ -330,11 +328,6 @@ export function useKioskSocket(options: UseKioskSocketOptions = {}) {
             setAcServerInfo(info.status === "stopped" ? null : info);
             break;
           }
-          case "group_session_all_validated": {
-            const data = msg.data as MultiplayerGroupStatus;
-            setMultiplayerGroup(data);
-            break;
-          }
           case "game_launch_requested": {
             const req = msg.data as GameLaunchRequest;
             setGameLaunchRequests((prev) => [req, ...prev]);
@@ -481,7 +474,6 @@ export function useKioskSocket(options: UseKioskSocketOptions = {}) {
     deployStates,
     sendDeployRolling,
     acServerInfo,
-    multiplayerGroup,
     // Phase 368: Live Launch Status cards
     launches,
     launchNotes,

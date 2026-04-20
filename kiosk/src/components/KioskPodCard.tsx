@@ -33,8 +33,6 @@ interface KioskPodCardProps {
   onCancelAssignment: (tokenId: string) => void;
   onLaunchGame?: (podId: string) => void;
   onRelaunchGame?: (podId: string) => void;
-  onRetryJoin?: (podId: string) => void;
-  acSessionId?: string; // Active AC server session ID — presence means this pod is in a multiplayer group
   onStartNow?: (authToken: AuthTokenInfo) => void;
   onWakePod?: (podId: string) => void;
   onRestartPod?: (podId: string) => void;
@@ -73,7 +71,6 @@ function derivePodState(
   billing?: BillingSession,
   authToken?: AuthTokenInfo,
   gameInfo?: GameLaunchInfo,
-  isMultiplayerPod?: boolean,
 ): KioskPodState {
   if (pod.status === "offline") return "idle";
 
@@ -91,16 +88,7 @@ function derivePodState(
     if (gameInfo?.game_state === "loading") return "loading";
     if (gameInfo?.game_state === "running") return "on_track";
     if (gameInfo?.game_state === "launching") return "selecting";
-    if (gameInfo?.game_state === "error") {
-      // GROUP-03: Any error on a multiplayer pod = join failure
-      // (the pod failed to connect to the AC server).
-      // isMultiplayerPod is true when an acSessionId prop is passed,
-      // meaning this pod belongs to an active multiplayer group.
-      if (isMultiplayerPod) {
-        return "join_failed";
-      }
-      return "crashed";
-    }
+    if (gameInfo?.game_state === "error") return "crashed";
     return "on_track";
   }
 
@@ -156,14 +144,12 @@ export const KioskPodCard = React.memo(function KioskPodCard({
   onCancelAssignment,
   onLaunchGame,
   onRelaunchGame,
-  onRetryJoin,
-  acSessionId,
   onStartNow,
   onWakePod,
   onRestartPod,
   onShutdownPod,
 }: KioskPodCardProps) {
-  const state = derivePodState(pod, billing, authToken, gameInfo, !!acSessionId);
+  const state = derivePodState(pod, billing, authToken, gameInfo);
   const isOffline = pod.status === "offline";
   const hasWarning = !!warning;
 
@@ -237,7 +223,6 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
           ${state === "loading" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
           ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
-          ${state === "join_failed" && !isSelected ? "bg-rp-card border-orange-500/40" : ""}
           ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
           ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
         `}
@@ -344,7 +329,6 @@ export const KioskPodCard = React.memo(function KioskPodCard({
         ${state === "selecting" && !isSelected ? "bg-rp-card border-blue-500/40" : ""}
         ${state === "loading" && !isSelected ? "bg-rp-card border-amber-500/40" : ""}
         ${state === "crashed" && !isSelected ? "bg-rp-card border-red-600/60" : ""}
-        ${state === "join_failed" && !isSelected ? "bg-rp-card border-orange-600/60" : ""}
         ${state === "ending" && !isSelected ? "bg-rp-card border-green-500/40" : ""}
         ${hasWarning && !isSelected ? "border-amber-500 animate-pulse" : ""}
       `}
@@ -635,41 +619,6 @@ export const KioskPodCard = React.memo(function KioskPodCard({
           </div>
         )}
 
-        {/* GROUP-03: JOIN FAILED — pod in multiplayer session failed to connect to AC server */}
-        {state === "join_failed" && billing && (
-          <div className="flex-1 flex flex-col gap-2">
-            <div>
-              <p className="text-white font-semibold text-sm truncate">
-                {billing.driver_name}
-              </p>
-            </div>
-            <div className="bg-orange-900/30 border border-orange-600/50 rounded-md px-3 py-2 text-center">
-              <span className="text-orange-500 text-xs font-bold uppercase tracking-wider">
-                Join Failed
-              </span>
-              {gameInfo?.error_message && (
-                <p className="text-orange-400/70 text-[10px] mt-0.5 truncate">{gameInfo.error_message}</p>
-              )}
-              {onRetryJoin && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRetryJoin(pod.id); }}
-                  className="mt-1.5 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white font-semibold rounded-md transition-colors text-xs"
-                >
-                  Retry Join
-                </button>
-              )}
-            </div>
-            <div className="flex gap-1.5 mt-auto">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEndSession(billing.id); }}
-                className="flex-1 px-2 py-1 text-xs border border-rp-red/50 text-rp-red hover:bg-rp-red/10 rounded transition-colors"
-              >
-                End
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ENDING */}
         {state === "ending" && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
@@ -918,7 +867,6 @@ function StateLabel({ state, isOffline, gameInfo }: { state: KioskPodState; isOf
     loading: "text-amber-400 bg-amber-400/10",
     on_track: "text-rp-red bg-rp-red/10",
     crashed: "text-red-500 bg-red-500/10",
-    join_failed: "text-orange-500 bg-orange-500/10",
     ending: "text-green-400 bg-green-400/10",
   };
 
@@ -934,7 +882,6 @@ function StateLabel({ state, isOffline, gameInfo }: { state: KioskPodState; isOf
     loading: loadingLabel,
     on_track: "On Track",
     crashed: gameInfo?.diagnostics?.cm_attempted ? "Launch Failed" : "Crashed",
-    join_failed: "Join Failed",
     ending: "Complete",
   };
 

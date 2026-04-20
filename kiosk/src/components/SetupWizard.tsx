@@ -32,10 +32,8 @@ const STEP_TITLES: Record<string, string> = {
   select_plan: "Select Plan",
   select_game: "Select Game",
   // session_splits removed (Act 2: one continuous timer)
-  player_mode: "Player Mode",
   session_type: "Session Type",
   ai_config: "AI Opponents",
-  multiplayer_lobby: "Multiplayer",
   select_experience: "Select Experience",
   select_track: "Select Track",
   select_car: "Select Car",
@@ -370,13 +368,8 @@ export function SetupWizard({
     setField("selectedGame", gameId);
     // Navigate explicitly — goNext() would use stale selectedGame in getFlow()
     // because React hasn't flushed the setField state update yet.
-    // AC: go to player_mode. Non-AC: skip all AC steps, go straight to review.
-    goToStep(gameId === "assetto_corsa" ? "player_mode" : "review");
-  }
-
-  function handleSelectPlayerMode(mode: "single" | "multi") {
-    setField("playerMode", mode);
-    goNext();
+    // AC: go to session_type. Non-AC: skip all AC steps, go straight to review.
+    goToStep(gameId === "assetto_corsa" ? "session_type" : "review");
   }
 
   function handleSelectSessionType(type: SessionType) {
@@ -620,34 +613,6 @@ export function SetupWizard({
 
         {/* Session splits removed — Act 2: one continuous timer */}
 
-        {/* ─── PLAYER MODE ──────────────────────────────────────── */}
-        {step === "player_mode" && (
-          <div data-testid="step-player-mode" className="grid grid-cols-2 gap-4">
-            <button
-              data-testid="player-mode-single"
-              onClick={() => handleSelectPlayerMode("single")}
-              className="p-6 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
-            >
-              <svg className="w-10 h-10 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <p className="text-lg font-bold text-white">Singleplayer</p>
-              <p className="text-xs text-rp-grey mt-1">Drive solo or against AI</p>
-            </button>
-            <button
-              data-testid="player-mode-multi"
-              onClick={() => handleSelectPlayerMode("multi")}
-              className="p-6 rounded-xl border-2 border-rp-border bg-rp-surface hover:border-rp-red hover:bg-rp-red/10 transition-all text-center"
-            >
-              <svg className="w-10 h-10 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <p className="text-lg font-bold text-white">Multiplayer</p>
-              <p className="text-xs text-rp-grey mt-1">Drive with other people</p>
-            </button>
-          </div>
-        )}
-
         {/* ─── SESSION TYPE ─────────────────────────────────────── */}
         {step === "session_type" && (
           <div data-testid="step-session-type" className="space-y-3">
@@ -753,111 +718,6 @@ export function SetupWizard({
             >
               Continue
             </button>
-          </div>
-        )}
-
-        {/* ─── MULTIPLAYER LOBBY ────────────────────────────────── */}
-        {step === "multiplayer_lobby" && (
-          <div data-testid="step-multiplayer-lobby" className="space-y-6">
-            {/* Create or Join toggle */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setField("multiplayerMode", "create")}
-                className={`p-4 rounded-xl border-2 text-center transition-all ${
-                  ws.multiplayerMode === "create"
-                    ? "border-rp-red bg-rp-red/10"
-                    : "border-rp-border bg-rp-surface hover:border-rp-red/50"
-                }`}
-              >
-                <svg className="w-8 h-8 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <p className="text-sm font-bold text-white">Create Server</p>
-                <p className="text-xs text-rp-grey mt-1">Host a race lobby</p>
-              </button>
-              <button
-                onClick={() => setField("multiplayerMode", "join")}
-                className={`p-4 rounded-xl border-2 text-center transition-all ${
-                  ws.multiplayerMode === "join"
-                    ? "border-rp-red bg-rp-red/10"
-                    : "border-rp-border bg-rp-surface hover:border-rp-red/50"
-                }`}
-              >
-                <svg className="w-8 h-8 mx-auto mb-2 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                </svg>
-                <p className="text-sm font-bold text-white">Join Server</p>
-                <p className="text-xs text-rp-grey mt-1">Join an existing lobby</p>
-              </button>
-            </div>
-
-            {/* Join server form */}
-            {ws.multiplayerMode === "join" && (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Server IP</label>
-                  <input
-                    type="text"
-                    placeholder="192.168.31.23"
-                    value={ws.serverIp}
-                    onChange={(e) => setField("serverIp", e.target.value)}
-                    className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Port</label>
-                    <input
-                      type="text"
-                      placeholder="9600"
-                      value={ws.serverPort}
-                      onChange={(e) => setField("serverPort", e.target.value)}
-                      className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">HTTP Port</label>
-                    <input
-                      type="text"
-                      placeholder="8081"
-                      value={ws.serverHttpPort}
-                      onChange={(e) => setField("serverHttpPort", e.target.value)}
-                      className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs text-rp-grey uppercase tracking-wider block mb-1">Password (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="Server password"
-                    value={ws.serverPassword}
-                    onChange={(e) => setField("serverPassword", e.target.value)}
-                    className="w-full px-3 py-2 bg-rp-surface border border-rp-border rounded text-sm text-white focus:outline-none focus:border-rp-red"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Create server info */}
-            {ws.multiplayerMode === "create" && (
-              <div className="bg-rp-surface border border-rp-border rounded-xl p-4">
-                <p className="text-sm text-rp-grey">
-                  A dedicated server will be started on Racing-Point-Server.
-                  Other pods can join using the server details shown after creation.
-                </p>
-              </div>
-            )}
-
-            {ws.multiplayerMode && (
-              <button
-                onClick={goNext}
-                disabled={ws.multiplayerMode === "join" && !ws.serverIp}
-                className="w-full py-3 bg-rp-red hover:bg-rp-red-hover disabled:opacity-40 text-white font-bold rounded-lg transition-colors"
-              >
-                Continue
-              </button>
-            )}
           </div>
         )}
 
@@ -1159,7 +1019,6 @@ export function SetupWizard({
               <ReviewRow label="Game" value={GAME_LABELS[ws.selectedGame] || ws.selectedGame} />
               {isAc && (
                 <>
-                  <ReviewRow label="Mode" value={ws.playerMode === "multi" ? "Multiplayer" : "Singleplayer"} />
                   <ReviewRow label="Session" value={ws.sessionType.charAt(0).toUpperCase() + ws.sessionType.slice(1)} />
                   {ws.aiEnabled && (
                     <ReviewRow label="AI Opponents" value={`${ws.aiCount} (${ws.aiDifficulty})`} />
@@ -1176,12 +1035,6 @@ export function SetupWizard({
                   <ReviewRow label="Transmission" value={ws.transmission === "auto" ? "Automatic" : "Manual"} />
                   <ReviewRow label="FFB" value={ws.ffb.charAt(0).toUpperCase() + ws.ffb.slice(1)} />
                 </>
-              )}
-              {ws.playerMode === "multi" && ws.multiplayerMode === "join" && (
-                <ReviewRow label="Server" value={`${ws.serverIp}:${ws.serverPort}`} />
-              )}
-              {ws.playerMode === "multi" && ws.multiplayerMode === "create" && (
-                <ReviewRow label="Server" value="Create new (Racing-Point-Server)" />
               )}
             </div>
 

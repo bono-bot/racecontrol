@@ -4,7 +4,6 @@ import { useState, useCallback } from "react";
 import type {
   SetupStep,
   SessionType,
-  PlayerMode,
   ExperienceMode,
   AiDifficulty,
   CatalogItem,
@@ -21,8 +20,7 @@ export interface WizardState {
   selectedTier: PricingTier | null;
   // Game
   selectedGame: string;
-  // Player mode + Session type
-  playerMode: PlayerMode;
+  // Session type
   sessionType: SessionType;
   // AI config
   aiEnabled: boolean;
@@ -38,12 +36,6 @@ export interface WizardState {
   transmission: string;
   ffb: string;
   // Session splits removed (Act 2: one continuous timer)
-  // Multiplayer
-  multiplayerMode: "create" | "join" | null;
-  serverIp: string;
-  serverPort: string;
-  serverHttpPort: string;
-  serverPassword: string;
 }
 
 const INITIAL_STATE: WizardState = {
@@ -51,7 +43,6 @@ const INITIAL_STATE: WizardState = {
   selectedDriver: null,
   selectedTier: null,
   selectedGame: "",
-  playerMode: "single",
   sessionType: "practice",
   aiEnabled: false,
   aiDifficulty: "easy",
@@ -63,11 +54,6 @@ const INITIAL_STATE: WizardState = {
   drivingDifficulty: "easy",
   transmission: "auto",
   ffb: "medium",
-  multiplayerMode: null,
-  serverIp: "",
-  serverPort: "",
-  serverHttpPort: "",
-  serverPassword: "",
 };
 
 // Derive aids map from shared DIFFICULTY_PRESETS
@@ -83,28 +69,13 @@ const AI_DIFFICULTY_TO_LEVEL: Record<string, number> = {
   hard: 98,   // Alien midpoint
 };
 
-// Step flow for single player (Act 2: no splits — one continuous timer)
-const SINGLE_FLOW: SetupStep[] = [
+// Step flow (Act 2: no splits — one continuous timer)
+const WIZARD_FLOW: SetupStep[] = [
   "register_driver",
   "select_plan",
   "select_game",
-  "player_mode",
   "session_type",
   "ai_config",
-  "select_experience",
-  "select_track",
-  "select_car",
-  "driving_settings",
-  "review",
-];
-
-// Step flow for multiplayer
-const MULTI_FLOW: SetupStep[] = [
-  "register_driver",
-  "select_plan",
-  "select_game",
-  "player_mode",
-  "multiplayer_lobby",
   "select_experience",
   "select_track",
   "select_car",
@@ -124,8 +95,7 @@ export function useSetupWizard() {
   }, []);
 
   const getFlow = useCallback((): SetupStep[] => {
-    const flow = state.playerMode === "multi" ? [...MULTI_FLOW] : [...SINGLE_FLOW];
-    let filtered = flow;
+    const filtered = [...WIZARD_FLOW];
     const isAc = state.selectedGame === "assetto_corsa";
 
     // Non-AC games: skip all AC-specific steps (session_type, ai_config, track/car
@@ -133,10 +103,8 @@ export function useSetupWizard() {
     // just picks a preset experience (duration) and launches via Steam.
     if (!isAc) {
       const acOnlySteps: SetupStep[] = [
-        "player_mode",
         "session_type",
         "ai_config",
-        "multiplayer_lobby",
         "select_track",
         "select_car",
         "driving_settings",
@@ -155,7 +123,7 @@ export function useSetupWizard() {
     }
     // If experience mode is "custom", skip select_experience
     return filtered.filter((s) => s !== "select_experience");
-  }, [state.playerMode, state.experienceMode, state.selectedGame, state.selectedTier]);
+  }, [state.experienceMode, state.selectedGame, state.selectedTier]);
 
   const goBack = useCallback(() => {
     const flow = getFlow();
@@ -179,7 +147,6 @@ export function useSetupWizard() {
 
   const buildLaunchArgs = useCallback((): string => {
     const isAc = state.selectedGame === "assetto_corsa";
-    const isMulti = state.playerMode === "multi";
 
     // Non-AC games: minimal launch args — game handles config internally
     if (!isAc) {
@@ -201,7 +168,7 @@ export function useSetupWizard() {
       transmission: state.transmission,
       ffb: state.ffb,
       game: state.selectedGame,
-      game_mode: isMulti ? "multi" : "single",
+      game_mode: "single",
       aids,
       conditions: { damage: 0 },
       // session_type: rc-agent validates against VALID_SESSION_TYPES =
@@ -243,17 +210,6 @@ export function useSetupWizard() {
         args.weekend_practice_minutes = practice;
         args.weekend_qualify_minutes = qualify;
       }
-    }
-
-    // Multiplayer fields
-    if (isMulti) {
-      args.server_ip = state.serverIp;
-      // Port validation: must be integer 1-65535. Default to AC standard ports on invalid input.
-      const port = Number(state.serverPort);
-      args.server_port = Number.isInteger(port) && port >= 1 && port <= 65535 ? port : 9600;
-      const httpPort = Number(state.serverHttpPort);
-      args.server_http_port = Number.isInteger(httpPort) && httpPort >= 1 && httpPort <= 65535 ? httpPort : 8081;
-      args.server_password = state.serverPassword;
     }
 
     return JSON.stringify(args);

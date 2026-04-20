@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, KioskMultiplayerResult, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory, LaunchStatusCard, LaunchNoteEvent, FeatureFlagRow } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory, LaunchStatusCard, LaunchNoteEvent, FeatureFlagRow } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -203,11 +203,6 @@ export const api = {
   relaunchGame: (pod_id: string) =>
     fetchApi<{ ok: boolean }>(`/games/relaunch/${pod_id}`, {
       method: "POST",
-    }),
-  retryPodJoin: (session_id: string, pod_id: string) =>
-    fetchApi<{ status: string }>("/ac/session/retry-pod", {
-      method: "POST",
-      body: JSON.stringify({ session_id, pod_id }),
     }),
   updateAcSessionConfig: (session_id: string, config: { track?: string; track_config?: string; cars?: string[] }) =>
     fetchApi<{ status: string }>("/ac/session/update-config", {
@@ -445,38 +440,6 @@ export const api = {
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return { error: `API ${res.status}: ${text.slice(0, 200)}` };
-      }
-      return res.json();
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  },
-
-  // Kiosk Multiplayer Booking
-  kioskBookMultiplayer: async (
-    token: string,
-    data: {
-      pricing_tier_id: string;
-      pod_count: number;
-      experience_id?: string;
-      custom?: Record<string, unknown>;
-    }
-  ): Promise<KioskMultiplayerResult & { error?: string }> => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/kiosk/book-multiplayer`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        return { error: `API ${res.status}: ${text.slice(0, 200)}` } as KioskMultiplayerResult & { error: string };
       }
       return res.json();
     } finally {
