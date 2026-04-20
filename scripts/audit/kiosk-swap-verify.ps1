@@ -2,7 +2,11 @@ param(
     [Parameter(Mandatory=$true)][string]$OldBinary,
     [Parameter(Mandatory=$true)][string]$NewBinary,
     [int]$MaxOldProcs = 0,
-    [string]$BaselineOut = ""
+    [string]$BaselineOut = "",
+    # Paths matching this regex are NOT counted as drift. Default excludes
+    # backup files (per 72h rollback window standing rule - backups are
+    # expected to reference the old binary until deletion).
+    [string]$IgnorePathsRegex = '-backup-'
 )
 
 # Post-swap invariant check. Run within 5 min of any kiosk browser swap.
@@ -35,10 +39,18 @@ $newRefs = @()
 function Add-Refs($surfaceName, $items, $getString) {
     foreach ($i in $items) {
         $s = & $getString $i
-        if ($s -like "*$OldBinary*") { $script:oldRefs += ,@{ surface = $surfaceName; ref = $s } }
+        $ignored = $false
+        if ($IgnorePathsRegex -and $s -match $IgnorePathsRegex) { $ignored = $true }
+        if ($s -like "*$OldBinary*" -and -not $ignored) {
+            $script:oldRefs += ,@{ surface = $surfaceName; ref = $s }
+        }
+        if ($s -like "*$OldBinary*" -and $ignored) {
+            $script:ignoredRefs += ,@{ surface = $surfaceName; ref = $s }
+        }
         if ($s -like "*$NewBinary*") { $script:newRefs += ,@{ surface = $surfaceName; ref = $s } }
     }
 }
+$ignoredRefs = @()
 
 Add-Refs "hklm_run"          $state.surfaces.hklm_run          { param($x) "$($x.name)=$($x.value)" }
 Add-Refs "hklm_runonce"      $state.surfaces.hklm_runonce      { param($x) "$($x.name)=$($x.value)" }
@@ -62,6 +74,11 @@ if ($oldRefs.Count -gt 0) {
     foreach ($r in $oldRefs) { $report += "  - [$($r.surface)] $($r.ref)" }
 } else {
     $report += "OK:   No autostart surface references $OldBinary"
+}
+
+if ($ignoredRefs.Count -gt 0) {
+    $report += "INFO: $($ignoredRefs.Count) $OldBinary ref(s) in -IgnorePathsRegex '$IgnorePathsRegex' (not counted as drift):"
+    foreach ($r in $ignoredRefs) { $report += "  - [$($r.surface)] $($r.ref)" }
 }
 
 if ($runningOld -gt $MaxOldProcs) {
