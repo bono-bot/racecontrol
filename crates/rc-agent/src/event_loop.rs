@@ -256,6 +256,14 @@ pub(crate) struct ConnectionState {
     /// 06:46 UTC 2026-04-17) and pod_6 (Pattern E, AC 12:36 UTC 2026-04-17) where each
     /// crash resets `attempt=1` and the loop never breaks.
     pub(crate) recent_crash_history: Vec<std::time::Instant>,
+    /// Pattern I Part 5 Commit 5 (T2 trigger): 300s periodic tick that runs
+    /// `session_end_fallback::fetch_and_reconcile`. Fires as a select! arm
+    /// while WS is alive; catches WS-flap-with-stale-connection class.
+    /// Silent-loop-death class is NOT covered (would need Part 4
+    /// dead-man's-switch bypassing the event loop's &mut AppState ownership).
+    /// Field compiles unconditionally — the fetch body is cfg-gated inside
+    /// the arm so tokio::select! sees a consistent branch structure.
+    pub(crate) session_end_fallback_interval: tokio::time::Interval,
 }
 
 impl ConnectionState {
@@ -314,6 +322,16 @@ impl ConnectionState {
             last_adapter_connect_error: None,
             launch_epoch: 0,
             recent_crash_history: Vec::new(),
+            session_end_fallback_interval: {
+                // First tick fires immediately — burned in `run()` before the
+                // select! loop so the T1 post-reconnect fire is explicit and
+                // T2 doesn't double-fire at connect time. 300s cadence matches
+                // session_end_fallback::T2_TICK (duplicated here to keep this
+                // field compiling without the http-client feature).
+                let mut i = tokio::time::interval(Duration::from_secs(300));
+                i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                i
+            },
         }
     }
 }
@@ -338,6 +356,19 @@ pub async fn run(
     split_brain_probe: &(),
 ) -> anyhow::Result<()> {
     let mut conn = ConnectionState::new();
+
+    // Pattern I Part 5 T1 (Commit 5): one-shot post-reconnect-success fallback fire.
+    // Fires once per event_loop::run invocation = once per successful WS (re)connect.
+    // Catches the missed-SessionEnded-during-brief-WS-drop class.
+    //
+    // The interval tick is burned unconditionally (so T2 does not double-fire
+    // at connect time). The HTTP fetch itself is cfg-gated on http-client;
+    // no-op on test/CI builds where reqwest is absent.
+    conn.session_end_fallback_interval.tick().await;
+    #[cfg(feature = "http-client")]
+    {
+        crate::session_end_fallback::fetch_and_reconcile(state, &mut conn, &mut ws_tx).await;
+    }
 
     loop {
         tokio::select! {
@@ -2538,6 +2569,18 @@ pub async fn run(
                         }
                     }
                     udp_heartbeat::HeartbeatEvent::CoreAlive => {}
+                }
+            }
+
+            // Pattern I Part 5 T2 (Commit 5): 300s periodic fallback fire.
+            // Runs the same reconciliation as T1. Fires only while the event
+            // loop is iterating (WS alive); silent-loop-death is NOT covered
+            // here — Part 4 dead-man's-switch is the companion follow-up.
+            // Arm is always-compiled; fetch body cfg-gated inside.
+            _ = conn.session_end_fallback_interval.tick() => {
+                #[cfg(feature = "http-client")]
+                {
+                    crate::session_end_fallback::fetch_and_reconcile(state, &mut conn, &mut ws_tx).await;
                 }
             }
 

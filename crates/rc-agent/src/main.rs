@@ -12,6 +12,8 @@ mod experience_collector;
 mod experience_score;
 mod ws_handler;
 mod ws_state;
+#[cfg(feature = "http-client")]
+mod session_end_fallback;
 mod config;
 mod content_scanner;
 mod debug_server;
