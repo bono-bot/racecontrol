@@ -1,6 +1,6 @@
 [pod]
 number = 9
-name = "POS"
+name = "POS 1"
 sim = "assetto_corsa"
 sim_ip = "127.0.0.1"
 sim_port = 9996
@@ -9,6 +9,23 @@ node_type = "pos"
 [core]
 url = "ws://192.168.31.23:8080/ws/agent"
 mdns_enabled = true
+
+# 2026-04-21: POS is a billing terminal, not a customer-facing gaming kiosk.
+# kiosk.enabled=true hides the taskbar + applies GPO lockdown (NoWinKeys,
+# DisableTaskMgr), which prevents staff from opening other apps cleanly.
+# Staff need Epson tools + accounting software accessible on the POS.
+# The Chrome --kiosk flag alone handles the billing-URL-fullscreen requirement.
+[kiosk]
+enabled = false
+
+[lock_screen]
+enabled = false
+
+[preflight]
+enabled = false
+
+[process_guard]
+enabled = false
 
 [wheelbase]
 vid = 4617
