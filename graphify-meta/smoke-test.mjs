@@ -33,7 +33,7 @@ function section(name) {
 // Stage 1: run all 4 scripts, capture their exit codes.
 // ---------------------------------------------------------------------------
 
-const scripts = ['slice-submodules.mjs', 'api-edges.mjs', 'db-edges.mjs', 'ws-edges.mjs', 'fs-edges.mjs', 'cochange-edges.mjs', 'build-meta.mjs'];
+const scripts = ['slice-submodules.mjs', 'api-edges.mjs', 'db-edges.mjs', 'ws-edges.mjs', 'fs-edges.mjs', 'struct-edges.mjs', 'import-edges.mjs', 'cochange-edges.mjs', 'build-meta.mjs'];
 section('Run pipeline');
 for (const s of scripts) {
   const r = spawnSync(process.execPath, [path.join(__dirname, s)], { cwd: __dirname, encoding: 'utf8' });
@@ -48,7 +48,7 @@ for (const s of scripts) {
 // ---------------------------------------------------------------------------
 
 section('Artifact existence');
-const artifacts = ['api-edges.json', 'db-edges.json', 'ws-edges.json', 'fs-edges.json', 'cochange-edges.json', 'cochange-gaps.md', 'meta-graph.json', 'meta.html', 'META_REPORT.md', 'slices.json'];
+const artifacts = ['api-edges.json', 'db-edges.json', 'ws-edges.json', 'fs-edges.json', 'struct-edges.json', 'import-edges.json', 'cochange-edges.json', 'cochange-gaps.md', 'meta-graph.json', 'meta.html', 'META_REPORT.md', 'slices.json'];
 for (const a of artifacts) {
   assert(fs.existsSync(path.join(__dirname, a)), `${a} exists`);
 }
@@ -111,6 +111,17 @@ assert(!!agentSentry, 'rc.rc-agent ↔ rc.rc-sentry fs-path edge (MAINTENANCE_MO
 const cc = JSON.parse(fs.readFileSync(path.join(__dirname, 'cochange-edges.json'), 'utf8'));
 assert(cc.commits_scanned > 100, `cochange scanned > 100 commits (got ${cc.commits_scanned})`);
 assert(Array.isArray(cc.hidden_coupling), 'cochange hidden_coupling array present');
+
+section('struct-edges.json + import-edges.json');
+const st = JSON.parse(fs.readFileSync(path.join(__dirname, 'struct-edges.json'), 'utf8'));
+assert(st.edges.length >= 10, `>=10 shared-type edges (got ${st.edges.length})`);
+// kiosk<->rc-agent via AcLaunchParams family is the named motivation — assert it
+const kioskAgent = st.edges.find(e =>
+  ((e.from === 'rc.kiosk' && e.to === 'rc.rc-agent') || (e.from === 'rc.rc-agent' && e.to === 'rc.kiosk'))
+  && e.single_def_count >= 3);
+assert(!!kioskAgent, 'rc.kiosk <-> rc.rc-agent shared-type edge (AcLaunchParams class)');
+const imp = JSON.parse(fs.readFileSync(path.join(__dirname, 'import-edges.json'), 'utf8'));
+assert(Array.isArray(imp.edges), 'import-edges.json has edges array');
 
 section('per-slice artifacts');
 const slices = JSON.parse(fs.readFileSync(path.join(__dirname, 'slices.json'), 'utf8')).slices;

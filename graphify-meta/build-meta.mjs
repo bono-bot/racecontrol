@@ -224,6 +224,35 @@ if (fs.existsSync(wsEdgesPath)) {
   }
 }
 
+// (a4a) Shared-type-name edges — cross-language payload schema coupling
+// (Rust `#[derive(Serialize)] pub struct X` + TS `interface X`). Complements
+// ws-edges which only matches enum variants.
+const structEdgesPath = path.join(__dirname, 'struct-edges.json');
+if (fs.existsSync(structEdgesPath)) {
+  const st = JSON.parse(fs.readFileSync(structEdgesPath, 'utf8'));
+  // Aggregate A->B and B->A into a single undirected edge. Take max single_def
+  // as the strength since both directions describe the same coupling.
+  const byPair = new Map();
+  for (const e of st.edges) {
+    const src = aliasOf(e.from), tgt = aliasOf(e.to);
+    if (src === tgt) continue;
+    if (e.single_def_count < 5) continue;  // noise threshold
+    const key = [src, tgt].sort().join('|');
+    const prev = byPair.get(key);
+    if (!prev || e.single_def_count > prev.single_def_count) {
+      const singleDefs = e.shared_types.filter(t => !t.both_define).map(t => t.name).slice(0, 5);
+      byPair.set(key, {
+        source: src, target: tgt,
+        single_def_count: e.single_def_count,
+        weight: e.single_def_count,
+        type: 'shared-struct-name',
+        shared_types: singleDefs,
+      });
+    }
+  }
+  metaLinks.push(...byPair.values());
+}
+
 // (a4b) Filesystem-sentinel edges — modules that reference the same path literal
 // (MAINTENANCE_MODE, GRACEFUL_RELAUNCH, ota-in-progress.flag, shared config dir).
 // This channel was added in round 7 after git co-change mining revealed rc-agent ↔
@@ -330,6 +359,7 @@ const EDGE_STYLE = {
   'api-call':          { color: '#59A14F', dashes: false, arrow: true,  label: 'HTTP API call' },
   'shared-db-table':   { color: '#F1CE63', dashes: false, arrow: false, label: 'shared DB table(s)' },
   'shared-ws-variant': { color: '#E15759', dashes: false, arrow: false, label: 'shared WS variant(s)' },
+  'shared-struct-name':{ color: '#4E79A7', dashes: false, arrow: false, label: 'shared type name(s)' },
   'shared-fs-path':    { color: '#B07AA1', dashes: false, arrow: false, label: 'shared filesystem path(s)' },
   'co-change':         { color: '#D4A6C8', dashes: true,  arrow: false, label: 'git co-change (unexplained)' },
   'label-overlap':     { color: '#6a7aaa', dashes: true,  arrow: false, label: 'shared top-30 label(s)' },
@@ -397,20 +427,22 @@ const html = `<!doctype html>
   <div class="edges">
     <h2>Inter-module overlaps (top-30 label matches)</h2>
     ${metaLinks.filter(e => e.type !== 'contains').sort((a,b)=> {
-      const rank = { 'api-call': 4000, 'shared-ws-variant': 3000, 'shared-db-table': 2000, 'shared-fs-path': 1000, 'co-change': 500, 'label-overlap': 0 };
+      const rank = { 'api-call': 5000, 'shared-ws-variant': 4000, 'shared-struct-name': 3000, 'shared-db-table': 2000, 'shared-fs-path': 1000, 'co-change': 500, 'label-overlap': 0 };
       return (rank[b.type]||0) + b.weight - (rank[a.type]||0) - a.weight;
-    }).slice(0,25).map(e => {
+    }).slice(0,30).map(e => {
       const style = {
-        'api-call':          ['#59A14F', 'API'],
-        'shared-db-table':   ['#F1CE63', 'DB'],
-        'shared-ws-variant': ['#E15759', 'WS'],
-        'shared-fs-path':    ['#B07AA1', 'FS'],
-        'co-change':         ['#D4A6C8', 'git'],
-        'label-overlap':     ['#888',    'lbl'],
+        'api-call':           ['#59A14F', 'API'],
+        'shared-db-table':    ['#F1CE63', 'DB'],
+        'shared-ws-variant':  ['#E15759', 'WS'],
+        'shared-struct-name': ['#4E79A7', 'typ'],
+        'shared-fs-path':     ['#B07AA1', 'FS'],
+        'co-change':          ['#D4A6C8', 'git'],
+        'label-overlap':      ['#888',    'lbl'],
       }[e.type] || ['#888', '?'];
       const detail = e.url_fragments   ? e.url_fragments.join(', ')
                    : e.shared_tables   ? e.shared_tables.join(', ')
                    : e.shared_variants ? e.shared_variants.join(', ')
+                   : e.shared_types    ? e.shared_types.join(', ')
                    : e.shared_paths    ? e.shared_paths.join(', ')
                    : e.top_file_pair   ? e.top_file_pair
                    : e.shared_labels   ? e.shared_labels.join(', ')
@@ -424,6 +456,7 @@ const html = `<!doctype html>
     <div class="row"><div class="swatch" style="background:#59A14F;color:#59A14F"></div><span class="label">api-call — HTTP /api/ endpoint</span></div>
     <div class="row"><div class="swatch" style="background:#E15759;color:#E15759"></div><span class="label">shared-ws-variant — same WS enum variant referenced</span></div>
     <div class="row"><div class="swatch" style="background:#F1CE63;color:#F1CE63"></div><span class="label">shared-db-table — same SQL table read/written</span></div>
+    <div class="row"><div class="swatch" style="background:#4E79A7;color:#4E79A7"></div><span class="label">shared-struct-name — cross-language payload schema</span></div>
     <div class="row"><div class="swatch" style="background:#B07AA1;color:#B07AA1"></div><span class="label">shared-fs-path — same filesystem sentinel / config</span></div>
     <div class="row"><div class="swatch dashed" style="color:#D4A6C8"></div><span class="label">co-change — git history coupling (no scanner edge)</span></div>
     <div class="row"><div class="swatch dashed" style="color:#6a7aaa"></div><span class="label">label-overlap — shared top-30 names (weak signal)</span></div>

@@ -6,6 +6,8 @@ api-edges.json
 db-edges.json
 ws-edges.json
 fs-edges.json
+struct-edges.json
+import-edges.json
 cochange-edges.json
 cochange-gaps.md
 slices.json
