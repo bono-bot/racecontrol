@@ -44,12 +44,24 @@ One-page checklist for next session. For context read HANDOFF.md.
 - [ ] Web 28% (27/95). Same fix as Kiosk.
 
 ## Meta-map gaps
-- [ ] api-edges.mjs misses templated URLs (`/api/drivers/${id}`, `/api/:pod/state`). Extend regex.
-- [ ] api-edges.mjs missing back-edges (racecontrol → module callbacks)
-- [ ] Kiosk/Web/Admin-API not split out as sub-modules under racecontrol meta-node
-- [ ] Admin scraped only 3 URL fragments — suggests hidden URL-builders; grep Admin's service-class files for route strings
-- [ ] No gap-rules evaluated against per-module graphs (admin/comms-link/whatsapp-bot etc.)
-- [ ] No watcher auto-rebuilds meta-map when module graphs change
+- [x] api-edges.mjs misses templated URLs (`/api/drivers/${id}`, `/api/:pod/state`) — CLOSED session-3 `6a085e68`. `normalizeUrl()` strips `${id}`, `:id`, `{id}`, query strings + template chars preserved in capture regex.
+- [x] api-edges.mjs missing back-edges (racecontrol → module callbacks) — CLOSED session-3 `6a085e68` + `19ef7b79`. 27 back-edges discovered via `BACK_EDGE_TARGETS` pattern map (:8766→comms-link, :8091→rc.rc-sentry, :8090→rc.rc-agent, evolution→whatsapp-bot, :8095→people-tracker).
+- [x] Kiosk/Web/Admin-API not split out as sub-modules — CLOSED session-2 `44ac83b2` (slicer) + session-3 `2dd12d7e` (added as consumers of their own api). rc.kiosk/rc.web now emit real api-edges to racecontrol; rc.admin-api/billing-api/customer-api are backend-side so no outgoing edges expected.
+- [x] Admin scraped only 3 URL fragments — CLOSED session-3 `6a085e68`. api-edges now finds 11 distinct fragments from admin (89 literals, 19 edges) after regex expansion + `fetchApi`/`apiCall` verb wrappers.
+- [x] No gap-rules evaluated against per-module graphs — CLOSED session-2 (validate-slices.mjs). All 8 slices audited: 12-20 rules hit each.
+- [ ] No watcher auto-rebuilds meta-map when module graphs change — deferred. Add post-commit hook section that runs `node graphify-meta/build-meta.mjs` when any `graphify-out*/graph.json` mtime changes.
+- [x] No regression harness — CLOSED session-3 `19ef7b79`. `graphify-meta/smoke-test.mjs` runs full pipeline + 38 assertions (no duplicate backend_files, no absolute paths, verb capture, stopword leak, per-slice artifact pair check).
+
+## Session-3 additions (2026-04-20) — NEW infrastructure
+- [x] **api-edges quality**: dedupe matched_routes.backend_files by sf; normalize ROOT-prefix paths out of output; prefix-segment score bonus for score=1 tiebreak; HTTP verb capture (GET/POST/PUT/PATCH/DELETE via fetch/axios/fetchApi/apiCall + chain `.get()` syntax); axios.create({baseURL:'/api/vN'}) + relative-path resolution. Commits `6a085e68` `19ef7b79`.
+- [x] **Slice-aware scanning**: api-edges, ws-edges, db-edges all treat racecontrol/kiosk, racecontrol/web, racecontrol/pwa as separate modules rather than folding into the racecontrol super-module. `MODULE_ALIAS` in build-meta folds `racecontrol.crates` → `racecontrol`. Commits `2dd12d7e` `b135124f`.
+- [x] **New edge channels**: `db-edges.mjs` (shared SQL table coupling, Python-import + prose filter, stopword list) + `ws-edges.mjs` (shared WS protocol-enum variants across 13 real enums like `AgentMessage`, `DashboardEvent`, `FleetEvent`). Surfaces racecontrol↔whatsapp-bot (sessions/staff_members/bookings) + racecontrol↔rc.kiosk (IdleWarning) + racecontrol↔rc.web (CommandError) couplings that were invisible to HTTP-only scanning. Commits `6a085e68` `b135124f`.
+- [x] **Slice viz**: lightweight vis-network `graph.html` emitted per slice (8 new files) so meta.html drill-down works. slices.json now stores ROOT-relative paths (was absolute). Commit `6a085e68`.
+- [x] **Parent-contains edges**: 8 synthetic `racecontrol → rc.*` edges in meta-graph so slice hierarchy renders visually. Dashed grey, excluded from summary tables. Commit `2dd12d7e`.
+- [x] **Coverage expansion**: +4 MCP sibling modules registered (calendar/drive/gmail/sheets, all MISSING). Modules 15 → 20. Commit `6a085e68`.
+- [x] **Tier-2 stoplist**: `metrics.ts` / `utils.ts` / `get()` / `handledelete()` / `render()` / `setstate()` etc. no longer cause false inter-module coupling. Removed spurious rc.web↔racingpoint-admin edge. Commit `6a085e68`.
+- [x] **Low-density warn**: `META_REPORT.md` flags modules with < 0.5 nodes/file AND < 20 nodes, OR < 10 nodes absolute. Catches rc-ops-mcp (2 nodes) + future degenerate scans. Commit `19ef7b79`.
+- [x] **Missing-HTML warn**: viz absence diagnosed by node count (small = re-run graphify, > 5000 = auto-skip, zero = no json). Commit `19ef7b79`.
 
 ## G9 entries to investigate
 - [x] (1) Root cause of graph.json drift — RESOLVED session-2: racecontrol post-commit hook runs `graphify.watch._rebuild_code` on every commit; 17+ session commits caused the 9811→9834 growth, and all 25 added node IDs match session-committed files. Not a bug.
