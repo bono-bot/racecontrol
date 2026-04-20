@@ -88,7 +88,9 @@ assert(leaked.length === 0, `no stopword tables in shared_tables (got ${leaked.j
 section('ws-edges.json quality');
 const ws = JSON.parse(fs.readFileSync(path.join(__dirname, 'ws-edges.json'), 'utf8'));
 assert(typeof ws.per_module_variant_counts === 'object', 'per_module_variant_counts present');
-assert(ws.per_module_variant_counts.racecontrol > 100, `racecontrol has many variants (got ${ws.per_module_variant_counts.racecontrol})`);
+// After round-4 split: backend WS variants live under `racecontrol.crates` (slice-aware).
+const rcVariantCount = ws.per_module_variant_counts['racecontrol.crates'] ?? ws.per_module_variant_counts.racecontrol ?? 0;
+assert(rcVariantCount > 100, `racecontrol(.crates) has many variants (got ${rcVariantCount})`);
 
 section('meta-graph.json quality');
 const meta = JSON.parse(fs.readFileSync(path.join(__dirname, 'meta-graph.json'), 'utf8'));

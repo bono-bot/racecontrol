@@ -175,15 +175,22 @@ if (fs.existsSync(apiEdgesPath)) {
   }
 }
 
+// Alias map: ws-edges and db-edges scan `racecontrol.crates` subdirectory separately
+// from kiosk/web/pwa slices, but the meta-map has no `racecontrol.crates` node —
+// fold it back into the umbrella `racecontrol` module.
+const MODULE_ALIAS = { 'racecontrol.crates': 'racecontrol' };
+const aliasOf = id => MODULE_ALIAS[id] || id;
+
 // (a2) DB shared-table edges
 const dbEdgesPath = path.join(__dirname, 'db-edges.json');
 if (fs.existsSync(dbEdgesPath)) {
   const db = JSON.parse(fs.readFileSync(dbEdgesPath, 'utf8'));
   for (const e of db.edges) {
-    // Only include edges with weight >= 3 (3+ shared tables = genuine coupling)
+    const src = aliasOf(e.from), tgt = aliasOf(e.to);
+    if (src === tgt) continue;  // self-loop after aliasing
     if (e.weight < 3) continue;
     metaLinks.push({
-      source: e.from, target: e.to,
+      source: src, target: tgt,
       weight: e.weight,
       type: 'shared-db-table',
       shared_tables: e.shared_tables.slice(0, 5).map(s => s.table),
@@ -191,14 +198,17 @@ if (fs.existsSync(dbEdgesPath)) {
   }
 }
 
-// (a3) WS shared-variant edges
+// (a3) WS shared-variant edges. Lowered threshold to >=1 because the slice-aware
+// scanner now produces fine-grained edges (kiosk<->backend: 1 variant = real signal).
 const wsEdgesPath = path.join(__dirname, 'ws-edges.json');
 if (fs.existsSync(wsEdgesPath)) {
   const ws = JSON.parse(fs.readFileSync(wsEdgesPath, 'utf8'));
   for (const e of ws.edges) {
-    if (e.weight < 3) continue;
+    const src = aliasOf(e.from), tgt = aliasOf(e.to);
+    if (src === tgt) continue;
+    if (e.weight < 1) continue;
     metaLinks.push({
-      source: e.from, target: e.to,
+      source: src, target: tgt,
       weight: e.weight,
       type: 'shared-ws-variant',
       shared_variants: e.shared_variants.slice(0, 5),

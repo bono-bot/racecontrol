@@ -42,14 +42,20 @@ const WS_ENUMS = [
   'GuardianEvent', 'AlertEvent',
 ];
 
+// Modules scanned for WS variants. Split racecontrol by slice where possible so
+// cross-boundary coupling (kiosk<->backend, web<->backend) surfaces as real edges
+// instead of being hidden inside one racecontrol super-module.
 const MODULES = [
-  'racecontrol',
-  'racingpoint-admin',
-  'comms-link',
-  'whatsapp-bot',
-  'people-tracker',
-  'pod-agent',
-  'rc-ops-mcp',
+  { id: 'racecontrol.crates', subdir: 'racecontrol/crates' },  // backend + rc-agent + rc-sentry
+  { id: 'rc.kiosk',           subdir: 'racecontrol/kiosk' },
+  { id: 'rc.web',             subdir: 'racecontrol/web' },
+  { id: 'rc.pwa',             subdir: 'racecontrol/pwa' },
+  { id: 'racingpoint-admin',  subdir: 'racingpoint-admin' },
+  { id: 'comms-link',         subdir: 'comms-link' },
+  { id: 'whatsapp-bot',       subdir: 'whatsapp-bot' },
+  { id: 'people-tracker',     subdir: 'people-tracker' },
+  { id: 'pod-agent',          subdir: 'pod-agent' },
+  { id: 'rc-ops-mcp',         subdir: 'rc-ops-mcp' },
 ];
 
 function walkSources(dir, acc = [], depth = 0) {
@@ -78,8 +84,8 @@ const CASE_STR_RE = /\bcase\s+["']([A-Z][A-Za-z0-9_]+)["']/g;
 console.log('[1/3] Scanning modules for WS message variants ...');
 const modVariants = new Map();  // mod → Map(variant → Set<files>)
 
-for (const mod of MODULES) {
-  const modDir = path.join(ROOT, mod);
+for (const { id: mod, subdir } of MODULES) {
+  const modDir = path.join(ROOT, subdir);
   if (!fs.existsSync(modDir)) continue;
   const variants = new Map();
   const files = walkSources(modDir);

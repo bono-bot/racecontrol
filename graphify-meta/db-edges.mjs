@@ -31,14 +31,20 @@ function findEcosystemRoot(start) {
 }
 const ROOT = (process.env.GRAPHIFY_META_ROOT || findEcosystemRoot(__dirname) || 'C:/Users/bono/racingpoint').replace(/\\/g, '/');
 
+// Modules scanned for SQL/Prisma coupling. Split racecontrol by slice so frontend
+// direct-DB access (if any — uncommon but possible via Next.js server routes)
+// shows up as its own edge, not hidden inside the racecontrol super-module.
 const MODULES = [
-  'racecontrol',
-  'racingpoint-admin',
-  'comms-link',
-  'whatsapp-bot',
-  'people-tracker',
-  'pod-agent',
-  'rc-ops-mcp',
+  { id: 'racecontrol.crates', subdir: 'racecontrol/crates' },
+  { id: 'rc.kiosk',           subdir: 'racecontrol/kiosk' },
+  { id: 'rc.web',             subdir: 'racecontrol/web' },
+  { id: 'rc.pwa',             subdir: 'racecontrol/pwa' },
+  { id: 'racingpoint-admin',  subdir: 'racingpoint-admin' },
+  { id: 'comms-link',         subdir: 'comms-link' },
+  { id: 'whatsapp-bot',       subdir: 'whatsapp-bot' },
+  { id: 'people-tracker',     subdir: 'people-tracker' },
+  { id: 'pod-agent',          subdir: 'pod-agent' },
+  { id: 'rc-ops-mcp',         subdir: 'rc-ops-mcp' },
 ];
 
 // SQL keyword patterns that strongly indicate a specific table name follows.
@@ -121,8 +127,8 @@ function normalizeTable(raw) {
 console.log('[1/3] Scanning modules for SQL/Prisma references ...');
 const modTables = new Map();  // module → Map(table → {verbs:Set, files:Set})
 
-for (const mod of MODULES) {
-  const modDir = path.join(ROOT, mod);
+for (const { id: mod, subdir } of MODULES) {
+  const modDir = path.join(ROOT, subdir);
   if (!fs.existsSync(modDir)) continue;
   const tables = new Map();
   const files = walkSources(modDir);
