@@ -37,6 +37,7 @@ COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 declare -a CHECKS=(
   "schema-dpdp|python3 $SCRIPT_DIR/board-state-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/dpdp-coverage-check.py"
   "fleet-swaplog-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/fleet-swaplog-parity-check.py"
+  "deploy-staging-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/deploy-staging-parity-check.py"
 )
 
 # Future surfaces (stubs — registered but generators not yet written):
