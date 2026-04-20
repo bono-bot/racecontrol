@@ -1,0 +1,1640 @@
+﻿{
+    "host":  "SIM8",
+    "user":  "user",
+    "timestamp_utc":  "2026-04-20T01:06:36.6559221Z",
+    "last_boot_utc":  "2026-04-17T10:25:56.5000000Z",
+    "surfaces":  {
+                     "hklm_run":  [
+                                      {
+                                          "value":  "C:\\WINDOWS\\system32\\SecurityHealthSystray.exe",
+                                          "name":  "SecurityHealth"
+                                      },
+                                      {
+                                          "value":  "\"C:\\WINDOWS\\System32\\DriverStore\\FileRepository\\realtekservice.inf_amd64_ddf3491657a346d3\\RtkAudUService64.exe\" -background",
+                                          "name":  "RtkAudUService"
+                                      },
+                                      {
+                                          "value":  "C:\\RacingPoint\\start-rcagent.bat",
+                                          "name":  "RCAgent"
+                                      },
+                                      {
+                                          "value":  "C:\\RacingPoint\\start-rcsentry.bat",
+                                          "name":  "RCSentry"
+                                      }
+                                  ],
+                     "hklm_runonce":  [
+                                          {
+                                              "value":  "\"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\147.0.3912.72\\Installer\\setup.exe\" --msedgewebview --delete-old-versions --system-level --verbose-logging --on-logon",
+                                              "name":  "msedge_cleanup_{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+                                          },
+                                          {
+                                              "value":  "C:\\WINDOWS\\system32\\cmd.exe /q /c del /q \"C:\\Program Files\\Microsoft OneDrive\\Update\\OneDriveSetup.exe\"",
+                                              "name":  "Delete Cached Update Binary"
+                                          },
+                                          {
+                                              "value":  "C:\\WINDOWS\\system32\\cmd.exe /q /c del /q \"C:\\Program Files\\Microsoft OneDrive\\StandaloneUpdater\\OneDriveSetup.exe\"",
+                                              "name":  "Delete Cached Standalone Update Binary"
+                                          }
+                                      ],
+                     "hkcu_run":  [
+                                      {
+                                          "value":  "\"C:\\Program Files (x86)\\Steam\\steam.exe\" -silent",
+                                          "name":  "Steam"
+                                      },
+                                      {
+                                          "value":  "C:\\Program Files (x86)\\VSD Craft\\VSD Craft.exe --RunInBackground",
+                                          "name":  "VSD Craft"
+                                      }
+                                  ],
+                     "hkcu_runonce":  {
+
+                                      },
+                     "startup_all_users":  [
+                                               {
+                                                   "path":  "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\RustDesk Tray.lnk",
+                                                   "arguments":  "--tray",
+                                                   "name":  "RustDesk Tray.lnk",
+                                                   "target":  "C:\\Program Files\\RustDesk\\rustdesk.exe"
+                                               },
+                                               {
+                                                   "path":  "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\Tailscale.lnk",
+                                                   "arguments":  "",
+                                                   "name":  "Tailscale.lnk",
+                                                   "target":  "C:\\Program Files\\Tailscale\\tailscale-ipn.exe"
+                                               }
+                                           ],
+                     "startup_user":  [
+                                          {
+                                              "path":  "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\ConspitLink2.0.exe-quickstart.lnk",
+                                              "arguments":  "",
+                                              "name":  "ConspitLink2.0.exe-quickstart.lnk",
+                                              "target":  "C:\\Program Files (x86)\\Conspit Link 2.0\\ConspitLinkQuickStart.exe"
+                                          },
+                                          {
+                                              "path":  "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\Ollama.lnk",
+                                              "arguments":  "",
+                                              "name":  "Ollama.lnk",
+                                              "target":  "C:\\Users\\User\\AppData\\Local\\Programs\\Ollama\\ollama app.exe"
+                                          },
+                                          {
+                                              "path":  "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\PodAgent.lnk",
+                                              "arguments":  "",
+                                              "name":  "PodAgent.lnk",
+                                              "target":  "C:\\RacingPoint\\pod-agent.exe"
+                                          },
+                                          {
+                                              "name":  "SoundKeeper64.exe",
+                                              "path":  "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\SoundKeeper64.exe"
+                                          },
+                                          {
+                                              "name":  "start-conspit-minimized.vbs",
+                                              "path":  "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\start-conspit-minimized.vbs"
+                                          }
+                                      ],
+                     "scheduled_tasks":  [
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\AmdX3DInstaller",
+                                                 "status":  "Ready",
+                                                 "command":  "%ProgramFiles%\\\\GIGABYTE\\\\AmdX3DInstaller\\\\gbtamdx3dInstaller.exe\" \"",
+                                                 "last_run":  "17-04-2026 15:56:07",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\CaptureScreen",
+                                                 "status":  "Ready",
+                                                 "command":  "powershell -ExecutionPolicy Bypass -File C:\\RacingPoint\\capture-lockscreen.ps1",
+                                                 "last_run":  "07-04-2026 19:34:52",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Administrators",
+                                                 "name":  "\\DeleteDirectoryTask",
+                                                 "status":  "Ready",
+                                                 "command":  "powershell.exe -ExecutionPolicy unrestricted -WindowStyle Hidden -NoLogo -Command Remove-Item -path \u0027C:\\Hexnode Credential Provider\u0027 -recurse",
+                                                 "last_run":  "04-12-2025 11:27:21",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\GCC",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\GIGABYTE\\Control Center\\GCC.exe\" -b\"",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\MicrosoftEdgeUpdateTaskMachineCore{C151C119-208B-46D4-8499-74E2F9D06048}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe /c",
+                                                 "last_run":  "19-04-2026 16:54:06",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\MicrosoftEdgeUpdateTaskMachineCore{C151C119-208B-46D4-8499-74E2F9D06048}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe /c",
+                                                 "last_run":  "19-04-2026 16:54:06",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\MicrosoftEdgeUpdateTaskMachineUA{D9024A68-7567-4311-B04D-C5193449CBE3}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe /ua /installsource scheduler",
+                                                 "last_run":  "20-04-2026 06:24:06",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Administrators",
+                                                 "name":  "\\ModifyLinkUpdate",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\AMD\\CIM\\Bin64\\InstallManagerApp.exe -UpdateCurrentUser",
+                                                 "last_run":  "17-04-2026 15:56:07",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Administrators",
+                                                 "name":  "\\ModifyLinkUpdate",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\AMD\\CIM\\Bin64\\InstallManagerApp.exe -UpdateCurrentUser",
+                                                 "last_run":  "17-04-2026 15:56:07",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\NVIDIA App SelfUpdate_{B2FE1952-0186-46C3-BAEC-A80AA35AC5B8}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\NVIDIA Corporation\\NVIDIA App\\CEF\\NVIDIA App.exe\" \"",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\OneDrive Per-Machine Standalone Update Task",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft OneDrive\\OneDriveStandaloneUpdater.exe ",
+                                                 "last_run":  "20-04-2026 00:09:16",
+                                                 "last_result":  "-2147160572"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\OneDrive Reporting Task-S-1-5-21-2313013544-850735272-898779458-1000",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft OneDrive\\OneDriveStandaloneUpdater.exe /reporting",
+                                                 "last_run":  "19-04-2026 22:45:21",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Administrator",
+                                                 "name":  "\\OneDrive Reporting Task-S-1-5-21-2313013544-850735272-898779458-500",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft OneDrive\\OneDriveStandaloneUpdater.exe /reporting",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\OneDrive Startup Task-S-1-5-21-2313013544-850735272-898779458-1000",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft OneDrive\\26.055.0323.0004\\OneDriveLauncher.exe /startInstances",
+                                                 "last_run":  "17-04-2026 16:06:08",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Administrator",
+                                                 "name":  "\\OneDrive Startup Task-S-1-5-21-2313013544-850735272-898779458-500",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft OneDrive\\26.055.0323.0004\\OneDriveLauncher.exe /startInstances",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\RacingPoint-PodAgent",
+                                                 "status":  "Ready",
+                                                 "command":  "C:/RacingPoint/watchdog-pod-agent.cmd\" \"",
+                                                 "last_run":  "17-04-2026 15:56:06",
+                                                 "last_result":  "1"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\RacingPoint-RcAgent",
+                                                 "status":  "Disabled",
+                                                 "command":  "C:/RacingPoint/watchdog-rc-agent.cmd\" \"",
+                                                 "last_run":  "14-03-2026 06:30:03",
+                                                 "last_result":  "1"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\RC-Agent Watchdog",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\RacingPoint\\watchdog.bat ",
+                                                 "last_run":  "20-04-2026 06:36:01",
+                                                 "last_result":  "1"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\RC-Update",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\RacingPoint\\start-rcagent.bat ",
+                                                 "last_run":  "16-03-2026 09:48:00",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\RCAgentWatchdog",
+                                                 "status":  "Disabled",
+                                                 "command":  "C:\\RacingPoint\\rcagent-watchdog.bat ",
+                                                 "last_run":  "06-04-2026 02:41:01",
+                                                 "last_result":  "255"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\RestartSentry",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\RacingPoint\\rc-sentry.exe ",
+                                                 "last_run":  "23-03-2026 12:22:07",
+                                                 "last_result":  "-1073741510"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\StartRCAgent",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\RacingPoint\\start-rcagent.bat ",
+                                                 "last_run":  "17-04-2026 15:56:07",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\StartRCSentry",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\RacingPoint\\start-rcsentry.bat ",
+                                                 "last_run":  "17-04-2026 15:56:06",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\TestACLaunch",
+                                                 "status":  "Ready",
+                                                 "command":  "powershell -ExecutionPolicy Bypass -File C:\\RacingPoint\\test-ac-launch.ps1",
+                                                 "last_run":  "07-04-2026 17:53:24",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\GoogleSystem\\GoogleUpdater\\GoogleUpdaterTaskSystem148.0.7730.0{D485E2B5-DE15-4D6D-A647-3A0D8B2CF65C}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files (x86)\\Google\\GoogleUpdater\\148.0.7730.0\\updater.exe\" --wake --system\"",
+                                                 "last_run":  "20-04-2026 06:14:26",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\GoogleSystem\\GoogleUpdater\\GoogleUpdaterTaskSystem148.0.7730.0{D485E2B5-DE15-4D6D-A647-3A0D8B2CF65C}",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files (x86)\\Google\\GoogleUpdater\\148.0.7730.0\\updater.exe\" --wake --system\"",
+                                                 "last_run":  "20-04-2026 06:14:26",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Actions Server",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\VFS\\ProgramFilesCommonX64\\Microsoft Shared\\Office16\\ActionsServer\\ActionsServer.exe availabilitycheck",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Actions Server",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\VFS\\ProgramFilesCommonX64\\Microsoft Shared\\Office16\\ActionsServer\\ActionsServer.exe availabilitycheck",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\Office\\Office Automatic Updates 2.0",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe /frequentupdate SCHEDULEDTASK displaylevel=False",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\Office\\Office Automatic Updates 2.0",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe /frequentupdate SCHEDULEDTASK displaylevel=False",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\Office\\Office Automatic Updates 2.0",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe /frequentupdate SCHEDULEDTASK displaylevel=False",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "INTERACTIVE",
+                                                 "name":  "\\Microsoft\\Office\\Office Background Push Maintenance",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\vfs\\ProgramFilesCommonx64\\Microsoft Shared\\Office16\\opushutil.exe /pushregistration",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "INTERACTIVE",
+                                                 "name":  "\\Microsoft\\Office\\Office Background Push Maintenance",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\vfs\\ProgramFilesCommonx64\\Microsoft Shared\\Office16\\opushutil.exe /pushregistration",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\Office\\Office ClickToRun Service Monitor",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeC2RClient.exe /WatchService",
+                                                 "last_run":  "20-04-2026 04:38:44",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates Logon",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe /onlogon",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Feature Updates Logon",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\Office16\\sdxhelper.exe /onlogon",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\Office\\Office Performance Monitor",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\VFS\\ProgramFilesCommonX64\\Microsoft Shared\\Office16\\operfmon.exe ",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Startup Maintenance",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\VFS\\ProgramFilesCommonX64\\Microsoft Shared\\Office16\\ActionsServer\\ActionsServer.exe wacheck",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Users",
+                                                 "name":  "\\Microsoft\\Office\\Office Startup Maintenance",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Microsoft Office\\root\\VFS\\ProgramFilesCommonX64\\Microsoft Shared\\Office16\\ActionsServer\\ActionsServer.exe wacheck",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "SYSTEM",
+                                                 "name":  "\\Microsoft\\XblGameSave\\XblGameSaveTask",
+                                                 "status":  "Ready",
+                                                 "command":  "%windir%\\System32\\XblGameSaveTask.exe standby",
+                                                 "last_run":  "30-11-1999 00:00:00",
+                                                 "last_result":  "267011"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\Mozilla\\Firefox Background Update S-1-5-21-2313013544-850735272-898779458-1000 308046B0AF4A39CB",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Mozilla Firefox\\firefox.exe --MOZ_LOG sync,prependheader,timestamp,append,maxsize:1,Dump:5 --MOZ_LOG_FILE C:\\ProgramData\\Mozilla-1de4eec8-1241-4177-a864-e594e8d1fb38\\updates\\308046B0AF4A39CB\\backgroundupdate.moz_log --backgroundtask bac",
+                                                 "last_run":  "20-04-2026 06:33:14",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "User",
+                                                 "name":  "\\Mozilla\\Firefox Default Browser Agent 308046B0AF4A39CB",
+                                                 "status":  "Ready",
+                                                 "command":  "C:\\Program Files\\Mozilla Firefox\\default-browser-agent.exe do-task 308046B0AF4A39CB\"\"",
+                                                 "last_run":  "19-04-2026 19:31:19",
+                                                 "last_result":  "0"
+                                             },
+                                             {
+                                                 "run_as":  "Run As User",
+                                                 "name":  "TaskName",
+                                                 "status":  "Status",
+                                                 "command":  "Task To Run",
+                                                 "last_run":  "Last Run Time",
+                                                 "last_result":  "Last Result"
+                                             }
+                                         ],
+                     "auto_services":  [
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files (x86)\\Common Files\\Adobe\\ARM\\1.0\\armsvc.exe\"",
+                                               "name":  "AdobeARMservice",
+                                               "display":  "Adobe Acrobat Update Service",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeClickToRun.exe\" /service",
+                                               "name":  "ClickToRunSvc",
+                                               "display":  "Microsoft Office Click-to-Run Service",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /svc",
+                                               "name":  "edgeupdate",
+                                               "display":  "Microsoft Edge Update Service (edgeupdate)",
+                                               "state":  "Stopped"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\Microsoft GameInput\\x64\\GameInputRedistService.exe\"",
+                                               "name":  "GameInputRedistService",
+                                               "display":  "GameInput Redist Service",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\WindowsApps\\Microsoft.GamingServices_34.111.20001.0_x64__8wekyb3d8bbwe\\GamingServices.exe\"",
+                                               "name":  "GamingServices",
+                                               "display":  "Gaming Services",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\WindowsApps\\Microsoft.GamingServices_34.111.20001.0_x64__8wekyb3d8bbwe\\GamingServicesNet.exe\"",
+                                               "name":  "GamingServicesNet",
+                                               "display":  "Gaming Services",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files (x86)\\Google\\GoogleUpdater\\148.0.7730.0\\updater.exe\" --system --windows-service --service=update-internal",
+                                               "name":  "GoogleUpdaterInternalService148.0.7730.0",
+                                               "display":  "Google Updater Internal Service (GoogleUpdaterInternalService148.0.7730.0)",
+                                               "state":  "Stopped"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files (x86)\\Google\\GoogleUpdater\\148.0.7730.0\\updater.exe\" --system --windows-service --service=update",
+                                               "name":  "GoogleUpdaterService148.0.7730.0",
+                                               "display":  "Google Updater Service (GoogleUpdaterService148.0.7730.0)",
+                                               "state":  "Stopped"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.26030.3011-0\\MpDefenderCoreService.exe\"",
+                                               "name":  "MDCoreSvc",
+                                               "display":  "Microsoft Defender Core Service",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\Netdata\\usr\\bin\\netdata.exe\"",
+                                               "name":  "Netdata",
+                                               "display":  "Netdata Agent",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\NVIDIA Corporation\\NvContainer\\nvcontainer.exe\" -s NvContainerLocalSystem -a -f \"C:\\ProgramData\\NVIDIA Corporation\\NVIDIA App\\NvContainer\\NvContainerLocalSystem.log\" -l 3 -d \"C:\\Program Files\\NVIDIA Corporation\\NvContainer\\plugins\\LocalSystem\" -r -p 30000  -ert",
+                                               "name":  "NvContainerLocalSystem",
+                                               "display":  "NVIDIA LocalSystem Container",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "C:\\RacingPoint\\rc-watchdog.exe --service",
+                                               "name":  "RCWatchdog",
+                                               "display":  "RCWatchdog",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\RustDesk\\RustDesk.exe\" --service",
+                                               "name":  "RustDesk",
+                                               "display":  "RustDesk Service",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "C:\\WINDOWS\\Sysmon64.exe",
+                                               "name":  "Sysmon64",
+                                               "display":  "Sysmon64",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\Program Files\\Tailscale\\tailscaled.exe\"",
+                                               "name":  "Tailscale",
+                                               "display":  "Tailscale",
+                                               "state":  "Running"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "C:\\WINDOWS\\servicing\\TrustedInstaller.exe",
+                                               "name":  "TrustedInstaller",
+                                               "display":  "Windows Modules Installer",
+                                               "state":  "Stopped"
+                                           },
+                                           {
+                                               "start":  "Auto",
+                                               "path":  "\"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.26030.3011-0\\MsMpEng.exe\"",
+                                               "name":  "WinDefend",
+                                               "display":  "Microsoft Defender Antivirus Service",
+                                               "state":  "Running"
+                                           }
+                                       ],
+                     "on_disk_browser_refs":  [
+
+                                              ],
+                     "running_browsers":  {
+
+                                          }
+                 }
+}
