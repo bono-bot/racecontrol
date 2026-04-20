@@ -70,6 +70,11 @@ pub(crate) struct GameHistoryQuery {
     /// Pattern H: when true, excludes events where clean_exit_heuristic=1
     /// (customers closing the game cleanly rather than crashes).
     real_crashes_only: Option<bool>,
+    /// RFC3339 timestamp; when set, only events with created_at > since are returned.
+    /// Enables incremental polling from cloud admin dashboards without refetching history.
+    since: Option<String>,
+    /// Sim filter (e.g. "AssettoCorsaRally" for INV-10 verification queries).
+    sim_type: Option<String>,
 }
 
 pub(crate) async fn game_launch_history(
@@ -87,29 +92,31 @@ pub(crate) async fn game_launch_history(
     } else {
         ""
     };
+    let since_filter = if params.since.is_some() { " AND created_at > ?" } else { "" };
+    let sim_filter = if params.sim_type.is_some() { " AND sim_type = ?" } else { "" };
 
     let rows = if let Some(pod_id) = &params.pod_id {
         let sql = format!(
             "SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at, \
              COALESCE(clean_exit_heuristic, 0) \
-             FROM game_launch_events WHERE pod_id = ?{clean_filter} ORDER BY created_at DESC LIMIT ?",
+             FROM game_launch_events WHERE pod_id = ?{clean_filter}{since_filter}{sim_filter} ORDER BY created_at DESC LIMIT ?",
         );
-        sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String, i64)>(&sql)
-            .bind(pod_id)
-            .bind(limit)
-            .fetch_all(&state.db)
-            .await
+        let mut q = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String, i64)>(&sql)
+            .bind(pod_id);
+        if let Some(ref s) = params.since { q = q.bind(s); }
+        if let Some(ref s) = params.sim_type { q = q.bind(s); }
+        q.bind(limit).fetch_all(&state.db).await
     } else {
         // Note: without pod_id, `AND clean_filter` won't parse — use `WHERE 1=1` prefix
         let sql = format!(
             "SELECT id, pod_id, sim_type, event_type, pid, error_message, created_at, \
              COALESCE(clean_exit_heuristic, 0) \
-             FROM game_launch_events WHERE 1=1{clean_filter} ORDER BY created_at DESC LIMIT ?",
+             FROM game_launch_events WHERE 1=1{clean_filter}{since_filter}{sim_filter} ORDER BY created_at DESC LIMIT ?",
         );
-        sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String, i64)>(&sql)
-            .bind(limit)
-            .fetch_all(&state.db)
-            .await
+        let mut q = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Option<String>, String, i64)>(&sql);
+        if let Some(ref s) = params.since { q = q.bind(s); }
+        if let Some(ref s) = params.sim_type { q = q.bind(s); }
+        q.bind(limit).fetch_all(&state.db).await
     };
 
     match rows {
