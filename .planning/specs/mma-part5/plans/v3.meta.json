@@ -1,0 +1,12 @@
+{
+  "model": "deepseek/deepseek-chat-v3-0324",
+  "short": "v3",
+  "role": "code_expert",
+  "elapsed_sec": "78.6",
+  "prompt_tokens": 14877,
+  "completion_tokens": 1362,
+  "cost_usd": 0.00551499,
+  "finish_reason": "stop",
+  "json_ok": false,
+  "json_error": "could not extract JSON"
+}

@@ -1,0 +1,147 @@
+{
+  "plan_id": "plan-r1-v1",
+  "strategy": "Implement in 5 commits: 1) Add characterisation test for SessionEnded arm, 2) Refactor SessionEnded into apply_session_ended with char-for-charequivalence, 3) Add fallback infrastructure (dedup guard, URL helper, state fields), 4) Implement HTTP fallback logic with triggers, 5) Add comprehensive tests. Preserve compilability by sequencing refactor before new logic and isolating shared helpers.",
+  "commit_order": [
+    {
+      "seq": 1,
+      "title": "Add characterisation test for SessionEnded arm",
+      "files_touched": [
+        "tests/characterisation/session_ended.rs"
+      ],
+      "changes_summary": "Create test_apply_session_ended_char_for_char capturing state mutations before/after SessionEnded arm execution",
+      "risk": "low",
+      "rollback": "Delete test file"
+    },
+    {
+      "seq": 2,
+      "title": "Refactor SessionEnded into apply_session_ended",
+      "files_touched": [
+        "src/ws_handler.rs",
+        "src/session_end.rs"
+      ],
+      "changes_summary": "Extract SessionEnded arm body into apply_session_ended function with identical behavior. Add SessionEndOrigin::WsReal call site. Preserve CSV URL derivation logic.",
+      "risk": "medium",
+      "rollback": "Revert extraction; restore inline arm"
+    },
+    {
+      "seq": 3,
+      "title": "Add fallback infrastructure",
+      "files_touched": [
+        "src/session_end.rs",
+        "src/main.rs",
+        "src/failure_monitor.rs",
+        "rc_common/src/url.rs",
+        "src/types.rs"
+      ],
+      "changes_summary": "1) Add last_applied_session_end to AppState 2) Add active_billing_session_id_set_at to FailureMonitorState 3) Implement http_base_from_ws helper 4) Add SessionEndOrigin and SynthReason enums 5) Implement refresh_summary_card helper 6) Update apply_session_ended with dedup guard and upgrade path",
+      "risk": "high",
+      "rollback": "Revert state field additions and enum definitions; restore previous apply_session_ended signature"
+    },
+    {
+      "seq": 4,
+      "title": "Implement HTTP fallback logic",
+      "files_touched": [
+        "src/session_end.rs",
+        "src/main.rs"
+      ],
+      "changes_summary": "1) Implement fetch_and_reconcile with 60s grace/X-Service-Key/pod_id filter/status gate 2) Add T1 trigger after reconnect 3) Spawn T2 periodic task with CancellationToken 4) Add fallback_version telemetry markers 5) Plumb cancellation token from main shutdown",
+      "risk": "high",
+      "rollback": "Remove T1/T2 triggers; delete fetch_and_reconcile"
+    },
+    {
+      "seq": 5,
+      "title": "Add fallback tests",
+      "files_touched": [
+        "tests/fallback/mod.rs",
+        "tests/fallback/dedup.rs",
+        "tests/fallback/http_gating.rs"
+      ],
+      "changes_summary": "Add unit/integration tests for dedup behavior, HTTP status gating, grace period, pod filtering, cancellation, and telemetry markers",
+      "risk": "low",
+      "rollback": "Delete test files"
+    }
+  ],
+  "key_design_decisions": [
+    {
+      "question": "Where to place dedup guard state?",
+      "decision": "AppState.last_applied_session_end (RwLock<Option<String>>)",
+      "rationale": "ConnectionState gets reset on reconnect - AppState persists across reconnects preventing duplicate applies",
+      "alternatives_considered": "ConnectionState storage (rejected due to reconnect resets)"
+    },
+    {
+      "question": "How to handle zeroed stats in synth?",
+      "decision": "Use server-provided stats first, fallback to session_last_known cache",
+      "rationale": "Balances server authority with local resilience; avoids corrupting analytics with zeros when possible",
+      "alternatives_considered": "Always use server stats (rejected due to post-session-end clearance) / Always use cache (rejected due to staleness)"
+    },
+    {
+      "question": "HTTP client error handling strategy",
+      "decision": "Skip synth on any non-200 response or network error",
+      "rationale": "Never synthesize SessionEnded on server unavailability - avoids false positives during outages",
+      "alternatives_considered": "Treat 5xx as session ended (rejected as unsafe)"
+    }
+  ],
+  "test_plan": [
+    {
+      "test_name": "test_apply_session_ended_char_for_char",
+      "type": "characterisation",
+      "file": "tests/characterisation/session_ended.rs",
+      "coverage": "Validates refactor equivalence for 16 state mutations"
+    },
+    {
+      "test_name": "test_http_synth_filters_by_pod_id",
+      "type": "unit",
+      "file": "tests/fallback/http_gating.rs",
+      "coverage": "Verifies pod_id filter prevents cross-pod false positives"
+    },
+    {
+      "test_name": "test_second_apply_wsreal_refreshes_summary_only",
+      "type": "integration",
+      "file": "tests/fallback/dedup.rs",
+      "coverage": "Ensures real stats refresh after synth without side effects"
+    },
+    {
+      "test_name": "test_t2_tick_respects_cancellation",
+      "type": "unit",
+      "file": "tests/fallback/cancellation.rs",
+      "coverage": "Confirms shutdown cancels periodic checks"
+    }
+  ],
+  "risk_matrix": [
+    {
+      "risk": "Refactor breaks SessionEnded behavior",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Characterisation test (commit 1) + incremental rollout"
+    },
+    {
+      "risk": "HTTP fallback fires during graceful shutdown",
+      "likelihood": "high",
+      "impact": "medium",
+      "mitigation": "CancellationToken in T2 task (commit 4)"
+    },
+    {
+      "risk": "Dedup guard race condition",
+      "likelihood": "low",
+      "impact": "high",
+      "mitigation": "RwLock in AppState + atomic check-then-set"
+    }
+  ],
+  "deploy_plan": {
+    "build_targets": [
+      "rc-agent",
+      "racecontrol"
+    ],
+    "swap_order": [
+      "racecontrol",
+      "rc-agent (pod 8)",
+      "rc-agent (pods 1-7)"
+    ],
+    "rollback_procedure": "Revert binaries to -prev versions via atomic OTA swap",
+    "verification_cues": [
+      "fallback_version=part5_v1 in logs",
+      "/fleet/health stuck_session_candidate=false"
+    ]
+  },
+  "open_questions": []
+}

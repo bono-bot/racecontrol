@@ -1,7 +1,7 @@
 {
-  "timestamp_ist": "2026-04-20 17:15 IST",
-  "commit": "6f222662",
-  "overall_exit": 1,
+  "timestamp_ist": "2026-04-20 21:41 IST",
+  "commit": "cf9e03f8",
+  "overall_exit": 0,
   "summary": [],
   "checks": [
     {
@@ -12,9 +12,15 @@
     },
     {
       "name": "fleet-swaplog-parity",
-      "status": "red",
-      "exit": 1,
-      "output": "RED: SWAPLOG racecontrol tail does not match live build_id.\n  - SWAPLOG row  : 2026-04-20 07:10 IST commit=3a2669ec\n  - Live health  : build_id=773c6581 via http://localhost:8080/api/v1/health\n  - Implication  : deploy-server.sh append path silently dropped the most recent server-.23 swap (expected: one row per successful swap)."
+      "status": "green",
+      "exit": 0,
+      "output": "OK: SWAPLOG racecontrol tail = f9c6678b, live build_id = f9c6678b @ http://192.168.31.23:8080/api/v1/health"
+    },
+    {
+      "name": "deploy-staging-parity",
+      "status": "green",
+      "exit": 0,
+      "output": "deploy-staging-parity: green (tracked=c4e78d0a021d matches staging=c4e78d0a021d)"
     }
   ]
 }

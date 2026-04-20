@@ -1,0 +1,12 @@
+{
+  "model": "openai/gpt-5.1-codex-mini",
+  "short": "codex-mini",
+  "role": "code_expert",
+  "elapsed_sec": "47.9",
+  "prompt_tokens": 13358,
+  "completion_tokens": 6366,
+  "cost_usd": 0.0160715,
+  "finish_reason": "stop",
+  "json_ok": true,
+  "json_error": null
+}

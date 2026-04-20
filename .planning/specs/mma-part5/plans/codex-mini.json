@@ -1,0 +1,164 @@
+{
+  "plan_id": "plan-rp-pattern-i-p5-v1",
+  "strategy": "Incrementally refactor the existing SessionEnded wiring by first adding the shared helper/shape and state plumbing, then introducing the characterisation harness, extracting the lifecycle body into a reusable apply_session_ended API with the dedup/refresher invariants, and finally wiring the HTTP fallback tick with the required guards, telemetry and auth; each commit stays small, keeps rc-agent building, and allows mechanical execution of the specified tests.",
+  "commit_order": [
+    {
+      "seq": 1,
+      "title": "Add shared BillingSessionInfo shape + http_base_from_ws helper",
+      "files_touched": [
+        "crates/rc_common/src/url.rs",
+        "crates/rc_common/src/types/mod.rs",
+        "crates/rc_common/src/lib.rs",
+        "crates/rc_common/tests/url.rs"
+      ],
+      "changes_summary": "Introduce rc_common::url::http_base_from_ws to derive HTTP base URLs from the WS URL (addresses C7) plus a shared BillingSessionInfo + BillingActiveResponse definition so rc-agent and racecontrol agree on the JSON shape (D13) and can use the same helper/test matrix (C4/C8). Unit test the helper against ws/wss variants with/without query strings.",
+      "risk": "low",
+      "rollback": "Revert rc_common changes; rc-agent/racecontrol will fall back to in-tree URL derivation and share stale shapes until reintegrated."
+    },
+    {
+      "seq": 2,
+      "title": "Add AppState/monitor guards and freshness metadata",
+      "files_touched": [
+        "crates/rc-agent/src/app_state.rs",
+        "crates/rc-agent/src/failure_monitor.rs",
+        "crates/rc-agent/src/ws_handler.rs",
+        "crates/rc-agent/src/main.rs"
+      ],
+      "changes_summary": "Expand AppState with last_applied_session_end (RwLock) and FailureMonitorState with active_billing_session_id_set_at + session_last_known_stats/driver so the HTTP fallback can respect the 60s grace window (C2), keep dedup memory outside ConnectionState (D6), cache the last-known driver/stats for synth summaries (C4/C8), and update the builder/defaults accordingly.",
+      "risk": "medium",
+      "rollback": "Revert AppState/failure_monitor field additions; the state will temporarily lack the guard/sets, reverting behavior to the pre-Plan baseline."
+    },
+    {
+      "seq": 3,
+      "title": "Add characterisation test for apply_session_ended",
+      "files_touched": [
+        "crates/rc-agent/src/ws_handler.rs",
+        "crates/rc-agent/tests/ws_handler.rs"
+      ],
+      "changes_summary": "Declare the apply_session_ended signature (without yet replacing the inline arm) and add test_apply_session_ended_char_for_char that snapshots the existing inline SessionEnded behavior and compares it with calling the new helper to guarantee perfect parity before the refactor commit (D11).",
+      "risk": "low",
+      "rollback": "Remove the new test and stub function; code returns to the previous single-arm layout without the char-for-char guard."
+    },
+    {
+      "seq": 4,
+      "title": "Extract SessionEnded lifecycle + dedup/refresh invariants",
+      "files_touched": [
+        "crates/rc-agent/src/ws_handler.rs",
+        "crates/rc-agent/src/lock_screen.rs",
+        "crates/rc-agent/src/ffb_controller.rs",
+        "crates/rc-agent/src/remote_ops.rs"
+      ],
+      "changes_summary": "Replace the inline CoreToAgentMessage::SessionEnded arm with apply_session_ended calls, implement SessionEndOrigin enum, dedup guard in AppState/read-write lock (C1, C9), blank_timer-only-once logic, refresh_summary_card to upgrade synth→real stats, fully reset all listed invariants (inactivity monitor, crash recovery, heartbeat flags, FFB, overlays, failure monitor fields, driver name, blank timer, CSV push, etc. per D11), and emit structured fallback_version markers on real session ends (D3).",
+      "risk": "medium",
+      "rollback": "Revert ws_handler to the previous inline implementation; dedup/refresher behavior reverts to pre-patch semantics."
+    },
+    {
+      "seq": 5,
+      "title": "Implement HTTP SessionEnded fallback + periodic tick",
+      "files_touched": [
+        "crates/rc-agent/src/main.rs",
+        "crates/rc-agent/src/session_end_fallback.rs",
+        "crates/rc-agent/src/billing_cache.rs",
+        "crates/rc-agent/tests/session_end_fallback.rs"
+      ],
+      "changes_summary": "Add fetch_and_reconcile + spawn_session_end_fallback_tick with CancellationToken support (C3); gate on heartbeat_status.billing_active, local session set_at ≥60s (C2), HTTP status check before JSON parse (D9), service-key header (C5), pod_id filtering (C6), structured logging with fallback_version (D3), and dedup guard updates in apply_session_ended; wire T1 (post-register trigger) and T2 (5-minute tokio task) to call the helper, and add tests for HTTP timeout/401/5xx/no-session/grace/pod filter/cancellation (covers C5, C6, C2, C3, D9).",
+      "risk": "high",
+      "rollback": "Disable the HTTP fallback module hook plus the background tick—in main.rs, stop spawning the task and remove fetch_and_reconcile; the system returns to WS-only session termination."
+    }
+  ],
+  "key_design_decisions": [
+    {
+      "question": "Where should the dedup guard for synthetic SessionEnded applications live?",
+      "decision": "Add last_applied_session_end (RwLock<Option<String>>) to AppState rather than ConnectionState.",
+      "rationale": "AppState outlives every connection loop iteration, so the guard survives reconnects and prevents repeated lifecycle runs after silent WS death (per D6).",
+      "alternatives_considered": "Keeping the guard in ConnectionState would have been simpler but would reset on each reconnect, nullifying dedup requirements."
+    },
+    {
+      "question": "How do we guarantee the HTTP fallback never re-triggers blank timer/FFB twice?",
+      "decision": "Implement apply_session_ended once with an is_first_apply check that only resets blank_timer, FFB, inactivity monitor, etc. on the first run; subsequent WsReal origins call refresh_summary_card and return early if the session_id matches.",
+      "rationale": "Matching spec requirements C1 and C9 while keeping char-for-char behavior ensures synthetic and real session ends share side effects exactly once.",
+      "alternatives_considered": "Always running the full lifecycle would have re-armed blank_timer each time and duplicated hardware commands; skipping the second apply entirely would drop real stats upgrades."
+    },
+    {
+      "question": "How should the HTTP fallback derive the server’s HTTP base URL?",
+      "decision": "Introduce rc_common::url::http_base_from_ws, reusing the existing ws_handler logic and centralizing path stripping.",
+      "rationale": "C7 demanded a shared helper to avoid divergent string manipulation, and the helper can be unit-tested against known ws/wss variants.",
+      "alternatives_considered": "Reusing inline replace/split calls per use site risks drift; centralizing lets both the CSV push and HTTP fallback rely on the same logic."
+    }
+  ],
+  "test_plan": [
+    {
+      "test_name": "test_apply_session_ended_char_for_char",
+      "type": "characterisation",
+      "file": "crates/rc-agent/tests/ws_handler.rs",
+      "coverage": "Ensures the extracted apply_session_ended matches every state mutation from the original inline arm (inactivity monitor, overlays, heartbeat flags, CSV push, FFB commands, blank timer, etc.) prior to further refactors."
+    },
+    {
+      "test_name": "test_http_synth_skips_on_server_error",
+      "type": "unit",
+      "file": "crates/rc-agent/tests/session_end_fallback.rs",
+      "coverage": "Verifies status-code gate prevents synthetics on 401/5xx and that no dedup guard mutation occurs (D9)."
+    },
+    {
+      "test_name": "test_http_synth_respects_grace_and_pod_filter",
+      "type": "unit",
+      "file": "crates/rc-agent/tests/session_end_fallback.rs",
+      "coverage": "Covers 60s grace, pod_id filtering, and applies apply_session_ended when the server legitimately omits the session (C2, C6)."
+    },
+    {
+      "test_name": "test_session_end_tick_cancels",
+      "type": "integration",
+      "file": "crates/rc-agent/tests/session_end_fallback.rs",
+      "coverage": "Spawns the 5-minute periodic task with CancellationToken (C3) and verifies it terminates promptly on cancel without emitting synths."
+    },
+    {
+      "test_name": "test_http_base_from_ws_variants",
+      "type": "unit",
+      "file": "crates/rc_common/tests/url.rs",
+      "coverage": "Ensures helper strips /ws paths and query strings for ws://, wss://, and variants per C7."
+    }
+  ],
+  "risk_matrix": [
+    {
+      "risk": "HTTP fallback misinterprets temporary server errors as session ends",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Status gate ensures only 2xx responses proceed, retries/timers respect CancellationToken, and logging/telemetry record fallback_http_status for alerting."
+    },
+    {
+      "risk": "Dedup guard fails to persist across silent reconnects",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "Move last_applied_session_end into AppState (not ConnectionState) and guard in apply_session_ended against duplicate IDs."
+    },
+    {
+      "risk": "Blank timer/FFB commands execute twice after HTTP synth then WS real",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Apply is_first_apply gating inside apply_session_ended to limit hardware side effects to the first run while refresh_summary_card handles WsReal upgrades."
+    },
+    {
+      "risk": "Fallback logs missing fallback_version → D3 rollback detection blind spot",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "Emit fallback_version=part5_v1 on every T1 trigger and every synth, matching the D3 detection rule and verifying with fleet/health queries pre-/post-deploy."
+    }
+  ],
+  "deploy_plan": {
+    "build_targets": [
+      "rc-agent",
+      "racecontrol"
+    ],
+    "swap_order": [
+      "Deploy updated racecontrol (fleet/health D3 rule) to both datacenter and Bono VPS so fallback_version is observed post-deploy.",
+      "Upgrade rc-agent on Pod 8 as the canary for Pattern I Part 5.",
+      "Roll out rc-agent to Pods 1-7 via the existing rc-sentry `/exec` atomic binary swap."
+    ],
+    "rollback_procedure": "Restore rc-agent-prev.exe and racecontrol-prev.exe (both retained T+72h). Redeploy the previous binaries using the same swap order; fallback_version logs will disappear but no destructive state change occurs.",
+    "verification_cues": [
+      "Monitor fleet/health for pods holding active_session_id without recent SessionEnded; absence of stuck-session flags plus presence of fallback_version=part5_v1 logs indicates success (D3).",
+      "Watch for the disappearance of the stuck-overlay class on pods that previously saw Pod 6 behavior; confirm rc-agent logs show HTTP fallback synths and no double blank_timer re-arm events."
+    ]
+  },
+  "open_questions": []
+}

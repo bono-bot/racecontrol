@@ -1,0 +1,260 @@
+{
+  "plan_id": "plan-r1-v1",
+  "strategy": "The strategy is to incrementally introduce the HTTP fallback mechanism while maintaining compilability and testability at each step. This involves a preparatory refactor of the SessionEnded logic into a reusable function, followed by implementing the HTTP fetch and reconciliation, and finally wiring it into the T1 and T2 triggers. Key design decisions focus on idempotency, error handling, and shared utility functions to ensure robustness and maintainability.",
+  "commit_order": [
+    {
+      "seq": 1,
+      "title": "feat: Add AppState.last_applied_session_end for dedup",
+      "files_touched": [
+        "crates/rc-agent/src/main.rs",
+        "crates/rc-agent/src/app_state.rs"
+      ],
+      "changes_summary": "Introduce `last_applied_session_end: RwLock<Option<String>>` to `AppState` to serve as the dedup guard, as per D6. This commit is purely additive and does not affect existing logic.",
+      "risk": "low",
+      "rollback": "Remove the `last_applied_session_end` field from `AppState` and its initialization."
+    },
+    {
+      "seq": 2,
+      "title": "feat: Add FailureMonitorState.active_billing_session_id_set_at",
+      "files_touched": [
+        "crates/rc-agent/src/failure_monitor.rs",
+        "crates/rc-agent/src/main.rs"
+      ],
+      "changes_summary": "Add `active_billing_session_id_set_at: Option<Instant>` to `FailureMonitorState` and populate it when `active_billing_session_id` is set. This enables the 60s grace window (C2).",
+      "risk": "low",
+      "rollback": "Remove `active_billing_session_id_set_at` from `FailureMonitorState` and its assignment in `main.rs`."
+    },
+    {
+      "seq": 3,
+      "title": "feat: Add rc_common::url::http_base_from_ws helper",
+      "files_touched": [
+        "crates/rc_common/src/url.rs",
+        "crates/rc_common/src/lib.rs",
+        "crates/rc-agent/src/ws_handler.rs"
+      ],
+      "changes_summary": "Introduce a new module `rc_common::url` with `http_base_from_ws` helper function (C7). This function encapsulates the logic for deriving an HTTP base URL from a WebSocket URL. Update `ws_handler.rs` to use this new helper for CSV push.",
+      "risk": "low",
+      "rollback": "Remove `rc_common::url` module and revert `ws_handler.rs` to its original URL derivation logic."
+    },
+    {
+      "seq": 4,
+      "title": "test: Add characterisation test for apply_session_ended refactor",
+      "files_touched": [
+        "crates/rc-agent/tests/char_tests.rs"
+      ],
+      "changes_summary": "Add a new characterisation test `test_apply_session_ended_char_for_char` to capture the observable state changes of the existing `SessionEnded` arm in `ws_handler.rs`. This test will be used to ensure the refactored function maintains char-for-char equivalence (D11).",
+      "risk": "low",
+      "rollback": "Remove the `char_tests.rs` file."
+    },
+    {
+      "seq": 5,
+      "title": "refactor: Extract apply_session_ended function and implement HTTP fallback",
+      "files_touched": [
+        "crates/rc-agent/src/ws_handler.rs",
+        "crates/rc-agent/src/session_end_fallback.rs",
+        "crates/rc-agent/src/main.rs",
+        "crates/rc-agent/src/app_state.rs",
+        "crates/rc-agent/src/failure_monitor.rs",
+        "crates/rc-agent/src/lib.rs",
+        "crates/rc_common/src/types.rs",
+        "crates/rc_common/src/lib.rs",
+        "crates/rc-agent/Cargo.toml",
+        "crates/racecontrol/Cargo.toml"
+      ],
+      "changes_summary": "Extract the `SessionEnded` logic from `ws_handler.rs` into a new `apply_session_ended` function in `session_end_fallback.rs`. Implement the `fetch_and_reconcile` logic, including all spec updates (60s grace C2, AppState guard D6, pod_id filter C6, X-Service-Key C5, status gate D9, CancellationToken C3, refresh_summary C1/C9, fallback_version D3, driver_name C4, last_known_stats C8). Wire `fetch_and_reconcile` into `main.rs` for T1 (post-reconnect) and T2 (periodic tick). Introduce `BillingSessionInfo` in `rc_common` (D13).",
+      "risk": "high",
+      "rollback": "Revert `ws_handler.rs` to its original `SessionEnded` arm. Remove `session_end_fallback.rs` and all related calls/types. Revert changes to `main.rs`, `app_state.rs`, `failure_monitor.rs`, `rc_common/src/types.rs` and `Cargo.toml` files."
+    }
+  ],
+  "key_design_decisions": [
+    {
+      "question": "How to ensure idempotency and prevent duplicate side effects from WS and HTTP triggers?",
+      "decision": "Implement a dedup guard `AppState.last_applied_session_end: RwLock<Option<String>>` (D6). The `apply_session_ended` function will check this guard. If the session ID has already been applied, it will either refresh the summary card (if `WsReal` origin, C1) or debug-log and return (if `HttpSynth` origin).",
+      "rationale": "Placing the guard on `AppState` ensures it persists across `ConnectionState` rebuilds, preventing duplicate applications after reconnects. The conditional refresh for `WsReal` allows real stats to supersede synthesized ones, addressing C1.",
+      "alternatives_considered": [
+        "Placing the dedup guard on `ConnectionState`: Rejected because `ConnectionState` is transient and would be reset on reconnect, leading to duplicate applications (D6).",
+        "No dedup guard: Rejected as it would lead to redundant side effects, potential resource leaks (e.g., multiple game.stop calls), and incorrect state transitions."
+      ]
+    },
+    {
+      "question": "How to handle the 60-second grace period for newly active sessions (C2)?",
+      "decision": "Add `active_billing_session_id_set_at: Option<Instant>` to `FailureMonitorState` and check `set_at.elapsed() < 60s` in `fetch_and_reconcile` before proceeding with the HTTP call.",
+      "rationale": "This prevents false-positive syntheses when a session is genuinely starting but the server's `active_timers` might not yet reflect it due to propagation delays. `FailureMonitorState` is the correct place for this timestamp as it tracks the local source of truth for active sessions.",
+      "alternatives_considered": [
+        "A global `tokio::time::sleep` before the first HTTP check: Rejected as it would block the initial T1 trigger unnecessarily and not cover subsequent checks if the session was set recently."
+      ]
+    },
+    {
+      "question": "How to ensure the extracted `apply_session_ended` function is functionally equivalent to the original inlined logic (D11)?",
+      "decision": "Create a characterisation test `test_apply_session_ended_char_for_char` that snapshots observable state before and after the original inlined code, and then asserts the same state changes after calling the extracted function. This includes `inactivity_monitor`, `crash_recovery`, `blank_timer` (C9), and other critical fields.",
+      "rationale": "Characterisation tests are ideal for refactoring existing, complex logic. They provide a safety net, ensuring no regressions are introduced during the extraction process. Explicitly checking `inactivity_monitor` and `crash_recovery` addresses D11.",
+      "alternatives_considered": [
+        "Manual code review only: Rejected as it's prone to human error and difficult to verify all subtle side effects.",
+        "Unit tests for individual parts: Rejected as it wouldn't guarantee the holistic equivalence of the entire block of logic."
+      ]
+    },
+    {
+      "question": "How to ensure the T2 periodic tick respects graceful shutdown (C3)?",
+      "decision": "Pass a `CancellationToken` to the `spawn_session_end_fallback_tick` function and use `tokio::select!` to listen for both the ticker and cancellation signal.",
+      "rationale": "This pattern is standard for long-running background tasks in Tokio, ensuring that the task can be cleanly shut down when the agent exits, preventing spurious operations during shutdown.",
+      "alternatives_considered": [
+        "Relying on process termination: Rejected as it's not graceful and can lead to incomplete operations or resource leaks."
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "test_name": "test_apply_session_ended_char_for_char",
+      "type": "characterisation",
+      "file": "crates/rc-agent/tests/char_tests.rs",
+      "coverage": "Ensures the refactored `apply_session_ended` function has identical side effects to the original `SessionEnded` arm in `ws_handler.rs`, covering D11."
+    },
+    {
+      "test_name": "test_first_apply_runs_full_side_effects",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Verifies that the first application of `apply_session_ended` (with a new session ID) triggers all expected state mutations and side effects."
+    },
+    {
+      "test_name": "test_second_apply_wsreal_refreshes_summary_only",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Confirms that if `apply_session_ended` is called a second time for the same session with `WsReal` origin, it only refreshes the summary card and avoids re-running full lifecycle side effects (C1, C9)."
+    },
+    {
+      "test_name": "test_second_apply_httpsynth_debug_noop",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Ensures that a second call to `apply_session_ended` for the same session with `HttpSynth` origin results in a debug log and no further side effects."
+    },
+    {
+      "test_name": "test_dedup_guard_survives_reconnect",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Verifies that the `AppState.last_applied_session_end` dedup guard correctly prevents re-application even if `ConnectionState` is rebuilt, addressing D6."
+    },
+    {
+      "test_name": "test_http_synth_skips_on_server_unreachable",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Mocks an unreachable HTTP server and asserts that `fetch_and_reconcile` returns early without attempting to synthesize a session end or mutate the dedup guard."
+    },
+    {
+      "test_name": "test_http_synth_skips_on_server_5xx",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Mocks a 5xx HTTP response and verifies that `fetch_and_reconcile` skips synthesis due to the status gate (D9)."
+    },
+    {
+      "test_name": "test_http_synth_skips_on_server_401",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Mocks a 401 HTTP response and verifies that `fetch_and_reconcile` skips synthesis and emits a structured log with `fallback_http_status=401` (C5)."
+    },
+    {
+      "test_name": "test_http_synth_skips_when_no_local_session",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Ensures `fetch_and_reconcile` short-circuits if `active_billing_session_id` is `None`, preventing unnecessary HTTP calls."
+    },
+    {
+      "test_name": "test_http_synth_honours_60s_grace",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Verifies that `fetch_and_reconcile` respects the 60-second grace window (C2) and does not synthesize if `active_billing_session_id_set_at` is too recent."
+    },
+    {
+      "test_name": "test_http_synth_fires_when_server_omits_session",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Mocks a server response that omits the locally active session ID and asserts that `apply_session_ended` is called with `HttpSynth` origin."
+    },
+    {
+      "test_name": "test_http_synth_filters_by_pod_id",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Mocks a server response containing the active session ID but for a different `pod_id`, verifying that the `pod_id` filter (C6) prevents synthesis."
+    },
+    {
+      "test_name": "test_t2_tick_respects_cancellation",
+      "type": "unit",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Confirms that the `spawn_session_end_fallback_tick` task exits gracefully when its `CancellationToken` is triggered (C3)."
+    },
+    {
+      "test_name": "test_http_base_from_ws_strips_path",
+      "type": "unit",
+      "file": "crates/rc_common/src/url.rs",
+      "coverage": "Tests the `http_base_from_ws` helper with various WS URL formats to ensure correct HTTP base URL derivation (C7)."
+    },
+    {
+      "test_name": "test_t1_emits_fallback_version_marker",
+      "type": "integration",
+      "file": "crates/rc-agent/src/main.rs",
+      "coverage": "Verifies that a structured log with `fallback_version=\"part5_v1\"` is emitted after a successful WS reconnect (D3)."
+    },
+    {
+      "test_name": "test_synth_emits_fallback_version_marker",
+      "type": "integration",
+      "file": "crates/rc-agent/src/session_end_fallback.rs",
+      "coverage": "Triggers a synthetic session end and asserts that a structured log with `fallback_version=\"part5_v1\"` is emitted (D3)."
+    }
+  ],
+  "risk_matrix": [
+    {
+      "risk": "Regression in SessionEnded logic due to refactor (D11)",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Comprehensive characterisation test (`test_apply_session_ended_char_for_char`) to ensure exact equivalence of side effects. Incremental commit strategy (commit 4 before commit 5) to isolate the refactor from new feature logic."
+    },
+    {
+      "risk": "False-positive session end synthesis (C2)",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Implement a 60-second grace window (`active_billing_session_id_set_at`) before allowing HTTP fallback to trigger. Unit tests specifically for this grace period."
+    },
+    {
+      "risk": "Duplicate session end side effects (C1, C9, D6)",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Implement `AppState.last_applied_session_end` as a dedup guard. Ensure `apply_session_ended` handles subsequent calls idempotently, refreshing summary for `WsReal` but no-oping for `HttpSynth`. Unit tests for dedup logic and `blank_timer` reset."
+    },
+    {
+      "risk": "HTTP fallback silently fails due to authentication or URL issues (C5, C7)",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Pre-merge probe to confirm `/api/v1/billing/active` is genuinely public. Implement `X-Service-Key` header in the HTTP request. Use a shared URL helper (`http_base_from_ws`) with unit tests for various URL formats. Add structured logging for HTTP status codes (D9)."
+    },
+    {
+      "risk": "Rollback detection failure (D3)",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "Emit `fallback_version=part5_v1` structured log on every T1 fire and every synth. Server-side rule in `/fleet/health` will detect pods without this marker that are still reporting active sessions. This provides an early warning for pre-patch binaries."
+    },
+    {
+      "risk": "Log flood from periodic tick",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "Short-circuit `fetch_and_reconcile` early if `state.heartbeat_status.billing_active` is false. Only emit INFO-level logs on actual reconciliation events; DEBUG for 'nothing to do' cases."
+    }
+  ],
+  "deploy_plan": {
+    "build_targets": [
+      "rc-agent",
+      "racecontrol"
+    ],
+    "swap_order": [
+      "racecontrol server (to deploy D3 rollback-detection rule)",
+      "rc-agent (Pod 8 canary)",
+      "rc-agent (remaining pods 1-7)"
+    ],
+    "rollback_procedure": "If D3 rule flags pods (indicating pre-patch binary is back) or stuck-session class re-emerges, revert both `rc-agent` and `racecontrol` binaries to previous versions using the `prev-swap` mechanism. `rc-agent-prev.exe` and `racecontrol-prev.exe` are preserved for 72 hours.",
+    "verification_cues": [
+      "Monitor `/fleet/health` for `silent_reconnect_suspected=true AND active_session_id set` on any pod. Confirm no Pod 6-class stuck-overlay recurs within ~24h.",
+      "Verify the D3 rollback-detection rule does NOT flag any post-deploy pod (absence of flag indicates `fallback_version` marker is present).",
+      "Check `rc-agent` logs for `INFO fallback_version=part5_v1` messages after WS reconnects and during synthetic session ends.",
+      "Pre-merge: Curl `/api/v1/billing/active` from an anonymous source to confirm it's genuinely public (no 401)."
+    ]
+  },
+  "open_questions": []
+}

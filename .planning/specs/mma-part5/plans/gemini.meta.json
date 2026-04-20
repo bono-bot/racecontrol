@@ -1,0 +1,12 @@
+{
+  "model": "google/gemini-2.5-flash",
+  "short": "gemini",
+  "role": "generalist",
+  "elapsed_sec": "27.5",
+  "prompt_tokens": 16161,
+  "completion_tokens": 4761,
+  "cost_usd": 0.0167508,
+  "finish_reason": "stop",
+  "json_ok": true,
+  "json_error": null
+}

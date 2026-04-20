@@ -1,0 +1,12 @@
+{
+  "model": "deepseek/deepseek-r1-0528",
+  "short": "r1",
+  "role": "reasoner",
+  "elapsed_sec": "191.9",
+  "prompt_tokens": 14878,
+  "completion_tokens": 4369,
+  "cost_usd": 0.01696342,
+  "finish_reason": "stop",
+  "json_ok": true,
+  "json_error": null
+}
