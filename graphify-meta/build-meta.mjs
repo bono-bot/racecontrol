@@ -206,6 +206,17 @@ if (fs.existsSync(wsEdgesPath)) {
   }
 }
 
+// (a4) Parent-contains edges — make slice hierarchy visible. Low weight so they don't
+// dominate the layout; dashed styling handled in viz.
+for (const s of SLICES) {
+  metaLinks.push({
+    source: s.parent, target: s.id,
+    weight: 1,
+    type: 'contains',
+    label: `parent`,
+  });
+}
+
 // (b) Label-overlap edges (filtered: only with 3+ overlap AND not already covered by api-call)
 const apiPairs = new Set(metaLinks.map(e => `${e.source}|${e.target}`));
 for (let i = 0; i < moduleStats.length; i++) {
@@ -257,6 +268,7 @@ const EDGE_STYLE = {
   'shared-db-table':   { color: '#F1CE63', dashes: false, arrow: false, label: 'shared DB table(s)' },
   'shared-ws-variant': { color: '#E15759', dashes: false, arrow: false, label: 'shared WS variant(s)' },
   'label-overlap':     { color: '#6a7aaa', dashes: true,  arrow: false, label: 'shared top-30 label(s)' },
+  'contains':          { color: '#555',    dashes: true,  arrow: false, label: 'contains (slice)' },
 };
 const visEdges = metaLinks.map(e => {
   const style = EDGE_STYLE[e.type] || EDGE_STYLE['label-overlap'];
@@ -313,7 +325,7 @@ const html = `<!doctype html>
   `).join('')}
   <div class="edges">
     <h2>Inter-module overlaps (top-30 label matches)</h2>
-    ${metaLinks.sort((a,b)=> {
+    ${metaLinks.filter(e => e.type !== 'contains').sort((a,b)=> {
       const rank = { 'api-call': 3000, 'shared-ws-variant': 2000, 'shared-db-table': 1000, 'label-overlap': 0 };
       return (rank[b.type]||0) + b.weight - (rank[a.type]||0) - a.weight;
     }).slice(0,20).map(e => {
@@ -383,7 +395,8 @@ if (metaLinks.length === 0) {
   reportLines.push(`| Type | From | To | Weight | Detail |`);
   reportLines.push(`|---|---|---|---|---|`);
   const rank = { 'api-call': 3000, 'shared-ws-variant': 2000, 'shared-db-table': 1000, 'label-overlap': 0 };
-  for (const e of metaLinks.sort((a,b) => (rank[b.type]||0)+b.weight - (rank[a.type]||0)-a.weight)) {
+  const reportableLinks = metaLinks.filter(e => e.type !== 'contains');
+  for (const e of reportableLinks.sort((a,b) => (rank[b.type]||0)+b.weight - (rank[a.type]||0)-a.weight)) {
     const detail = e.url_fragments ? e.url_fragments.map(f => `/api/${f}`).join(', ')
                  : e.shared_tables ? e.shared_tables.join(', ')
                  : e.shared_variants ? e.shared_variants.join(', ')
@@ -464,9 +477,10 @@ for (const m of moduleStats) {
 console.log(``);
 if (metaLinks.length) {
   const consoleRank = { 'api-call': 3000, 'shared-ws-variant': 2000, 'shared-db-table': 1000, 'label-overlap': 0 };
-  const badgeFor = t => ({ 'api-call':'API ', 'shared-db-table':'DB  ', 'shared-ws-variant':'WS  ', 'label-overlap':'lbl ' }[t] || '??? ');
-  console.log(`Inter-module edges (top 10):`);
-  for (const e of metaLinks.sort((a,b)=> (consoleRank[b.type]||0)+b.weight - (consoleRank[a.type]||0)-a.weight).slice(0,10)) {
+  const badgeFor = t => ({ 'api-call':'API ', 'shared-db-table':'DB  ', 'shared-ws-variant':'WS  ', 'label-overlap':'lbl ', 'contains':'prnt' }[t] || '??? ');
+  console.log(`Inter-module edges (top 10, excluding parent-contains):`);
+  const nonContain = metaLinks.filter(e => e.type !== 'contains');
+  for (const e of nonContain.sort((a,b)=> (consoleRank[b.type]||0)+b.weight - (consoleRank[a.type]||0)-a.weight).slice(0,10)) {
     const detail = (e.url_fragments || e.shared_tables || e.shared_variants || e.shared_labels || []).slice(0,3).join(', ');
     console.log(`  ${badgeFor(e.type)} ${e.source.padEnd(20)} -> ${e.target.padEnd(20)}  w=${e.weight}  [${detail}]`);
   }

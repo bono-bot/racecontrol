@@ -40,6 +40,14 @@ const CONSUMER_MODULES = [
   'rc-ops-mcp',
   // racecontrol self-references are excluded — it's the backend
 ];
+// Slice-level consumers: racecontrol's own frontends (kiosk/web/pwa) live INSIDE the
+// racecontrol repo but are logically separate consumers of the backend API. Include
+// them so meta-map shows frontend → backend coupling.
+const SLICE_CONSUMERS = [
+  { id: 'rc.kiosk', subdir: 'racecontrol/kiosk' },
+  { id: 'rc.web',   subdir: 'racecontrol/web' },
+  { id: 'rc.pwa',   subdir: 'racecontrol/pwa' },
+];
 
 // ---------------------------------------------------------------------------
 // 1. Collect racecontrol route handlers
@@ -242,8 +250,13 @@ function scoreMatch(tok, candidate) {
 console.log('[2/5] Grepping consumer modules for URL patterns ...');
 const urlEdges = [];
 
-for (const mod of CONSUMER_MODULES) {
-  const modDir = path.join(ROOT, mod);
+// Build the consumer list: sibling repos + slice-level frontends under racecontrol.
+const ALL_CONSUMERS = [
+  ...CONSUMER_MODULES.map(id => ({ id, modDir: path.join(ROOT, id) })),
+  ...SLICE_CONSUMERS.map(s => ({ id: s.id, modDir: path.join(ROOT, s.subdir) })),
+];
+
+for (const { id: mod, modDir } of ALL_CONSUMERS) {
   if (!fs.existsSync(modDir)) {
     console.log(`   ${mod}: (missing)`);
     continue;
