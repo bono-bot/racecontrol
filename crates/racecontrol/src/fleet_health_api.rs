@@ -108,6 +108,64 @@ pub struct PodFleetStatus {
     /// Derived server-side from `http_reachable && !ws_connected`.
     #[serde(default)]
     pub silent_reconnect_suspected: bool,
+    /// Pattern I Part 5 Commit 6 (D3 rollback-detection): server-tracked active
+    /// billing session id for this pod, sourced from `state.billing.active_timers`.
+    /// `None` when no active session. Exposed so operators can correlate with
+    /// the pod's own reported state during stuck-session investigations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_session_id: Option<String>,
+    /// Pattern I Part 5 Commit 6 (D3 rollback-detection): TRUE when the pod
+    /// looks stuck — server has an active billing session for this pod BUT
+    /// the pod's WS is down while HTTP is up (silent-reconnect class). A
+    /// pod running the Part 5 rc-agent binary would be self-healing via the
+    /// T1/T2 HTTP fallback; a pod flagged here for > 5 min likely has a
+    /// pre-patch binary (rolled-back deploy) OR hit the silent-loop-death
+    /// class not covered by T1/T2 (Part 4 future fix).
+    /// Derived: `silent_reconnect_suspected && active_session_id.is_some()`.
+    #[serde(default)]
+    pub stuck_session_candidate: bool,
+}
+
+/// Pattern I Part 5 Commit 6 (D3 invariant): pure derivation for
+/// `stuck_session_candidate`. Extracted for documentation + single point
+/// of change if the rule evolves (e.g. adding a `fallback_version`
+/// freshness gate in Part 5.1).
+pub(crate) fn compute_stuck_session_candidate(
+    silent_reconnect_suspected: bool,
+    has_active_session: bool,
+) -> bool {
+    silent_reconnect_suspected && has_active_session
+}
+
+#[cfg(test)]
+mod pattern_i_part5_tests {
+    use super::compute_stuck_session_candidate;
+
+    #[test]
+    fn flags_when_silent_reconnect_and_active_session() {
+        // The canonical stuck case: server has a session, pod's WS is
+        // silently dead, HTTP responds. Part-5-patched pods self-heal
+        // within one T2 tick; a pre-patch pod would stay stuck here.
+        assert!(compute_stuck_session_candidate(true, true));
+    }
+
+    #[test]
+    fn no_flag_when_ws_connected() {
+        // Normal racing customer on a live WS — never flag.
+        assert!(!compute_stuck_session_candidate(false, true));
+    }
+
+    #[test]
+    fn no_flag_when_no_active_session() {
+        // Pod in silent-reconnect with NO active session — still worth
+        // investigating (Pattern I class) but not a stuck-session case.
+        assert!(!compute_stuck_session_candidate(true, false));
+    }
+
+    #[test]
+    fn no_flag_when_both_false() {
+        assert!(!compute_stuck_session_candidate(false, false));
+    }
 }
 
 // ── GET /api/v1/fleet/health ──────────────────────────────────────────────────
@@ -174,6 +232,17 @@ pub async fn fleet_health_handler(
     .unwrap_or_default();
     let crash_recovery_map: HashMap<String, i64> = crash_recovery_rows.into_iter().collect();
 
+    // Pattern I Part 5 Commit 6: snapshot active billing timers once, build
+    // a `pod_id → session_id` map so each pod's entry can surface its
+    // server-tracked active session id + the `stuck_session_candidate` flag
+    // without re-acquiring the billing RwLock per-pod.
+    let active_session_by_pod: HashMap<String, String> = {
+        let timers = state.billing.active_timers.read().await;
+        timers.values()
+            .map(|t| (t.pod_id.clone(), t.session_id.clone()))
+            .collect()
+    };
+
     // Include pods 1-8 + pod 9 (POS). Standing rule: never exclude POS from fleet view.
     // Pod 9 slot is empty if POS hasn't connected, just like any unregistered pod.
     let mut result: Vec<PodFleetStatus> = Vec::with_capacity(9);
@@ -226,6 +295,11 @@ pub async fn fleet_health_handler(
                     screen_blanked: None,
                     game_state: None,
                     silent_reconnect_suspected: false,
+                    // Pattern I Part 5 Commit 6: unregistered pod slot has
+                    // no active session by definition — both fields default
+                    // to None/false.
+                    active_session_id: None,
+                    stuck_session_candidate: false,
                 });
             }
             Some(info) => {
@@ -290,6 +364,16 @@ pub async fn fleet_health_handler(
                 // Pattern I part 3: flag silent-reconnect-forever — HTTP ok + WS down
                 // is the observable signature of the 2026-04-18 incident.
                 let silent_reconnect_suspected = http_reachable && !ws_connected;
+                // Pattern I Part 5 Commit 6 (D3): pod flagged stuck when server has
+                // an active session for it BUT WS is down (silent-reconnect class).
+                // A Part-5 rc-agent self-heals via HTTP fallback within one T2 tick
+                // (~5 min); sustained flag after 5 min implies pre-patch binary
+                // (rollback suspected) or silent-loop-death (Part 4 future work).
+                let active_session_id = active_session_by_pod.get(pod_id).cloned();
+                let stuck_session_candidate = compute_stuck_session_candidate(
+                    silent_reconnect_suspected,
+                    active_session_id.is_some(),
+                );
                 result.push(PodFleetStatus {
                     pod_number,
                     pod_id: Some(pod_id.clone()),
@@ -327,6 +411,8 @@ pub async fn fleet_health_handler(
                     screen_blanked: info.screen_blanked,
                     game_state: info.game_state.as_ref().map(|g| format!("{:?}", g).to_lowercase()),
                     silent_reconnect_suspected,
+                    active_session_id,
+                    stuck_session_candidate,
                 });
             }
         }
