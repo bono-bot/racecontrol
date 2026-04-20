@@ -111,7 +111,43 @@ function gapCount(check) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
-function formatInboxBody(overallFlip, transitions, commit) {
+// Returns up to N one-line commits in prev..curr on the given repo.
+// Empty array if prev is missing, equal to curr, or not reachable (e.g. pre-fetch
+// across a forced history rewrite — rare, and a quiet degradation is preferred
+// over killing the alert entirely).
+function getCommitsBetween(prevCommit, currCommit, repo, max = 10) {
+  if (!prevCommit || !currCommit || prevCommit === currCommit) return [];
+  try {
+    const out = execFileSync(
+      'git', ['log', '--oneline', `${prevCommit}..${currCommit}`],
+      { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+    if (!out) return [];
+    return out.split('\n').slice(0, max);
+  } catch { return []; }
+}
+
+// Pull the human-readable gap/red lines out of a check's output. DPDP checker's
+// format is "GAPS (N):" header followed by "  - ..." lines; other checkers use
+// "RED:" prefixed headers. Both patterns captured.
+function checkOutputExcerpt(check, maxLines = 8) {
+  const src = check?.output ?? '';
+  if (!src) return [];
+  const picks = [];
+  let inGaps = false;
+  for (const line of src.split('\n')) {
+    if (/^\s*GAPS\s*\(\d+\)/.test(line) || /^\s*RED:/.test(line)) {
+      picks.push(line.trim());
+      inGaps = /GAPS/.test(line);
+      continue;
+    }
+    if (inGaps && /^\s*-\s/.test(line)) picks.push(line.trim());
+    else if (/^\s+-\s/.test(line) && picks.length) picks.push(line.trim()); // continuation "  - ..."
+    if (picks.length >= maxLines) break;
+  }
+  return picks.slice(0, maxLines);
+}
+
+function formatInboxBody(overallFlip, transitions, commit, prevCommit) {
   const lines = [];
   if (overallFlip) {
     const arrow = overallFlip.from === 0 && overallFlip.to !== 0 ? 'GREEN → RED'
@@ -128,6 +164,33 @@ function formatInboxBody(overallFlip, transitions, commit) {
     }
     lines.push('');
   }
+
+  // Commit correlation — what landed between last-tick and this-tick on racecontrol.
+  // Gives James (or whoever acts on the alert) a finite, ranked suspect list
+  // without opening GitHub.
+  if (prevCommit && commit && prevCommit !== commit) {
+    const commits = getCommitsBetween(prevCommit, commit, RACECONTROL);
+    if (commits.length) {
+      lines.push(`**Commits since last tick (\`${prevCommit.slice(0, 8)}..${commit.slice(0, 8)}\`):**`);
+      for (const c of commits) lines.push(`- ${c}`);
+      lines.push('');
+    }
+  }
+
+  // Show gap detail for any red check in the transition — the actual failure
+  // rows, not a pointer to status.json.
+  const redTransitions = transitions.filter(t => t.to === 'red' || t.check?.status === 'red');
+  for (const t of redTransitions.slice(0, 3)) {
+    const excerpt = checkOutputExcerpt(t.check);
+    if (excerpt.length) {
+      lines.push(`**\`${t.name}\` detail:**`);
+      lines.push('```');
+      for (const l of excerpt) lines.push(l);
+      lines.push('```');
+      lines.push('');
+    }
+  }
+
   lines.push('_Posted by pm2 workflow-monitor (Duty 1). Full status in `.planning/board-state/status.json`._');
   return lines.join('\n');
 }
@@ -196,7 +259,7 @@ function tick() {
     return;
   }
 
-  const body = formatInboxBody(overallFlip, transitions, current.commit ?? 'unknown');
+  const body = formatInboxBody(overallFlip, transitions, current.commit ?? 'unknown', previous?.commit ?? null);
   const inbox = appendInbox(body);
   logLine(`inbox append: ${inbox.ok ? 'ok' : 'FAIL: ' + inbox.err}`);
 
