@@ -31,7 +31,14 @@ const { dirname, join } = require('node:path');
 const RACECONTROL  = '/root/racecontrol';
 const COMMSLINK    = '/root/comms-link';
 const STATUS_PATH  = join(RACECONTROL, '.planning/board-state/status.json');
-const PREV_PATH    = join(RACECONTROL, '.planning/board-state/status-prev.json');
+// PREV_PATH lives OUTSIDE the repo — external Bono crons (git-sync-repos.sh,
+// bono-racecontrol-monitor.sh) periodically touch the working tree in ways
+// that wipe untracked files between our 5-min ticks. Observed 2026-04-20
+// ~10:25-10:30: status-prev.json kept disappearing, which forced the daemon
+// into the first-run branch and missed the first real RED→GREEN moment when
+// James closed the 9 DPDP gaps. Keeping state outside git removes that
+// entire class of failure.
+const PREV_PATH    = '/root/.claude/projects/-root/workflow-monitor-prev.json';
 const INBOX_APPEND = join(COMMSLINK, 'scripts/inbox-append.js');
 const LOG_PATH     = '/root/.claude/projects/-root/workflow-monitor.log';
 
@@ -195,7 +202,7 @@ function tick() {
 
   const statusCommit = commitAsBonoWithStdinMsg(
     RACECONTROL,
-    ['.planning/board-state/status.json', '.planning/board-state/status-prev.json'],
+    ['.planning/board-state/status.json'],
     `board-state: transition @ ${current.commit ?? '?'}\n\n${body}`);
   logLine(`status commit: ${statusCommit.ok ? (statusCommit.skipped ? 'skipped' : 'ok') : 'FAIL: ' + statusCommit.err}`);
 
