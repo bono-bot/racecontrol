@@ -1,0 +1,319 @@
+#!/usr/bin/env node
+// racingpoint/graphify-meta/build-meta.mjs
+// "Map of maps" — reads every per-module graphify-out/graph.json and synthesises a meta-graph
+// with one super-node per module + inter-module edges inferred from label overlap.
+//
+// Output:
+//   meta-graph.json — machine-readable
+//   meta.html       — interactive vis-network viz with drill-down links to each module's graph.html
+//   META_REPORT.md  — summary + which modules are missing / stale
+//
+// Zero dependencies (uses bundled vis-network CDN in HTML).
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Resolve ROOT by walking up from script location looking for the ecosystem root.
+// Works from both legacy `<ROOT>/graphify-meta/` and `<ROOT>/racecontrol/graphify-meta/`.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+function findEcosystemRoot(start) {
+  let d = start;
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(d, 'racecontrol')) && fs.existsSync(path.join(d, 'racingpoint-admin'))) return d;
+    const parent = path.dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return null;
+}
+const ROOT = (process.env.GRAPHIFY_META_ROOT || findEcosystemRoot(__dirname) || 'C:/Users/bono/racingpoint').replace(/\\/g, '/');
+
+// Registry: name → { repo_root, purpose, color, graph_path, html_path }
+// Colors chosen from graphify palette for consistency.
+const MODULES = [
+  { id: 'racecontrol',       label: 'Racecontrol',       color: '#4E79A7', purpose: 'Core server + pod binaries (rc-agent, rc-sentry, kiosk, web, admin-api)' },
+  { id: 'racingpoint-admin', label: 'Admin Panel',       color: '#E15759', purpose: 'Next.js staff dashboard at :3201' },
+  { id: 'comms-link',        label: 'Comms Link',        color: '#59A14F', purpose: 'James↔Bono WS relay on Node.js' },
+  { id: 'whatsapp-bot',      label: 'WhatsApp Bot',      color: '#F28E2B', purpose: 'Customer-facing WA bot (Claude API, Evolution API)' },
+  { id: 'people-tracker',    label: 'People Tracker',    color: '#B07AA1', purpose: 'YOLOv8 entry/exit counter, FastAPI' },
+  { id: 'marketing',         label: 'Marketing',         color: '#FF9DA7', purpose: 'Retention nudges, campaign logic' },
+  { id: 'pod-agent',         label: 'pod-agent (legacy)',color: '#9C755F', purpose: 'Legacy Python pod-agent (predecessor to rc-agent)' },
+  { id: 'rc-ops-mcp',        label: 'RC Ops MCP',        color: '#76B7B2', purpose: 'MCP server for ops queries' },
+];
+
+// Load each module's graph (if present) + compute stats
+const moduleStats = [];
+for (const m of MODULES) {
+  const gpath = path.join(ROOT, m.id, 'graphify-out', 'graph.json');
+  const hpath = path.join(ROOT, m.id, 'graphify-out', 'graph.html');
+  if (!fs.existsSync(gpath)) {
+    moduleStats.push({ ...m, status: 'MISSING', nodes: 0, edges: 0, communities: 0, top_labels: [], god_nodes: [] });
+    continue;
+  }
+  const g = JSON.parse(fs.readFileSync(gpath, 'utf8'));
+  const communities = new Set(g.nodes.map(n => n.community));
+
+  // Top labels by degree (god nodes)
+  const deg = new Map();
+  const edges = g.links || g.edges || [];
+  for (const e of edges) {
+    const s = e.source || e.from; const t = e.target || e.to;
+    deg.set(s, (deg.get(s)||0)+1);
+    deg.set(t, (deg.get(t)||0)+1);
+  }
+  const byDeg = g.nodes
+    .map(n => ({ id: n.id, label: n.label, norm: (n.norm_label || n.label || '').toLowerCase(), deg: deg.get(n.id)||0, sf: n.source_file }))
+    .sort((a,b) => b.deg - a.deg);
+  const top_labels = byDeg.slice(0, 30).map(x => x.norm); // for overlap matching
+  const god_nodes = byDeg.slice(0, 10).map(x => ({ label: x.label, deg: x.deg }));
+  const distinct_files = new Set(g.nodes.map(n => (n.source_file||'').replace(/\\/g,'/')).filter(Boolean)).size;
+
+  moduleStats.push({
+    ...m,
+    status: 'OK',
+    nodes: g.nodes.length,
+    edges: edges.length,
+    communities: communities.size,
+    distinct_files,
+    top_labels,
+    god_nodes,
+    graph_path: gpath,
+    html_path: fs.existsSync(hpath) ? hpath : null,
+    has_communities_dir: fs.existsSync(path.join(ROOT, m.id, 'graphify-out', 'communities')),
+  });
+}
+
+// Compute inter-module edges — two types:
+// (a) API-URL edges from api-edges.json (HIGH confidence — real fetch/axios to racecontrol routes)
+// (b) Label-overlap (LOW confidence — noisy due to generic names like get/load/main)
+const metaLinks = [];
+
+// (a) API-URL edges
+const apiEdgesPath = path.join(ROOT, 'graphify-meta', 'api-edges.json');
+if (fs.existsSync(apiEdgesPath)) {
+  const api = JSON.parse(fs.readFileSync(apiEdgesPath, 'utf8'));
+  // Aggregate per (from,to) pair with url_fragments list
+  const byPair = new Map();
+  for (const e of api.edges) {
+    const key = `${e.from}|${e.to}`;
+    if (!byPair.has(key)) byPair.set(key, []);
+    byPair.get(key).push(e.url_fragment);
+  }
+  for (const [key, frags] of byPair) {
+    const [from, to] = key.split('|');
+    metaLinks.push({
+      source: from, target: to,
+      weight: frags.length,
+      type: 'api-call',
+      url_fragments: frags,
+    });
+  }
+}
+
+// (b) Label-overlap edges (filtered: only with 3+ overlap AND not already covered by api-call)
+const apiPairs = new Set(metaLinks.map(e => `${e.source}|${e.target}`));
+for (let i = 0; i < moduleStats.length; i++) {
+  for (let j = i + 1; j < moduleStats.length; j++) {
+    const A = moduleStats[i], B = moduleStats[j];
+    if (A.status !== 'OK' || B.status !== 'OK') continue;
+    if (apiPairs.has(`${A.id}|${B.id}`) || apiPairs.has(`${B.id}|${A.id}`)) continue;
+    const setA = new Set(A.top_labels.filter(x => x && x.length > 3));
+    const overlap = B.top_labels.filter(x => setA.has(x));
+    if (overlap.length >= 3) {
+      metaLinks.push({
+        source: A.id, target: B.id,
+        weight: overlap.length,
+        type: 'label-overlap',
+        shared_labels: overlap.slice(0, 5),
+      });
+    }
+  }
+}
+
+// Persist meta-graph JSON
+const metaOut = path.join(ROOT, 'graphify-meta');
+const metaGraph = {
+  directed: false,
+  generated_at: new Date().toISOString(),
+  modules: moduleStats.map(m => {
+    const { top_labels, ...public_fields } = m; // drop top_labels from public output — noisy
+    return public_fields;
+  }),
+  edges: metaLinks,
+};
+fs.writeFileSync(path.join(metaOut, 'meta-graph.json'), JSON.stringify(metaGraph, null, 2));
+
+// Generate interactive HTML with vis-network
+const visNodes = moduleStats.map(m => ({
+  id: m.id,
+  label: `${m.label}\n(${m.status === 'OK' ? `${m.nodes} nodes` : 'NOT SCANNED'})`,
+  color: m.status === 'OK' ? { background: m.color, border: m.color } : { background: '#333', border: '#555' },
+  font: { color: '#e0e0e0', size: 14 },
+  size: m.status === 'OK' ? Math.min(20 + Math.sqrt(m.nodes) * 1.5, 80) : 15,
+  title: m.status === 'OK'
+    ? `${m.label}\n${m.purpose}\n${m.nodes} nodes · ${m.edges} edges · ${m.communities} communities\nTop: ${m.god_nodes.slice(0,3).map(g=>g.label).join(', ')}`
+    : `${m.label} — NOT SCANNED\n${m.purpose}\n(run /graphify in ${m.id}/)`,
+  href: m.html_path ? path.relative(metaOut, m.html_path).replace(/\\/g, '/') : null,
+  status: m.status,
+}));
+const visEdges = metaLinks.map(e => {
+  const isApi = e.type === 'api-call';
+  return {
+    from: e.source, to: e.target,
+    width: Math.min(1 + Math.log2(e.weight + 1), 6),
+    title: isApi
+      ? `HTTP API call · ${e.weight} distinct endpoints: ${(e.url_fragments||[]).join(', ')}`
+      : `${e.weight} shared top-30 label(s): ${(e.shared_labels||[]).join(', ')}`,
+    color: isApi ? { color: '#59A14F', opacity: 0.9 } : { color: '#6a7aaa', opacity: 0.4 },
+    dashes: !isApi, // solid for api-call, dashed for label-overlap
+    arrows: isApi ? { to: { enabled: true, scaleFactor: 0.6 } } : undefined,
+  };
+});
+
+const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>RacingPoint — Map of Maps</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, Segoe UI, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 340px; background: #1a1a2e; border-left: 1px solid #2a2a4e; padding: 16px; overflow-y: auto; }
+  #sidebar h1 { font-size: 16px; margin-bottom: 8px; }
+  #sidebar .meta { color: #999; font-size: 12px; margin-bottom: 14px; }
+  .module { padding: 10px; border-radius: 6px; background: #222; margin-bottom: 8px; cursor: pointer; border-left: 4px solid #444; font-size: 12px; }
+  .module:hover { background: #2a2a4e; }
+  .module h3 { font-size: 13px; margin-bottom: 4px; }
+  .module .purpose { color: #aaa; font-size: 11px; margin-bottom: 6px; }
+  .module .stats { color: #888; font-size: 11px; }
+  .module.missing { opacity: 0.5; border-left-color: #555; }
+  .module.missing .stats::before { content: "Not scanned — "; color: #e15759; }
+  a.open-module { display: inline-block; margin-top: 6px; color: #4E79A7; font-size: 11px; text-decoration: none; }
+  a.open-module:hover { text-decoration: underline; }
+  .edges { margin-top: 14px; }
+  .edges h2 { font-size: 12px; color: #aaa; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.05em; }
+  .edge-item { padding: 4px 8px; background: #181828; margin-bottom: 3px; border-radius: 3px; font-size: 11px; color: #bbb; }
+</style></head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <h1>RacingPoint — Map of Maps</h1>
+  <div class="meta">${moduleStats.filter(m=>m.status==='OK').length} of ${moduleStats.length} modules scanned · Regenerated ${new Date().toISOString().slice(0,16)}Z</div>
+  ${moduleStats.map(m => `
+    <div class="module ${m.status==='MISSING'?'missing':''}" data-id="${m.id}">
+      <h3 style="color:${m.color}">${m.label}</h3>
+      <div class="purpose">${m.purpose}</div>
+      <div class="stats">${m.status==='OK'?`${m.nodes} nodes · ${m.edges} edges · ${m.communities} communities`:'no graphify-out/ in this repo'}</div>
+      ${m.html_path ? `<a class="open-module" href="file:///${path.resolve(m.html_path).replace(/\\\\/g,'/')}" target="_blank">open ${m.id}/graphify-out/graph.html →</a>` : ''}
+    </div>
+  `).join('')}
+  <div class="edges">
+    <h2>Inter-module overlaps (top-30 label matches)</h2>
+    ${metaLinks.sort((a,b)=> (b.type==='api-call'?1000:0)+b.weight - (a.type==='api-call'?1000:0)-a.weight).slice(0,15).map(e => {
+      const badge = e.type==='api-call' ? '<span style="color:#59A14F">API</span>' : '<span style="color:#888">label</span>';
+      const detail = e.type==='api-call' ? (e.url_fragments||[]).join(', ') : (e.shared_labels||[]).join(', ');
+      return `<div class="edge-item">${badge} <b>${e.source}</b> → <b>${e.target}</b> · ${e.weight} · ${detail}</div>`;
+    }).join('')}
+    ${metaLinks.length === 0 ? '<div class="edge-item"><em>No label overlap detected between scanned modules.</em></div>' : ''}
+  </div>
+</div>
+<script>
+const nodes = new vis.DataSet(${JSON.stringify(visNodes)});
+const edges = new vis.DataSet(${JSON.stringify(visEdges)});
+const net = new vis.Network(document.getElementById('graph'), { nodes, edges }, {
+  physics: { enabled: true, barnesHut: { gravitationalConstant: -8000, springConstant: 0.04 } },
+  interaction: { hover: true },
+  nodes: { shape: 'dot', borderWidth: 2 },
+  edges: { smooth: { enabled: true, type: 'dynamic' } },
+});
+net.on('doubleClick', params => {
+  if (!params.nodes.length) return;
+  const n = nodes.get(params.nodes[0]);
+  if (n.href) window.open(n.href, '_blank');
+});
+document.querySelectorAll('.module').forEach(el => {
+  el.addEventListener('click', () => {
+    const id = el.dataset.id;
+    net.focus(id, { scale: 1.2, animation: true });
+  });
+});
+</script>
+</body></html>`;
+
+fs.writeFileSync(path.join(metaOut, 'meta.html'), html);
+
+// Markdown report
+const reportLines = [];
+reportLines.push(`# Map of Maps — RacingPoint ecosystem`);
+reportLines.push(``);
+reportLines.push(`Generated: ${new Date().toISOString()}`);
+reportLines.push(``);
+reportLines.push(`${moduleStats.filter(m=>m.status==='OK').length} of ${moduleStats.length} modules scanned.`);
+reportLines.push(``);
+reportLines.push(`## Modules`);
+reportLines.push(``);
+reportLines.push(`| Module | Status | Nodes | Edges | Communities | Graph path |`);
+reportLines.push(`|---|---|---|---|---|---|`);
+for (const m of moduleStats) {
+  const gp = m.graph_path ? m.graph_path.replace(ROOT + '/', '') : '—';
+  reportLines.push(`| ${m.label} | ${m.status} | ${m.nodes || '—'} | ${m.edges || '—'} | ${m.communities || '—'} | \`${gp}\` |`);
+}
+reportLines.push(``);
+reportLines.push(`## Inter-module overlap (label-based heuristic)`);
+reportLines.push(``);
+if (metaLinks.length === 0) {
+  reportLines.push(`*No label overlap detected among scanned modules.*`);
+} else {
+  reportLines.push(`| Type | From | To | Weight | Detail |`);
+  reportLines.push(`|---|---|---|---|---|`);
+  for (const e of metaLinks.sort((a,b) => (b.type==='api-call'?1000:0)+b.weight - (a.type==='api-call'?1000:0)-a.weight)) {
+    const detail = e.type === 'api-call'
+      ? (e.url_fragments || []).map(f => `/api/${f}`).join(', ')
+      : (e.shared_labels || []).join(', ');
+    reportLines.push(`| ${e.type || 'label-overlap'} | ${e.source} | ${e.target} | ${e.weight} | ${detail} |`);
+  }
+}
+reportLines.push(``);
+reportLines.push(`## Missing scans`);
+reportLines.push(``);
+const missing = moduleStats.filter(m => m.status === 'MISSING');
+if (missing.length === 0) {
+  reportLines.push(`*All modules scanned.*`);
+} else {
+  for (const m of missing) {
+    reportLines.push(`- **${m.label}** — \`cd ${m.id} && /graphify .\`  _(${m.purpose})_`);
+  }
+}
+reportLines.push(``);
+reportLines.push(`## How to use`);
+reportLines.push(``);
+reportLines.push(`- **meta.html** — visual map-of-maps. Double-click a node to open that module's own graph.html.`);
+reportLines.push(`- **meta-graph.json** — machine-readable: consume with any graphify-compatible tool.`);
+reportLines.push(`- **Regenerate:** \`node graphify-meta/build-meta.mjs\`. No cost, milliseconds — just re-reads existing module graphs.`);
+reportLines.push(``);
+
+fs.writeFileSync(path.join(metaOut, 'META_REPORT.md'), reportLines.join('\n'));
+
+// Console summary
+console.log(`Meta-map built → ${metaOut}/`);
+console.log(`  meta.html         (interactive)`);
+console.log(`  meta-graph.json   (machine-readable)`);
+console.log(`  META_REPORT.md    (summary)`);
+console.log(``);
+console.log(`Modules:`);
+for (const m of moduleStats) {
+  console.log(`  ${m.status === 'OK' ? 'OK  ' : 'MISS'} ${m.label.padEnd(22)} ${m.status === 'OK' ? `${m.nodes} nodes · ${m.communities} communities` : 'no graphify-out/'}`);
+}
+console.log(``);
+if (metaLinks.length) {
+  console.log(`Inter-module edges (top 10):`);
+  for (const e of metaLinks.sort((a,b)=> (b.type==='api-call'?1000:0)+b.weight - (a.type==='api-call'?1000:0)-a.weight).slice(0,10)) {
+    const detail = e.type === 'api-call'
+      ? (e.url_fragments || []).slice(0,3).join(', ')
+      : (e.shared_labels || []).slice(0,3).join(', ');
+    const badge = e.type === 'api-call' ? 'API ' : 'lbl ';
+    console.log(`  ${badge} ${e.source.padEnd(20)} -> ${e.target.padEnd(20)}  w=${e.weight}  [${detail}]`);
+  }
+} else {
+  console.log(`No inter-module edges detected.`);
+}

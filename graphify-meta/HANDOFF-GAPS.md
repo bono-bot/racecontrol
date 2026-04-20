@@ -1,0 +1,73 @@
+# Graphify — Remaining Gaps (Condensed)
+
+One-page checklist for next session. For context read HANDOFF.md.
+
+## Quick-close (no cost, under 30 min each)
+- [x] Priority A: Fix `scan-module.py` save_manifest CWD-leak — PATCHED session-2 (explicit manifest_path). NOTE: observed graph.json drift was NOT caused by this — it was legitimate post-commit hook rebuilds. Fix was hygiene only. VERIFY pending next message.
+- [ ] Priority D: `bash scripts/graphify-post/install-hook.sh` — wire validate into git post-commit
+- [ ] Priority E: Move `graphify-meta/` into a git repo (recommend `racecontrol/graphify-meta/`)
+- [~] ~~Restore graph.json from backup~~ — REJECTED session-2: current 9834-node state is correct; 25 added nodes are real files from 17 session commits. Restoring would delete real content.
+- [ ] Visually verify meta.html in Chrome (kill MCP profile-lock first per memory recipe)
+- [ ] Run subsystem-audit against each per-module graph (currently only racecontrol audited)
+
+## User-decision gates (cost ~$1-20)
+- [ ] Scan marketing module — $5-20 (530 png + 116 mp4 = vision + Whisper)
+- [ ] Re-extract admin with `--mode deep` — $5-10 (188 md + 147 png)
+- [ ] Re-extract racecontrol with `--mode deep` — $3-5 (closes G3, G14, G15, improves kiosk/web coverage)
+
+## Semantic gaps requiring re-extraction (Manual)
+- [ ] G3  Struct-field access invisible (AcLaunchParams deg=1 etc.)
+- [ ] G4  Tests disconnected from functions under test
+- [ ] G6  External-boundary edges (spawns/binds/reads_file) missing
+- [ ] G14 implements, cites, conceptually_related_to, shares_data_with, semantically_similar_to all globally absent
+- [ ] G15 semantically_similar_to — cross-cutting similarity feature never fires
+- [ ] G20 Provenance metadata (source_url/captured_at/author) empty — needs YAML-frontmatter tagged sources
+
+## Algo / upstream-graphify gaps
+- [ ] G12 Community IDs non-stable across rebuilds (77.8% drift hour-to-hour). Needs content-hash-derived labels, not algo change.
+- [ ] G16 Graph is undirected (`graph.directed=false`) — re-run graphify with `--directed`.
+- [ ] G19 Hyperedges in JSON but not rendered in HTML template.
+
+## Still-HIT auto-rules (partial upstream limit)
+- [ ] G2  5 residual same-file `.default()` / `.paint()` collisions — need struct-scope info graphify doesn't capture.
+
+## Subsystem scan-scope gaps
+- [ ] Admin Panel only 9% indexed (13/139). Needs `/graphify racingpoint-admin/` run.
+- [ ] Kiosk 20% (13/65). Needs `/graphify .` inside `racecontrol/kiosk/` OR `--mode deep` on parent racecontrol.
+- [ ] Web 28% (27/95). Same fix as Kiosk.
+
+## Meta-map gaps
+- [ ] api-edges.mjs misses templated URLs (`/api/drivers/${id}`, `/api/:pod/state`). Extend regex.
+- [ ] api-edges.mjs missing back-edges (racecontrol → module callbacks)
+- [ ] Kiosk/Web/Admin-API not split out as sub-modules under racecontrol meta-node
+- [ ] Admin scraped only 3 URL fragments — suggests hidden URL-builders; grep Admin's service-class files for route strings
+- [ ] No gap-rules evaluated against per-module graphs (admin/comms-link/whatsapp-bot etc.)
+- [ ] No watcher auto-rebuilds meta-map when module graphs change
+
+## G9 entries to investigate
+- [x] (1) Root cause of graph.json drift — RESOLVED session-2: racecontrol post-commit hook runs `graphify.watch._rebuild_code` on every commit; 17+ session commits caused the 9811→9834 growth, and all 25 added node IDs match session-committed files. Not a bug.
+- [ ] (2) Why community-detection is hyper-sensitive to graph-content changes — is Louvain seeded?
+- [ ] (3) Why `group` field injection didn't enable the per-community legend (retrospective — rule retracted, but useful lesson re: proxy tests)
+
+## Files created this session (DO NOT DELETE blindly)
+Scripts (in git-trackable location):
+- `racecontrol/scripts/graphify-post/` — 8 files, 60 KB total
+
+Meta infrastructure (UNGOVERNED location, needs moving):
+- `graphify-meta/` at `/c/Users/bono/racingpoint/graphify-meta/` — 7 files, 50 KB
+
+New module graphs:
+- `people-tracker/graphify-out/` (85 KB)
+- `pod-agent/graphify-out/` (50 KB)
+- `rc-ops-mcp/graphify-out/` (1 KB)
+
+Throwaway analysis scripts (safe to delete):
+- `/c/Users/bono/racingpoint/graphify-out/analyze_c12.mjs`
+- `...graphify-out/analyze_c12_global.mjs`
+- `...graphify-out/close_gaps.mjs`
+- `...graphify-out/deep_gaps.mjs`
+- `...graphify-out/verify_repair.mjs`
+- `...graphify-out/admin_analysis.mjs`
+- `...graphify-out/debug_kiosk.mjs`
+- `...graphify-out/debug_audit.mjs`
+- `...graphify-out/list_admin_in_graph.mjs`
