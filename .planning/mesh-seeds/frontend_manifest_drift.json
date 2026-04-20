@@ -1,0 +1,72 @@
+{
+  "comment": "Seed rows for audit_known_issues. Apply via POST /api/v1/mesh/audit-seed-service (service-key auth) to BOTH venue .23 and Bono VPS. Must be re-applied after any DB wipe — keep this file as the source of truth.",
+  "findings": [
+    {
+      "problem_key": "frontend_manifest_drift:venue-admin",
+      "severity": "P1",
+      "symptom_patterns": [
+        "/_next/static/chunks/",
+        "404",
+        "manifest",
+        "admin",
+        "3201",
+        "login"
+      ],
+      "root_cause": "Next.js standalone node process holds in-memory build manifest. A rebuild of .next/ (via npm run build or deploy-nextjs.sh without a proper stop→start) rewrites chunk hashes on disk but the running process still references old hashes via SSR and whitelists only old hashes for static serving. Some chunks 404 (deleted hashes), new chunks on disk also 404 (not in in-memory whitelist). PinPad fails to load; login page renders heading + footer only.",
+      "fix_action": "restart admin node process on .23 so manifest is re-read from disk. Canonical path: kill PID holding :3201, let StartAdmin schtask respawn via start-admin.bat. Verify with curl of one /_next/static/chunks/*.css returning 200.",
+      "fix_status": "runbook_only",
+      "affects": ["server_23"],
+      "escalation_message": "Admin panel (:3201) chunk-integrity probe detected manifest drift. Login page will render unstyled/blank for users. Restart admin service to resolve. Cause is usually a rebuild without restart. Permanence fix: deploy-nextjs.sh [9/9] must hard-fail on static 404, not log 'degraded'."
+    },
+    {
+      "problem_key": "frontend_manifest_drift:venue-web",
+      "severity": "P1",
+      "symptom_patterns": ["/_next/static/chunks/", "404", "manifest", "web", "3200"],
+      "root_cause": "Same class as venue-admin but on web (:3200). Next.js rebuilt without restart of its node process.",
+      "fix_action": "restart web node process on .23 via its StartWeb schtask (verify name). Smoke-test with curl of one _next/static/chunks/*.css returning 200.",
+      "fix_status": "runbook_only",
+      "affects": ["server_23"],
+      "escalation_message": "Web/POS app (:3200) chunk drift detected. Staff-facing POS screens will load unstyled or broken. Restart to resolve."
+    },
+    {
+      "problem_key": "frontend_manifest_drift:venue-kiosk",
+      "severity": "P0",
+      "symptom_patterns": ["/_next/static/chunks/", "404", "manifest", "kiosk", "3300"],
+      "root_cause": "Same class on kiosk (:3300). Customer-facing — elevated severity.",
+      "fix_action": "restart kiosk node process on .23. Customer-facing so this takes precedence.",
+      "fix_status": "runbook_only",
+      "affects": ["server_23"],
+      "escalation_message": "KIOSK (:3300) chunk drift — CUSTOMER-FACING. Pods will show broken kiosk UI. Restart immediately."
+    },
+    {
+      "problem_key": "frontend_manifest_drift:cloud-admin",
+      "severity": "P1",
+      "symptom_patterns": ["/_next/static/chunks/", "404", "manifest", "admin", "racingpoint.cloud"],
+      "root_cause": "Bono VPS pm2-managed admin app rebuilt without pm2 restart. Same mechanism as venue.",
+      "fix_action": "pm2 restart racingpoint-admin on Bono VPS via comms-link relay. Verify with curl of one _next/static/chunks/*.css returning 200.",
+      "fix_status": "runbook_only",
+      "affects": ["bono_vps"],
+      "escalation_message": "Cloud admin panel chunk drift. Off-site staff will see broken login. Trigger pm2 restart via Bono relay."
+    },
+    {
+      "problem_key": "frontend_manifest_drift:cloud-web",
+      "severity": "P1",
+      "symptom_patterns": ["/_next/static/chunks/", "404", "manifest", "racingpoint.cloud", "www"],
+      "root_cause": "Same class on cloud web app.",
+      "fix_action": "pm2 restart racingpoint-web on Bono VPS.",
+      "fix_status": "runbook_only",
+      "affects": ["bono_vps"],
+      "escalation_message": "Cloud public site chunk drift. Customer-visible. Restart via Bono relay."
+    },
+    {
+      "problem_key": "frontend_manifest_drift:cloud-kiosk",
+      "severity": "P1",
+      "symptom_patterns": ["/_next/static/chunks/", "404", "manifest", "kiosk", "racingpoint.cloud"],
+      "root_cause": "Same class on cloud kiosk app.",
+      "fix_action": "pm2 restart racingpoint-kiosk on Bono VPS.",
+      "fix_status": "runbook_only",
+      "affects": ["bono_vps"],
+      "escalation_message": "Cloud kiosk chunk drift. Restart via Bono relay."
+    }
+  ]
+}

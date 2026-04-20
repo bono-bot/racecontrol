@@ -1,0 +1,55 @@
+{
+  "comment": "Chunk-integrity probe target list. Runs from James .27 every 60s. Detects Next.js manifest/disk drift BEFORE users hit a 404-littered page. Non-Next.js services (racecontrol :8080, comms-link :8766, go2rtc, ollama) are NOT in this file — they need a different probe class (build_id drift / service health).",
+  "probe_cadence_sec": 60,
+  "consecutive_failures_to_alert": 2,
+  "rate_limit_alerts_per_hour_per_target": 3,
+  "heartbeat_file": "C:/Users/bono/.watchdog/chunk-integrity.heartbeat",
+  "incidents_log": "C:/Users/bono/.watchdog/chunk-integrity.log",
+  "mesh_tier0_endpoint_venue": "http://192.168.31.23:8080/api/v1/mesh/audit-check-service",
+  "mesh_tier0_endpoint_cloud": "http://100.70.177.44:8080/api/v1/mesh/audit-check-service",
+  "inbox_path": "C:/Users/bono/racingpoint/comms-link/INBOX.md",
+  "targets": [
+    {
+      "name": "venue-admin",
+      "url": "http://192.168.31.23:3201/login",
+      "fingerprint": "frontend_manifest_drift:venue-admin",
+      "restart_action": "schtasks /Run /TN StartAdmin (on .23 via ssh server)",
+      "env": "venue"
+    },
+    {
+      "name": "venue-web",
+      "url": "http://192.168.31.23:3200/",
+      "fingerprint": "frontend_manifest_drift:venue-web",
+      "restart_action": "verify schtask name then schtasks /Run /TN StartWeb (on .23)",
+      "env": "venue"
+    },
+    {
+      "name": "venue-kiosk",
+      "url": "http://192.168.31.23:3300/kiosk/",
+      "fingerprint": "frontend_manifest_drift:venue-kiosk",
+      "restart_action": "verify schtask name then schtasks /Run /TN StartKiosk (on .23)",
+      "env": "venue"
+    },
+    {
+      "name": "cloud-admin",
+      "url": "https://admin.racingpoint.cloud/login",
+      "fingerprint": "frontend_manifest_drift:cloud-admin",
+      "restart_action": "pm2 restart racingpoint-admin via Bono relay",
+      "env": "cloud"
+    },
+    {
+      "name": "cloud-web",
+      "url": "https://www.racingpoint.cloud/",
+      "fingerprint": "frontend_manifest_drift:cloud-web",
+      "restart_action": "pm2 restart racingpoint-web via Bono relay",
+      "env": "cloud"
+    },
+    {
+      "name": "cloud-kiosk",
+      "url": "https://kiosk.racingpoint.cloud/kiosk/",
+      "fingerprint": "frontend_manifest_drift:cloud-kiosk",
+      "restart_action": "pm2 restart racingpoint-kiosk via Bono relay",
+      "env": "cloud"
+    }
+  ]
+}
