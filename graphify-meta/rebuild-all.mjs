@@ -23,6 +23,8 @@ const stages = [
   'api-edges.mjs',
   'db-edges.mjs',
   'ws-edges.mjs',
+  'fs-edges.mjs',
+  'cochange-edges.mjs',  // depends on meta-graph to compute hidden_coupling diff; run before build-meta
   'build-meta.mjs',
 ];
 

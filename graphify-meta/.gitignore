@@ -1,10 +1,13 @@
-# Generated artifacts — regenerable via build-meta.mjs, api-edges.mjs, slice-submodules.mjs, db-edges.mjs, ws-edges.mjs
+# Generated artifacts — regenerable via rebuild-all.mjs (invokes 7 stages)
 meta-graph.json
 meta.html
 META_REPORT.md
 api-edges.json
 db-edges.json
 ws-edges.json
+fs-edges.json
+cochange-edges.json
+cochange-gaps.md
 slices.json
 SLICE_GAP_SUMMARY.json
 # One-off exploration scripts (underscore-prefixed)

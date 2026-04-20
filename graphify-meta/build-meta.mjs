@@ -175,10 +175,15 @@ if (fs.existsSync(apiEdgesPath)) {
   }
 }
 
-// Alias map: ws-edges and db-edges scan `racecontrol.crates` subdirectory separately
-// from kiosk/web/pwa slices, but the meta-map has no `racecontrol.crates` node —
-// fold it back into the umbrella `racecontrol` module.
-const MODULE_ALIAS = { 'racecontrol.crates': 'racecontrol' };
+// Alias map: scanners with finer slice granularity emit ids that don't exist as
+// meta-map nodes. Fold them back to the umbrella `racecontrol` module.
+// - `racecontrol.crates` (ws/db scanners) → racecontrol
+// - `racecontrol.server` (fs scanner's crates/racecontrol) → racecontrol
+// rc.rc-agent and rc.rc-sentry ARE registered slice nodes — keep them as-is.
+const MODULE_ALIAS = {
+  'racecontrol.crates': 'racecontrol',
+  'racecontrol.server': 'racecontrol',
+};
 const aliasOf = id => MODULE_ALIAS[id] || id;
 
 // (a2) DB shared-table edges
@@ -215,6 +220,51 @@ if (fs.existsSync(wsEdgesPath)) {
       weight: e.weight,
       type: 'shared-ws-variant',
       shared_variants: e.shared_variants.slice(0, 5),
+    });
+  }
+}
+
+// (a4b) Filesystem-sentinel edges — modules that reference the same path literal
+// (MAINTENANCE_MODE, GRACEFUL_RELAUNCH, ota-in-progress.flag, shared config dir).
+// This channel was added in round 7 after git co-change mining revealed rc-agent ↔
+// rc-sentry were shipping together 15x due to file-sentinel IPC that api/db/ws missed.
+const fsEdgesPath = path.join(__dirname, 'fs-edges.json');
+if (fs.existsSync(fsEdgesPath)) {
+  const fsE = JSON.parse(fs.readFileSync(fsEdgesPath, 'utf8'));
+  for (const e of fsE.edges) {
+    const src = aliasOf(e.from), tgt = aliasOf(e.to);
+    if (src === tgt) continue;
+    if (e.weight < 2) continue;  // 1 shared path = likely CWD-ish noise; 2+ = real
+    metaLinks.push({
+      source: src, target: tgt,
+      weight: e.weight,
+      type: 'shared-fs-path',
+      shared_paths: e.shared_paths.slice(0, 3).map(s => s.path.split('/').slice(-2).join('/')),
+    });
+  }
+}
+
+// (a4c) Git co-change edges — coincidence or real coupling the scanners missed.
+// Only include pairs above the MIN_COMMITS threshold AND that have NO other channel
+// edge (to avoid double-counting known coupling).
+const cochangePath = path.join(__dirname, 'cochange-edges.json');
+if (fs.existsSync(cochangePath)) {
+  const cc = JSON.parse(fs.readFileSync(cochangePath, 'utf8'));
+  // Only `hidden_coupling` — pairs already explained by other channels are redundant
+  for (const h of cc.hidden_coupling) {
+    if (h.cochange_commits < 10) continue;  // filter package.json-bump noise
+    const src = aliasOf(h.module_a), tgt = aliasOf(h.module_b);
+    if (src === tgt) continue;
+    // Double-check: did we just add an fs-path edge for this pair in this same run?
+    const alreadyExplained = metaLinks.some(e =>
+      (e.source === src && e.target === tgt) || (e.source === tgt && e.target === src)
+    );
+    if (alreadyExplained) continue;
+    metaLinks.push({
+      source: src, target: tgt,
+      weight: h.cochange_commits,
+      type: 'co-change',
+      top_file_pair: h.top_file_pairs[0]?.pair,
     });
   }
 }
@@ -280,6 +330,8 @@ const EDGE_STYLE = {
   'api-call':          { color: '#59A14F', dashes: false, arrow: true,  label: 'HTTP API call' },
   'shared-db-table':   { color: '#F1CE63', dashes: false, arrow: false, label: 'shared DB table(s)' },
   'shared-ws-variant': { color: '#E15759', dashes: false, arrow: false, label: 'shared WS variant(s)' },
+  'shared-fs-path':    { color: '#B07AA1', dashes: false, arrow: false, label: 'shared filesystem path(s)' },
+  'co-change':         { color: '#D4A6C8', dashes: true,  arrow: false, label: 'git co-change (unexplained)' },
   'label-overlap':     { color: '#6a7aaa', dashes: true,  arrow: false, label: 'shared top-30 label(s)' },
   'contains':          { color: '#555',    dashes: true,  arrow: false, label: 'contains (slice)' },
 };
@@ -345,18 +397,22 @@ const html = `<!doctype html>
   <div class="edges">
     <h2>Inter-module overlaps (top-30 label matches)</h2>
     ${metaLinks.filter(e => e.type !== 'contains').sort((a,b)=> {
-      const rank = { 'api-call': 3000, 'shared-ws-variant': 2000, 'shared-db-table': 1000, 'label-overlap': 0 };
+      const rank = { 'api-call': 4000, 'shared-ws-variant': 3000, 'shared-db-table': 2000, 'shared-fs-path': 1000, 'co-change': 500, 'label-overlap': 0 };
       return (rank[b.type]||0) + b.weight - (rank[a.type]||0) - a.weight;
-    }).slice(0,20).map(e => {
+    }).slice(0,25).map(e => {
       const style = {
         'api-call':          ['#59A14F', 'API'],
         'shared-db-table':   ['#F1CE63', 'DB'],
         'shared-ws-variant': ['#E15759', 'WS'],
+        'shared-fs-path':    ['#B07AA1', 'FS'],
+        'co-change':         ['#D4A6C8', 'git'],
         'label-overlap':     ['#888',    'lbl'],
       }[e.type] || ['#888', '?'];
       const detail = e.url_fragments   ? e.url_fragments.join(', ')
                    : e.shared_tables   ? e.shared_tables.join(', ')
                    : e.shared_variants ? e.shared_variants.join(', ')
+                   : e.shared_paths    ? e.shared_paths.join(', ')
+                   : e.top_file_pair   ? e.top_file_pair
                    : e.shared_labels   ? e.shared_labels.join(', ')
                    : '';
       return `<div class="edge-item"><span style="color:${style[0]}">${style[1]}</span> <b>${e.source}</b> → <b>${e.target}</b> · ${e.weight} · ${detail}</div>`;
@@ -368,6 +424,8 @@ const html = `<!doctype html>
     <div class="row"><div class="swatch" style="background:#59A14F;color:#59A14F"></div><span class="label">api-call — HTTP /api/ endpoint</span></div>
     <div class="row"><div class="swatch" style="background:#E15759;color:#E15759"></div><span class="label">shared-ws-variant — same WS enum variant referenced</span></div>
     <div class="row"><div class="swatch" style="background:#F1CE63;color:#F1CE63"></div><span class="label">shared-db-table — same SQL table read/written</span></div>
+    <div class="row"><div class="swatch" style="background:#B07AA1;color:#B07AA1"></div><span class="label">shared-fs-path — same filesystem sentinel / config</span></div>
+    <div class="row"><div class="swatch dashed" style="color:#D4A6C8"></div><span class="label">co-change — git history coupling (no scanner edge)</span></div>
     <div class="row"><div class="swatch dashed" style="color:#6a7aaa"></div><span class="label">label-overlap — shared top-30 names (weak signal)</span></div>
     <div class="row"><div class="swatch dashed" style="color:#555"></div><span class="label">contains — slice of parent module</span></div>
   </div>

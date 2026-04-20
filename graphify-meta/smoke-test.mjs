@@ -33,7 +33,7 @@ function section(name) {
 // Stage 1: run all 4 scripts, capture their exit codes.
 // ---------------------------------------------------------------------------
 
-const scripts = ['slice-submodules.mjs', 'api-edges.mjs', 'db-edges.mjs', 'ws-edges.mjs', 'build-meta.mjs'];
+const scripts = ['slice-submodules.mjs', 'api-edges.mjs', 'db-edges.mjs', 'ws-edges.mjs', 'fs-edges.mjs', 'cochange-edges.mjs', 'build-meta.mjs'];
 section('Run pipeline');
 for (const s of scripts) {
   const r = spawnSync(process.execPath, [path.join(__dirname, s)], { cwd: __dirname, encoding: 'utf8' });
@@ -48,7 +48,7 @@ for (const s of scripts) {
 // ---------------------------------------------------------------------------
 
 section('Artifact existence');
-const artifacts = ['api-edges.json', 'db-edges.json', 'ws-edges.json', 'meta-graph.json', 'meta.html', 'META_REPORT.md', 'slices.json'];
+const artifacts = ['api-edges.json', 'db-edges.json', 'ws-edges.json', 'fs-edges.json', 'cochange-edges.json', 'cochange-gaps.md', 'meta-graph.json', 'meta.html', 'META_REPORT.md', 'slices.json'];
 for (const a of artifacts) {
   assert(fs.existsSync(path.join(__dirname, a)), `${a} exists`);
 }
@@ -99,6 +99,18 @@ assert(meta.edges.length >= 5, `>=5 inter-module edges (got ${meta.edges.length}
 const edgeTypes = new Set(meta.edges.map(e => e.type));
 assert(edgeTypes.has('api-call'), 'api-call edges present');
 assert(edgeTypes.has('shared-db-table') || ws.edges.length === 0, 'shared-db-table edges present OR ws has none');
+
+section('fs-edges.json + cochange-edges.json');
+const fse = JSON.parse(fs.readFileSync(path.join(__dirname, 'fs-edges.json'), 'utf8'));
+assert(fse.edges.length >= 1, `>=1 fs-path edge (got ${fse.edges.length})`);
+// rc-agent and rc-sentry must couple via filesystem sentinels (MAINTENANCE_MODE et al)
+const agentSentry = fse.edges.find(e =>
+  (e.from === 'rc.rc-agent' && e.to === 'rc.rc-sentry') ||
+  (e.from === 'rc.rc-sentry' && e.to === 'rc.rc-agent'));
+assert(!!agentSentry, 'rc.rc-agent ↔ rc.rc-sentry fs-path edge (MAINTENANCE_MODE etc.)');
+const cc = JSON.parse(fs.readFileSync(path.join(__dirname, 'cochange-edges.json'), 'utf8'));
+assert(cc.commits_scanned > 100, `cochange scanned > 100 commits (got ${cc.commits_scanned})`);
+assert(Array.isArray(cc.hidden_coupling), 'cochange hidden_coupling array present');
 
 section('per-slice artifacts');
 const slices = JSON.parse(fs.readFileSync(path.join(__dirname, 'slices.json'), 'utf8')).slices;
