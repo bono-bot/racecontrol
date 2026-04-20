@@ -7,9 +7,116 @@ use axum::{
     http::StatusCode,
 };
 use serde_json::{Value, json};
+use sqlx::{Sqlite, Transaction};
 use std::sync::Arc;
 
 use crate::state::AppState;
+
+// ─── DPDP §12 right-of-erasure target tables ────────────────────────────────
+//
+// Each entry: (table_name, &[fk_columns]). Multi-column entries generate
+// `WHERE col1 = ? OR col2 = ? ...` with the driver_id bound once per column.
+//
+// Children-first is implicit: all entries FK back to drivers(id), not each other,
+// so the order here only matters for the final driver row deletion (handled after
+// this list). If a future entry introduces an inter-table FK (billing_sessions →
+// laps for example), reorder accordingly.
+//
+// NOTE on financial tables: this endpoint (customer_data_delete) hard-deletes
+// financial rows to match the "right-of-erasure full purge" product intent.
+// revoke_consent_handler instead calls anonymize_driver_pii() which preserves
+// financial rows for the Income Tax Act 8-year retention. Two paths, two
+// policies. Any change to the financial-delete policy must be coordinated with
+// the venue's accountant and updated in both docstrings + CLAUDE.md.
+pub(crate) const ERASE_TABLES: &[(&str, &[&str])] = &[
+    // Financial (hard-delete per current product intent)
+    ("wallet_transactions", &["driver_id"]),
+    ("wallets", &["driver_id"]),
+    ("refunds", &["driver_id"]),
+    ("invoices", &["driver_id"]),
+    ("debit_intents", &["driver_id"]),
+    ("dispute_requests", &["driver_id"]),
+    ("billing_sessions", &["driver_id"]),
+    // Laps + records
+    ("laps", &["driver_id"]),
+    ("personal_bests", &["driver_id"]),
+    ("track_records", &["driver_id"]),
+    // Gamification
+    ("driver_ratings", &["driver_id"]),
+    ("driver_achievements", &["driver_id"]),
+    ("streaks", &["driver_id"]),
+    ("driving_passport", &["driver_id"]),
+    ("variable_reward_log", &["driver_id"]),
+    ("hotlap_event_entries", &["driver_id"]),
+    ("championship_standings", &["driver_id"]),
+    // Social
+    ("friend_requests", &["sender_id", "receiver_id"]),
+    ("friendships", &["driver_a_id", "driver_b_id"]),
+    ("referrals", &["referrer_id", "referee_id"]),
+    ("group_session_members", &["driver_id"]),
+    // Competition
+    ("tournament_matches", &["driver_a", "driver_b", "winner_id"]),
+    ("tournament_registrations", &["driver_id"]),
+    ("multiplayer_results", &["driver_id"]),
+    ("event_entries", &["driver_id"]),
+    // Kiosk / sessions / bookings
+    ("customer_sessions", &["driver_id"]),
+    ("pod_reservations", &["driver_id"]),
+    ("auth_tokens", &["driver_id"]),
+    ("cafe_orders", &["driver_id"]),
+    ("game_launch_requests", &["driver_id"]),
+    // Feedback / marketing
+    ("session_feedback", &["driver_id"]),
+    ("coupon_redemptions", &["driver_id"]),
+    ("memberships", &["driver_id"]),
+    ("session_highlights", &["driver_id"]),
+    ("review_nudges", &["driver_id"]),
+    ("customer_preferences", &["driver_id"]),
+];
+
+// Pointer columns on non-PII tables — nulled out (UPDATE SET NULL) instead of
+// DELETE. Without this, pods.current_driver_id dangles to a deleted driver.
+pub(crate) const POINTER_TABLES: &[(&str, &str)] = &[
+    ("pods", "current_driver_id"),
+];
+
+async fn erase_table_rows(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &str,
+    columns: &[&str],
+    driver_id: &str,
+) -> Result<u64, sqlx::Error> {
+    let where_clause = columns
+        .iter()
+        .map(|c| format!("{} = ?", c))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql = format!("DELETE FROM {} WHERE {}", table, where_clause);
+    let mut q = sqlx::query(&sql);
+    for _ in columns {
+        q = q.bind(driver_id);
+    }
+    let r = q.execute(&mut **tx).await?;
+    Ok(r.rows_affected())
+}
+
+async fn null_pointer_column(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &str,
+    column: &str,
+    driver_id: &str,
+) -> Result<u64, sqlx::Error> {
+    let sql = format!("UPDATE {} SET {} = NULL WHERE {} = ?", table, column, column);
+    let r = sqlx::query(&sql).bind(driver_id).execute(&mut **tx).await?;
+    Ok(r.rows_affected())
+}
+
+/// Returns true if the error is a SQLite "no such table" error — these are
+/// treated as a skippable no-op (migration may not have run this table yet on
+/// older DBs). Any other error class is a genuine failure that must roll back.
+fn is_missing_table_error(e: &sqlx::Error) -> bool {
+    format!("{}", e).contains("no such table")
+}
 
 // Re-export dispute handlers (BILL-08) — extracted to customer_disputes.rs
 pub(crate) use super::customer_disputes::{
@@ -159,7 +266,7 @@ pub(crate) async fn customer_data_delete(
         Ok(Some(_)) => {}
     }
 
-    // Begin transaction -- cascade delete all child tables
+    // Begin transaction — all deletes must atomically commit or roll back together.
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(e) => {
@@ -171,43 +278,132 @@ pub(crate) async fn customer_data_delete(
         }
     };
 
-    // Delete from child tables (children first, then parent)
-    // wallet_transactions before wallets (wallet_transactions references wallets)
-    let _ = sqlx::query("DELETE FROM wallet_transactions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM wallets WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM billing_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM laps WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM customer_sessions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM friend_requests WHERE sender_id = ? OR receiver_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM friendships WHERE driver_a_id = ? OR driver_b_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM group_session_members WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM tournament_registrations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM pod_reservations WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM auth_tokens WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM personal_bests WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM event_entries WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM session_feedback WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM coupon_redemptions WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM memberships WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM referrals WHERE referrer_id = ? OR referee_id = ?").bind(&driver_id).bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM session_highlights WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM review_nudges WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM multiplayer_results WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
-    let _ = sqlx::query("DELETE FROM driver_ratings WHERE driver_id = ?").bind(&driver_id).execute(&mut *tx).await;
+    let mut total_rows_erased: u64 = 0;
+    let mut total_rows_nulled: u64 = 0;
+    let mut tables_skipped: Vec<&str> = Vec::new();
 
-    // Delete the driver record itself
-    let _ = sqlx::query("DELETE FROM drivers WHERE id = ?").bind(&driver_id).execute(&mut *tx).await;
+    // 1. NULL pointer columns (pods.current_driver_id etc.) BEFORE deleting the
+    //    driver row, otherwise an FK constraint could block the drivers DELETE.
+    for (table, column) in POINTER_TABLES {
+        match null_pointer_column(&mut tx, table, column, &driver_id).await {
+            Ok(n) => {
+                total_rows_nulled = total_rows_nulled.saturating_add(n);
+                if n > 0 {
+                    tracing::info!(
+                        "DPDP erase: nulled {}.{} for driver {} ({} rows)",
+                        table, column, driver_id, n
+                    );
+                }
+            }
+            Err(ref e) if is_missing_table_error(e) => {
+                tracing::warn!(
+                    "DPDP erase: pointer table {} does not exist — skipping",
+                    table
+                );
+                tables_skipped.push(table);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "DPDP erase FAILED nulling {}.{} for driver {}: {} — rolling back",
+                    table, column, driver_id, e
+                );
+                let _ = tx.rollback().await;
+                return Err((
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Erase failed — transaction rolled back",
+                        "table": table,
+                        "phase": "null_pointer"
+                    })),
+                ));
+            }
+        }
+    }
 
-    // Commit transaction
+    // 2. DELETE child rows across every declared FK table.
+    for (table, columns) in ERASE_TABLES {
+        match erase_table_rows(&mut tx, table, columns, &driver_id).await {
+            Ok(n) => {
+                total_rows_erased = total_rows_erased.saturating_add(n);
+                if n > 0 {
+                    tracing::info!(
+                        "DPDP erase: deleted {} rows from {} for driver {}",
+                        n, table, driver_id
+                    );
+                }
+            }
+            Err(ref e) if is_missing_table_error(e) => {
+                tracing::warn!(
+                    "DPDP erase: table {} does not exist on this DB — skipping",
+                    table
+                );
+                tables_skipped.push(table);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "DPDP erase FAILED at table {} for driver {}: {} — rolling back",
+                    table, driver_id, e
+                );
+                let _ = tx.rollback().await;
+                return Err((
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Erase failed — transaction rolled back",
+                        "table": table,
+                        "phase": "delete_children"
+                    })),
+                ));
+            }
+        }
+    }
+
+    // 3. Delete the driver record itself.
+    match sqlx::query("DELETE FROM drivers WHERE id = ?")
+        .bind(&driver_id)
+        .execute(&mut *tx)
+        .await
+    {
+        Ok(r) => {
+            total_rows_erased = total_rows_erased.saturating_add(r.rows_affected());
+        }
+        Err(e) => {
+            tracing::error!(
+                "DPDP erase FAILED at drivers row for driver {}: {} — rolling back",
+                driver_id, e
+            );
+            let _ = tx.rollback().await;
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Erase failed — transaction rolled back",
+                    "table": "drivers",
+                    "phase": "delete_parent"
+                })),
+            ));
+        }
+    }
+
+    // 4. Commit.
     if let Err(e) = tx.commit().await {
-        tracing::error!("data_delete commit error for driver {}: {}", driver_id, e);
+        tracing::error!("DPDP erase commit error for driver {}: {}", driver_id, e);
         return Err((
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({
+                "error": "Commit failed",
+                "phase": "commit"
+            })),
         ));
     }
 
-    tracing::info!("Customer {} deleted their data (DPDP compliance)", driver_id);
+    tracing::info!(
+        "DPDP erase COMPLETE for driver {}: {} rows deleted across {} tables \
+         (+1 drivers row), {} pointer columns nulled, {} tables skipped as absent",
+        driver_id,
+        total_rows_erased,
+        ERASE_TABLES.len(),
+        total_rows_nulled,
+        tables_skipped.len()
+    );
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 

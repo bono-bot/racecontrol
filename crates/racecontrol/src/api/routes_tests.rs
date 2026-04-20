@@ -713,6 +713,26 @@ mod data_rights_tests {
         sqlx::query("CREATE TABLE IF NOT EXISTS multiplayer_results (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create multiplayer_results");
         sqlx::query("CREATE TABLE IF NOT EXISTS driver_ratings (driver_id TEXT NOT NULL, sim_type TEXT NOT NULL DEFAULT 'assettocorsa', composite_rating REAL NOT NULL DEFAULT 0.0, rating_class TEXT NOT NULL DEFAULT 'Unrated', pace_score REAL NOT NULL DEFAULT 0.0, consistency_score REAL NOT NULL DEFAULT 0.0, experience_score REAL NOT NULL DEFAULT 0.0, total_laps INTEGER NOT NULL DEFAULT 0, updated_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (driver_id, sim_type))").execute(&db).await.expect("create driver_ratings");
 
+        // DPDP-erase: extended tables added 2026-04-20 to close the 18-table coverage gap.
+        // Column shapes are minimal (driver_id is what the erase handler binds on).
+        sqlx::query("CREATE TABLE IF NOT EXISTS refunds (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create refunds");
+        sqlx::query("CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create invoices");
+        sqlx::query("CREATE TABLE IF NOT EXISTS debit_intents (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create debit_intents");
+        sqlx::query("CREATE TABLE IF NOT EXISTS dispute_requests (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create dispute_requests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS track_records (track TEXT NOT NULL, driver_id TEXT)").execute(&db).await.expect("create track_records");
+        sqlx::query("CREATE TABLE IF NOT EXISTS driver_achievements (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create driver_achievements");
+        sqlx::query("CREATE TABLE IF NOT EXISTS streaks (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create streaks");
+        sqlx::query("CREATE TABLE IF NOT EXISTS driving_passport (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create driving_passport");
+        sqlx::query("CREATE TABLE IF NOT EXISTS variable_reward_log (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create variable_reward_log");
+        sqlx::query("CREATE TABLE IF NOT EXISTS hotlap_event_entries (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create hotlap_event_entries");
+        sqlx::query("CREATE TABLE IF NOT EXISTS championship_standings (championship_id TEXT NOT NULL, driver_id TEXT NOT NULL)").execute(&db).await.expect("create championship_standings");
+        sqlx::query("CREATE TABLE IF NOT EXISTS tournament_matches (id TEXT PRIMARY KEY, driver_a TEXT, driver_b TEXT, winner_id TEXT)").execute(&db).await.expect("create tournament_matches");
+        sqlx::query("CREATE TABLE IF NOT EXISTS cafe_orders (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create cafe_orders");
+        sqlx::query("CREATE TABLE IF NOT EXISTS game_launch_requests (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create game_launch_requests");
+        sqlx::query("CREATE TABLE IF NOT EXISTS customer_preferences (driver_id TEXT PRIMARY KEY)").execute(&db).await.expect("create customer_preferences");
+        // Pointer table — row with current_driver_id should be nulled, not deleted.
+        sqlx::query("CREATE TABLE IF NOT EXISTS pods (id TEXT PRIMARY KEY, current_driver_id TEXT)").execute(&db).await.expect("create pods");
+
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
         Arc::new(AppState::new(config, db, field_cipher))
@@ -836,6 +856,140 @@ mod data_rights_tests {
         let result = customer_data_delete(State(state), headers).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+    }
+
+    /// Contract test — DPDP §12 right-of-erasure: for every table declared in
+    /// ERASE_TABLES, a row keyed on driver_id must be gone after the handler
+    /// runs, and pointer columns in POINTER_TABLES must be nulled (not deleted).
+    ///
+    /// This is the load-bearing test for the silent-fail fix: if the handler
+    /// accidentally regresses to swallowing individual DELETE errors (e.g.
+    /// `let _ = sqlx::query(...).execute(...)`), this test still passes — but
+    /// it now enumerates every declared table so future drift in ERASE_TABLES
+    /// without matching test coverage is obvious in the diff.
+    #[tokio::test]
+    async fn data_delete_erases_every_declared_table() {
+        use crate::api::customer_legal::{ERASE_TABLES, POINTER_TABLES};
+
+        let state = make_state_with_db().await;
+        let driver_id = "d-full-erase";
+
+        // Insert the driver itself.
+        sqlx::query("INSERT INTO drivers (id, name) VALUES (?, ?)")
+            .bind(driver_id).bind("Full Erase Test")
+            .execute(&state.db).await.expect("insert driver");
+
+        // Seed a row in every declared ERASE_TABLES entry — skip tables that
+        // aren't present in the test harness (is_missing_table_error path).
+        // Tracks which tables were successfully seeded so we only assert on those.
+        let mut seeded_tables: Vec<(&str, &[&str])> = Vec::new();
+        for (table, columns) in ERASE_TABLES.iter() {
+            // Build an INSERT that binds driver_id into the first fk column only —
+            // multi-column tables (friendships etc.) get a single-column INSERT
+            // which is still covered by the OR-clause in the erase path.
+            let first_col = columns[0];
+            let sql = format!(
+                "INSERT INTO {} ({}) VALUES (?)",
+                table, first_col
+            );
+            match sqlx::query(&sql).bind(driver_id).execute(&state.db).await {
+                Ok(_) => seeded_tables.push((*table, *columns)),
+                Err(e) => {
+                    // Two tolerated classes: table missing from harness (fine, handler
+                    // will skip it too), or schema has NOT NULL columns beyond
+                    // driver_id (harness-limitation). Log and move on.
+                    eprintln!(
+                        "seed skip {}: {} (test harness limitation, not a bug)",
+                        table, e
+                    );
+                }
+            }
+        }
+
+        // Seed pointer rows.
+        let mut seeded_pointers: Vec<(&str, &str)> = Vec::new();
+        for (table, column) in POINTER_TABLES.iter() {
+            let sql = format!(
+                "INSERT INTO {} (id, {}) VALUES (?, ?)",
+                table, column
+            );
+            match sqlx::query(&sql).bind(format!("ptr-{}", table)).bind(driver_id).execute(&state.db).await {
+                Ok(_) => seeded_pointers.push((*table, *column)),
+                Err(e) => eprintln!("seed pointer skip {}.{}: {}", table, column, e),
+            }
+        }
+
+        // Verify at least the core known tables WERE seeded — guards against a
+        // silent test-harness regression that would let the contract pass
+        // trivially.
+        assert!(
+            seeded_tables.len() >= 15,
+            "test harness must seed at least 15 ERASE_TABLES entries, got {}",
+            seeded_tables.len()
+        );
+
+        // Fire the erase.
+        let headers = make_auth_headers(&state, driver_id);
+        let result = customer_data_delete(State(state.clone()), headers).await;
+        assert!(result.is_ok(), "erase returned error: {:?}", result.err());
+        assert_eq!(result.unwrap(), StatusCode::NO_CONTENT);
+
+        // Assert: every seeded ERASE_TABLES row is gone.
+        for (table, columns) in &seeded_tables {
+            let where_clause = columns
+                .iter()
+                .map(|c| format!("{} = ?", c))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let sql = format!("SELECT COUNT(*) FROM {} WHERE {}", table, where_clause);
+            let mut q = sqlx::query_as::<_, (i64,)>(&sql);
+            for _ in columns.iter() {
+                q = q.bind(driver_id);
+            }
+            let (n,) = q.fetch_one(&state.db).await.expect("count after erase");
+            assert_eq!(
+                n, 0,
+                "DPDP erase leaked PII: table={} still has {} rows for driver_id={}",
+                table, n, driver_id
+            );
+        }
+
+        // Assert: every seeded POINTER_TABLES row has the column nulled but the
+        // row itself still exists (pods row must NOT be deleted — only the
+        // driver pointer column is cleared).
+        for (table, column) in &seeded_pointers {
+            let sql = format!(
+                "SELECT COUNT(*) FROM {} WHERE {} = ?",
+                table, column
+            );
+            let (n_stale,): (i64,) = sqlx::query_as(&sql)
+                .bind(driver_id)
+                .fetch_one(&state.db)
+                .await
+                .expect("count pointer rows");
+            assert_eq!(
+                n_stale, 0,
+                "DPDP erase left dangling pointer: {}.{} still points to driver_id={}",
+                table, column, driver_id
+            );
+            let (n_total,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM {}", table))
+                .fetch_one(&state.db)
+                .await
+                .expect("count pointer table total");
+            assert!(
+                n_total > 0,
+                "DPDP erase incorrectly DELETED rows from pointer table {} (should only NULL the column)",
+                table
+            );
+        }
+
+        // Assert: the driver row itself is gone.
+        let (n_driver,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM drivers WHERE id = ?")
+            .bind(driver_id)
+            .fetch_one(&state.db)
+            .await
+            .expect("count drivers after erase");
+        assert_eq!(n_driver, 0, "drivers row not deleted");
     }
 }
 
