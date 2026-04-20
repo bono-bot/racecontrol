@@ -183,12 +183,19 @@ for (const mod of CONSUMER_MODULES) {
       const normalized = cand.toLowerCase().replace(/-/g, '_');
       for (const [tok, list] of routeHints) {
         if (tok.length < 3) continue;
+        // Segment-boundary match: `needle` must appear as a COMPLETE segment inside
+        // `haystack` when split by `_` or `/`. This avoids the substring trap where
+        // 'state' (segment of game_state.rs) falsely matches '/api/scan/bank-statement'
+        // because 'bank_statement' contains '_state' as a substring but NOT as a segment.
+        // 'hr' (segment of admin_hr.rs) still legitimately matches '/api/hr/attendance'
+        // because the normalized URL splits cleanly at the slash.
+        const segmentMatch = (haystack, needle) => haystack.split(/[_/]/).includes(needle);
         if (tok === normalized ||
             tok === normalized.replace(/\//g, '_') ||
             tok.startsWith(normalized + '_') ||
             normalized.startsWith(tok + '_') ||
-            tok.includes('_' + normalized) ||
-            normalized.includes('_' + tok)) {
+            segmentMatch(tok, normalized) ||
+            segmentMatch(normalized, tok)) {
           const key = tok;
           if (!matchedRoutes.has(key)) {
             matchedRoutes.set(key, { url_token: tok, backend_files: list.slice(0, 3).map(x => x.sf) });
@@ -214,7 +221,8 @@ for (const mod of CONSUMER_MODULES) {
 
 console.log(`[3/3] Discovered ${urlEdges.length} URL-based edges ${[...new Set(urlEdges.map(e => e.from))].length} consumer modules`);
 
-const out = path.join(ROOT, 'graphify-meta', 'api-edges.json');
+// Output next to this script so it works regardless of where graphify-meta lives.
+const out = path.join(__dirname, 'api-edges.json');
 fs.writeFileSync(out, JSON.stringify({ generated_at: new Date().toISOString(), edges: urlEdges }, null, 2));
 console.log(`Wrote ${out}`);
 

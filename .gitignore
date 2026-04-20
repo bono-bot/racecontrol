@@ -117,6 +117,7 @@ tests/e2e/playwright/.auth-state.json
 *.log.prev
 # Knowledge graph — generated artifacts (rebuild with scripts/knowledge-graph/)
 graphify-out/
+graphify-out-*/
 .planning/knowledge-graph/cache/
 .planning/knowledge-graph/graph.json
 .planning/knowledge-graph/fix-history.json
