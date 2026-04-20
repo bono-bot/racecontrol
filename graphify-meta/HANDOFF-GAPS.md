@@ -3,12 +3,14 @@
 One-page checklist for next session. For context read HANDOFF.md.
 
 ## Quick-close (no cost, under 30 min each)
-- [x] Priority A: Fix `scan-module.py` save_manifest CWD-leak — PATCHED session-2 (explicit manifest_path). NOTE: observed graph.json drift was NOT caused by this — it was legitimate post-commit hook rebuilds. Fix was hygiene only. VERIFY pending next message.
-- [ ] Priority D: `bash scripts/graphify-post/install-hook.sh` — wire validate into git post-commit
-- [ ] Priority E: Move `graphify-meta/` into a git repo (recommend `racecontrol/graphify-meta/`)
-- [~] ~~Restore graph.json from backup~~ — REJECTED session-2: current 9834-node state is correct; 25 added nodes are real files from 17 session commits. Restoring would delete real content.
+- [x] Priority A: Fix `scan-module.py` save_manifest CWD-leak — PATCHED + VERIFIED session-2. Post-patch scan of people-tracker from home CWD left racecontrol/graph.json sha256 unchanged, manifest.json landed at people-tracker/graphify-out/. Legacy pre-patch leak at `/c/Users/bono/graphify-out/` cleaned.
+- [x] Priority D: `bash scripts/graphify-post/install-hook.sh` — INSTALLED + LIVE-FIRED session-2. Hook block visible in racecontrol/.git/hooks/post-commit. Commit `150f69d7` produced `graphify-post: GAP_REPORT.md updated (25 hits)`.
+- [x] Priority E: Move to `racecontrol/graphify-meta/` — DONE session-2. ROOT parametrized via findEcosystemRoot() + $GRAPHIFY_META_ROOT env override. Committed `150f69d7`, pushed to origin/main.
+- [x] Priority F: Improve api-edges.mjs URL resolution — DONE session-2. Routing-prefix strip (rc/v1/v2/v3) + template-param strip + per-segment tokenization. Edges 7 → 16.
+- [~] ~~Restore graph.json from backup~~ — REJECTED session-2: 9834-node state is correct; added nodes are real session-commit files.
 - [ ] Visually verify meta.html in Chrome (kill MCP profile-lock first per memory recipe)
 - [ ] Run subsystem-audit against each per-module graph (currently only racecontrol audited)
+- [ ] Fix false-positive in api-edges.mjs where short (3-5 char) backend tokens like `state` match unrelated URLs via `.includes('_' + tok)`
 
 ## User-decision gates (cost ~$1-20)
 - [ ] Scan marketing module — $5-20 (530 png + 116 mp4 = vision + Whisper)

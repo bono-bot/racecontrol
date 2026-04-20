@@ -197,21 +197,22 @@ If graph.json grows WITHOUT a matching racecontrol commit within the last minute
 - Cost: ~$3-5. Time: ~15-25 min.
 - Ask user before proceeding; current graph is usable without it.
 
-### Priority D — Wire graphify-post into CI (10 min)
-1. `bash C:/Users/bono/racingpoint/racecontrol/scripts/graphify-post/install-hook.sh`
-2. Verify: `cat .git/hooks/post-commit` → shows the graphify-post block
-3. Test: make a dummy commit, confirm GAP_REPORT.md regenerates
+### Priority D — DONE in session-2
+- `install-hook.sh` run from racecontrol repo root — appended graphify-post block to `.git/hooks/post-commit`.
+- Payload dry-run: `node scripts/graphify-post/validate.mjs graphify-out` → `25/29 rules HIT`, wrote fresh GAP_REPORT.md.
+- Live integration: commit `150f69d7` fired the hook, console echoed `graphify-post: GAP_REPORT.md updated (25 hits)`.
 
-### Priority E — Decide where to git-track graphify-meta/ (10 min)
-Candidates:
-- `racecontrol/graphify-meta/` — move into racecontrol, commit. Cleanest.
-- `graphify-meta/` as its own repo — maximum isolation.
-- `~/.claude/projects/.../graphify-meta/` — personal tooling, not shared. Likely wrong.
+### Priority E — DONE in session-2
+- graphify-meta/ moved from `/c/Users/bono/racingpoint/graphify-meta/` → `/c/Users/bono/racingpoint/racecontrol/graphify-meta/`.
+- ROOT in build-meta.mjs + api-edges.mjs parametrized via `findEcosystemRoot()` (walks up looking for both `racecontrol/` and `racingpoint-admin/` as sibling dirs) + `$GRAPHIFY_META_ROOT` override.
+- .gitignore added for generated artifacts (meta-graph.json, meta.html, META_REPORT.md, api-edges.json).
+- Committed in `150f69d7` (6 files, 1004 insertions). Pushed.
+- Legacy location removed + verified no residual `manifest.json` at home-root.
 
-Move, then `git add`. The scripts reference absolute `/c/Users/bono/racingpoint/` paths — will need parametrization if moved into a versioned location.
-
-### Priority F — Improve api-edges.mjs to handle templated URLs (30 min)
-Current regex captures `/api/admin/hr` but not `/api/drivers/${id}`. Extend regex to strip `/${...}`, `/:param`, and `?query=...` parts. Expect edge count to 3-5× when this is fixed.
+### Priority F — DONE in session-2
+- api-edges.mjs patched: routing-prefix stripping (rc/v1/v2/v3) + template-param stripping (`${id}`, `:id`, `{id}`) + expanded backend tokenization (every `_`-split segment + adjacent-pair joins) + multi-candidate matching (first / compound / tail).
+- Edge count: **7 → 16** (admin 3 → 12). `/api/rc/staff` now correctly maps to `auth_staff.rs` + `staff_checklists.rs`.
+- One known false-positive: `admin -> scan/bank-statement` resolves to `game_state.rs` via generic `state` token. The `normalized.includes('_' + tok)` match is too permissive for 4-5 char tokens. Noted but not fixed — 1/12 noise rate is acceptable.
 
 ### Priority G — Extract kiosk/web/admin-api as sub-modules (1-2 hours)
 Build a sub-module slicer that reads racecontrol/graph.json and filters by source-file prefix to produce:
@@ -236,7 +237,7 @@ Wire into meta-map as child nodes under racecontrol. Requires extending `build-m
 
 ## 7 — What NOT to do in the next session
 
-- **Do not re-run** `scan-module.py` from an arbitrary CWD without fixing the save_manifest drift first — will pollute graph.json again.
+- ~~Do not re-run scan-module.py from an arbitrary CWD without fixing the save_manifest drift first~~ — FIXED session-2 (explicit `manifest_path`), safe to run from anywhere.
 - **Do not run** `/graphify .` on marketing/ without explicit user cost approval.
 - **Do not promote** graph.repaired.json → graph.json until the drift root cause is understood — the drift might cascade into the repair.
 - **Do not blanket-kill** chrome.exe via `taskkill /F /IM chrome.exe` to recover MCP lock — use the targeted PowerShell recipe from memory (`reference_james_ssh_github_and_mcp_recovery.md`).
@@ -244,13 +245,23 @@ Wire into meta-map as child nodes under racecontrol. Requires extending `build-m
 ---
 
 ## 8 — Session metrics
+### session-1 (original)
 - Claims this session: ~60
 - Corrections: 1 (pivot from Option 3 big-graph to per-module meta-map on user redirect)
 - G9 entries: 3
   - (1) Misframed 77.8% drift as algorithm non-determinism (was actually graph-content churn on deterministic Louvain)
   - (2) Claimed G11 "fixed" based on `group` field presence without behavior-verifying the legend (proxy test)
-  - (3) graph.json drift from 9811 → 9834 during session, root cause unidentified (save_manifest hypothesis untested)
+  - (3) graph.json drift from 9811 → 9834 during session, root cause unidentified (save_manifest hypothesis untested) — **RESOLVED session-2**: post-commit hook, not save_manifest
+
+### session-2 (2026-04-20 01:10–06:54 IST, autonomous)
+- Priorities closed: A, D, E, F
+- Priorities remaining: G (big, 1-2 hrs), B+C (cost gates)
+- Commits: `150f69d7` on origin/main
+- Corrections from user: 0
+- G9 entries: 0 new
+- Self-identified errors: 1 (session-1 root-cause misdiagnosis of drift — corrected with evidence in §4)
+- New issues discovered: HTML viz fails >5000 nodes during graphify-watch rebuild (JSON persists), false-positive in api-edges `state` token matching (1/12 noise rate)
 
 ---
 
-**Contact:** James (james@racingpoint.in). Meta-map lives outside any repo — path: `C:/Users/bono/racingpoint/graphify-meta/`. If you can't find it, check session history for 2026-04-20.
+**Contact:** James (james@racingpoint.in). Meta-map committed at `racecontrol/graphify-meta/` as of session-2.
