@@ -148,6 +148,18 @@ pub struct AppState {
     /// field on AppState, both the in-WS tick AND the reconnect-loop tick
     /// share state.
     pub(crate) stuck_active_session_since: Option<std::time::Instant>,
+    /// Pattern I Part 5 (D6 — MMA Step 1 consensus): dedup guard for
+    /// `apply_session_ended`. Lives on AppState — NOT ConnectionState — because
+    /// ConnectionState is rebuilt on every reconnect loop iteration. If the
+    /// guard lived on ConnectionState, a HTTP-synth SessionEnded followed by a
+    /// real WS SessionEnded across a reconnect would run the full lifecycle
+    /// side effects twice (double FFB-zero, double summary card transition,
+    /// duplicate BILLING_ACTIVE=false store — cosmetic but PoE-breaking).
+    ///
+    /// Consumer lands in Commit 4 (apply_session_ended refactor). This field
+    /// is wired in Commit 2 so Commit 3's characterisation tests can seed it.
+    #[allow(dead_code)] // Consumed in Commit 4 (Pattern I Part 5 refactor)
+    pub(crate) last_applied_session_end: RwLock<Option<String>>,
 }
 
 impl AppState {

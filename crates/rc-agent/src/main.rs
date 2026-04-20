@@ -1898,6 +1898,10 @@ async fn main() -> Result<()> {
         // ConnectionState and was reset on every reconnect, which is why
         // Pod 4 stayed stuck for 3h+ while WS was silent-reconnecting).
         stuck_active_session_since: None,
+        // Pattern I Part 5 (D6): AppState-resident dedup guard. Consumer
+        // lands in Commit 4 (apply_session_ended refactor). Unused in Commit
+        // 2 — #[allow(dead_code)] on the field definition.
+        last_applied_session_end: RwLock::new(None),
     };
 
     // ─── Safe Mode: startup detection — skip on POS (no games) ─────────────────

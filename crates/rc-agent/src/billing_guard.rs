@@ -229,6 +229,7 @@ mod tests {
             launch_started_at: None,
             billing_paused: false,
             active_billing_session_id: None,
+            active_billing_session_id_set_at: None,
             sim_type: None,
         }
     }

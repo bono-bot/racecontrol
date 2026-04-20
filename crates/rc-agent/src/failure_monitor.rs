@@ -63,6 +63,14 @@ pub struct FailureMonitorState {
     /// Active billing session ID (set by main.rs on BillingStarted, cleared on SessionEnded).
     /// Used by billing_guard for orphan auto-end HTTP call (SESSION-01).
     pub active_billing_session_id: Option<String>,
+    /// Pattern I Part 5 (C2 — MMA Step 1 P0 consensus): timestamp when
+    /// `active_billing_session_id` transitioned from None → Some. Populated
+    /// atomically with the id. Used by the HTTP SessionEnded fallback in
+    /// Commit 5 to skip synth during the first 60s of a session — a race
+    /// where rc-agent has the id but the server hasn't yet inserted into
+    /// `active_timers`, so `/billing/active` would omit the id and the
+    /// fallback would false-positive trigger.
+    pub active_billing_session_id_set_at: Option<Instant>,
     /// Current sim type (set by main.rs on LaunchGame, cleared on SessionEnded).
     /// Used by failure_monitor for TelemetryGap reporting (TELEM-01).
     pub sim_type: Option<SimType>,
@@ -80,6 +88,7 @@ impl Default for FailureMonitorState {
             driving_state: None,
             billing_paused: false,
             active_billing_session_id: None,
+            active_billing_session_id_set_at: None,
             sim_type: None,
         }
     }

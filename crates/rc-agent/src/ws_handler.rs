@@ -298,6 +298,11 @@ pub async fn handle_ws_message(
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = true;
                 s.active_billing_session_id = Some(billing_session_id_clone);
+                // Pattern I Part 5 (C2): atomic set_at timestamp lets the HTTP
+                // fallback in Commit 5 enforce a 60s grace window before
+                // synthesising SessionEnded — guards against the race where
+                // server has yet to insert into active_timers.
+                s.active_billing_session_id_set_at = Some(std::time::Instant::now());
             });
             conn.current_driver_name = Some(driver_name.clone());
             conn.session_max_speed_kmh = 0.0;
@@ -363,6 +368,7 @@ pub async fn handle_ws_message(
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = false;
                 s.active_billing_session_id = None;
+                s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
                 s.billing_paused = false;
                 s.launch_started_at = None;
             });
@@ -395,6 +401,7 @@ pub async fn handle_ws_message(
             let _ = state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = false;
                 s.active_billing_session_id = None;
+                s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
                 s.billing_paused = false;
                 s.launch_started_at = None;
                 s.recovery_in_progress = false;

@@ -2453,6 +2453,7 @@ pub async fn run(
                                 s.launch_started_at = None;
                                 s.recovery_in_progress = false;
                                 s.active_billing_session_id = None;
+                                s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
                             });
                             ffb_controller::safe_session_end(&state.ffb).await;
                             state.lock_screen.show_idle_state();
