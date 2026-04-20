@@ -405,8 +405,14 @@ if (missing.length === 0) {
 reportLines.push(``);
 
 // NEW: low-density + missing-HTML warnings. Same-session gap detection.
+// Tightened: flag either low-density OR very small (< 10 nodes total even if 1 file).
+// rc-ops-mcp has 2 nodes / 1 file = ratio 2.0 — not low-density — but 2 nodes is
+// clearly degenerate for a 191-line MCP server.
 const lowDensity = moduleStats.filter(m =>
-  m.status === 'OK' && m.distinct_files > 0 && (m.nodes / m.distinct_files) < 0.5 && m.nodes < 20
+  m.status === 'OK' && (
+    (m.distinct_files > 0 && (m.nodes / m.distinct_files) < 0.5 && m.nodes < 20)
+    || (m.nodes > 0 && m.nodes < 10)
+  )
 );
 const missingHtml = moduleStats.filter(m => m.status === 'OK' && !m.html_path);
 if (lowDensity.length || missingHtml.length) {
@@ -425,10 +431,13 @@ if (lowDensity.length || missingHtml.length) {
   if (missingHtml.length) {
     reportLines.push(`### Missing graph.html (no drill-down link in meta.html)`);
     reportLines.push(``);
-    reportLines.push(`Graphify's HTML viewer is auto-skipped for graphs with > 5000 nodes. Affected modules can't be opened from the map-of-maps.`);
+    reportLines.push(`Graph HTML viewer is missing. Small graphs (< 1000 nodes) likely had graphify run without viz; very large graphs (> 5000 nodes) trigger graphify's auto-skip.`);
     reportLines.push(``);
     for (const m of missingHtml) {
-      reportLines.push(`- **${m.label}** (${m.nodes} nodes) — generate a lightweight viewer or re-run graphify with explicit HTML output.`);
+      const reason = m.nodes > 5000 ? 'graphify auto-skips > 5000 nodes'
+                   : m.nodes === 0 ? 'no graph.json'
+                   : 'graphify ran without HTML output';
+      reportLines.push(`- **${m.label}** (${m.nodes} nodes) — ${reason}. Re-run: \`cd ${m.id} && /graphify .\` (small) or emit lightweight viewer (large).`);
     }
     reportLines.push(``);
   }

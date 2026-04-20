@@ -46,6 +46,8 @@ for (const dir of sliceDirs) {
     continue;
   }
   const rep = JSON.parse(fs.readFileSync(reportJson, 'utf8'));
+  // Include html_path so downstream viz can link to the slice viewer.
+  const htmlPath = path.join(dir, 'graph.html');
   summary.push({
     name,
     status: 'OK',
@@ -56,6 +58,7 @@ for (const dir of sliceDirs) {
     p1: rep.by_severity.P1 || 0,
     p2: rep.by_severity.P2 || 0,
     p3: rep.by_severity.P3 || 0,
+    html_path: fs.existsSync(htmlPath) ? path.relative(REPO_ROOT, htmlPath).replace(/\\/g, '/') : null,
   });
   console.log(`  [${name.padEnd(14)}] ${rep.hits}/${rep.total_rules} rules hit (P0=${rep.by_severity.P0||0} P1=${rep.by_severity.P1||0} P2=${rep.by_severity.P2||0} P3=${rep.by_severity.P3||0})`);
 }

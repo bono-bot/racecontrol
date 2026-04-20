@@ -146,7 +146,9 @@ function extractFragment(normUrl) {
 // 3. Scan a consumer module for /api/ URL literals + HTTP verbs
 // ---------------------------------------------------------------------------
 
-const HTTP_VERB_RE = /\b(fetch|axios|request)\s*(?:\.(get|post|put|patch|delete|head))?\s*\(\s*["'`](\/api\/[A-Za-z0-9_\-\/\{\}\$\:\.]+)/g;
+// Match: fetch("/api/..."), axios.get("/api/..."), fetchApi("/api/...", {method:'POST'}),
+// apiCall("/api/..."), rpc.post("/api/...")
+const HTTP_VERB_RE = /\b(fetch|axios|request|fetchApi|apiCall|apiFetch|rpc|http|client|api)\s*(?:\.(get|post|put|patch|delete|head))?\s*\(\s*["'`](\/api\/[A-Za-z0-9_\-\/\{\}\$\:\.]+)/g;
 const BARE_URL_RE = /["'`](\/api\/[A-Za-z0-9_\-\/\{\}\$\:\.]+)/g;
 const METHOD_IN_INIT_RE = /method\s*:\s*["'](GET|POST|PUT|PATCH|DELETE|HEAD)["']/i;
 const AXIOS_CREATE_RE = /axios\.create\s*\(\s*\{[^}]*baseURL\s*:\s*["'`]([^"'`]+)["'`]/g;
@@ -175,10 +177,15 @@ function grepModule(modDir) {
     while ((m = BARE_URL_RE.exec(src)) !== null) {
       const url = m[1];
       if (verbedUrls.has(url)) continue;
-      // Try to infer verb from nearby `method:` field within 300 chars after the URL
+      // Try to infer verb from nearby `method:` within 300 chars after the URL,
+      // OR from a `.get(...)` / `.post(...)` chain within 80 chars before the URL.
       const after = src.slice(m.index, m.index + 300);
-      const verbMatch = after.match(METHOD_IN_INIT_RE);
-      const verb = verbMatch ? verbMatch[1].toUpperCase() : 'UNKNOWN';
+      const before = src.slice(Math.max(0, m.index - 80), m.index);
+      const methodInInit = after.match(METHOD_IN_INIT_RE);
+      const chainVerb = before.match(/\.(get|post|put|patch|delete|head)\s*\(\s*$/i);
+      const verb = methodInInit ? methodInInit[1].toUpperCase()
+                 : chainVerb ? chainVerb[1].toUpperCase()
+                 : 'UNKNOWN';
       matches.push({
         file: f, url, verb,
         line_start: src.slice(0, m.index).split('\n').length,
@@ -312,10 +319,14 @@ console.log('[4/5] Scanning racecontrol for outgoing cross-module URLs ...');
 const backEdges = [];
 
 const BACK_EDGE_TARGETS = [
-  { mod: 'comms-link',   pattern: /["'`](http:\/\/(?:localhost|127\.0\.0\.1|100\.82\.33\.94|100\.70\.177\.44):876[56]\/[^"'`]+)/g },
-  { mod: 'whatsapp-bot', pattern: /["'`](https?:\/\/[^"'`]*(?:evolution|whatsapp)[^"'`]*\/[^"'`]+)/gi },
+  { mod: 'comms-link',     pattern: /["'`](http:\/\/(?:localhost|127\.0\.0\.1|100\.82\.33\.94|100\.70\.177\.44):876[56]\/[^"'`]+)/g },
+  { mod: 'whatsapp-bot',   pattern: /["'`](https?:\/\/[^"'`]*(?:evolution|whatsapp)[^"'`]*\/[^"'`]+)/gi },
   { mod: 'people-tracker', pattern: /["'`](https?:\/\/[^"'`]*:8095\/[^"'`]+)/g },
-  { mod: 'pod-agent',    pattern: /["'`](https?:\/\/[^"'`]*:8091\/[^"'`]+)/g }, // rc-sentry on each pod
+  // :8091 is rc-sentry (a slice of racecontrol itself). Represent as rc.rc-sentry so
+  // meta-map viz can draw the self-loop through the sliced sub-node correctly.
+  { mod: 'rc.rc-sentry',   pattern: /["'`](https?:\/\/[^"'`]*:8091\/[^"'`]+)/g },
+  // :8090 is rc-agent on each pod
+  { mod: 'rc.rc-agent',    pattern: /["'`](https?:\/\/[^"'`]*:8090\/[^"'`]+)/g },
 ];
 
 const rcFiles = walkSources(path.join(ROOT, 'racecontrol'));
