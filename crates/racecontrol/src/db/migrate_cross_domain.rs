@@ -339,5 +339,66 @@ async fn migrate_leaderboard_sim_type(pool: &SqlitePool) -> anyhow::Result<()> {
 
     tracing::info!("Phase 285: metrics TSDB tables migration complete");
 
+    // ─── DPDP §12 erase path: relax visits.driver_id NOT NULL → nullable ─────
+    // visits carries Income-Tax-retention data (total_spent_paise, total_sessions).
+    // DPDP right-of-erasure must null the driver pointer rather than delete the
+    // row, so driver_id must be nullable. Idempotent: pragma check skips if
+    // already nullable.
+    let visits_driver_id_notnull: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(\"notnull\", 0) FROM pragma_table_info('visits') WHERE name = 'driver_id'",
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(Some(0))
+    .unwrap_or(0);
+
+    if visits_driver_id_notnull == 1 {
+        tracing::info!("DPDP: rebuilding visits to make driver_id nullable");
+        sqlx::query("ALTER TABLE visits RENAME TO visits_old")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("rename visits: {}", e))?;
+        sqlx::query(
+            "CREATE TABLE visits (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT REFERENCES drivers(id),
+                started_at TEXT DEFAULT (datetime('now')),
+                ended_at TEXT,
+                status TEXT NOT NULL DEFAULT 'open',
+                end_method TEXT,
+                total_sessions INTEGER DEFAULT 0,
+                total_spent_paise INTEGER DEFAULT 0,
+                receipt_sent BOOLEAN DEFAULT 0,
+                venue_id TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("create visits v2: {}", e))?;
+        sqlx::query(
+            "INSERT INTO visits (id, driver_id, started_at, ended_at, status, end_method,
+                total_sessions, total_spent_paise, receipt_sent, venue_id, created_at, updated_at)
+             SELECT id, driver_id, started_at, ended_at, status, end_method,
+                total_sessions, total_spent_paise, receipt_sent, venue_id, created_at, updated_at
+             FROM visits_old",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("copy visits rows: {}", e))?;
+        sqlx::query("DROP TABLE visits_old")
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow::anyhow!("drop visits_old: {}", e))?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_visits_driver ON visits(driver_id)")
+            .execute(pool)
+            .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_visits_status ON visits(status)")
+            .execute(pool)
+            .await?;
+        tracing::info!("DPDP: visits rebuild complete — driver_id nullable");
+    }
+
     Ok(())
 }

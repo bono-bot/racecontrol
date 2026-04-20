@@ -29,6 +29,11 @@ use crate::state::AppState;
 // policies. Any change to the financial-delete policy must be coordinated with
 // the venue's accountant and updated in both docstrings + CLAUDE.md.
 pub(crate) const ERASE_TABLES: &[(&str, &[&str])] = &[
+    // ── Ordering-critical (FK to billing_sessions, must precede it) ─────────
+    // session_feedback.billing_session_id REFERENCES billing_sessions(id) with
+    // NO ACTION. If session_feedback rows survive the billing_sessions DELETE,
+    // SQLite rejects the parent delete with SQLITE_CONSTRAINT.
+    ("session_feedback", &["driver_id"]),
     // Financial (hard-delete per current product intent)
     ("wallet_transactions", &["driver_id"]),
     ("wallets", &["driver_id"]),
@@ -65,19 +70,49 @@ pub(crate) const ERASE_TABLES: &[(&str, &[&str])] = &[
     ("auth_tokens", &["driver_id"]),
     ("cafe_orders", &["driver_id"]),
     ("game_launch_requests", &["driver_id"]),
+    ("bookings", &["driver_id"]),
+    ("reservations", &["driver_id"]),
     // Feedback / marketing
-    ("session_feedback", &["driver_id"]),
     ("coupon_redemptions", &["driver_id"]),
     ("memberships", &["driver_id"]),
     ("session_highlights", &["driver_id"]),
     ("review_nudges", &["driver_id"]),
     ("customer_preferences", &["driver_id"]),
+    ("nudge_queue", &["driver_id"]),
+    ("promo_delivery_log", &["driver_id"]),
 ];
 
 // Pointer columns on non-PII tables — nulled out (UPDATE SET NULL) instead of
-// DELETE. Without this, pods.current_driver_id dangles to a deleted driver.
+// DELETE. Used for:
+//   - foreign keys on retention tables (visits) where the row survives but the
+//     link to the erased driver must be severed;
+//   - operational pointers (pods.current_driver_id) that dangle after delete;
+//   - self-referential parent/child links (drivers.linked_to) — if left populated,
+//     the final drivers DELETE would fail with SQLITE_CONSTRAINT on the FK
+//     from any sub-driver row back to this driver.
+//
+// NOTE: every column listed here must be nullable. visits.driver_id is made
+// nullable by the table-rebuild migration in migrate_cross_domain.rs.
 pub(crate) const POINTER_TABLES: &[(&str, &str)] = &[
     ("pods", "current_driver_id"),
+    ("drivers", "linked_to"),
+    ("visits", "driver_id"),
+];
+
+// Tables whose rows reference a driver TRANSITIVELY — no direct driver_id
+// column, only an FK to another table that has one. Each entry is a DELETE
+// statement with exactly one `?` placeholder that receives driver_id.
+//
+// These execute AFTER POINTER_TABLES and BEFORE ERASE_TABLES so the parent
+// rows (billing_sessions etc.) can be deleted without FK violations.
+pub(crate) const TRANSITIVE_ERASE_SQL: &[(&str, &str)] = &[
+    // split_sessions.parent_session_id REFERENCES billing_sessions(id).
+    // Must be cleared before billing_sessions is deleted in ERASE_TABLES.
+    (
+        "split_sessions",
+        "DELETE FROM split_sessions WHERE parent_session_id IN \
+         (SELECT id FROM billing_sessions WHERE driver_id = ?)",
+    ),
 ];
 
 async fn erase_table_rows(
@@ -111,11 +146,21 @@ async fn null_pointer_column(
     Ok(r.rows_affected())
 }
 
-/// Returns true if the error is a SQLite "no such table" error — these are
-/// treated as a skippable no-op (migration may not have run this table yet on
-/// older DBs). Any other error class is a genuine failure that must roll back.
+/// Returns true if the error is SQLite reporting that an expected table or
+/// column does not exist — these are treated as a skippable no-op (migration
+/// may not have run this shape yet on older DBs). Any other error class is a
+/// genuine failure that must roll back.
+///
+/// Covers both:
+///   - "no such table: foo"      (table absent entirely)
+///   - "no such column: foo.bar" (table present, column added later)
+///
+/// This matters for `POINTER_TABLES` where the column itself is the thing
+/// being nulled — a missing column is the direct equivalent of a missing
+/// table, not a bug in the erase logic.
 fn is_missing_table_error(e: &sqlx::Error) -> bool {
-    format!("{}", e).contains("no such table")
+    let msg = format!("{}", e);
+    msg.contains("no such table") || msg.contains("no such column")
 }
 
 // Re-export dispute handlers (BILL-08) — extracted to customer_disputes.rs
@@ -280,6 +325,7 @@ pub(crate) async fn customer_data_delete(
 
     let mut total_rows_erased: u64 = 0;
     let mut total_rows_nulled: u64 = 0;
+    let mut total_rows_transitive: u64 = 0;
     let mut tables_skipped: Vec<&str> = Vec::new();
 
     // 1. NULL pointer columns (pods.current_driver_id etc.) BEFORE deleting the
@@ -320,7 +366,47 @@ pub(crate) async fn customer_data_delete(
         }
     }
 
-    // 2. DELETE child rows across every declared FK table.
+    // 2. TRANSITIVE erase — tables that FK to billing_sessions etc. with no
+    //    direct driver_id column. Must run before the matching parent row is
+    //    deleted in ERASE_TABLES.
+    for (table, sql) in TRANSITIVE_ERASE_SQL {
+        match sqlx::query(sql).bind(&driver_id).execute(&mut *tx).await {
+            Ok(r) => {
+                let n = r.rows_affected();
+                total_rows_transitive = total_rows_transitive.saturating_add(n);
+                if n > 0 {
+                    tracing::info!(
+                        "DPDP erase: deleted {} transitive rows from {} for driver {}",
+                        n, table, driver_id
+                    );
+                }
+            }
+            Err(ref e) if is_missing_table_error(e) => {
+                tracing::warn!(
+                    "DPDP erase: transitive table {} does not exist — skipping",
+                    table
+                );
+                tables_skipped.push(table);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "DPDP erase FAILED at transitive table {} for driver {}: {} — rolling back",
+                    table, driver_id, e
+                );
+                let _ = tx.rollback().await;
+                return Err((
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Erase failed — transaction rolled back",
+                        "table": table,
+                        "phase": "transitive_erase"
+                    })),
+                ));
+            }
+        }
+    }
+
+    // 3. DELETE child rows across every declared FK table.
     for (table, columns) in ERASE_TABLES {
         match erase_table_rows(&mut tx, table, columns, &driver_id).await {
             Ok(n) => {
@@ -357,7 +443,7 @@ pub(crate) async fn customer_data_delete(
         }
     }
 
-    // 3. Delete the driver record itself.
+    // 4. Delete the driver record itself.
     match sqlx::query("DELETE FROM drivers WHERE id = ?")
         .bind(&driver_id)
         .execute(&mut *tx)
@@ -383,7 +469,7 @@ pub(crate) async fn customer_data_delete(
         }
     }
 
-    // 4. Commit.
+    // 5. Commit.
     if let Err(e) = tx.commit().await {
         tracing::error!("DPDP erase commit error for driver {}: {}", driver_id, e);
         return Err((
@@ -397,11 +483,15 @@ pub(crate) async fn customer_data_delete(
 
     tracing::info!(
         "DPDP erase COMPLETE for driver {}: {} rows deleted across {} tables \
-         (+1 drivers row), {} pointer columns nulled, {} tables skipped as absent",
+         (+1 drivers row), {} transitive rows deleted across {} tables, \
+         {} pointer columns nulled across {} tables, {} tables skipped as absent",
         driver_id,
         total_rows_erased,
         ERASE_TABLES.len(),
+        total_rows_transitive,
+        TRANSITIVE_ERASE_SQL.len(),
         total_rows_nulled,
+        POINTER_TABLES.len(),
         tables_skipped.len()
     );
     Ok(axum::http::StatusCode::NO_CONTENT)

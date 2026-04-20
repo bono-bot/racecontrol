@@ -733,6 +733,19 @@ mod data_rights_tests {
         // Pointer table — row with current_driver_id should be nulled, not deleted.
         sqlx::query("CREATE TABLE IF NOT EXISTS pods (id TEXT PRIMARY KEY, current_driver_id TEXT)").execute(&db).await.expect("create pods");
 
+        // DPDP-erase 2nd pass (2026-04-20 — 8 gaps closed): POINTER_TABLES + ERASE_TABLES
+        // additions from coverage-matrix audit. `drivers.linked_to` is a self-reference
+        // (guest-racer parent pointer); nulling it before the driver DELETE prevents
+        // FK constraint violations. `visits.driver_id` is a retention table — row
+        // survives but the driver link is severed.
+        sqlx::query("ALTER TABLE drivers ADD COLUMN linked_to TEXT").execute(&db).await.expect("alter drivers add linked_to");
+        sqlx::query("CREATE TABLE IF NOT EXISTS visits (id TEXT PRIMARY KEY, driver_id TEXT)").execute(&db).await.expect("create visits");
+        sqlx::query("CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create bookings");
+        sqlx::query("CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create reservations");
+        sqlx::query("CREATE TABLE IF NOT EXISTS nudge_queue (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create nudge_queue");
+        sqlx::query("CREATE TABLE IF NOT EXISTS promo_delivery_log (id TEXT PRIMARY KEY, driver_id TEXT NOT NULL)").execute(&db).await.expect("create promo_delivery_log");
+        sqlx::query("CREATE TABLE IF NOT EXISTS split_sessions (id TEXT PRIMARY KEY, parent_session_id TEXT NOT NULL)").execute(&db).await.expect("create split_sessions");
+
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
         Arc::new(AppState::new(config, db, field_cipher))
