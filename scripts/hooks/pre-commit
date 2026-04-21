@@ -33,6 +33,24 @@ pass() {
   echo "${GREEN}OK${RESET}: $1"
 }
 
+# ---------------------------------------------------------------------------
+# Branch awareness: surface current branch before any staged-file logic so
+# scope-contamination (e.g. committing unrelated housekeeping onto an active
+# PR branch) is visible at commit time. Non-blocking — informational only.
+# Fires even for --allow-empty and on staged-nothing commits.
+# ---------------------------------------------------------------------------
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")
+BRANCH_UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "")
+
+if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
+  echo "Branch: ${GREEN}${CURRENT_BRANCH}${RESET}"
+elif [ -n "$BRANCH_UPSTREAM" ]; then
+  echo "Branch: ${YELLOW}${CURRENT_BRANCH}${RESET} (upstream: ${BRANCH_UPSTREAM}) — shared; verify commit scope matches branch intent"
+else
+  echo "Branch: ${GREEN}${CURRENT_BRANCH}${RESET} (local-only — no upstream yet)"
+fi
+echo ""
+
 # Get staged files (only added/modified, not deleted)
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
 
