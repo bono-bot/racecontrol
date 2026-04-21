@@ -38,6 +38,7 @@ declare -a CHECKS=(
   "schema-dpdp|python3 $SCRIPT_DIR/board-state-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/dpdp-coverage-check.py"
   "fleet-swaplog-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/fleet-swaplog-parity-check.py"
   "deploy-staging-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/deploy-staging-parity-check.py"
+  "workflow-centrality|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-graph-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-centrality-check.py"
 )
 
 # Future surfaces (stubs — registered but generators not yet written):

@@ -1,0 +1,266 @@
+{
+  "timestamp_ist": "2026-04-21 05:48 IST",
+  "commit": "8751b55f",
+  "fsms": [
+    {
+      "name": "billing",
+      "source_file": "crates/racecontrol/src/billing_fsm.rs",
+      "state_type": "BillingSessionStatus",
+      "event_type": "BillingEvent",
+      "states": [
+        "Active",
+        "Cancelled",
+        "CancelledNoPlayable",
+        "Completed",
+        "EndedEarly",
+        "PausedCrashRecovery",
+        "PausedDisconnect",
+        "PausedGamePause",
+        "PausedManual",
+        "Pending",
+        "WaitingForGame"
+      ],
+      "events": [
+        "Cancel",
+        "CancelNoPlayable",
+        "CrashPause",
+        "Disconnect",
+        "End",
+        "EndEarly",
+        "GameLive",
+        "GameStopped",
+        "Pause",
+        "PauseManual",
+        "Resume",
+        "StartWaiting"
+      ],
+      "transitions": [
+        {
+          "from": "Pending",
+          "event": "StartWaiting",
+          "to": "WaitingForGame"
+        },
+        {
+          "from": "WaitingForGame",
+          "event": "GameLive",
+          "to": "Active"
+        },
+        {
+          "from": "WaitingForGame",
+          "event": "Cancel",
+          "to": "CancelledNoPlayable"
+        },
+        {
+          "from": "WaitingForGame",
+          "event": "CancelNoPlayable",
+          "to": "CancelledNoPlayable"
+        },
+        {
+          "from": "Active",
+          "event": "Pause",
+          "to": "PausedGamePause"
+        },
+        {
+          "from": "Active",
+          "event": "CrashPause",
+          "to": "PausedCrashRecovery"
+        },
+        {
+          "from": "Active",
+          "event": "Disconnect",
+          "to": "PausedDisconnect"
+        },
+        {
+          "from": "Active",
+          "event": "PauseManual",
+          "to": "PausedManual"
+        },
+        {
+          "from": "Active",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "Active",
+          "event": "EndEarly",
+          "to": "EndedEarly"
+        },
+        {
+          "from": "Active",
+          "event": "Cancel",
+          "to": "Cancelled"
+        },
+        {
+          "from": "PausedGamePause",
+          "event": "Resume",
+          "to": "Active"
+        },
+        {
+          "from": "PausedGamePause",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "PausedGamePause",
+          "event": "EndEarly",
+          "to": "EndedEarly"
+        },
+        {
+          "from": "PausedGamePause",
+          "event": "Cancel",
+          "to": "Cancelled"
+        },
+        {
+          "from": "PausedDisconnect",
+          "event": "Resume",
+          "to": "Active"
+        },
+        {
+          "from": "PausedDisconnect",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "PausedDisconnect",
+          "event": "Cancel",
+          "to": "Cancelled"
+        },
+        {
+          "from": "PausedManual",
+          "event": "Resume",
+          "to": "Active"
+        },
+        {
+          "from": "PausedManual",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "PausedManual",
+          "event": "Cancel",
+          "to": "Cancelled"
+        },
+        {
+          "from": "PausedCrashRecovery",
+          "event": "Resume",
+          "to": "Active"
+        },
+        {
+          "from": "PausedCrashRecovery",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "PausedCrashRecovery",
+          "event": "EndEarly",
+          "to": "EndedEarly"
+        },
+        {
+          "from": "PausedCrashRecovery",
+          "event": "Cancel",
+          "to": "Cancelled"
+        },
+        {
+          "from": "Active",
+          "event": "GameStopped",
+          "to": "WaitingForGame"
+        },
+        {
+          "from": "WaitingForGame",
+          "event": "End",
+          "to": "Completed"
+        },
+        {
+          "from": "WaitingForGame",
+          "event": "EndEarly",
+          "to": "EndedEarly"
+        }
+      ],
+      "centrality": {
+        "state_degree": {
+          "Active": {
+            "in": 5,
+            "out": 8,
+            "total": 13
+          },
+          "Cancelled": {
+            "in": 5,
+            "out": 0,
+            "total": 5
+          },
+          "CancelledNoPlayable": {
+            "in": 2,
+            "out": 0,
+            "total": 2
+          },
+          "Completed": {
+            "in": 6,
+            "out": 0,
+            "total": 6
+          },
+          "EndedEarly": {
+            "in": 4,
+            "out": 0,
+            "total": 4
+          },
+          "PausedCrashRecovery": {
+            "in": 1,
+            "out": 4,
+            "total": 5
+          },
+          "PausedDisconnect": {
+            "in": 1,
+            "out": 3,
+            "total": 4
+          },
+          "PausedGamePause": {
+            "in": 1,
+            "out": 4,
+            "total": 5
+          },
+          "PausedManual": {
+            "in": 1,
+            "out": 3,
+            "total": 4
+          },
+          "Pending": {
+            "in": 0,
+            "out": 1,
+            "total": 1
+          },
+          "WaitingForGame": {
+            "in": 2,
+            "out": 5,
+            "total": 7
+          }
+        },
+        "event_frequency": {
+          "Cancel": 6,
+          "End": 6,
+          "EndEarly": 4,
+          "Resume": 4,
+          "StartWaiting": 1,
+          "GameLive": 1,
+          "CancelNoPlayable": 1,
+          "Pause": 1,
+          "CrashPause": 1,
+          "Disconnect": 1,
+          "PauseManual": 1,
+          "GameStopped": 1
+        },
+        "god_state": "Active",
+        "god_event": "Cancel",
+        "terminal_states": [
+          "Cancelled",
+          "CancelledNoPlayable",
+          "Completed",
+          "EndedEarly"
+        ],
+        "transition_count": 28,
+        "state_count": 11,
+        "event_count": 12
+      }
+    }
+  ],
+  "errors": []
+}

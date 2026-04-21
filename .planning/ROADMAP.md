@@ -2293,7 +2293,7 @@ Plans:
 
 **Requirements:** TYP-01..TYP-09 (derived from CONTEXT D-01..D-20)
 **Depends on:** Phase 414 (billing FSM stable) + Phase 415 (MP group booking — avoids contract churn mid-migration)
-**Plans:** 6 plans (00 safety + 01 scaffolding + 02a rc-common derives + 02b utoipa annotations + 03 admin migration + 04 CI gate + 05 phase gate)
+**Plans:** 1/7 plans executed
 
 **Scope:**
 - racecontrol route definitions annotated with `utoipa`/`aide` for OpenAPI extraction
@@ -2312,7 +2312,7 @@ Plans:
 - [ ] Documented admin-panel API error class disappears post-migration
 
 Plans:
-- [ ] 445-00-PLAN.md — Safety audits (D-14 enum guard, admin-type whitelist, ts-rs spike, determinism harness)
+- [x] 445-00-PLAN.md — Safety audits (D-14 enum guard, admin-type whitelist, ts-rs spike, determinism harness)
 - [ ] 445-01-PLAN.md — Workspace deps + feature flags + gen-types binary skeleton
 - [ ] 445-02a-PLAN.md — rc-common TS derives + gen-types body
 - [ ] 445-02b-PLAN.md — utoipa annotations on 43 admin handlers + ApiDoc umbrella
