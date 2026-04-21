@@ -2770,7 +2770,10 @@ mod tests {
     // in ActiveSession with no game process running.
 
     fn t0() -> std::time::Instant {
-        std::time::Instant::now()
+        // Offset 24h into the future: tests subtract up to ~3h from this
+        // baseline, which panics on fresh CI runners where Instant::now() is
+        // only seconds past the monotonic epoch.
+        std::time::Instant::now() + std::time::Duration::from_secs(86_400)
     }
 
     #[test]
