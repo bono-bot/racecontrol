@@ -24,6 +24,7 @@
 
 STAGED=$(git diff --cached --name-only)
 NEEDS_CHECK=false
+NEEDS_CLASSIFIER_TEST=false
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in
@@ -31,8 +32,39 @@ while IFS= read -r f; do
     crates/racecontrol/src/api/openapi.rs|crates/racecontrol/src/api/*/*.rs) NEEDS_CHECK=true ;;
     packages/shared-types/generated/*) NEEDS_CHECK=true ;;
     docs/openapi.generated.yaml) NEEDS_CHECK=true ;;
+    scripts/audit/fleet-swaplog-parity-check.py|scripts/audit/test-fleet-swaplog-classifier.py) NEEDS_CLASSIFIER_TEST=true ;;
   esac
 done <<< "$STAGED"
+
+# Classifier-test gate — runs whenever the SWAPLOG classifier or its tests are
+# staged. Why: 2026-04-21 frontend-only Phase 445 row was misclassified as a
+# server-binary swap and the false-positive only surfaced in pre-commit cascade.
+# Test suite is python-stdlib-only, runs in <1s, no cargo cost.
+if [ "$NEEDS_CLASSIFIER_TEST" = "true" ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+  TEST_PATH="$REPO_ROOT/scripts/audit/test-fleet-swaplog-classifier.py"
+  if [ -f "$TEST_PATH" ]; then
+    echo "[pre-commit] SWAPLOG classifier test (checker file staged)..."
+    if command -v python3 >/dev/null 2>&1; then
+      PY=python3
+    elif command -v python >/dev/null 2>&1; then
+      PY=python
+    else
+      echo "[pre-commit] python not in PATH — skipping classifier test (CI will catch it)"
+      PY=""
+    fi
+    if [ -n "$PY" ]; then
+      if ! "$PY" "$TEST_PATH"; then
+        echo ""
+        echo "[pre-commit] BLOCKED: SWAPLOG classifier test failed."
+        echo "[pre-commit] Edit scripts/audit/fleet-swaplog-parity-check.py + re-run:"
+        echo "[pre-commit]   python3 scripts/audit/test-fleet-swaplog-classifier.py"
+        echo "[pre-commit] To bypass (CI will still fail): git commit --no-verify"
+        exit 1
+      fi
+    fi
+  fi
+fi
 
 if [ "$NEEDS_CHECK" = "false" ]; then
   exit 0  # no relevant files — fast path, don't pay cargo build cost

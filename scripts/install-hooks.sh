@@ -76,8 +76,41 @@ for HOOK_SRC in "$SRC_DIR"/*; do
     cp "$HOOK_SRC" "$SIDECAR"
     chmod +x "$SIDECAR"
     echo "WARN  $HOOK_NAME: existing hook differs; installed as sidecar $SIDECAR"
-    echo "      To integrate: append 'bash \"$SIDECAR\" || exit \$?' to $HOOK_DST"
     SIDECAR_COUNT=$((SIDECAR_COUNT + 1))
+
+    # Auto-chain: inject sidecar invocation into the existing hook so the
+    # sidecar actually runs. Idempotent via the SIDECAR-CHAIN-445 sentinel.
+    # Why: requiring contributors to manually patch .git/hooks/<name> after
+    # every install caused the Phase 445 drift guard + classifier-test gate
+    # to silently no-op for everyone except whoever wired it once. Mirrors
+    # the pattern graphify uses for post-checkout (.git/hooks/post-checkout
+    # auto-invokes its sidecar via a top-of-file `if [ -x ... ]` block).
+    if ! grep -q "SIDECAR-CHAIN-445" "$HOOK_DST" 2>/dev/null; then
+      # Pre-commit + pre-push: sidecar failure must BLOCK (exit $?)
+      # post-* hooks: sidecar failure must NOT block (|| true)
+      case "$HOOK_NAME" in
+        pre-*) FAIL_MODE='|| exit $?' ;;
+        *)     FAIL_MODE='|| true' ;;
+      esac
+      TMP=$(mktemp)
+      # Preserve shebang (line 1) at top
+      head -1 "$HOOK_DST" > "$TMP"
+      cat >> "$TMP" <<EOF
+# SIDECAR-CHAIN-445 (auto-injected by scripts/install-hooks.sh — do not remove)
+# Chains the version-controlled sidecar so .git/hooks/$HOOK_NAME and
+# scripts/git-hooks/$HOOK_NAME stay in sync. Sidecar source-of-truth lives
+# under scripts/git-hooks/. To remove this block, also remove the sidecar.
+if [ -x "\$(git rev-parse --git-dir)/hooks/$HOOK_NAME.445" ]; then
+  bash "\$(git rev-parse --git-dir)/hooks/$HOOK_NAME.445" "\$@" $FAIL_MODE
+fi
+EOF
+      tail -n +2 "$HOOK_DST" >> "$TMP"
+      mv "$TMP" "$HOOK_DST"
+      chmod +x "$HOOK_DST"
+      echo "      auto-chained: $HOOK_DST now invokes $SIDECAR ($FAIL_MODE)"
+    else
+      echo "      sidecar chain already present in $HOOK_DST (sentinel found)"
+    fi
   elif [ -f "$HOOK_DST" ] && cmp -s "$HOOK_SRC" "$HOOK_DST"; then
     echo "OK    $HOOK_NAME already installed (identical content)"
     SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
@@ -99,9 +132,8 @@ else
   echo "summary: installed=$INSTALLED_COUNT sidecar=$SIDECAR_COUNT skipped=$SKIPPED_COUNT"
   if [ $SIDECAR_COUNT -gt 0 ]; then
     echo ""
-    echo "NOTE: $SIDECAR_COUNT hook(s) installed as *.445 sidecars because the"
-    echo "      original .git/hooks/<name> differs. Chain them manually, e.g.:"
-    echo "        # append to existing .git/hooks/pre-commit:"
-    echo "        bash .git/hooks/pre-commit.445 || exit \$?"
+    echo "NOTE: $SIDECAR_COUNT hook(s) installed as *.445 sidecars."
+    echo "      The chain block was auto-injected into the existing hook on first"
+    echo "      install (idempotent via SIDECAR-CHAIN-445 sentinel)."
   fi
 fi
