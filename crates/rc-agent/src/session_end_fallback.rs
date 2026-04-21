@@ -183,6 +183,20 @@ pub(crate) async fn fetch_and_reconcile(
         .await
         .unwrap_or_default();
 
+    // Step-4-rerun W-2 (kimi P3): an empty service-key guarantees server 401.
+    // The HTTP path below would log it at WARN level inside the status gate,
+    // but surfacing the root cause here (missing key file vs network issue)
+    // speeds operator triage. Mis-deployed pods missing the mesh-key file
+    // are otherwise invisible — this elevates them to ERROR.
+    if service_key.is_empty() {
+        tracing::error!(
+            target: LOG_TARGET,
+            fallback_version = FALLBACK_VERSION,
+            "skip: mesh service key unavailable (empty from mesh_key_cache + env) — fallback cannot authenticate",
+        );
+        return;
+    }
+
     let my_pod_id = state.config.pod.number.to_string();
 
     let response = match http_client()
@@ -277,23 +291,26 @@ pub(crate) async fn fetch_and_reconcile(
 
     // Step 7 — pod_id filter + membership check (C6)
     if let Some(live) = find_my_server_session(&body.sessions, &my_pod_id, &local_id) {
-        // V-C: cache `driving_seconds` from every successful live-session
-        // poll. When the session later disappears and we synth, we replay
-        // the last-known driving_seconds instead of 0. BillingSessionInfo
-        // does not carry `total_laps` or `best_lap_ms` — those remain
-        // None/0 for synth (tracked as follow-up; requires WS lap-event
-        // wiring). Populating the cache here is the cheapest point — we
-        // already have the struct in hand.
+        // V-C + W-2: cache `driving_seconds` AND `driver_name` from every
+        // successful live-session poll. When the session later disappears
+        // and we synth, we replay the last-known values instead of 0/"".
+        // BillingSessionInfo does not carry `total_laps` or `best_lap_ms`
+        // — those remain None/0 for synth (tracked as follow-up; requires
+        // WS lap-event wiring). Populating the caches here is the cheapest
+        // point — we already have the struct in hand.
         let cached_driving = live.driving_seconds;
+        let cached_driver = live.driver_name.clone();
         let _ = state.failure_monitor_tx.send_modify(|s| {
             s.session_last_known_driving_seconds = Some(cached_driving);
+            s.session_last_known_driver = Some(cached_driver.clone());
         });
         tracing::info!(
             target: LOG_TARGET,
             fallback_version = FALLBACK_VERSION,
             billing_session_id = %local_id,
             cached_driving_seconds = cached_driving,
-            "no-op: server confirms session still live (driving_seconds cached)",
+            cached_driver_name = %cached_driver,
+            "no-op: server confirms session still live (driving_seconds + driver_name cached)",
         );
         return;
     }
@@ -301,34 +318,35 @@ pub(crate) async fn fetch_and_reconcile(
     // Step 8 — synth via apply_session_ended dedup guard. If the session id
     // was already applied (WsReal arrived first), the dedup guard makes this
     // a debug-log no-op. If not, full lifecycle fires with cached stats
-    // where available, zeros where not.
+    // where available, zeros/empty where not.
     //
-    // V-C: read the cached driving_seconds (if we ever saw this session live
-    // on a prior poll). Cache survives until the session-end reset, so even
-    // though the session has now disappeared from `/billing/active`, a
-    // prior T2 tick that saw it live leaves the value here.
-    let cached_driving_seconds = state.failure_monitor_tx
-        .borrow()
-        .session_last_known_driving_seconds
-        .unwrap_or(0);
-
-    let driver_name = find_my_server_session(&body.sessions, &my_pod_id, &local_id)
-        .map(|s| s.driver_name.clone())
-        .unwrap_or_default();
+    // V-C + W-2: read cached values. Server no longer has the session (we
+    // only reach this branch when `find_my_server_session` returned None
+    // above), so the redundant find call from Commit 5 is gone — we read
+    // straight from cache, closing mistral-W-1 (redundant-call perf) and
+    // kimi/mimo-W-2 (driver_name empty-string class) simultaneously.
+    let (cached_driving_seconds, cached_driver_name) = {
+        let monitor = state.failure_monitor_tx.borrow();
+        (
+            monitor.session_last_known_driving_seconds.unwrap_or(0),
+            monitor.session_last_known_driver.clone().unwrap_or_default(),
+        )
+    };
 
     tracing::info!(
         target: LOG_TARGET,
         fallback_version = FALLBACK_VERSION,
         billing_session_id = %local_id,
         synth_driving_seconds = cached_driving_seconds,
-        cache_hit = state.failure_monitor_tx.borrow().session_last_known_driving_seconds.is_some(),
-        "synth triggered: server omitted session id (driver_name={:?})",
-        driver_name,
+        synth_driver_name = %cached_driver_name,
+        driving_cache_hit = cached_driving_seconds > 0,
+        driver_cache_hit = !cached_driver_name.is_empty(),
+        "synth triggered: server omitted session id",
     );
 
     apply_session_ended(
         state, conn, ws_tx,
-        local_id, driver_name,
+        local_id, cached_driver_name,
         0u32,                   // total_laps — BillingSessionInfo lacks this; follow-up
         None,                   // best_lap_ms — BillingSessionInfo lacks this; follow-up
         cached_driving_seconds, // V-C: cached from last live-session poll (0 if never cached)
@@ -495,5 +513,56 @@ mod tests {
         // V-C cache path needs to follow. The mk_session helper above sets
         // driving_seconds: 0 explicitly; confirm we can read it back.
         let _v: u32 = s.driving_seconds;
+    }
+
+    /// W-2 (Step-4-rerun, kimi+mimo P2): the cache store path also copies
+    /// `BillingSessionInfo.driver_name`. This test pins the field name + type
+    /// so a rc_common rename surfaces at compile time (parallel to the
+    /// driving_seconds test above).
+    #[test]
+    fn billing_session_info_exposes_driver_name_field() {
+        let s = mk_session("sess_cache", "pod-7");
+        // If this line stops compiling, rc_common renamed driver_name —
+        // W-2 cache path needs to follow.
+        let _v: String = s.driver_name.clone();
+        assert_eq!(_v, "Driver of sess_cache");
+    }
+
+    /// W-3 (Step-4-rerun, mistral+mimo P3): V-A's explicit `bytes()` timeout
+    /// is the critical fix for the kimi-V-1-P0 class. Full coverage requires
+    /// an HTTP mock that stalls mid-body (out of scope — integration-only).
+    /// This unit test covers the minimum: `tokio::time::timeout` on a
+    /// never-completing future returns `Err(Elapsed)`, matching the branch
+    /// the V-A fix relies on at `fetch_and_reconcile:249`.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn tokio_timeout_returns_elapsed_on_stalled_future() {
+        // Simulate a network body read that never completes within the
+        // BYTES_READ_TIMEOUT budget. In production this is `response.bytes()`
+        // stalled on a server that sent headers + zero bytes of body.
+        let stalled = std::future::pending::<()>();
+        let result = tokio::time::timeout(BYTES_READ_TIMEOUT, stalled).await;
+        assert!(result.is_err(),
+            "tokio::time::timeout MUST return Err on a pending future — this is the mechanism V-A relies on");
+
+        // Also confirm the error type is `tokio::time::error::Elapsed` so
+        // pattern-match on `Err(_elapsed)` in fetch_and_reconcile keeps working.
+        let elapsed_err = result.err().unwrap();
+        let type_name = std::any::type_name_of_val(&elapsed_err);
+        assert!(type_name.contains("Elapsed"),
+            "timeout error type changed from Elapsed — V-A error-handler pattern match needs update: was {}", type_name);
+    }
+
+    /// W-3 companion: cache-hit / cache-miss round-trip for the new W-2 field.
+    /// Confirms `FailureMonitorState::session_last_known_driver` survives a
+    /// Default construction + assignment cycle, which is the semantic the
+    /// live-session branch depends on.
+    #[test]
+    fn failure_monitor_state_driver_cache_round_trip() {
+        use crate::failure_monitor::FailureMonitorState;
+        let mut s = FailureMonitorState::default();
+        assert_eq!(s.session_last_known_driver, None,
+            "new FailureMonitorState must start with no cached driver");
+        s.session_last_known_driver = Some("Raikkonen".to_string());
+        assert_eq!(s.session_last_known_driver.as_deref(), Some("Raikkonen"));
     }
 }

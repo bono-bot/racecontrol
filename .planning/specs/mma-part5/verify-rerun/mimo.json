@@ -1,0 +1,80 @@
+{
+  "verdict": "CONDITIONAL_PASS",
+  "score_out_of_5": 4,
+  "prior_defects_status": [
+    {
+      "defect_id": "V-A",
+      "fix_addresses_root_cause": true,
+      "evidence": "session_end_fallback.rs:14-16, 139-175: OnceLock client with 5s timeout + explicit bytes-read timeout via tokio::time::timeout + in-memory serde_json::from_slice decode",
+      "residual_risk": "low",
+      "note": "Root cause closed: timeout now applies to bytes read, not JSON parse. Client-level timeout still exists but is handled separately. No test for timeout-during-bytes-read path (mock required)."
+    },
+    {
+      "defect_id": "V-B",
+      "fix_addresses_root_cause": true,
+      "evidence": "session_end_fallback.rs:14-22: static OnceLock<reqwest::Client> with get_or_init; test http_client_is_memoized confirms pointer equality",
+      "residual_risk": "none",
+      "note": "Client reused across all calls. No per-call rebuild."
+    },
+    {
+      "defect_id": "V-C",
+      "fix_addresses_root_cause": false,
+      "evidence": "session_end_fallback.rs:117-123 (cache store), 195-199 (cache read); failure_monitor.rs:96-104 (new field session_last_known_driving_seconds)",
+      "residual_risk": "medium",
+      "note": "Only driving_seconds cached from live-session poll. total_laps and best_lap_ms remain hardcoded 0/None because BillingSessionInfo lacks them. Customer sees correct driving time but 0 laps in synth summary. DESIGN-SPEC step 8 acknowledged this as follow-up."
+    }
+  ],
+  "new_defects_found": [
+    {
+      "defect_id": "W-1",
+      "severity": "P1",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:117-123, crates/rc-agent/src/failure_monitor.rs:96-104",
+      "description": "session_last_known_driving_seconds cache is NOT reset by reset_fms_for_session_end. When a session ends and a new session starts, the old session's cached driving_seconds persists and could be used for the new session's synth if the new session ends before being seen live.",
+      "exploit_or_trigger": "Session A ends with cached driving_seconds=1000. Session B starts and ends quickly (before any live poll). fetch_and_reconcile synth for session B uses cached 1000 seconds instead of 0.",
+      "suggested_fix": "Add session_last_known_driving_seconds: None to reset_fms_for_session_end helper. Ensure cache is cleared on session end.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "W-2",
+      "severity": "P2",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:201-205",
+      "description": "driver_name in synth branch always empty. Code calls find_my_server_session (which returns None because session is missing) then unwrap_or_default(). No fallback to cached driver_name from monitor.session_last_known_driver as DESIGN-SPEC step 8 required.",
+      "exploit_or_trigger": "Any synth trigger: driver_name will be empty string in summary card, even if the driver name was known from prior WS events.",
+      "suggested_fix": "Add session_last_known_driver: Option<String> to FailureMonitorState, populate from WS events, fallback in synth branch: .or_else(|| monitor.session_last_known_driver.clone()).",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "W-3",
+      "severity": "P2",
+      "category": "observability",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:139-175",
+      "description": "No test coverage for timeout error paths (send-stage timeout, body-read timeout). The bytes_then_from_slice tests cover parse success/failure but not the tokio::time::timeout branches that are critical for V-A fix validation.",
+      "exploit_or_trigger": "Regression in timeout handling would go undetected by test suite. Could silently re-introduce V-A class.",
+      "suggested_fix": "Add unit tests with mock reqwest::Client that simulates: (a) send timeout, (b) body read stall exceeding BYTES_READ_TIMEOUT. Verify no synth and correct log levels.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "W-4",
+      "severity": "P3",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:117-123",
+      "description": "Cache update uses send_modify which is eventually consistent. If a synth fires immediately after a live poll in the same tick, the cache might not be visible yet. However, the borrow in the synth branch (line 195) happens after the send_modify in the live branch (line 117) within the same function call, so the watch channel should propagate. Low risk but worth noting.",
+      "exploit_or_trigger": "Theoretical race if the watch channel receiver hasn't processed the send_modify before the borrow in the synth branch. Unlikely in practice.",
+      "suggested_fix": "None needed — watch channel guarantees latest value on next borrow. Document the assumption.",
+      "confidence_1_to_5": 2
+    }
+  ],
+  "deploy_readiness": {
+    "can_ship_as_is": false,
+    "must_fix_before_ship": [
+      "W-1"
+    ],
+    "nice_to_have": [
+      "W-2",
+      "W-3"
+    ]
+  },
+  "adversarial_summary": "The fix commit 49eb2821 successfully addresses V-A (timeout race) and V-B (client reuse) at their root causes with clean implementations. V-C (synth zeros) is partially addressed: driving_seconds is now cached from live-session polls, but total_laps and best_lap_ms remain hardcoded zeros due to server contract limitations (tracked as follow-up). Two new defects were introduced: W-1 (P1) is a cache cross-session contamination bug where the driving_seconds cache is not reset on session end, risking stale values in subsequent sessions; W-2 (P2) is a regression in driver_name handling where the synth branch always produces an empty driver name instead of falling back to a cached value. Test coverage for the critical timeout paths (V-A fix) is missing. With W-1 fixed, the code reaches CONDITIONAL_PASS at 4.0 — deploy is unblocked but W-2 and W-3 should be addressed in the same commit cycle."
+}

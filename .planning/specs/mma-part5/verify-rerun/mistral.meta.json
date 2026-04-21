@@ -1,0 +1,12 @@
+{
+  "model": "mistralai/mistral-medium-3.1",
+  "short": "mistral",
+  "role": "code-expert-adversarial",
+  "elapsed_sec": "22.7",
+  "prompt_tokens": 22087,
+  "completion_tokens": 1670,
+  "cost_usd": 0.0121748,
+  "finish_reason": "stop",
+  "json_ok": true,
+  "json_error": null
+}

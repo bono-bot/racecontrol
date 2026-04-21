@@ -84,6 +84,16 @@ pub struct FailureMonitorState {
     /// BillingSessionInfo does not carry them; would need WS lap-event wiring
     /// (tracked as follow-up after Step 4 re-verify passes).
     pub session_last_known_driving_seconds: Option<u32>,
+    /// Pattern I Part 5 Step-4-rerun W-2 (kimi + mimo P2 consensus): driver_name
+    /// cached from the last successful `/api/v1/billing/active` response where
+    /// this pod's session was still live. Populated in parallel with
+    /// `session_last_known_driving_seconds`. Used by the synth branch as the
+    /// `or_else(cached)` fallback when the current poll no longer contains the
+    /// session (so `find_my_server_session` returns None). Without this cache
+    /// the synth produced an empty-string driver name on the summary card —
+    /// DESIGN-SPEC step 8 called for this fallback; Commit 5 wired
+    /// driving_seconds but not driver_name. Cleared by reset_fms_for_session_end.
+    pub session_last_known_driver: Option<String>,
 }
 
 impl Default for FailureMonitorState {
@@ -101,6 +111,7 @@ impl Default for FailureMonitorState {
             active_billing_session_id_set_at: None,
             sim_type: None,
             session_last_known_driving_seconds: None,
+            session_last_known_driver: None,
         }
     }
 }
@@ -128,6 +139,8 @@ pub fn reset_fms_for_session_end(s: &mut FailureMonitorState) {
     s.recovery_in_progress = false;
     // V-C: clear cached stats so the next session starts from None
     s.session_last_known_driving_seconds = None;
+    // W-2 (Step-4-rerun, kimi+mimo P2): clear cached driver name in parallel
+    s.session_last_known_driver = None;
 }
 
 /// Spawn the failure monitor background task.
@@ -815,6 +828,8 @@ mod tests {
             active_billing_session_id_set_at: Some(now),
             // V-C: populated by a prior T2 tick that saw the session live
             session_last_known_driving_seconds: Some(420),
+            // W-2 (Step-4-rerun): parallel driver-name cache
+            session_last_known_driver: Some("Characterisation Driver".to_string()),
             // Fields NOT reset by the helper — must stay untouched
             game_pid: Some(12345),
             last_udp_secs_ago: Some(5),
@@ -838,6 +853,9 @@ mod tests {
         // next session starts from None (not carrying stale cache)
         assert_eq!(s.session_last_known_driving_seconds, None,
             "session_last_known_driving_seconds must be cleared by the V-C cache reset");
+        // W-2 (Step-4-rerun): cached driver name must be cleared in parallel
+        assert_eq!(s.session_last_known_driver, None,
+            "session_last_known_driver must be cleared by the W-2 cache reset");
 
         // Assert: unrelated fields NOT touched (narrow contract)
         assert_eq!(s.game_pid, Some(12345),                  "game_pid must NOT be touched by this helper");

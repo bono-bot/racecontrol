@@ -1,0 +1,81 @@
+{
+  "verdict": "CONDITIONAL_PASS",
+  "score_out_of_5": 4.2,
+  "prior_defects_status": [
+    {
+      "defect_id": "V-A",
+      "fix_addresses_root_cause": true,
+      "evidence": "crates/rc-agent/src/session_end_fallback.rs:100-130 (explicit bytes() + tokio::time::timeout + serde_json::from_slice)",
+      "residual_risk": "none",
+      "note": "The fix completely eliminates the silent-drop class by splitting the operation into (1) bytes-read with explicit timeout, (2) in-memory parse with no timeout. The WARN logs on timeout/parse-failure are now unambiguous (previously logged as \"body shape mismatch?\")."
+    },
+    {
+      "defect_id": "V-B",
+      "fix_addresses_root_cause": true,
+      "evidence": "crates/rc-agent/src/session_end_fallback.rs:45-55 (OnceLock HTTP_CLIENT) + test http_client_is_memoized",
+      "residual_risk": "none",
+      "note": "The OnceLock pattern ensures a single reqwest::Client is reused across all T1/T2 calls. The test confirms pointer equality. No fd exhaustion risk."
+    },
+    {
+      "defect_id": "V-C",
+      "fix_addresses_root_cause": true,
+      "evidence": "crates/rc-agent/src/failure_monitor.rs:110-115 (session_last_known_driving_seconds field) + crates/rc-agent/src/session_end_fallback.rs:210-215 (cache store) + 235-237 (cache read)",
+      "residual_risk": "none",
+      "note": "The fix caches driving_seconds from every live-session poll and replays it in the synth branch. The remaining gap (total_laps/best_lap_ms) is explicitly tracked as a P3 follow-up, not a blocker. Customer-facing synth now uses non-zero driving_seconds where available."
+    }
+  ],
+  "new_defects_found": [
+    {
+      "defect_id": "W-1",
+      "severity": "P2",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:231-233",
+      "description": "The `find_my_server_session` call in the synth branch is redundant — the prior `server_has_my_session` check (line 195) already confirmed the session is missing from the server response. This is a no-op but adds ~500ns of CPU per synth.",
+      "exploit_or_trigger": "Always fires on synth path (no customer impact, just wasted cycles).",
+      "suggested_fix": "Remove the `find_my_server_session` call in the synth branch; reuse the `driver_name` from the still-live branch (already cached in `local_id` scope).",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "W-2",
+      "severity": "P3",
+      "category": "observability",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:205-215",
+      "description": "The cache store for `session_last_known_driving_seconds` logs at INFO level, but the cache *read* (line 235-237) has no corresponding log. Operators cannot correlate \"synth with X seconds\" back to the prior live-session poll that sourced the value.",
+      "exploit_or_trigger": "Fires on every synth where cached driving_seconds > 0.",
+      "suggested_fix": "Add a DEBUG log at line 237: `tracing::debug!(..., \"synth using cached driving_seconds={}\", cached_driving_seconds)`.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "W-3",
+      "severity": "P3",
+      "category": "test",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:250-350 (test module)",
+      "description": "The 4 new unit tests cover happy paths but miss adversarial cases: (1) no test for `serde_json::from_slice` failure on malformed schema (line 125-130), (2) no test for `bytes().await` timeout (line 105-115), (3) no test for `send().await` timeout (line 90-98).",
+      "exploit_or_trigger": "Test coverage gap — no customer impact, but leaves edge cases unexercised.",
+      "suggested_fix": "Add 3 tests: (a) mock a malformed JSON response body, (b) mock a slow server that stalls mid-body, (c) mock a `reqwest::Error` with `is_timeout() == true`.",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "W-4",
+      "severity": "P2",
+      "category": "race",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:207-215",
+      "description": "The cache store for `session_last_known_driving_seconds` uses `send_modify`, which is async and fire-and-forget. If the channel is disconnected or the receiver panics, the cache update is silently dropped. This is non-critical (worst case: synth uses 0 instead of cached value), but violates the \"cache always updates on live-session poll\" invariant.",
+      "exploit_or_trigger": "Requires a failure_monitor_tx channel disconnect (rare — only during shutdown or a bug in the receiver).",
+      "suggested_fix": "Log a WARN if `send_modify` returns Err, or use a sync path (e.g., borrow_mut + direct field assignment) since this is already under a borrow().",
+      "confidence_1_to_5": 3
+    }
+  ],
+  "deploy_readiness": {
+    "can_ship_as_is": false,
+    "must_fix_before_ship": [
+      "W-4"
+    ],
+    "nice_to_have": [
+      "W-1",
+      "W-2",
+      "W-3"
+    ]
+  },
+  "adversarial_summary": "The fix commit 49eb2821 **fully closes all three prior Step 4 defects (V-A, V-B, V-C) at the root cause** with no residual risk. The OnceLock HTTP_CLIENT eliminates connection churn (V-B), the bytes()+timeout+from_slice() split eliminates the silent-drop race (V-A), and the driving_seconds cache addresses the zeroed-synth issue (V-C). However, **W-4 introduces a new P2 race condition**: the cache store uses fire-and-forget `send_modify`, which can silently fail if the failure_monitor_tx channel is disconnected. This violates the \"cache always updates\" invariant and could lead to synth using 0 instead of the last-known value. W-1/W-2/W-3 are minor (P2/P3) and can be addressed post-deploy. **Recommendation**: fix W-4 before shipping (5 LOC: replace `send_modify` with a sync borrow_mut path), then re-run Step 4 for final signoff."
+}
