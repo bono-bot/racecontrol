@@ -241,6 +241,23 @@ else
 fi
 echo "DPDP_EXIT=$DPDP_EXIT"
 
+# ─── Phase 8: Billing-flow runtime contract (game-launch financial correctness) ─
+# Pre-auth-harness this exits 0 with SKIP (see tests/e2e/api/billing-flow.sh
+# Skip-branch 2). Once BILLING_FLOW_AUTH_HELPER is wired, this is THE gate
+# that catches F-05-class regressions (UPDATE+SELECT-same-column refund math
+# errors) and stuck-session-candidate after session end.
+echo ""
+echo "=== Phase 8: Billing-flow runtime contract ==="
+bash tests/e2e/api/billing-flow.sh
+BILLING_FLOW_EXIT=$?
+if [ "$BILLING_FLOW_EXIT" -eq 0 ]; then
+    BILLING_FLOW_STATUS="PASS"
+else
+    BILLING_FLOW_STATUS="FAIL"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+fi
+echo "BILLING_FLOW_EXIT=$BILLING_FLOW_EXIT"
+
 # ─── Summary Table ───────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
@@ -257,6 +274,7 @@ printf "  %-20s %s\n" "Deploy Verify" "$DEPLOY_STATUS"
 printf "  %-20s %s\n" "Fleet Health" "$FLEET_HEALTH_STATUS"
 printf "  %-20s %s\n" "Drift (445 D-15)" "$DRIFT_STATUS"
 printf "  %-20s %s\n" "DPDP Erasure" "$DPDP_STATUS"
+printf "  %-20s %s\n" "Billing Flow" "$BILLING_FLOW_STATUS"
 echo ""
 echo "  Total failures: ${TOTAL_FAIL}"
 echo "  Results dir:    ${RESULTS_DIR}"
@@ -278,7 +296,8 @@ summary = {
         'deploy': {'status': '${DEPLOY_STATUS}', 'exit_code': ${DEPLOY_EXIT}},
         'fleet_health': {'status': '${FLEET_HEALTH_STATUS}', 'exit_code': ${FLEET_HEALTH_EXIT}},
         'drift': {'status': '${DRIFT_STATUS}', 'exit_code': ${DRIFT_EXIT}},
-        'dpdp_erasure': {'status': '${DPDP_STATUS}', 'exit_code': ${DPDP_EXIT}}
+        'dpdp_erasure': {'status': '${DPDP_STATUS}', 'exit_code': ${DPDP_EXIT}},
+        'billing_flow': {'status': '${BILLING_FLOW_STATUS}', 'exit_code': ${BILLING_FLOW_EXIT}}
     },
     'total_fail': ${TOTAL_FAIL}
 }
