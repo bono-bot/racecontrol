@@ -1021,6 +1021,54 @@ Web and kiosk are both reporting `healthy: true` while their hardcoded `pages_ex
 Plans:
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
+### Phase 999.4: Tier 3 upstream graphify PRs — 7 extraction-depth gaps (BACKLOG)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+
+**Motivation:** Per [project_graphify_utilization_roadmap.md](../../.claude/projects/C--Users-bono/memory/project_graphify_utilization_roadmap.md) Tier 3, seven gap-rules in `scripts/graphify-post/gap-rules.mjs` are marked `manual` because they need upstream `safishamsi/graphify` changes — no amount of post-processing can fill them. They are the biggest single lever for graphify ecosystem utilization (estimated +15% ceiling lift if all seven land).
+
+**Gaps to file as upstream PRs:**
+
+| ID | Summary | Why it matters |
+|----|---------|----------------|
+| G3 | Struct-field access edges invisible | `AcLaunchParams` has degree 1 — graphify only sees function calls, not field reads/writes. Root cause of the "every struct looks like a leaf node" pattern. |
+| G5 | Cross-language edges (Python → Rust) missing | Python scripts that call Rust via subprocess/HTTP/FFI don't show a link. Silent-break risk across language boundaries. |
+| G6 | External-boundary edges missing | `spawns`/`binds`/`reads_file`/`writes_sentinel` — the syscall class. Would surface process-launch chains, port bindings, file-based IPC. |
+| G15 | `semantically_similar_to` never emitted | Schema supports it but extractor never produces it. Needs an embeddings pipeline (sentence-transformers or similar). |
+| G16 | Graph is undirected | Caller/callee direction lost. "Who calls this?" becomes ambiguous. |
+| G19 | Hyperedges HTML-ignored | Schema supports N-ary edges but vis-network renderer collapses them. Needs a hyperedge-capable renderer layer. |
+| G20 | Provenance metadata 0/N globally | `source_url`/`captured_at`/`author` never populated. Needs extraction-time ingest of file metadata. |
+
+**Scope per PR:** Each is a small upstream PR (<200 LOC each). Total estimated ~3-5 days focused work. Each requires: fork → branch → test → PR → wait for review.
+
+**Opportunity cost analysis:**
+- Lift: ~+15% ecosystem utilization (combined)
+- Risk: upstream merge velocity unknown — PRs may sit for weeks/months
+- Competing pressure: active milestone (v46.0+ fleet stabilisation) is hotter
+- Skill-match: shipping a 7-PR chain on an external OSS repo is an unusual burst for this project
+
+**Why parked, not planned as dedicated phase:**
+1. Merge certainty on upstream is uncontrollable
+2. Total effort (~1 week) would compete with active-milestone slots
+3. Intermediate local forks are inferior to landing upstream (maintenance burden of patched `site-packages/`)
+4. Better triggered by Uday's judgement on when graphify utility becomes a bottleneck
+
+**Promotion trigger:** when a venue incident or audit is blocked by the specific gaps (e.g. "we can't trace this cross-language failure because G5 is missing"). Until then, park.
+
+**Dependencies:** none (external repo).
+
+**Out of scope for this backlog entry:**
+- Local forks / patches to `site-packages/graphifyy/` (explicit anti-pattern per retired memory `feedback_graphify_watch_viz_skip_patch.md`)
+- Writing a competing tool
+- G12/G21/G22 stability polish — lives in Tier 5 of the same roadmap, separate decision
+
+**Memory reference:** `project_graphify_utilization_roadmap.md` Tier 3 section.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ---
 
 ## v47.0 Admin Dashboard Venue-Ready Hardening
