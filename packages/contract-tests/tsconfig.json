@@ -12,5 +12,5 @@
       "@racingpoint/types": ["../shared-types/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "vitest.config.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"]
 }
