@@ -115,16 +115,58 @@ for (const L of loaded) {
 //    has degree < that repo's p90 (filters hub-noise like `main()`, `GET()`).
 // -----------------------------------------------------------------------------
 
+// P3.2 (G22, 2026-04-22): Global hub-deny list — Rust/TS/Python names that are
+// always super-hubs regardless of per-repo p90 (ok, new, clone, expect, etc).
+// Degrees in racecontrol: ok()=987, .ok()=967, .new()=903, .clone()=698,
+// GET()=676, .query()=604, .expect()=537, .push()=490, .collect()=489,
+// .len()=393, .from_str()=371. Each of these would spuriously cross-link every
+// repo that uses Rust. The per-repo p90 filter already catches most hubs in
+// small repos but can let a hub slip through when its absolute degree stays
+// below a big repo's p90 — e.g. .ok() at degree 80 in comms-link would pass
+// p90=90 there while still being noise.
+const GLOBAL_HUB_DENYLIST = new Set([
+  'ok()', '.ok()', 'Ok()', '.Ok()',
+  'new()', '.new()',
+  'clone()', '.clone()',
+  'expect()', '.expect()',
+  'push()', '.push()',
+  'collect()', '.collect()',
+  'len()', '.len()',
+  'from_str()', '.from_str()',
+  'to_string()', '.to_string()',
+  'unwrap()', '.unwrap()',
+  'query()', '.query()',
+  'GET()', 'POST()', 'PUT()', 'DELETE()', 'PATCH()',
+  'get()', '.get()', 'set()', '.set()',
+  'main()', 'default()', '.default()',
+  'as_str()', '.as_str()', 'as_ref()', '.as_ref()',
+  'into()', '.into()', 'from()', '.from()',
+  'run()', '.run()', 'start()', '.start()', 'stop()', '.stop()',
+  'init()', '.init()',
+  'println!()', 'eprintln!()', 'format!()', 'panic!()', 'assert!()',
+  // TS/JS hot labels
+  'JSON.parse()', 'JSON.stringify()', 'Array.from()', 'console.log()',
+]);
+
+// Absolute-degree hub cap: any occurrence with degree >= this in any repo is
+// excluded from cross-repo matching. P3.2 ceiling: tuned from observed hub
+// distribution (99th percentile ≈ 300, so 250 is a sane cap that lets real
+// connectors through while cutting the .ok()/new() class).
+const ABSOLUTE_HUB_DEGREE_CAP = 250;
+
 const crossRepoEdges = [];
 let hubSuppressed = 0;
+let globalHubSuppressed = 0;
 let tooRareSuppressed = 0;
 
 for (const [label, occurrences] of labelMap.entries()) {
   if (occurrences.length < 2) continue;
 
-  const belowP90 = occurrences.filter(o => o.degree < o.p90);
+  if (GLOBAL_HUB_DENYLIST.has(label)) { globalHubSuppressed++; continue; }
+
+  const belowP90 = occurrences.filter(o => o.degree < o.p90 && o.degree < ABSOLUTE_HUB_DEGREE_CAP);
   if (belowP90.length < 2) {
-    if (occurrences.some(o => o.degree >= o.p90)) hubSuppressed++;
+    if (occurrences.some(o => o.degree >= o.p90 || o.degree >= ABSOLUTE_HUB_DEGREE_CAP)) hubSuppressed++;
     else tooRareSuppressed++;
     continue;
   }
@@ -193,7 +235,8 @@ fs.writeFileSync(outPath, JSON.stringify(unified, null, 2));
 console.log(`\nwrote: ${outPath}`);
 console.log(`  unified: ${unifiedNodes.length} nodes, ${unifiedEdges.length} edges`);
 console.log(`  cross_repo_edges: ${crossRepoEdges.length} added`);
-console.log(`  hub-noise suppressed: ${hubSuppressed} labels (≥p90 in some repo)`);
+console.log(`  hub-noise suppressed: ${hubSuppressed} labels (≥p90 or ≥${ABSOLUTE_HUB_DEGREE_CAP} in some repo)`);
+console.log(`  global-hub-denylist suppressed: ${globalHubSuppressed} labels (Rust/TS stdlib hotspots)`);
 console.log(`  single-repo only: ${tooRareSuppressed} labels`);
 
 const report = `# Unified Graph Report
