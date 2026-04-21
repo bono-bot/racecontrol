@@ -208,6 +208,22 @@ else
     echo "  Phase: fleet-health -- SKIPPED"
 fi
 
+# ─── Phase 6: Generated-types drift check (Phase 445 D-15) ───────────────────
+# Pre-Plan-01 this exits 0 with SKIP (gen-types binary not yet built).
+# Post-Plan-01 this is a hard drift gate that fails PRs whose committed
+# generated/ tree disagrees with Rust source.
+echo ""
+echo "=== Phase 6: Generated-types drift ==="
+bash scripts/check-generated-types-drift.sh
+DRIFT_EXIT=$?
+if [ "$DRIFT_EXIT" -eq 0 ]; then
+    DRIFT_STATUS="PASS"
+else
+    DRIFT_STATUS="FAIL"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+fi
+echo "DRIFT_EXIT=$DRIFT_EXIT"
+
 # ─── Summary Table ───────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
