@@ -26,7 +26,7 @@ use serde::Serialize;
 /// is only active when the `gen-types` binary runs.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct PodFleetStatus {
     pub pod_number: u32,
     pub pod_id: Option<String>,
