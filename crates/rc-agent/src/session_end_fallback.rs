@@ -39,6 +39,7 @@
 
 #![cfg(feature = "http-client")]
 
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use crate::app_state::AppState;
@@ -48,6 +49,29 @@ use rc_common::types::BillingSessionInfo;
 use serde::Deserialize;
 
 const LOG_TARGET: &str = "session-end-fallback";
+
+/// V-B (Step 4 adversarial consensus, kimi V-4 P1 + mistral V-5 P2): reuse a
+/// single `reqwest::Client` across every T1 + T2 invocation instead of
+/// rebuilding per call. Module-level `OnceLock` so the construction is lazy
+/// (deferred until the first HTTP fallback fires) and has no cross-module
+/// dependency. TCP connection pool is retained across calls — same
+/// (pod → server) pair is reused, no fd exhaustion under long uptime.
+fn http_client() -> &'static reqwest::Client {
+    static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+/// V-A (Step 4 adversarial consensus, kimi V-1 P0 + mistral V-1 P1): explicit
+/// bytes-read timeout separate from client-level timeout. Eliminates the
+/// silent-drop class where the client-level timeout fires mid-`.json().await`
+/// after the status check already passed, leaving the session stuck forever
+/// with only a vague "body shape mismatch?" log.
+const BYTES_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// D3 rollback-detection marker. Every T1/T2 fire AND every synth emit this
 /// marker. Server-side `stuck_session_candidate` rule (Commit 6) flags pods
@@ -152,20 +176,16 @@ pub(crate) async fn fetch_and_reconcile(
     }
 
     // Step 4 — HTTP call with service-key header (C5) + shared url helper (C7)
+    // V-B: reuse module-level OnceLock client (no per-call rebuild).
     let base = rc_common::url::http_base_from_ws(&state.config.core.url);
     let url = format!("{}/api/v1/billing/active", base);
     let service_key = crate::mesh_key_cache::get_key_or_env(&state.mesh_key_cache)
         .await
         .unwrap_or_default();
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
-
     let my_pod_id = state.config.pod.number.to_string();
 
-    let response = match client
+    let response = match http_client()
         .get(&url)
         .header("X-Service-Key", &service_key)
         .send()
@@ -173,55 +193,125 @@ pub(crate) async fn fetch_and_reconcile(
     {
         Ok(r) => r,
         Err(e) => {
-            tracing::debug!(
-                target: LOG_TARGET,
-                fallback_version = FALLBACK_VERSION,
-                error = %e,
-                "skip: HTTP request failed (server unreachable or timeout)",
-            );
+            // V-A: distinguish send-stage timeout (network / server down)
+            // from other request errors. Both skip synth — never synth on
+            // server-unreachable — but operators can grep the WARN-level
+            // timeout marker during fleet incidents.
+            if e.is_timeout() {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    fallback_version = FALLBACK_VERSION,
+                    error = %e,
+                    stage = "send",
+                    "skip: HTTP send timed out (network or server-unreachable)",
+                );
+            } else {
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    fallback_version = FALLBACK_VERSION,
+                    error = %e,
+                    stage = "send",
+                    "skip: HTTP request failed",
+                );
+            }
             return;
         }
     };
 
     // Step 5 — status gate (D9) — never synth on 4xx/5xx
-    if !response.status().is_success() {
+    let status = response.status();
+    if !status.is_success() {
         tracing::warn!(
             target: LOG_TARGET,
             fallback_version = FALLBACK_VERSION,
-            http_status = %response.status(),
+            http_status = %status,
             "skip: server returned non-2xx",
         );
         return;
     }
 
-    // Step 6 — JSON parse (D13: pinned struct in rc_common)
-    let body: BillingActiveResponse = match response.json().await {
+    // Step 6 — V-A: bytes-read with EXPLICIT timeout separate from client-level.
+    // Eliminates kimi-v1-P0 / mistral-v1-P1 race where client timeout fires
+    // during `.json().await` after status-gate passed — previously logged as
+    // "body shape mismatch?" (misleading) with silent-skip-synth behaviour.
+    let bytes = match tokio::time::timeout(BYTES_READ_TIMEOUT, response.bytes()).await {
+        Ok(Ok(b)) => b,
+        Ok(Err(e)) => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                fallback_version = FALLBACK_VERSION,
+                error = %e,
+                stage = "body_read",
+                "skip: body read failed (server closed mid-response?)",
+            );
+            return;
+        }
+        Err(_elapsed) => {
+            tracing::warn!(
+                target: LOG_TARGET,
+                fallback_version = FALLBACK_VERSION,
+                stage = "body_read",
+                timeout_secs = BYTES_READ_TIMEOUT.as_secs(),
+                "skip: body read timed out — network stall after 2xx status",
+            );
+            return;
+        }
+    };
+
+    // Step 6b — V-A: in-memory JSON decode (no timeout, bytes already owned).
+    // A parse failure here is a true schema mismatch, not a network event.
+    let body: BillingActiveResponse = match serde_json::from_slice(&bytes) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(
                 target: LOG_TARGET,
                 fallback_version = FALLBACK_VERSION,
                 error = %e,
-                "skip: JSON parse failed (body shape mismatch?)",
+                body_len = bytes.len(),
+                stage = "parse",
+                "skip: JSON parse failed (schema mismatch — rc_common::BillingSessionInfo out of sync with server?)",
             );
             return;
         }
     };
 
     // Step 7 — pod_id filter + membership check (C6)
-    if server_has_my_session(&body.sessions, &my_pod_id, &local_id) {
+    if let Some(live) = find_my_server_session(&body.sessions, &my_pod_id, &local_id) {
+        // V-C: cache `driving_seconds` from every successful live-session
+        // poll. When the session later disappears and we synth, we replay
+        // the last-known driving_seconds instead of 0. BillingSessionInfo
+        // does not carry `total_laps` or `best_lap_ms` — those remain
+        // None/0 for synth (tracked as follow-up; requires WS lap-event
+        // wiring). Populating the cache here is the cheapest point — we
+        // already have the struct in hand.
+        let cached_driving = live.driving_seconds;
+        let _ = state.failure_monitor_tx.send_modify(|s| {
+            s.session_last_known_driving_seconds = Some(cached_driving);
+        });
         tracing::info!(
             target: LOG_TARGET,
             fallback_version = FALLBACK_VERSION,
             billing_session_id = %local_id,
-            "no-op: server confirms session still live",
+            cached_driving_seconds = cached_driving,
+            "no-op: server confirms session still live (driving_seconds cached)",
         );
         return;
     }
 
     // Step 8 — synth via apply_session_ended dedup guard. If the session id
     // was already applied (WsReal arrived first), the dedup guard makes this
-    // a debug-log no-op. If not, full lifecycle fires with synthesised zeros.
+    // a debug-log no-op. If not, full lifecycle fires with cached stats
+    // where available, zeros where not.
+    //
+    // V-C: read the cached driving_seconds (if we ever saw this session live
+    // on a prior poll). Cache survives until the session-end reset, so even
+    // though the session has now disappeared from `/billing/active`, a
+    // prior T2 tick that saw it live leaves the value here.
+    let cached_driving_seconds = state.failure_monitor_tx
+        .borrow()
+        .session_last_known_driving_seconds
+        .unwrap_or(0);
+
     let driver_name = find_my_server_session(&body.sessions, &my_pod_id, &local_id)
         .map(|s| s.driver_name.clone())
         .unwrap_or_default();
@@ -230,6 +320,8 @@ pub(crate) async fn fetch_and_reconcile(
         target: LOG_TARGET,
         fallback_version = FALLBACK_VERSION,
         billing_session_id = %local_id,
+        synth_driving_seconds = cached_driving_seconds,
+        cache_hit = state.failure_monitor_tx.borrow().session_last_known_driving_seconds.is_some(),
         "synth triggered: server omitted session id (driver_name={:?})",
         driver_name,
     );
@@ -237,9 +329,9 @@ pub(crate) async fn fetch_and_reconcile(
     apply_session_ended(
         state, conn, ws_tx,
         local_id, driver_name,
-        0u32,           // total_laps — synth has no authoritative count
-        None,           // best_lap_ms — synth has no authoritative value
-        0u32,           // driving_seconds — synth has no authoritative value
+        0u32,                   // total_laps — BillingSessionInfo lacks this; follow-up
+        None,                   // best_lap_ms — BillingSessionInfo lacks this; follow-up
+        cached_driving_seconds, // V-C: cached from last live-session poll (0 if never cached)
         SessionEndOrigin::HttpSynth {
             fallback_version: FALLBACK_VERSION,
             synth_reason: SynthReason::ServerOmittedId,
@@ -358,5 +450,50 @@ mod tests {
         let sessions = vec![mk_session("sess_x", "pod-7")];
         assert!(find_my_server_session(&sessions, "pod-7", "sess_y").is_none());
         assert!(find_my_server_session(&sessions, "pod-3", "sess_x").is_none());
+    }
+
+    /// V-B: `http_client()` uses `OnceLock` — two calls must return the same
+    /// underlying client instance (pointer equality via reference compare).
+    /// Confirms the OnceLock memoization works and we're not accidentally
+    /// rebuilding per call.
+    #[test]
+    fn http_client_is_memoized() {
+        let a: *const reqwest::Client = super::http_client();
+        let b: *const reqwest::Client = super::http_client();
+        assert_eq!(a, b, "http_client() must return the same OnceLock instance on every call");
+    }
+
+    /// V-A: in-memory `serde_json::from_slice` happy path — confirms the
+    /// post-refactor decode still accepts the BillingActiveResponse shape
+    /// that Commit 5 pinned. This covers the parse branch after bytes-read,
+    /// separate from network I/O (which needs HTTP mock for full coverage).
+    #[test]
+    fn bytes_then_from_slice_accepts_valid_response() {
+        let json = br#"{"sessions":[]}"#;
+        let decoded: BillingActiveResponse = serde_json::from_slice(json)
+            .expect("empty sessions array must decode cleanly");
+        assert_eq!(decoded.sessions.len(), 0);
+    }
+
+    #[test]
+    fn bytes_then_from_slice_rejects_malformed_schema() {
+        // V-A: schema mismatch (missing `sessions` field) must fail parse —
+        // the WARN log at call site surfaces this as "schema mismatch" rather
+        // than the previous "body shape mismatch?" ambiguity.
+        let json = br#"{"foo":"bar"}"#;
+        let result: Result<BillingActiveResponse, _> = serde_json::from_slice(json);
+        assert!(result.is_err(), "missing required `sessions` field must fail decode");
+    }
+
+    /// V-C: on a live-session poll (session still present), the cache store
+    /// uses `BillingSessionInfo.driving_seconds` directly. This test pins
+    /// the field name so a rc_common rename surfaces at compile time.
+    #[test]
+    fn billing_session_info_exposes_driving_seconds_field() {
+        let s = mk_session("sess_cache", "pod-7");
+        // If this line stops compiling, rc_common renamed driving_seconds —
+        // V-C cache path needs to follow. The mk_session helper above sets
+        // driving_seconds: 0 explicitly; confirm we can read it back.
+        let _v: u32 = s.driving_seconds;
     }
 }

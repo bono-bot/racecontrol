@@ -74,6 +74,16 @@ pub struct FailureMonitorState {
     /// Current sim type (set by main.rs on LaunchGame, cleared on SessionEnded).
     /// Used by failure_monitor for TelemetryGap reporting (TELEM-01).
     pub sim_type: Option<SimType>,
+    /// Pattern I Part 5 V-C (Step 4 adversarial consensus): driving_seconds
+    /// cached from the last successful `/api/v1/billing/active` response
+    /// where this pod's session was still live. Used by
+    /// `session_end_fallback::fetch_and_reconcile` to pass a non-zero
+    /// driving-seconds value to `apply_session_ended` in the synth branch
+    /// (instead of hardcoded `0u32`). `None` until the first cache hit.
+    /// `total_laps` and `best_lap_ms` remain ungapped here — the server's
+    /// BillingSessionInfo does not carry them; would need WS lap-event wiring
+    /// (tracked as follow-up after Step 4 re-verify passes).
+    pub session_last_known_driving_seconds: Option<u32>,
 }
 
 impl Default for FailureMonitorState {
@@ -90,6 +100,7 @@ impl Default for FailureMonitorState {
             active_billing_session_id: None,
             active_billing_session_id_set_at: None,
             sim_type: None,
+            session_last_known_driving_seconds: None,
         }
     }
 }
@@ -115,6 +126,8 @@ pub fn reset_fms_for_session_end(s: &mut FailureMonitorState) {
     s.billing_paused = false;
     s.launch_started_at = None;
     s.recovery_in_progress = false;
+    // V-C: clear cached stats so the next session starts from None
+    s.session_last_known_driving_seconds = None;
 }
 
 /// Spawn the failure monitor background task.
@@ -800,6 +813,8 @@ mod tests {
             recovery_in_progress: true,
             active_billing_session_id: Some("sess_characterisation".to_string()),
             active_billing_session_id_set_at: Some(now),
+            // V-C: populated by a prior T2 tick that saw the session live
+            session_last_known_driving_seconds: Some(420),
             // Fields NOT reset by the helper — must stay untouched
             game_pid: Some(12345),
             last_udp_secs_ago: Some(5),
@@ -819,6 +834,10 @@ mod tests {
         assert!(!s.billing_paused,                           "billing_paused must be false");
         assert_eq!(s.launch_started_at, None,                "launch_started_at must be cleared");
         assert!(!s.recovery_in_progress,                     "recovery_in_progress must be false");
+        // V-C: cached driving_seconds must be cleared on session end so the
+        // next session starts from None (not carrying stale cache)
+        assert_eq!(s.session_last_known_driving_seconds, None,
+            "session_last_known_driving_seconds must be cleared by the V-C cache reset");
 
         // Assert: unrelated fields NOT touched (narrow contract)
         assert_eq!(s.game_pid, Some(12345),                  "game_pid must NOT be touched by this helper");
