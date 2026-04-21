@@ -385,7 +385,7 @@ mod tests {
     /// We test the struct logic independently; sentinel file helpers use real paths in production.
     fn write_sentinel_to_path(path: &str, sentinel: &HealSentinel) -> std::io::Result<()> {
         let json = serde_json::to_string(sentinel)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 
