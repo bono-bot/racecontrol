@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-status: completed
-last_updated: "2026-04-18T09:51:19.435Z"
-last_activity: 2026-04-18
+status: executing
+last_updated: "2026-04-21T00:19:20.240Z"
+last_activity: 2026-04-20
 progress:
   total_phases: 4
   completed_phases: 4
@@ -19,13 +19,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 413.1 — deploy-server-step4-fix-and-plan11-retry
+**Current focus:** Phase 445 — typed-api-contract-rust-ts-codegen
 
 ## Current Phase
 
-**Phase:** 413.1
-**Status:** Milestone complete
-**Last activity:** 2026-04-18
+**Phase:** 445
+**Status:** Executing Phase 445 (Plan 00 closed 2026-04-21)
+**Last activity:** 2026-04-21
 
 ## Progress
 
@@ -350,7 +350,26 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Next plan:** 414-06 Wave 6 (venue financial E2E + deploy parity).
 **Summary:** `.planning/phases/414-continuous-billing-session/414-05-SUMMARY.md`
 
-*Last updated: 2026-04-18T04:49 IST — Phase 414-05 (Wave 5 kiosk frontend Tasks 1+2) closed; IdleWarningDialog + paused-meter UI + 3 label fixes; kiosk build 27 chunks clean; Task 3 awaiting venue checkpoint (`a4654235` + `29508f64`)*
+## Phase 445 Plan 00 — Wave 0 safety audits + scaffolding closed (2026-04-21)
+
+**Completed:** 2026-04-21T05:46 IST (GSD executor, auto mode)
+**Scope:** 4 Wave-0 tooling artefacts — D-14 structural enum-tagging audit test, 42-name admin-type whitelist, 3 skip-branch CI scripts (determinism/drift/hand-vs-generated) + tests/e2e/run-all.sh Phase 6 hook, ts-rs 12.0.1 API spike. Requirements TYP-07 (D-20 regression fixture scaffolding) + TYP-09 (D-14 safety gate) structurally ENFORCED.
+**Commits:**
+
+- `46d409a5` — Task 1: enum_tagging_audit.rs (288 lines, bi-directional attribute cluster walker) + enumerate-admin-types.sh (150 lines) + .gitkeep + .whitelist.txt (42 names) + regex dev-dep. Positive-tested for serde(tag) above/below derive + flatten-in-body cases.
+- `8b7dd677` — Task 2: check-gen-types-determinism.sh + check-generated-types-drift.sh + audit-handwritten-vs-generated.sh + run-all.sh Phase 6 hook. All 3 scripts exit 0 with SKIP in pre-Plan-01/02 state.
+- `8751b55f` — Task 3: 445-00-SPIKE.md with raw cargo test --nocapture evidence. Verdict A: ts-rs 12.0.1 TS::export_all(&Config) works in fn main() context. One API-name correction surfaced: method is `export_all`, not `export_all_to` (RESEARCH.md was outdated).
+
+**Verification:** `cargo test -p rc-common --test enum_tagging_audit` = 1 passed (22 files scanned, 0 TS-derived sites, 0 forbidden combos on baseline). Whitelist has 42 lines ≥ 16 required, 0 D-14 overlap, all 6 core admin types present. All 3 scripts `bash -n` clean + correct skip behavior. `cargo build --release --bin rc-agent` = 0 errors (no default-features regression).
+**Decisions:** (1) Verdict A for ts-rs binary strategy — Plan 01 uses direct `fn main()` + `TS::export_all(&Config::new().with_out_dir())`. (2) API-name correction: `export_all` not `export_all_to` — Plan 01 must update task actions. (3) Bi-directional attribute cluster walker in audit test catches both `#[serde(tag)]` orderings relative to TS derive. (4) Skip-branch pattern across all 3 scripts + run-all.sh Phase 6 — wires the CI gate today, arms automatically when Plan 01 lands.
+**Deviations:** 3 Rule 1 auto-fixes. (1) Audit test first iteration only walked backward from derive — missed serde(tag)-below-derive ordering; rewrote as bi-directional `find_attribute_cluster`. (2) `TS::export_all_to()` per RESEARCH compile-errored — actual 12.0.1 API is `TS::export_all(&Config)`; spike fixed + SPIKE.md documents the correction for Plan 01. (3) Moved `set -euo pipefail` to line 2 of enumerate-admin-types.sh to satisfy acceptance-criterion "in lines 2-5". All 3 necessary for correctness; no scope creep.
+**Requirements marked complete via gsd-tools:** TYP-07, TYP-09.
+**Next plan:** 445-01 Wave 1 (deps + scaffolding — utoipa + utoipa-axum + ts-rs + serde_yaml workspace deps; `gen-types` binary skeleton; feature gating on rc-common + racecontrol).
+**Summary:** `.planning/phases/445-typed-api-contract-rust-ts-codegen/445-00-SUMMARY.md`
+**Spike:** `.planning/phases/445-typed-api-contract-rust-ts-codegen/445-00-SPIKE.md`
+
+*Last updated: 2026-04-21T05:46 IST — Phase 445-00 (Wave 0 safety audits + scaffolding) closed; D-14 structural gate live, admin whitelist 42 entries, ts-rs Verdict A locked, 3 Wave-0 script gates armed in skip-mode awaiting Plan 01 (`46d409a5` + `8b7dd677` + `8751b55f`)*
+*Previous: 2026-04-18T04:49 IST — Phase 414-05 (Wave 5 kiosk frontend Tasks 1+2) closed; IdleWarningDialog + paused-meter UI + 3 label fixes; kiosk build 27 chunks clean; Task 3 awaiting venue checkpoint (`a4654235` + `29508f64`)*
 *Previous: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
 *Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*
 *Previous: 2026-04-18 IST — Phase 413-04 (rc-agent MeshKeyCache consumer rewire) closed; 3 production env-reads eliminated, Gap 4 structurally closed, 103 tests passing incl. new S10 cache-wins regression test (`51356322` + `34e13516`)*
