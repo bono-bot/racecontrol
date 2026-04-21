@@ -224,6 +224,23 @@ else
 fi
 echo "DRIFT_EXIT=$DRIFT_EXIT"
 
+# ─── Phase 7: DPDP §12 right-of-erasure runtime contract (Day 4 chess-analogy) ─
+# Pre-auth-harness this exits 0 with SKIP (see tests/e2e/api/dpdp-erasure.sh
+# Skip-branch 3). Once DPDP_ERASURE_AUTH_HELPER is wired, this becomes a
+# hard gate: DELETE /customer/data-delete must leave ZERO rows in any
+# ERASE_TABLES entry + NULL in every POINTER_TABLES column.
+echo ""
+echo "=== Phase 7: DPDP erasure runtime contract ==="
+bash tests/e2e/api/dpdp-erasure.sh
+DPDP_EXIT=$?
+if [ "$DPDP_EXIT" -eq 0 ]; then
+    DPDP_STATUS="PASS"
+else
+    DPDP_STATUS="FAIL"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+fi
+echo "DPDP_EXIT=$DPDP_EXIT"
+
 # ─── Summary Table ───────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
@@ -238,6 +255,8 @@ printf "  %-20s %s\n" "WebSocket Tests" "$WS_STATUS"
 printf "  %-20s %s\n" "Browser Tests" "$BROWSER_STATUS"
 printf "  %-20s %s\n" "Deploy Verify" "$DEPLOY_STATUS"
 printf "  %-20s %s\n" "Fleet Health" "$FLEET_HEALTH_STATUS"
+printf "  %-20s %s\n" "Drift (445 D-15)" "$DRIFT_STATUS"
+printf "  %-20s %s\n" "DPDP Erasure" "$DPDP_STATUS"
 echo ""
 echo "  Total failures: ${TOTAL_FAIL}"
 echo "  Results dir:    ${RESULTS_DIR}"
@@ -257,7 +276,9 @@ summary = {
         'websocket': {'status': '${WS_STATUS}', 'exit_code': ${WS_EXIT}},
         'browser': {'status': '${BROWSER_STATUS}', 'exit_code': ${BROWSER_EXIT}},
         'deploy': {'status': '${DEPLOY_STATUS}', 'exit_code': ${DEPLOY_EXIT}},
-        'fleet_health': {'status': '${FLEET_HEALTH_STATUS}', 'exit_code': ${FLEET_HEALTH_EXIT}}
+        'fleet_health': {'status': '${FLEET_HEALTH_STATUS}', 'exit_code': ${FLEET_HEALTH_EXIT}},
+        'drift': {'status': '${DRIFT_STATUS}', 'exit_code': ${DRIFT_EXIT}},
+        'dpdp_erasure': {'status': '${DPDP_STATUS}', 'exit_code': ${DPDP_EXIT}}
     },
     'total_fail': ${TOTAL_FAIL}
 }
