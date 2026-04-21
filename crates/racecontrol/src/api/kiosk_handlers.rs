@@ -14,6 +14,14 @@ use rc_common::{pod_id::normalize_pod_id, types::*, protocol::{CloudAction, Core
 
 // ─── Kiosk ──────────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/kiosk/experiences",
+    tag = "kiosk",
+    responses(
+        (status = 200, description = "Active kiosk experiences (public + staff-managed)", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn list_kiosk_experiences(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, i64, String, Option<String>, i64, i64, Option<String>)>(
         "SELECT id, name, game, track, car, car_class, duration_minutes, start_type, ac_preset_id, sort_order, is_active, pricing_tier_id
@@ -336,6 +344,16 @@ pub(crate) const PIN_REDEEM_LENGTH: u32 = 4;
 pub(crate) const PIN_REDEEM_MAX_ATTEMPTS: u32 = 10;
 pub(crate) const PIN_REDEEM_LOCKOUT_SECONDS: u32 = 300;
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/kiosk/settings",
+    tag = "kiosk",
+    responses(
+        (status = 200, description = "Kiosk settings key-value map", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn get_kiosk_settings(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String)>(
         "SELECT key, value FROM kiosk_settings",

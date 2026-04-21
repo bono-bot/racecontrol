@@ -52,6 +52,18 @@ use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, Dashboar
 
 // ─── Game Launcher ─────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/games/launch",
+    tag = "games",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Game launch command dispatched", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+        (status = 409, description = "Game already active on pod"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn launch_game(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
@@ -441,6 +453,17 @@ pub(crate) async fn relaunch_game(
 mod game_pod_controls;
 pub(crate) use game_pod_controls::{set_pod_transmission, set_pod_ffb, set_pod_assists, get_pod_assist_state};
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/games/stop",
+    tag = "games",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Game stop command dispatched", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn stop_game(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
@@ -462,6 +485,14 @@ pub(crate) async fn stop_game(
 /// Returns the full game catalog — authoritative source for all UI game lists.
 /// Each entry includes the sim_type id (snake_case), display name, and abbreviation.
 /// Pods filter this list against their `installed_games` field.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/games/catalog",
+    tag = "games",
+    responses(
+        (status = 200, description = "Full games catalog (authoritative for all UI game lists)", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn games_catalog(State(state): State<Arc<AppState>>) -> Json<Value> {
     let all_games = [
         SimType::AssettoCorsa,

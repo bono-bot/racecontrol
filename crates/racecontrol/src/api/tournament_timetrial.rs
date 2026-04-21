@@ -10,6 +10,16 @@ use crate::state::AppState;
 
 // ─── Time Trial Admin ────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/time-trials",
+    tag = "time_trials",
+    responses(
+        (status = 200, description = "List of time trials", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_time_trials(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, String, String, bool)>(
         "SELECT id, track, car, week_start, week_end, is_active

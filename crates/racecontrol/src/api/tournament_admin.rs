@@ -53,6 +53,16 @@ use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, Dashboar
 
 // ─── Dynamic Pricing Admin ───────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/pricing/rules",
+    tag = "pricing",
+    responses(
+        (status = 200, description = "List of dynamic pricing rules", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_pricing_rules(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>, Option<i64>, f64, i64, bool)>(
         "SELECT id, rule_type, day_of_week, hour_start, hour_end, multiplier, flat_adjustment_paise, is_active
@@ -208,6 +218,16 @@ pub(crate) async fn delete_pricing_rule(
 
 // ─── Coupons Admin ───────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/coupons",
+    tag = "coupons",
+    responses(
+        (status = 200, description = "List of coupons", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_coupons(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, f64, i64, Option<String>, Option<String>, Option<i64>, bool, bool)>(
         "SELECT id, code, coupon_type, value, max_uses, valid_from, valid_until, min_spend_paise, first_session_only, is_active

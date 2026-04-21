@@ -66,6 +66,21 @@ pub(crate) struct DeployRequest {
 /// Returns 409 Conflict if deploy is already in progress or pod has active billing.
 /// Returns 404 if pod not found.
 /// Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/deploy/{pod_id}",
+    tag = "deploy",
+    request_body = serde_json::Value,
+    params(("pod_id" = String, Path, description = "Pod identifier")),
+    responses(
+        (status = 202, description = "Deploy started (background task)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+        (status = 404, description = "Pod not found"),
+        (status = 409, description = "Deploy already in progress or pod has active billing"),
+        (status = 423, description = "Deploy window locked (weekend peak hours)"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn deploy_single_pod(
     Path(pod_id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -148,6 +163,16 @@ pub(crate) async fn deploy_single_pod(
 }
 
 /// GET /api/deploy/status — Get deploy state for all pods.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/deploy/status",
+    tag = "deploy",
+    responses(
+        (status = 200, description = "Per-pod deploy status", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<Value> {
     let deploy_states = state.pod_deploy_states.read().await;
     let statuses: Vec<Value> = deploy_states
@@ -168,6 +193,19 @@ pub(crate) async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<Va
 /// Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
 ///
 /// Body: { "binary_url": "http://192.168.31.27:9998/rc-agent.exe", "force": false }
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/deploy/rolling",
+    tag = "deploy",
+    request_body = serde_json::Value,
+    responses(
+        (status = 202, description = "Rolling deploy started", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+        (status = 409, description = "Deploy already active"),
+        (status = 423, description = "Deploy window locked"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn deploy_rolling_handler(
     State(state): State<Arc<AppState>>,
     axum::Extension(claims): axum::Extension<crate::auth::middleware::StaffClaims>,

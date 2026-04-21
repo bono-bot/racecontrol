@@ -14,6 +14,16 @@ pub(crate) use super::tournament_customer::*;
 
 // ─── Tournaments ─────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/tournaments",
+    tag = "tournaments",
+    responses(
+        (status = 200, description = "List of tournaments", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_tournaments(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, i64, i64, i64, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, name, description, track, car, format, max_participants, entry_fee_paise, prize_pool_paise,

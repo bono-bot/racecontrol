@@ -203,6 +203,18 @@ pub async fn set_pod_config(
 
 /// GET /api/v1/config/pod/{pod_id}
 /// Retrieve stored AgentConfig for a pod (returns 404 if none stored).
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/config/pod/{pod_id}",
+    tag = "config",
+    params(("pod_id" = String, Path, description = "Pod identifier")),
+    responses(
+        (status = 200, description = "Stored AgentConfig for pod", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+        (status = 404, description = "No config stored for pod"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub async fn get_pod_config_handler(
     State(state): State<Arc<AppState>>,
     Path(pod_id): Path<String>,

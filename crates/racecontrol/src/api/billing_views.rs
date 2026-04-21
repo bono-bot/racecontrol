@@ -323,6 +323,16 @@ pub(crate) async fn end_visit(
     }
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/billing/active",
+    tag = "billing",
+    responses(
+        (status = 200, description = "Active billing sessions across fleet", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn active_billing_sessions(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rate_tiers = state.billing.rate_tiers.read().await;
     let timers = state.billing.active_timers.read().await;

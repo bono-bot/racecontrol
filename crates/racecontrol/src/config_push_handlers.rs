@@ -22,6 +22,18 @@ use super::config_push_types::{
 
 /// POST /api/v1/config/push
 /// Validate, queue, and deliver a config push to all or selected pods.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/config/push",
+    tag = "config",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Config push queued + delivered to target pods", body = serde_json::Value),
+        (status = 400, description = "Validation failure"),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub async fn push_config(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<StaffClaims>,
@@ -137,6 +149,16 @@ pub async fn get_queue(
 }
 
 /// GET /api/v1/config/audit
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/config/audit",
+    tag = "config",
+    responses(
+        (status = 200, description = "Config push audit log (last 100 entries)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub async fn get_audit_log(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<AuditLogEntry>>, (StatusCode, String)> {

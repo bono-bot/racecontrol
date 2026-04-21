@@ -237,6 +237,16 @@ pub(crate) use customer_referral::{
 
 // ─── Memberships ─────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/customer/membership",
+    tag = "customer",
+    responses(
+        (status = 200, description = "Active customer membership + tier list", body = serde_json::Value),
+        (status = 401, description = "Customer JWT required"),
+    ),
+    security(("customerJWT" = []))
+))]
 pub(crate) async fn customer_membership(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,

@@ -12,6 +12,16 @@ use rc_common::types::*;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 
 // POST /pods/wake-all — Wake all pods with known MACs
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/pods/wake-all",
+    tag = "pods",
+    responses(
+        (status = 200, description = "WoL magic packets dispatched to all pods with MAC addresses", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn wake_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
     let mut results = Vec::new();
@@ -30,6 +40,16 @@ pub(crate) async fn wake_all_pods(State(state): State<Arc<AppState>>) -> Json<Va
 }
 
 // POST /pods/shutdown-all — Shutdown all reachable pods
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/pods/shutdown-all",
+    tag = "pods",
+    responses(
+        (status = 200, description = "Shutdown command dispatched to all reachable pods", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
     let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
@@ -57,6 +77,16 @@ pub(crate) async fn shutdown_all_pods(State(state): State<Arc<AppState>>) -> Jso
 }
 
 // POST /pods/restart-all — Restart all reachable pods
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/pods/restart-all",
+    tag = "pods",
+    responses(
+        (status = 200, description = "Restart command dispatched to all reachable pods", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods: Vec<PodInfo> = state.pods.read().await.values().cloned().collect();
     let service_key = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
@@ -80,6 +110,17 @@ pub(crate) async fn restart_all_pods(State(state): State<Arc<AppState>>) -> Json
 // POST /pods/lockdown-all — Toggle kiosk lockdown for all connected pods
 // Body: { "locked": true }
 // Skips billing-active pods (when locking) and disconnected/closed senders.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/pods/lockdown-all",
+    tag = "pods",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Kiosk lockdown command dispatched to all connected pods (skips active billing)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn lockdown_all_pods(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,

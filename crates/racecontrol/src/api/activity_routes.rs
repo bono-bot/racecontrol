@@ -61,6 +61,17 @@ pub(crate) struct ActivityQuery {
     limit: Option<i64>,
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/activity",
+    tag = "activity",
+    params(("limit" = Option<i64>, Query, description = "Max rows (default 100, cap 500)")),
+    responses(
+        (status = 200, description = "Global activity log", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn global_activity(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ActivityQuery>,
