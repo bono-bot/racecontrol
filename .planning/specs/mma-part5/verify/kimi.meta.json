@@ -1,0 +1,12 @@
+{
+  "model": "moonshotai/kimi-k2-0905",
+  "short": "kimi",
+  "role": "reasoner-adversarial",
+  "elapsed_sec": "75.3",
+  "prompt_tokens": 15369,
+  "completion_tokens": 1828,
+  "cost_usd": 0.013791399999999999,
+  "finish_reason": "stop",
+  "json_ok": true,
+  "json_error": null
+}

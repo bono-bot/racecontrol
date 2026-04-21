@@ -1,0 +1,224 @@
+{
+  "verdict": "CONDITIONAL_PASS",
+  "score_out_of_5": 3.8,
+  "coverage_of_step1_findings": [
+    {
+      "finding_id": "C1",
+      "addressed_in_code": true,
+      "evidence": "ws_handler.rs:2450-2470 (refresh_summary_card path for WsReal after HttpSynth)",
+      "residual_risk": "none",
+      "note": "Correctly implements the upgrade path where real stats supersede synth zeros"
+    },
+    {
+      "finding_id": "C2",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:45-60 (within_grace_window) + line 105 (grace check in fetch_and_reconcile)",
+      "residual_risk": "none",
+      "note": "60s grace window properly implemented with Instant tracking"
+    },
+    {
+      "finding_id": "C3",
+      "addressed_in_code": true,
+      "evidence": "event_loop.rs:412-425 (T2 spawn with CancellationToken select! arm)",
+      "residual_risk": "none",
+      "note": "T2 tick properly respects shutdown signal"
+    },
+    {
+      "finding_id": "C4",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:210-215 (find_my_server_session + fallback to cached driver_name)",
+      "residual_risk": "low",
+      "note": "Uses server driver_name when available, falls back to cached"
+    },
+    {
+      "finding_id": "C5",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:125-127 (X-Service-Key header population)",
+      "residual_risk": "none",
+      "note": "Properly includes service key header matching remote_ops pattern"
+    },
+    {
+      "finding_id": "C6",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:70-85 (server_has_my_session with pod_id filter)",
+      "residual_risk": "none",
+      "note": "Pod ID filtering correctly implemented"
+    },
+    {
+      "finding_id": "C7",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:115 (uses rc_common::url::http_base_from_ws)",
+      "residual_risk": "none",
+      "note": "Shared URL helper properly used"
+    },
+    {
+      "finding_id": "C8",
+      "addressed_in_code": false,
+      "evidence": "session_end_fallback.rs:220-222 (hardcoded zeros for synth stats)",
+      "residual_risk": "medium",
+      "note": "No caching of last_known_stats - synth always uses zeros"
+    },
+    {
+      "finding_id": "C9",
+      "addressed_in_code": true,
+      "evidence": "ws_handler.rs:2405-2410 (blank_timer reset only on first_apply)",
+      "residual_risk": "none",
+      "note": "Blank timer correctly guarded against re-arming"
+    },
+    {
+      "finding_id": "D3",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:25 (FALLBACK_VERSION const) + logging at lines 100, 135, 150, 218",
+      "residual_risk": "none",
+      "note": "Rollback detection markers properly emitted"
+    },
+    {
+      "finding_id": "D6",
+      "addressed_in_code": true,
+      "evidence": "app_state.rs:412 (last_applied_session_end on AppState) + ws_handler.rs:2370-2390 (try_claim_apply_session)",
+      "residual_risk": "none",
+      "note": "Dedup guard correctly placed on AppState"
+    },
+    {
+      "finding_id": "D9",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:140-145 (status code gate before JSON parse)",
+      "residual_risk": "none",
+      "note": "Proper status code checking implemented"
+    },
+    {
+      "finding_id": "D11",
+      "addressed_in_code": true,
+      "evidence": "ws_handler.rs:2500-2510 (all 16 state mutations present)",
+      "residual_risk": "none",
+      "note": "Full character-for-character equivalence maintained"
+    },
+    {
+      "finding_id": "D13",
+      "addressed_in_code": true,
+      "evidence": "rc_common/src/types.rs:45-70 (BillingSessionInfo struct)",
+      "residual_risk": "none",
+      "note": "Shared type properly pinned"
+    }
+  ],
+  "new_defects_found": [
+    {
+      "defect_id": "V-1",
+      "severity": "P1",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:130-135",
+      "description": "reqwest timeout (5s) fires AFTER status check but BEFORE body parse - can cause synth on invalid 200 OK with empty body",
+      "exploit_or_trigger": "Server returns 200 OK with empty body after 4.9s, then timeout fires during json().await",
+      "suggested_fix": "Move timeout to be per-request (not per-client) and check elapsed time before json() parse",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "V-2",
+      "severity": "P1",
+      "category": "race",
+      "file_line": "crates/rc-agent/src/ws_handler.rs:2380-2390",
+      "description": "try_claim_apply_session uses RwLock write lock but fetch_and_reconcile doesn't await it - potential deadlock if T1 and T2 fire simultaneously",
+      "exploit_or_trigger": "T1 (reconnect) and T2 (tick) both try to claim same session ID simultaneously",
+      "suggested_fix": "Make try_claim_apply_session async and await it in fetch_and_reconcile, or use Mutex instead of RwLock",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-3",
+      "severity": "P2",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:220-222",
+      "description": "Synthesized session uses hardcoded zeros instead of cached last_known_stats (C8 finding not fully addressed)",
+      "exploit_or_trigger": "Any HTTP synth scenario where driver completed laps - customer sees zeroed summary card",
+      "suggested_fix": "Use monitor.session_last_known_stats from FailureMonitorState as specified in design",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "V-4",
+      "severity": "P2",
+      "category": "observability",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:148-152",
+      "description": "JSON parse errors log at WARN level but don't distinguish between malformed JSON vs missing fields - obscures schema evolution issues",
+      "exploit_or_trigger": "Server adds new field to BillingActiveResponse - all parse errors treated equally",
+      "suggested_fix": "Add field-specific error handling and log at different levels",
+      "confidence_1_to_5": 3
+    },
+    {
+      "defect_id": "V-5",
+      "severity": "P2",
+      "category": "resource",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:118-123",
+      "description": "reqwest Client built on every fetch_and_reconcile call - no connection reuse",
+      "exploit_or_trigger": "Frequent T2 ticks under high load - increased connection churn",
+      "suggested_fix": "Move Client to AppState and reuse across calls",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-6",
+      "severity": "P3",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:50-55",
+      "description": "saturating_duration_since on Windows can return negative durations due to non-monotonic clock adjustments",
+      "exploit_or_trigger": "System clock adjusted backward during grace window check",
+      "suggested_fix": "Use Instant::elapsed() which handles clock adjustments better",
+      "confidence_1_to_5": 3
+    },
+    {
+      "defect_id": "V-7",
+      "severity": "P2",
+      "category": "deploy",
+      "file_line": "crates/racecontrol/src/fleet_health_api.rs:205-215",
+      "description": "stuck_session_candidate flag doesn't verify fallback_version marker presence - will false positive on Part 5 pods",
+      "exploit_or_trigger": "Part 5 pod in silent reconnect with active session - incorrectly flagged as stuck",
+      "suggested_fix": "Add fallback_version freshness check to compute_stuck_session_candidate",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-8",
+      "severity": "P3",
+      "category": "test",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:230-360",
+      "description": "No test coverage for reqwest timeout during json() parse (V-1 scenario)",
+      "exploit_or_trigger": "Timeout during parse would cause incorrect synth",
+      "suggested_fix": "Add test case with mocked timeout during parse",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-9",
+      "severity": "P3",
+      "category": "test",
+      "file_line": "crates/rc-agent/src/ws_handler.rs:2500-2570",
+      "description": "No test coverage for concurrent apply_session_ended calls (V-2 scenario)",
+      "exploit_or_trigger": "Simultaneous T1/T2 triggers could deadlock",
+      "suggested_fix": "Add stress test with concurrent applies",
+      "confidence_1_to_5": 3
+    },
+    {
+      "defect_id": "V-10",
+      "severity": "P2",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:108-112",
+      "description": "Local session ID snapshot happens before grace window check - race condition with session ID updates",
+      "exploit_or_trigger": "Session ID updated between snapshot and grace check",
+      "suggested_fix": "Move grace check inside the monitor borrow scope",
+      "confidence_1_to_5": 4
+    }
+  ],
+  "deploy_readiness": {
+    "can_ship_as_is": false,
+    "must_fix_before_ship": [
+      "V-1",
+      "V-2",
+      "V-3",
+      "V-7"
+    ],
+    "nice_to_have": [
+      "V-4",
+      "V-5",
+      "V-6",
+      "V-8",
+      "V-9",
+      "V-10"
+    ]
+  },
+  "adversarial_summary": "The implementation correctly addresses most Step 1 findings but introduces several new P1/P2 defects that create correctness risks. The most severe issues are: (1) V-1 where reqwest timeout handling can cause incorrect session synthesis from malformed responses, (2) V-2 with potential deadlocks between concurrent session apply attempts, and (3) V-3 where the partial implementation of C8 means customers will see zeroed summary cards. The rollback detection (V-7) is also incomplete and would cause false positives. These issues require fixes before deployment. The test coverage gaps around the new defects are particularly concerning given the concurrency-sensitive nature of the changes."
+}

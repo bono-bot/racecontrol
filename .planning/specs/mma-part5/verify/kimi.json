@@ -1,0 +1,172 @@
+{
+  "verdict": "BLOCK",
+  "score_out_of_5": 2,
+  "coverage_of_step1_findings": [
+    {
+      "finding_id": "C1",
+      "addressed_in_code": true,
+      "evidence": "ws_handler.rs:2325-2570 refresh_summary_card path",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C2",
+      "addressed_in_code": true,
+      "evidence": "session_end_fallback.rs:GRACE_WINDOW + within_grace_window",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C3",
+      "addressed_in_code": false,
+      "evidence": "session_end_fallback.rs has no CancellationToken plumbing",
+      "residual_risk": "high",
+      "note": "T2 task never cancelled on graceful shutdown"
+    },
+    {
+      "finding_id": "C4",
+      "addressed_in_code": true,
+      "evidence": "fetch_and_reconcile uses server driver_name",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C5",
+      "addressed_in_code": true,
+      "evidence": "fetch_and_reconcile adds X-Service-Key header",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C6",
+      "addressed_in_code": true,
+      "evidence": "server_has_my_session filters by pod_id",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C7",
+      "addressed_in_code": true,
+      "evidence": "uses rc_common::url::http_base_from_ws",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "C9",
+      "addressed_in_code": true,
+      "evidence": "blank_timer reset only on first-apply",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "D3",
+      "addressed_in_code": true,
+      "evidence": "racecontrol fleet_health_api.rs adds stuck_session_candidate",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "D6",
+      "addressed_in_code": true,
+      "evidence": "last_applied_session_end on AppState",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "D9",
+      "addressed_in_code": true,
+      "evidence": "status().is_success() gate before JSON parse",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "D11",
+      "addressed_in_code": true,
+      "evidence": "apply_session_ended resets inactivity_monitor + crash_recovery",
+      "residual_risk": "none"
+    },
+    {
+      "finding_id": "D13",
+      "addressed_in_code": true,
+      "evidence": "BillingSessionInfo pinned in rc_common",
+      "residual_risk": "none"
+    }
+  ],
+  "new_defects_found": [
+    {
+      "defect_id": "V-1",
+      "severity": "P0",
+      "category": "race",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:120",
+      "description": "Race between HTTP timeout and JSON parse: if reqwest timeout fires AFTER status check but BEFORE body read, the task will silently drop the error and return, leaving the session stuck forever.",
+      "exploit_or_trigger": "Inject 5.1 s network stall after 200 OK; JSON parse never completes, no synth fires.",
+      "suggested_fix": "Replace manual timeout with reqwest::ClientBuilder::timeout(5s) and bubble up reqwest::Error to caller; ensure all error arms log at WARN.",
+      "confidence_1_to_5": 5
+    },
+    {
+      "defect_id": "V-2",
+      "severity": "P0",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:140",
+      "description": "JSON parse failure on malformed body (e.g. missing sessions field) is swallowed with WARN log but no synth; customer session remains stuck.",
+      "exploit_or_trigger": "Server returns 200 OK with body {\"sessions\":null}; serde fails, synth skipped.",
+      "suggested_fix": "Add explicit field validation: if body.sessions.is_none() treat as server error and skip synth.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-3",
+      "severity": "P1",
+      "category": "race",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:110",
+      "description": "Instant monotonicity on Windows can drift backwards after suspend; saturating_duration_since may underflow, causing grace window to expire early and false-positive synth.",
+      "exploit_or_trigger": "Pod laptop suspended for 90 s during session start; grace window incorrectly expires at t=30 s.",
+      "suggested_fix": "Clamp grace window to wall-clock elapsed via SystemTime to detect suspend; or widen to 120 s.",
+      "confidence_1_to_5": 3
+    },
+    {
+      "defect_id": "V-4",
+      "severity": "P1",
+      "category": "resource",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:80",
+      "description": "New reqwest::Client built per call leaks TCP connections under load; no connection pool reuse.",
+      "exploit_or_trigger": "T2 fires every 300 s × 8 pods = 96 new clients/day; OS file-descriptor exhaustion after weeks.",
+      "suggested_fix": "Store Client in AppState singleton; reuse across calls.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-5",
+      "severity": "P2",
+      "category": "observability",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:130",
+      "description": "Zeroed laps/best_lap_ms/driving_seconds in synth summary mislead customers and break analytics; no UI flag indicates synthetic data.",
+      "exploit_or_trigger": "Any session where HTTP fallback fires shows 0 laps summary.",
+      "suggested_fix": "Add synthetic=true flag to summary card; populate from cached last-known stats if available.",
+      "confidence_1_to_5": 3
+    },
+    {
+      "defect_id": "V-6",
+      "severity": "P2",
+      "category": "deploy",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:90",
+      "description": "Service key fallback to empty string on mesh_key_cache miss causes silent 401 and no synth; no alert to operators.",
+      "exploit_or_trigger": "mesh_key_cache file missing after rollback; fallback silently fails.",
+      "suggested_fix": "Fail fast with ERROR log if service key unavailable; escalate to operator.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "V-7",
+      "severity": "P1",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:fetch_and_reconcile:150",
+      "description": "T2 periodic tick is spawned inside event_loop::run but never cancelled on graceful shutdown; may fire during process exit and race with cleanup.",
+      "exploit_or_trigger": "Ctrl-C during active session; T2 fires 300 ms later and calls apply_session_ended while game process is already shutting down.",
+      "suggested_fix": "Plumb CancellationToken from main shutdown into event_loop::run and select! on it for T2 arm.",
+      "confidence_1_to_5": 4
+    }
+  ],
+  "deploy_readiness": {
+    "can_ship_as_is": false,
+    "must_fix_before_ship": [
+      "V-1",
+      "V-2",
+      "V-4",
+      "V-7"
+    ],
+    "nice_to_have": [
+      "V-3",
+      "V-5",
+      "V-6"
+    ]
+  },
+  "adversarial_summary": "The implementation missed critical edge cases around HTTP timeout races and JSON parse failures that can permanently leave sessions stuck. Additionally, the T2 periodic task lacks graceful shutdown plumbing and the per-call reqwest client risks resource exhaustion. These P0/P1 defects must be fixed before deploy."
+}
