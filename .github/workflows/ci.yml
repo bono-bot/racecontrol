@@ -47,7 +47,12 @@ jobs:
         run: cargo test -p racecontrol-crate
 
       - name: Clippy (all workspace)
-        run: cargo clippy --workspace -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity
+        # Rust 1.95 tightened several style lints that currently fire across multiple crates
+        # (rc-installer, rc-guardian, ai-debugger, rc-process-guard). Option B from PR #4
+        # review: suppress the style-only categories to unblock build CI while fix-everything
+        # PRs (#4 rc-common, #5 rc-installer, follow-ups) land crate-by-crate. When a crate
+        # is fully cleaned, the corresponding -A can be removed to re-enforce the lint.
+        run: cargo clippy --workspace -- -D warnings -A clippy::too_many_arguments -A clippy::type_complexity -A clippy::unnecessary_map_or -A clippy::useless_format -A clippy::collapsible_if -A clippy::io_other_error -A clippy::redundant_guard -A clippy::manual_is_multiple_of -A clippy::single_match
 
       - name: Build rc-agent (minimal features)
         run: cargo build -p rc-agent-crate --no-default-features
