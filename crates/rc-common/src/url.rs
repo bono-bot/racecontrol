@@ -35,7 +35,7 @@ pub fn http_base_from_ws(ws_url: &str) -> String {
         None => {
             // Also strip any trailing `?query` or `#frag` when there's no `/ws` path.
             let tail_start = http_scheme[after_scheme_start..]
-                .find(|c| c == '?' || c == '#')
+                .find(['?', '#'])
                 .map(|i| after_scheme_start + i);
             match tail_start {
                 Some(idx) => http_scheme[..idx].to_string(),

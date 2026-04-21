@@ -9,7 +9,6 @@ use rc_common::protocol::{
     AgentMessage, CoreToAgentMessage, DashboardEvent, LaunchNoteEvent, LaunchOrigin,
     LaunchState, LaunchStatusCard,
 };
-use rc_common::types::SimType;
 
 /// Test 1: DashboardEvent::LaunchStatusChanged round-trip serde.
 /// JSON must have `"event":"launch_status_changed"` and `"data":{...}` envelope.

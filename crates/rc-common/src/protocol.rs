@@ -771,6 +771,11 @@ impl CoreMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "snake_case")]
+// FullConfigPush's payload is ~1152 bytes; other variants average ~176 bytes.
+// Boxing the large variant would change every construction + pattern-match
+// across 5 call sites in rc-agent + racecontrol. Deferred as an optimization
+// phase; wire format via serde is identical either way.
+#[allow(clippy::large_enum_variant)]
 pub enum CoreToAgentMessage {
     /// Acknowledge registration
     Registered { pod_id: String },

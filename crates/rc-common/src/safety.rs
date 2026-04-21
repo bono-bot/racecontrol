@@ -359,6 +359,10 @@ impl Default for PerActionCircuitBreaker {
 /// Default TTL for idempotency entries (10 minutes).
 const IDEMPOTENCY_TTL_SECS: u64 = 600;
 /// Cleanup stale entries when map exceeds this size.
+/// Intentionally retained as a tunable even though the periodic cleanup
+/// path isn't wired yet — threshold is referenced by the doc comment on
+/// IdempotencyTracker as a future knob.
+#[allow(dead_code)]
 const IDEMPOTENCY_CLEANUP_THRESHOLD: usize = 500;
 
 /// Tracks recently applied fixes to prevent duplicate application.
