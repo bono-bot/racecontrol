@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 // ─── Sim Types ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum SimType {
     AssettoCorsa,
@@ -37,6 +39,8 @@ impl std::fmt::Display for SimType {
 // ─── Pod ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum PodStatus {
     Offline,
@@ -80,6 +84,8 @@ pub enum PodFailureReason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct PodInfo {
     pub id: String,
     pub number: u32,
@@ -127,6 +133,8 @@ pub struct PodInfo {
 // ─── Driver ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct Driver {
     pub id: String,
     pub name: String,
@@ -142,6 +150,8 @@ pub struct Driver {
 // ─── Session ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum SessionType {
     Practice,
@@ -244,6 +254,8 @@ pub struct Position3D {
 // ─── Lap ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct LapData {
     pub id: String,
     pub session_id: String,
@@ -265,6 +277,8 @@ pub struct LapData {
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct LeaderboardEntry {
     pub position: u32,
     pub driver_name: String,
@@ -279,6 +293,8 @@ pub struct LeaderboardEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct Leaderboard {
     pub session_id: String,
     pub track: String,
@@ -290,6 +306,8 @@ pub struct Leaderboard {
 // ─── Events ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     SingleRace,
@@ -299,6 +317,8 @@ pub enum EventType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct Event {
     pub id: String,
     pub name: String,
@@ -314,6 +334,8 @@ pub struct Event {
 // ─── Booking ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct Booking {
     pub id: String,
     pub driver_id: String,
@@ -328,6 +350,8 @@ pub struct Booking {
 // ─── Driving State ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum DrivingState {
     /// Customer is actively driving (pedal/wheel inputs or game telemetry detected)
@@ -343,6 +367,8 @@ pub enum DrivingState {
 /// Assetto Corsa shared memory STATUS field values.
 /// Maps to graphics::STATUS: 0=Off, 1=Replay, 2=Live, 3=Pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum AcStatus {
     /// AC not running or in menu (STATUS=0)
@@ -360,6 +386,8 @@ pub enum AcStatus {
 // ─── Billing ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum BillingSessionStatus {
     Pending,
@@ -383,6 +411,8 @@ pub enum BillingSessionStatus {
 /// Signal that a game is in a playable state -- triggers billing start.
 /// AC uses AcStatus::Live (unchanged). Other sims emit PlayableSignal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum PlayableSignal {
     /// Telemetry adapter detected live session (e.g., F1 25 first UDP packet)
@@ -401,6 +431,8 @@ impl PlayableSignal {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct BillingSessionInfo {
     pub id: String,
     pub driver_id: String,
@@ -444,6 +476,8 @@ pub struct BillingSessionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct PricingTier {
     pub id: String,
     pub name: String,
@@ -456,6 +490,8 @@ pub struct PricingTier {
 // ─── Game Launcher ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum GameState {
     /// No game running on this pod
@@ -574,6 +610,8 @@ pub struct LaunchDiagnostics {
 // ─── AC Dedicated Server ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 #[serde(rename_all = "snake_case")]
 pub enum AcServerStatus {
     Starting,
@@ -584,6 +622,8 @@ pub enum AcServerStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct AcSessionBlock {
     pub name: String,
     pub session_type: SessionType,
@@ -593,6 +633,8 @@ pub struct AcSessionBlock {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct AcWeatherConfig {
     pub graphics: String,
     pub base_temperature_ambient: u32,
@@ -622,6 +664,8 @@ impl Default for AcWeatherConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct AcDynamicTrackConfig {
     pub session_start: u32,
     pub randomness: u32,
@@ -641,6 +685,8 @@ impl Default for AcDynamicTrackConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct AcEntrySlot {
     pub car_model: String,
     pub skin: String,
@@ -655,6 +701,8 @@ pub struct AcEntrySlot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct AcLanSessionConfig {
     pub name: String,
     pub track: String,
@@ -978,6 +1026,8 @@ pub struct GroupMemberInfo {
 /// Crash report sent by rc-watchdog to racecontrol after restarting rc-agent.
 /// Fire-and-forget HTTP POST — delivery failure is non-fatal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct WatchdogCrashReport {
     pub pod_id: String,
     pub exit_code: Option<i32>,
