@@ -14,8 +14,7 @@ pub use rc_common::config_schema::{
     AgentConfig, AiDebuggerConfig as _RcCommonAiDebuggerConfig, CoreConfig, GameExeConfig,
     GamesConfig, KioskConfig, LockScreenConfig, MmaConfig, NodeType, PodConfig, PreflightConfig,
     ProcessGuardConfig, TelemetryPortsConfig, WheelbaseConfig,
-    default_auto_end_orphan_session_secs, default_core_url, default_sim, default_sim_ip,
-    default_sim_port, default_telemetry_ports, default_wheelbase_pid, default_wheelbase_vid,
+    default_auto_end_orphan_session_secs, default_sim_ip, default_sim_port,
 };
 
 #[cfg(feature = "ai-debugger")]

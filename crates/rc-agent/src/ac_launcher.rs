@@ -575,7 +575,7 @@ pub fn launch_ac(params: &AcLaunchParams) -> Result<LaunchResult> {
             // Preserve existing file, only update [FF] section
             match std::fs::read_to_string(&controls_path) {
                 Ok(content) => {
-                    let mut lines: Vec<&str> = content.lines().collect();
+                    let lines: Vec<&str> = content.lines().collect();
                     let mut in_ff = false;
                     let mut ff_found = false;
                     let mut new_lines: Vec<String> = Vec::new();
@@ -1736,8 +1736,8 @@ fn direct_launch_fallback(
 
     // Kill any lingering AC processes before launching
     {
-        let mut kill1 = spawn_safe("taskkill"); kill1.args(&["/F", "/IM", "acs.exe"]);
-        let mut kill2 = spawn_safe("taskkill"); kill2.args(&["/F", "/IM", "AssettoCorsa.exe"]);
+        let mut kill1 = spawn_safe("taskkill"); kill1.args(["/F", "/IM", "acs.exe"]);
+        let mut kill2 = spawn_safe("taskkill"); kill2.args(["/F", "/IM", "AssettoCorsa.exe"]);
         let _ = kill1.spawn().and_then(|mut c| c.wait());
         let _ = kill2.spawn().and_then(|mut c| c.wait());
     }

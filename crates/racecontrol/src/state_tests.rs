@@ -212,7 +212,7 @@ fn or_insert_with_returns_existing_entry_not_duplicate() {
     // Simulate what pod_monitor does: entry().or_insert_with()
     // Record an attempt on the pre-existing entry
     {
-        let entry = backoffs.entry("pod_3".to_string()).or_insert_with(EscalatingBackoff::new);
+        let entry = backoffs.entry("pod_3".to_string()).or_default();
         entry.record_attempt(chrono::Utc::now());
     }
     // Re-access — should still be at attempt 1 (existing entry was mutated, not replaced)

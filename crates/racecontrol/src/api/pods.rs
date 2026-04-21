@@ -356,7 +356,7 @@ exe_path = "C:/fake/acs.exe"
     /// if rc-agent changes field names, this test will fail before deploy.
     #[test]
     fn content_dirs_response_deserializes_from_wire_json() {
-        use rc_common::inventory_types::{ContentDirsResponse, GameDirs};
+        use rc_common::inventory_types::ContentDirsResponse;
 
         let wire_json = r#"{
             "games": [

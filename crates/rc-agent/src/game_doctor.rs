@@ -141,7 +141,7 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
             retry_hint: RetryHint::NoRetry,
         };
     }
-    let ac_dir = ac_dir.expect("checked above");
+    let _ac_dir = ac_dir.expect("checked above");
 
     // ── Check 3 (MiMo SRE): Orphan acs.exe from previous session ──
     if let Some(pid) = find_acs_pid() {

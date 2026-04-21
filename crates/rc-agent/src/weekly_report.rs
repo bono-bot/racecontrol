@@ -141,8 +141,8 @@ pub fn seconds_until_next_sunday_midnight_ist() -> u64 {
         .single()
         .expect("IST is a fixed offset — no ambiguity");
 
-    let secs = (target_midnight - now_ist).num_seconds().max(1) as u64;
-    secs
+    
+    (target_midnight - now_ist).num_seconds().max(1) as u64
 }
 
 /// Collected weekly KPIs.
@@ -515,7 +515,7 @@ fn format_whatsapp_message(r: &WeeklyReport) -> String {
             // Shorten model_id for WhatsApp readability: "deepseek/deepseek-r1" → "deepseek-r1"
             let short_name = model_id
                 .split('/')
-                .last()
+                .next_back()
                 .unwrap_or(model_id.as_str());
             msg.push_str(&format!(
                 "- {}: {:.0}% ({} runs)\n",
@@ -542,7 +542,7 @@ fn format_whatsapp_message(r: &WeeklyReport) -> String {
         for (model_id, trend) in &r.model_trends {
             let short_name = model_id
                 .split('/')
-                .last()
+                .next_back()
                 .unwrap_or(model_id.as_str());
             msg.push_str(&format!("- {}: {}\n", short_name, trend));
         }

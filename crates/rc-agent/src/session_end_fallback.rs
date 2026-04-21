@@ -52,7 +52,7 @@ const LOG_TARGET: &str = "session-end-fallback";
 /// D3 rollback-detection marker. Every T1/T2 fire AND every synth emit this
 /// marker. Server-side `stuck_session_candidate` rule (Commit 6) flags pods
 /// lacking this marker despite holding an active session id.
-pub(crate) const FALLBACK_VERSION: &'static str = "part5_v1";
+pub(crate) const FALLBACK_VERSION: &str = "part5_v1";
 
 /// MMA C2 P0 consensus: do NOT fire the HTTP fallback within the first 60 s
 /// of a newly-set `active_billing_session_id`. Guards the race where rc-agent

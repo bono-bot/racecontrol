@@ -1016,8 +1016,8 @@ pub fn sanitize_mma_prompt(input: &str) -> String {
     let mut j = 0;
     while j < chars.len() {
         if j + 3 < chars.len()
-            && chars[j].to_ascii_lowercase() == 's'
-            && chars[j + 1].to_ascii_lowercase() == 'k'
+            && chars[j].eq_ignore_ascii_case(&'s')
+            && chars[j + 1].eq_ignore_ascii_case(&'k')
             && (chars[j + 2] == '-' || chars[j + 2] == '_')
         {
             let start = j;

@@ -117,7 +117,7 @@ mod tests {
     use super::*;
     use axum::routing::get;
     use axum::Router;
-    use std::net::SocketAddr;
+    
     use tower::ServiceExt;
 
     // ── classify_ip unit tests ──────────────────────────────────────────

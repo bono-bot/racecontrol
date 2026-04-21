@@ -215,7 +215,7 @@ unsafe fn paint_pin_entry(
     driver_name: &str,
     pricing_tier: &str,
     alloc_secs: u32,
-    pin_dots: &str,
+    _pin_dots: &str,
     pin_count: usize,
     pin_error: &Option<String>,
 ) {
@@ -356,7 +356,7 @@ unsafe fn paint_active_session(
     allocated_secs: u32,
 ) {
     use winapi::shared::windef::RECT;
-    use winapi::um::wingdi::{CreateSolidBrush, DeleteObject};
+    
     use winapi::um::winuser::FillRect;
 
     let col_white = rgb(255, 255, 255);
@@ -891,7 +891,7 @@ unsafe fn paint_blanking_frame(
     blanking_tick: usize,
 ) {
     use winapi::um::wingdi::{
-        BitBlt, CreateCompatibleDC, DeleteDC, SelectObject, SetStretchBltMode, StretchBlt,
+        CreateCompatibleDC, DeleteDC, SelectObject, SetStretchBltMode, StretchBlt,
         DeleteObject, HALFTONE, SRCCOPY,
     };
 
@@ -928,7 +928,7 @@ unsafe fn paint_blanking_frame(
     let old_obj = SelectObject(src_dc, hbmp as *mut _);
 
     // HALFTONE gives smoother scaling than default COLORONCOLOR
-    SetStretchBltMode(hdc, HALFTONE as i32);
+    SetStretchBltMode(hdc, HALFTONE);
 
     StretchBlt(
         hdc,

@@ -8,7 +8,7 @@
 //! - All fixes are idempotent — safe to run multiple times.
 
 use rc_common::types::CrashDiagResult;
-use rc_common::verification::{ColdVerificationChain, VerifyStep, VerificationError};
+use rc_common::verification::{VerifyStep, VerificationError};
 use super::watchdog::CrashContext;
 use crate::sentry_config;
 use std::io::Write;
@@ -146,11 +146,11 @@ impl RestartTracker {
 pub fn fix_kill_zombies() -> CrashDiagResult {
     #[cfg(test)]
     {
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "zombie_kill".to_string(),
             detail: "Killed zombie rc-agent processes".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -173,11 +173,11 @@ pub fn fix_kill_zombies() -> CrashDiagResult {
 pub fn fix_wait_for_port() -> CrashDiagResult {
     #[cfg(test)]
     {
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "port_wait".to_string(),
             detail: "Port is free".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -214,11 +214,11 @@ pub fn fix_close_wait(ctx: &CrashContext) -> CrashDiagResult {
     #[cfg(test)]
     {
         let _ = ctx;
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "close_wait_clean".to_string(),
             detail: "Cleaned stale CLOSE_WAIT sockets".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -244,11 +244,11 @@ pub fn fix_close_wait(ctx: &CrashContext) -> CrashDiagResult {
 pub fn fix_config_repair() -> CrashDiagResult {
     #[cfg(test)]
     {
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "config_repair".to_string(),
             detail: "Config files verified".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -282,11 +282,11 @@ pub fn fix_shader_cache(ctx: &CrashContext) -> CrashDiagResult {
     #[cfg(test)]
     {
         let _ = ctx;
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "shader_cache_clear".to_string(),
             detail: "No shader cache issues detected".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -452,11 +452,11 @@ impl VerifyStep for StepHealthPoll {
 pub fn restart_service() -> CrashDiagResult {
     #[cfg(test)]
     {
-        return CrashDiagResult {
+        CrashDiagResult {
             fix_type: "restart_delegated".to_string(),
             detail: "restart delegated to rc-watchdog (MMA consensus)".to_string(),
             success: true,
-        };
+        }
     }
     #[cfg(not(test))]
     {
@@ -776,7 +776,7 @@ pub fn send_whatsapp_alert(pod_id: &str, message: &str) {
 /// Boot storms should not trigger MAINTENANCE_MODE (RECOV-10).
 fn is_boot_storm() -> bool {
     #[cfg(test)]
-    { return false; }
+    { false}
     #[cfg(not(test))]
     {
         // Use GetTickCount64 which returns ms since boot
@@ -796,7 +796,7 @@ pub fn enter_maintenance_mode(reason: &str, restart_count: u32, _diagnostic_cont
     #[cfg(test)]
     {
         let _ = (reason, restart_count, _diagnostic_context);
-        return true;
+        true
     }
     #[cfg(not(test))]
     {
@@ -858,7 +858,7 @@ pub fn enter_maintenance_mode(reason: &str, restart_count: u32, _diagnostic_cont
 pub fn read_maintenance_payload() -> Option<MaintenanceModePayload> {
     #[cfg(test)]
     {
-        return None;
+        None
     }
     #[cfg(not(test))]
     {
@@ -874,7 +874,7 @@ pub fn read_maintenance_payload() -> Option<MaintenanceModePayload> {
 pub fn check_and_clear_maintenance() -> ClearResult {
     #[cfg(test)]
     {
-        return ClearResult::NotInMaintenance;
+        ClearResult::NotInMaintenance
     }
     #[cfg(not(test))]
     {
@@ -1032,7 +1032,7 @@ pub fn alert_recurring_maintenance(clear_count: u32) {
 pub fn is_maintenance_mode() -> bool {
     #[cfg(test)]
     {
-        return false;
+        false
     }
     #[cfg(not(test))]
     {
@@ -1045,7 +1045,7 @@ pub fn is_maintenance_mode() -> bool {
 pub fn is_rcagent_self_restart() -> bool {
     #[cfg(test)]
     {
-        return false;
+        false
     }
     #[cfg(not(test))]
     {
@@ -1432,7 +1432,7 @@ mod tests {
     fn escalate_cooldown_suppresses_repeat() {
         // A just-set last_escalation should still be within cooldown
         let last = Some(Instant::now());
-        assert!(last.unwrap().elapsed() < ESCALATION_COOLDOWN);
+        assert!(last.expect("just constructed as Some").elapsed() < ESCALATION_COOLDOWN);
     }
 
     #[test]

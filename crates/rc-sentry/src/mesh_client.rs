@@ -2,6 +2,8 @@
 //!
 //! Runs in a dedicated thread, completely isolated from the main HTTP server
 //! and watchdog. Uses sync `tungstenite` — no tokio, no async runtime.
+
+#![allow(clippy::result_large_err)]
 //!
 //! Features:
 //! - Connects to Bono hub via Tailscale WS with PSK Bearer auth
@@ -280,7 +282,7 @@ fn handle_message(
             let corr_id = correlation_id.to_string();
 
             // Role-based filtering
-            if config.role == "pos" && POS_BLOCKED.iter().any(|&b| b == command.as_str()) {
+            if config.role == "pos" && POS_BLOCKED.contains(&command.as_str()) {
                 tracing::warn!(target: "mesh", command = %command, role = %config.role, "command blocked by role filter");
                 let _ = send_exec_result(ws, config, &exec_id, &command, 403, "",
                     &format!("Command '{}' not allowed for role '{}'", command, config.role),

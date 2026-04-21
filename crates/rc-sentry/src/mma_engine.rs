@@ -5,7 +5,7 @@
 //!
 //! Phase 323, MIG-04.
 
-use rc_common::diagnostic_types::{DiagnosticTrigger, TierDiagnosis, normalize_problem_key};
+use rc_common::diagnostic_types::{TierDiagnosis, normalize_problem_key};
 use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 

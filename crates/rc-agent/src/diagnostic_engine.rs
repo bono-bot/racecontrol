@@ -432,7 +432,7 @@ fn count_recent_violation_lines() -> u64 {
 pub fn count_close_wait_sockets() -> u64 {
     // Use absolute path to prevent PATH hijacking, with 10s timeout
     // Migrated to spawn_safe_capture: stdin=null, CREATE_NO_WINDOW, stdout/stderr default for capture
-    use std::time::Duration;
+    
     let child = rc_common::spawn_safe::spawn_safe_capture(r"C:\Windows\System32\NETSTAT.EXE")
         .args(["-n", "-p", "tcp"])
         .spawn();
@@ -466,7 +466,7 @@ pub fn count_close_wait_sockets() -> u64 {
 /// unbounded — 15 orphans = 1.35GB wasted RAM, degrades game performance."
 /// Returns count of powershell.exe processes (0-1 is normal, >3 is a leak).
 pub fn count_orphan_powershell() -> u32 {
-    use sysinfo::{System, ProcessesToUpdate, Pid};
+    use sysinfo::{System, ProcessesToUpdate};
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, false);
     // Count PowerShell processes whose parent is no longer running (orphans).

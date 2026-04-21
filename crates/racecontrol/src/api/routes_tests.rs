@@ -434,7 +434,7 @@ mod session_detail_tests {
 
 #[cfg(test)]
 mod public_session_tests {
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     /// Test public_session_summary returns first name only (privacy) and correct fields.
     #[tokio::test]

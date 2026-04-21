@@ -387,7 +387,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
     // via its match table (billing_session_end.rs:53).
     for (pod_id, session_id, reason) in &phase414_idle_auto_ends {
         let ended = crate::billing_session_end::end_billing_session_public(
-            &state,
+            state,
             session_id.as_str(),
             rc_common::types::BillingSessionStatus::Completed, // BillingEvent::End via end_billing_session match
             Some(reason.as_str()),
@@ -400,7 +400,7 @@ pub async fn tick_all_timers(state: &Arc<AppState>) {
                 "Phase 414: Auto-ended session at 15-min idle (Completed via BillingEvent::End)"
             );
             crate::activity_log::log_pod_activity(
-                &state, pod_id, "billing", "Session Auto-Ended (Idle)",
+                state, pod_id, "billing", "Session Auto-Ended (Idle)",
                 reason, "core", Some(session_id),
             );
         } else {

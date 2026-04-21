@@ -376,7 +376,7 @@ impl AssettoCorsaAdapter {
         // Track sector transitions (same logic as direct path)
         if current_sector != self.last_sector_index && last_sector_time > 0 {
             let completed_sector = self.last_sector_index;
-            if completed_sector >= 0 && completed_sector < 3 {
+            if (0..3).contains(&completed_sector) {
                 self.sector_times[completed_sector as usize] = Some(last_sector_time as u32);
             }
             self.last_sector_index = current_sector;
@@ -449,7 +449,7 @@ impl AssettoCorsaAdapter {
             sector3_ms: self.sector_times[2],
             lap_id: None,
             sim_type: Some(SimType::AssettoCorsa),
-            normalized_car_position: if normalized_pos >= 0.0 && normalized_pos <= 1.0 {
+            normalized_car_position: if (0.0..=1.0).contains(&normalized_pos) {
                 Some(normalized_pos)
             } else {
                 None
@@ -679,7 +679,7 @@ impl SimAdapter for AssettoCorsaAdapter {
         if current_sector != self.last_sector_index && last_sector_time > 0 {
             // A sector just completed — store its time
             let completed_sector = self.last_sector_index;
-            if completed_sector >= 0 && completed_sector < 3 {
+            if (0..3).contains(&completed_sector) {
                 self.sector_times[completed_sector as usize] = Some(last_sector_time as u32);
             }
             self.last_sector_index = current_sector;
@@ -766,7 +766,7 @@ impl SimAdapter for AssettoCorsaAdapter {
             sector3_ms: self.sector_times[2],
             lap_id: None, // Phase 251: stamped by event_loop before WS send
             sim_type: Some(SimType::AssettoCorsa),
-            normalized_car_position: if normalized_car_position >= 0.0 && normalized_car_position <= 1.0 {
+            normalized_car_position: if (0.0..=1.0).contains(&normalized_car_position) {
                 Some(normalized_car_position)
             } else {
                 None

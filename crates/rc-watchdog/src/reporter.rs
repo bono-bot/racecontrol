@@ -1,5 +1,4 @@
 use rc_common::types::WatchdogCrashReport;
-use tracing;
 
 /// Build the crash report URL from core URL and pod ID.
 /// Extracted as a testable helper.

@@ -255,7 +255,7 @@ fn preset_track_ids_valid() {
 fn presets_featured_flag() {
     let featured_count = catalog_data::PRESETS.iter().filter(|p| p.featured).count();
     assert!(
-        featured_count >= 3 && featured_count <= 4,
+        (3..=4).contains(&featured_count),
         "Expected 3-4 featured presets, got {}",
         featured_count
     );

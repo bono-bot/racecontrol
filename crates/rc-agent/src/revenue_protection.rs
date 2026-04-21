@@ -132,7 +132,7 @@ pub fn spawn(
         }
 
         // Unreachable, but log if the loop ever exits.
-        #[allow(unreachable_code)]
+        
         tracing::error!(target: LOG_TARGET, "Revenue protection monitor exited unexpectedly");
     });
 }

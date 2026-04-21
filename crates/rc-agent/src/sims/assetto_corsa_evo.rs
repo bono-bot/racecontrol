@@ -168,7 +168,7 @@ impl AssettoCorsaEvoAdapter {
 
 impl SimAdapter for AssettoCorsaEvoAdapter {
     fn sim_type(&self) -> SimType {
-        self.target_sim.clone()
+        self.target_sim
     }
 
     /// Connect to AC EVO shared memory.
@@ -338,7 +338,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
             let last_sector_time = Self::read_i32(gh, graphics::LAST_SECTOR_TIME);
             if current_sector != self.last_sector_index && last_sector_time > 0 {
                 let completed_sector = self.last_sector_index;
-                if completed_sector >= 0 && completed_sector < 3 {
+                if (0..3).contains(&completed_sector) {
                     self.sector_times[completed_sector as usize] = Some(last_sector_time as u32);
                 }
                 self.last_sector_index = current_sector;
@@ -360,7 +360,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
                         session_id: String::new(),
                         driver_id: String::new(),
                         pod_id: self.pod_id.clone(),
-                        sim_type: self.target_sim.clone(),
+                        sim_type: self.target_sim,
                         track: self.current_track.clone(),
                         car: self.current_car.clone(),
                         lap_number: completed_laps,
@@ -450,7 +450,7 @@ impl SimAdapter for AssettoCorsaEvoAdapter {
         Ok(Some(SessionInfo {
             id: String::new(),
             session_type: rc_common::types::SessionType::Practice,
-            sim_type: self.target_sim.clone(),
+            sim_type: self.target_sim,
             track: self.current_track.clone(),
             car_class: None,
             status: rc_common::types::SessionStatus::Active,

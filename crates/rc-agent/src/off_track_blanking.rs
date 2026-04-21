@@ -115,7 +115,7 @@ impl OffTrackBlanking {
 fn spawn_blanking_window() {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use winapi::shared::minwindef::*;
+    
     use winapi::um::libloaderapi::GetModuleHandleW;
     use winapi::um::winuser::*;
 
@@ -222,7 +222,7 @@ unsafe extern "system" fn blanking_wnd_proc(
                 // Create large font for branding
                 let font = CreateFontW(
                     120, 0, 0, 0,
-                    FW_BOLD as i32,
+                    FW_BOLD,
                     0, 0, 0,
                     DEFAULT_CHARSET,
                     OUT_DEFAULT_PRECIS,
@@ -250,7 +250,7 @@ unsafe extern "system" fn blanking_wnd_proc(
                 let subtitle = "OFF TRACK\0".encode_utf16().collect::<Vec<u16>>();
                 let subtitle_font = CreateFontW(
                     60, 0, 0, 0,
-                    FW_NORMAL as i32,
+                    FW_NORMAL,
                     0, 0, 0,
                     DEFAULT_CHARSET,
                     OUT_DEFAULT_PRECIS,

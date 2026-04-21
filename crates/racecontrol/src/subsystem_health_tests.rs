@@ -136,7 +136,7 @@ mod general_tests {
             .format("%Y-%m-%dT%H:%M:%S%.3fZ")
             .to_string();
         let age = parse_sync_age_secs(&ts).expect("should parse");
-        assert!(age >= 59 && age <= 62, "age was {}", age);
+        assert!((59..=62).contains(&age), "age was {}", age);
     }
 
     #[test]
@@ -145,7 +145,7 @@ mod general_tests {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         let age = parse_sync_age_secs(&ts).expect("should parse");
-        assert!(age >= 29 && age <= 32, "age was {}", age);
+        assert!((29..=32).contains(&age), "age was {}", age);
     }
 
     #[test]

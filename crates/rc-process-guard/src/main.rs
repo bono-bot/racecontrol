@@ -319,15 +319,11 @@ async fn kill_process_verified_james(pid: u32, expected_name: String, expected_s
     let identity_ok = tokio::task::spawn_blocking(move || {
         let mut sys = sysinfo::System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        match sys.process(sysinfo::Pid::from_u32(pid)) {
-            Some(p)
-                if p.name().to_string_lossy().to_lowercase() == expected_name
-                    && p.start_time() == expected_start_time =>
-            {
-                true
-            }
-            _ => false,
-        }
+        matches!(
+            sys.process(sysinfo::Pid::from_u32(pid)),
+            Some(p) if p.name().to_string_lossy().to_lowercase() == expected_name
+                && p.start_time() == expected_start_time
+        )
     })
     .await
     .unwrap_or(false);

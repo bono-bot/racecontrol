@@ -1,6 +1,5 @@
 //! Tests for metrics, metrics_intel modules (ARCH-03 split).
 
-use super::*;
 use crate::api::metrics_intel::*;
 use sqlx::SqlitePool;
 

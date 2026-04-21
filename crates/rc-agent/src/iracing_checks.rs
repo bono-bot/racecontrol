@@ -12,7 +12,6 @@
 /// check_iracing_ready() is the pre-launch gate. It does NOT do a 30s wait —
 /// that is the post-launch phase handled by wait_for_iracing_window() and is
 /// triggered as a background task from ws_handler after GameProcess::launch().
-use tracing;
 
 const LOG_TARGET: &str = "iracing-checks";
 

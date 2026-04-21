@@ -38,6 +38,7 @@ const STALL_WARN_SECS: u64 = 15;   // STALL-01: UDP silent >=15s -> SessionStall
 /// Shared state updated by main.rs event loop and read by failure_monitor.
 /// Sent via tokio::sync::watch channel — clone-on-read, no locking required.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FailureMonitorState {
     /// Current game process PID (None = no game running)
     pub game_pid: Option<u32>,
@@ -76,23 +77,6 @@ pub struct FailureMonitorState {
     pub sim_type: Option<SimType>,
 }
 
-impl Default for FailureMonitorState {
-    fn default() -> Self {
-        Self {
-            game_pid: None,
-            last_udp_secs_ago: None,
-            hid_connected: false,
-            launch_started_at: None,
-            billing_active: false,
-            recovery_in_progress: false,
-            driving_state: None,
-            billing_paused: false,
-            active_billing_session_id: None,
-            active_billing_session_id_set_at: None,
-            sim_type: None,
-        }
-    }
-}
 
 /// Pattern I Part 5 Commit 3 (D11 characterisation invariant):
 /// reset FailureMonitorState to its session-ended ground state. This is the
@@ -408,8 +392,8 @@ fn is_game_process_hung(game_pid: u32) -> bool {
     // Use thread_local! to pass state to the extern "system" callback (closure capture
     // is not allowed across FFI boundary).
     thread_local! {
-        static HUNG_FOUND: Cell<bool> = Cell::new(false);
-        static TARGET_PID: Cell<u32> = Cell::new(0);
+        static HUNG_FOUND: Cell<bool> = const { Cell::new(false) };
+        static TARGET_PID: Cell<u32> = const { Cell::new(0) };
     }
 
     use winapi::shared::minwindef::{BOOL, LPARAM};

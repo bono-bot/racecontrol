@@ -403,6 +403,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn connect_timeout_duration() {
         // Verify the constant is reasonable for LAN
         assert!(

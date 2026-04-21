@@ -704,7 +704,7 @@ pub async fn run_daily_self_test() -> bool {
         "What is 2+2? Answer as JSON: {\"answer\": N}",
     ).await;
 
-    if let Some(ref diag) = response.diagnosis {
+    if let Some(_diag) = response.diagnosis {
         // The diagnosis parser looks for JSON — if it parsed, the pipeline works
         tracing::info!(
             target: LOG_TARGET,
@@ -1248,7 +1248,7 @@ async fn run_step(
             for ev in backtrack_evidence {
                 prompt.push_str(&format!("{}\n", ev));
             }
-            prompt.push_str("\n");
+            prompt.push('\n');
         }
 
         if let Some(prior) = prior_consensus {

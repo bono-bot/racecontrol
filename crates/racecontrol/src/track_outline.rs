@@ -307,7 +307,7 @@ pub fn parse_fast_lane_ai(track_id: &str, config: &str, path: &Path) -> Option<T
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    
 
     fn create_fake_fast_lane(point_count: usize, stride: usize) -> Vec<u8> {
         let mut data = Vec::new();
@@ -328,7 +328,7 @@ mod tests {
 
             // Pad remaining bytes in stride
             let remaining = stride - 12;
-            data.extend(std::iter::repeat(0u8).take(remaining));
+            data.extend(std::iter::repeat_n(0u8, remaining));
         }
 
         data
@@ -369,7 +369,7 @@ mod tests {
     fn test_parse_too_small() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("fast_lane.ai");
-        std::fs::write(&path, &[0u8; 4]).unwrap();
+        std::fs::write(&path, [0u8; 4]).unwrap();
 
         assert!(parse_fast_lane_ai("tiny", "", &path).is_none());
     }
