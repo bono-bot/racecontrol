@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Clone is required for `tokio::sync::broadcast` (each subscriber gets a clone).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub enum FleetEvent {
     /// Diagnostic engine detected an anomaly crossing a threshold.
     /// `trigger` and `severity` are stringified from rc-agent's DiagnosticTrigger
@@ -108,6 +110,8 @@ pub enum FleetEvent {
 /// An Incident is the work unit sent via mpsc to the tier engine.
 /// Wraps a FleetEvent with tracking metadata (ID, idempotency).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
 pub struct Incident {
     /// Unique incident ID (UUID v4)
     pub id: String,

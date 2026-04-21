@@ -13,6 +13,7 @@ pub mod verification;
 pub mod mesh_types;
 pub mod survival_types;
 pub mod fleet_event;
+pub mod fleet_health_types;
 pub mod safety;
 pub mod spawn_safe;
 pub mod diagnostic_types;
