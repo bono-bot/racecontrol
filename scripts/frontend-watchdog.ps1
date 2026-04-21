@@ -3,7 +3,7 @@
 # Monitors kiosk(:3300), web(:3200), admin(:3201) via HTTP health check.
 # Auto-restarts crashed apps. Runs as schtask.
 
-# Singleton mutex — prevent multiple instances
+# Singleton mutex -- prevent multiple instances
 $mutexName = "Global\FrontendWatchdog"
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 if (-not $mutex.WaitOne(0)) {
@@ -21,13 +21,13 @@ $checkIntervalSec = 30
 # RC_JWT_SECRET, RC_CLOUD_URL, PORT, HOSTNAME, NODE_OPTIONS, ...). Start-App
 # respawns via `cmd /c <BatFile>` so every restart path inherits the same env
 # as a fresh boot. Previously we spawned bare `node server.js` with only
-# PORT/HOSTNAME/NODE_OPTIONS set — admin /api/auth/login would throw 500
+# PORT/HOSTNAME/NODE_OPTIONS set -- admin /api/auth/login would throw 500
 # because RC_URL was missing. Incident: 2026-04-20 PID 12852 (16h outage
 # until manual restart via schtasks). See start-admin.bat comment for full
 # history.
 #
 # Env fallback: the in-script Env map is used only if BatFile is missing on
-# disk (defense-in-depth). Admin Env intentionally stays minimal — the bat
+# disk (defense-in-depth). Admin Env intentionally stays minimal -- the bat
 # is the source of truth for all secrets and upstream URLs.
 $apps = @(
     @{
@@ -113,7 +113,7 @@ function Start-App {
     # vars (RC_URL, RC_JWT_SECRET, RC_CLOUD_URL, ...) come from the single
     # source of truth that also runs at boot (HKLM Run). If the bat is
     # missing, fall back to the legacy bare-node path with the in-script
-    # Env map (kept for defense-in-depth only — the bat is canonical).
+    # Env map (kept for defense-in-depth only -- the bat is canonical).
     $useBat = ($app.ContainsKey('BatFile')) -and (Test-Path $app.BatFile)
 
     try {
@@ -128,7 +128,7 @@ function Start-App {
             $proc = [System.Diagnostics.Process]::Start($psi)
             Write-Log "  Started cmd.exe wrapper PID=$($proc.Id) (node PID will be a child)"
         } else {
-            Write-Log "  BatFile missing ($($app.BatFile)) — FALLBACK to bare node"
+            Write-Log "  BatFile missing ($($app.BatFile)) -- FALLBACK to bare node"
             foreach ($key in $app.Env.Keys) {
                 [System.Environment]::SetEnvironmentVariable($key, $app.Env[$key], "Process")
             }
@@ -144,7 +144,9 @@ function Start-App {
                 $psi.EnvironmentVariables[$key] = $app.Env[$key]
             }
             $proc = [System.Diagnostics.Process]::Start($psi)
-            Write-Log "  Started $($app.Name) PID=$($proc.Id) (FALLBACK — may be missing RC_URL/RC_JWT_SECRET)"
+            $procId = $proc.Id
+            $appName = $app.Name
+            Write-Log "  Started $appName PID=$procId -- FALLBACK path, may be missing RC_URL/RC_JWT_SECRET"
         }
 
         Start-Sleep -Seconds 3
