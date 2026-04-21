@@ -3,11 +3,50 @@
 #
 # Runs cargo test on all crates before allowing push.
 # Also checks for .unwrap() in production code.
+# Also surfaces current branch + upstream + remote (analogous to pre-commit
+# branch echo `874c4954`) — catches the concurrent-agent branch-hijack class
+# where a background/parallel agent checked out another branch between
+# commit and push, and git push then updates the wrong remote branch.
+# See memory: feedback_concurrent_agent_branch_race.md.
 #
 # Skip with: git push --no-verify (standing rules say don't)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
+
+# ---------------------------------------------------------------------------
+# Branch awareness (runs BEFORE quality checks so a wrong-branch push is
+# visible even if cargo test takes several minutes).
+# Non-blocking — informational only. The remote ref is parsed from stdin
+# (git passes push refs on stdin to pre-push hook), so we can show which
+# branch the push is ACTUALLY targeting, not just which local branch
+# is current.
+# ---------------------------------------------------------------------------
+RED=$(printf '\033[0;31m')
+GREEN=$(printf '\033[0;32m')
+YELLOW=$(printf '\033[0;33m')
+RESET=$(printf '\033[0m')
+
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")
+REMOTE_NAME="${1:-origin}"
+REMOTE_URL="${2:-unknown}"
+
+# Stash stdin for later (git sends refs on stdin)
+STDIN_REFS=$(cat 2>/dev/null || echo "")
+
+echo ""
+echo "============================================================"
+if [ "$CURRENT_BRANCH" = "main" ] || [ "$CURRENT_BRANCH" = "master" ]; then
+  echo "Push from branch: ${GREEN}${CURRENT_BRANCH}${RESET} -> ${REMOTE_NAME}"
+else
+  echo "Push from branch: ${YELLOW}${CURRENT_BRANCH}${RESET} -> ${REMOTE_NAME} (verify this is the intended branch)"
+fi
+# Print the refs being pushed so scope-contamination is obvious
+if [ -n "$STDIN_REFS" ]; then
+  echo "Refs being pushed:"
+  echo "$STDIN_REFS" | awk '{printf "  %s -> %s\n", $1, $3}' | head -5
+fi
+echo "============================================================"
 
 echo ""
 echo "============================================================"

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# post-checkout hook — Branch-hijack detection for concurrent-agent work.
+#
+# Git calls this with three arguments:
+#   $1 = ref of previous HEAD
+#   $2 = ref of new HEAD
+#   $3 = checkout type (1 for branch checkout, 0 for file checkout)
+#
+# Why:
+# During Phase 445 branch surgery 2026-04-21, a background cherry-pick chain
+# was hijacked when another agent/hook did `git checkout` mid-run. A later
+# batch then pushed to the wrong remote branch. The pre-push hook echoes the
+# target branch (see scripts/hooks/pre-push), but by then the damage is done.
+# This hook surfaces checkout events LOUDLY in stderr so they appear in any
+# parallel tool output, giving the owning agent a chance to notice before
+# the next commit/push.
+#
+# Specifically checks:
+#   - If the OLD_HEAD had a cherry-pick or rebase in progress and the switch
+#     landed on a DIFFERENT branch, print a RED warning (this is the hijack
+#     class the incident memory documents).
+#   - Always prints the from/to branch pair so the log carries a trail.
+#
+# See memory: feedback_concurrent_agent_branch_race.md
+#
+# Non-blocking. Post-checkout hooks cannot refuse the checkout (git already
+# completed it). Purpose is detection + observability.
+
+set -e
+
+# Only run on branch checkouts (arg $3 == 1), not file checkouts.
+if [ "$3" != "1" ]; then
+  exit 0
+fi
+
+OLD_REF="$1"
+NEW_REF="$2"
+
+RED=$(printf '\033[0;31m')
+YELLOW=$(printf '\033[0;33m')
+GREEN=$(printf '\033[0;32m')
+RESET=$(printf '\033[0m')
+
+# Best-effort resolve to branch names.
+OLD_BRANCH=$(git name-rev --name-only "$OLD_REF" 2>/dev/null || echo "$OLD_REF")
+NEW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# Check the NEW HEAD's state dir for leftover sequencer artifacts (rare but
+# possible if another process raced with the checkout and the sequencer
+# write/read happened out of order).
+SEQ_LEFTOVER=""
+if [ -f "$REPO_ROOT/.git/CHERRY_PICK_HEAD" ]; then
+  SEQ_LEFTOVER="CHERRY_PICK_HEAD"
+elif [ -d "$REPO_ROOT/.git/sequencer" ]; then
+  SEQ_LEFTOVER="sequencer/"
+elif [ -f "$REPO_ROOT/.git/MERGE_HEAD" ]; then
+  SEQ_LEFTOVER="MERGE_HEAD"
+elif [ -f "$REPO_ROOT/.git/REBASE_HEAD" ]; then
+  SEQ_LEFTOVER="REBASE_HEAD"
+fi
+
+# Emit a one-line trail for EVERY branch checkout. Goes to stderr so it shows
+# up in tool output even when stdout is piped through graphify hooks.
+>&2 echo ""
+>&2 echo "[post-checkout] ${YELLOW}${OLD_BRANCH}${RESET} -> ${GREEN}${NEW_BRANCH}${RESET}"
+
+# Red flag: sequencer artifacts present post-checkout.
+if [ -n "$SEQ_LEFTOVER" ]; then
+  >&2 echo "[post-checkout] ${RED}WARNING${RESET}: .git/${SEQ_LEFTOVER} exists post-checkout."
+  >&2 echo "[post-checkout] This is the branch-hijack-during-cherry-pick class."
+  >&2 echo "[post-checkout] Inspect: git status; git log --oneline -5"
+  >&2 echo "[post-checkout] Memory: feedback_concurrent_agent_branch_race.md"
+fi
+
+exit 0
