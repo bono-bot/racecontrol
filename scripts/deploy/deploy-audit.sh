@@ -46,6 +46,7 @@ NEED_BAT_SYNC=false
 NEED_DB_MIGRATION=false
 NEED_CONFIG_CHECK=false
 NEED_DEPLOY_SCRIPTS=false
+NEED_GENERATED_TYPES=false
 
 while IFS= read -r file; do
   case "$file" in
@@ -59,6 +60,15 @@ while IFS= read -r file; do
     packages/shared-types/*) NEED_SHARED_TYPES=true ;;
     scripts/deploy/*.bat) NEED_BAT_SYNC=true ;;
     scripts/deploy/*.sh) NEED_DEPLOY_SCRIPTS=true ;;
+  esac
+  # Phase 445 D-17: generated-types freshness manifest input.
+  # Any Rust source that might change the typed contract, or any touch to
+  # the committed generated tree itself, requires the gen-types regen check.
+  case "$file" in
+    crates/rc-common/src/types.rs|crates/rc-common/src/inventory_types.rs|crates/rc-common/src/fleet_health_types.rs) NEED_GENERATED_TYPES=true ;;
+    crates/racecontrol/src/api/openapi.rs|crates/racecontrol/src/api/*/*.rs) NEED_GENERATED_TYPES=true ;;
+    packages/shared-types/generated/*) NEED_GENERATED_TYPES=true ;;
+    docs/openapi.generated.yaml) NEED_GENERATED_TYPES=true ;;
   esac
 done <<< "$CHANGED"
 
@@ -154,6 +164,27 @@ if $NEED_CONFIG_CHECK; then
   echo "  ⚠ CONFIG REFERENCES DETECTED:"
   echo "$CONFIG_REFS" | while read -r line; do echo "    $line"; done
   print_action "TODO" "Server .23" "Verify racecontrol.toml has new config sections" "Check toml on server"
+fi
+
+# Phase 445 D-17: generated-types freshness manifest entry.
+# PRINT-ONLY — the actual gate is scripts/check-generated-types-drift.sh in CI
+# and scripts/git-hooks/pre-commit locally. This section just surfaces the
+# checklist item per Deploy Manifest Protocol.
+if [ "$NEED_GENERATED_TYPES" = "true" ]; then
+  echo ""
+  echo "─── generated_types_freshness (Phase 445, D-17) ───"
+  echo "  Source changes affect Rust→TS typed contract."
+  echo "  Required:"
+  echo "  1. cargo run --release --bin gen-types --features gen-types"
+  echo "  2. git status packages/shared-types/generated/ docs/openapi.generated.yaml"
+  echo "  3. If non-empty: commit the regenerated files."
+  echo "  4. bash scripts/check-generated-types-drift.sh must exit 0."
+  echo "  5. cd ../racingpoint-admin && npx tsc --noEmit must exit 0."
+  echo ""
+  echo "  Manifest line: generated_types_freshness: REQUIRED"
+else
+  echo ""
+  echo "  Manifest line: generated_types_freshness: N/A (no source in scope changed)"
 fi
 
 # Always-required actions
