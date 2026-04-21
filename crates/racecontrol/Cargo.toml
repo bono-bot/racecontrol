@@ -9,6 +9,17 @@ authors.workspace = true
 name = "racecontrol"
 path = "src/main.rs"
 
+# Phase 445 — gen-types binary (feature-gated; required-features guards default build)
+[[bin]]
+name = "gen-types"
+path = "src/bin/gen_types.rs"
+required-features = ["gen-types"]
+
+[features]
+default = []
+# Phase 445 — gen-types binary deps (feature-gated, not in default build)
+gen-types = ["dep:utoipa", "dep:utoipa-axum", "dep:ts-rs", "dep:serde_yaml", "rc-common/ts-rs"]
+
 [dependencies]
 rc-common = { workspace = true }
 serde = { workspace = true }
@@ -77,6 +88,23 @@ rcgen = "0.14"
 tower-helmet = "0.3"
 # Direct rustls dep for mTLS WebPkiClientVerifier
 rustls = { version = "0.23", features = ["ring"] }
+
+# Phase 445 — gen-types binary deps (feature-gated, not in default build)
+[dependencies.utoipa]
+workspace = true
+optional = true
+
+[dependencies.utoipa-axum]
+workspace = true
+optional = true
+
+[dependencies.ts-rs]
+workspace = true
+optional = true
+
+[dependencies.serde_yaml]
+workspace = true
+optional = true
 
 # Windows singleton mutex (prevent zombie crash-loops, same as rc-agent 305638b)
 [target.'cfg(windows)'.dependencies]
