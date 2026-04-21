@@ -78,6 +78,16 @@ pub(crate) async fn staff_gamification_opt_in(
     Json(json!({ "staff_id": staff_id, "gamification_opt_in": new_val }))
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/staff/gamification/leaderboard",
+    tag = "staff",
+    responses(
+        (status = 200, description = "Staff gamification leaderboard (sessions hosted this month)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn staff_gamification_leaderboard(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
@@ -176,6 +186,16 @@ pub(crate) async fn staff_kudos_create(
     }
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/staff/gamification/kudos",
+    tag = "staff",
+    responses(
+        (status = 200, description = "Staff kudos list (last 30 days)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn staff_kudos_list(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
@@ -210,6 +230,16 @@ pub(crate) async fn staff_kudos_list(
     Json(json!({ "kudos": kudos }))
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/staff/gamification/challenges",
+    tag = "staff",
+    responses(
+        (status = 200, description = "Active staff challenges with progress %", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn staff_challenges_list(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {

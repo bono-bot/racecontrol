@@ -14,6 +14,16 @@ use crate::state::AppState;
 
 // ─── Billing Rate Tiers (per-minute rates) ──────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/billing/rates",
+    tag = "billing",
+    responses(
+        (status = 200, description = "List of per-minute billing rate tiers", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_billing_rates(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, i64, String, i64, i64, bool, Option<String>)>(
         "SELECT id, tier_order, tier_name, threshold_minutes, rate_per_min_paise, is_active, sim_type

@@ -204,6 +204,16 @@ pub(crate) async fn mesh_list_incidents(
     }
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/mesh/stats",
+    tag = "mesh",
+    responses(
+        (status = 200, description = "Mesh intelligence solution counts + stats", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn mesh_stats(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {

@@ -127,6 +127,16 @@ pub(crate) async fn create_staff(
     }
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/staff",
+    tag = "staff",
+    responses(
+        (status = 200, description = "List of staff members", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_staff(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {

@@ -227,6 +227,14 @@ pub(crate) async fn customer_apply_coupon(
 
 // ─── Packages ────────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/customer/packages",
+    tag = "customer",
+    responses(
+        (status = 200, description = "Active customer packages", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn customer_list_packages(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {

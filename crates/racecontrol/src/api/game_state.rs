@@ -50,6 +50,16 @@ use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent};
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/games/active",
+    tag = "games",
+    responses(
+        (status = 200, description = "Currently active game sessions across fleet", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn active_games(State(state): State<Arc<AppState>>) -> Json<Value> {
     let games = state.game_launcher.active_games.read().await;
     let list: Vec<_> = games.values().map(|g| g.to_info()).collect();

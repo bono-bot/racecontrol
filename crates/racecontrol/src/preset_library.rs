@@ -168,6 +168,14 @@ fn bool_true() -> bool { true }
 // ─── REST handlers ────────────────────────────────────────────────────────────
 
 /// GET /api/v1/presets (public — pods and kiosk need the list without JWT)
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/presets",
+    tag = "presets",
+    responses(
+        (status = 200, description = "Pricing presets with reliability metadata", body = serde_json::Value),
+    )
+))]
 pub async fn list_presets(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<GamePresetWithReliability>>, (StatusCode, Json<Value>)> {

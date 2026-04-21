@@ -25,6 +25,18 @@ use rc_common::pod_id::normalize_pod_id;
 
 // ─── Billing ────────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/billing/start",
+    tag = "billing",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Billing session started", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+        (status = 409, description = "Pod already has active billing session"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn start_billing(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,

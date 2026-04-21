@@ -59,6 +59,16 @@ pub(crate) async fn venue_info(State(state): State<Arc<AppState>>) -> Json<Value
     }))
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/pods",
+    tag = "pods",
+    responses(
+        (status = 200, description = "List of registered pods", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_pods(State(state): State<Arc<AppState>>) -> Json<Value> {
     let pods = state.pods.read().await;
     let pod_list: Vec<&PodInfo> = pods.values().collect();

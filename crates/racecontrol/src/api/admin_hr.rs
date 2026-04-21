@@ -190,6 +190,16 @@ pub(crate) async fn list_nudge_templates(State(state): State<Arc<AppState>>) -> 
     Json(json!({ "templates": templates }))
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/hr/recognition",
+    tag = "hr",
+    responses(
+        (status = 200, description = "Staff kudos + badges for recognition page", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn hr_recognition_data(State(state): State<Arc<AppState>>) -> Json<Value> {
     // Combine kudos + badges for recognition page
     let kudos = sqlx::query_as::<_, (String, String, String, String, String, String)>(
