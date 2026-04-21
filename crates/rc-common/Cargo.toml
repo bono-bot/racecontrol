@@ -22,3 +22,6 @@ optional = true
 
 [features]
 tokio = ["dep:tokio"]
+
+[dev-dependencies]
+regex = "1"
