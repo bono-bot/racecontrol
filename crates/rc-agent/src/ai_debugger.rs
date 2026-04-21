@@ -598,7 +598,28 @@ pub async fn analyze_crash(
     //   1. OPENROUTER_API_KEY environment variable (set per-pod via start-rcagent.bat)
     //   2. config.openrouter_api_key (kept for backwards compat, will log a WARN)
     //   3. None — skip OpenRouter fallback entirely (Ollama-only)
-    let api_key_from_env = std::env::var("OPENROUTER_API_KEY").ok().filter(|s| !s.is_empty());
+    // Phase 446 canonical-first dual-read. OPENROUTER_KEY is canonical;
+    // OPENROUTER_API_KEY is a deprecated fallback with a one-shot tracing::warn!.
+    // Do NOT extract a helper (Phase 448). Do NOT touch the TOML fallback at :607.
+    let api_key_from_env: Option<String> = match std::env::var("OPENROUTER_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        Some(key) => Some(key),
+        None => match std::env::var("OPENROUTER_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            Some(key) => {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "OPENROUTER_API_KEY is deprecated — rename to OPENROUTER_KEY (read once, will not repeat)"
+                );
+                Some(key)
+            }
+            None => None,
+        },
+    };
     let effective_api_key: Option<&str> = match (api_key_from_env.as_deref(), config.openrouter_api_key.as_deref()) {
         (Some(env_key), _) => Some(env_key),
         (None, Some(toml_key)) if !toml_key.is_empty() => {

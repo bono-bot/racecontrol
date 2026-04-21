@@ -257,12 +257,20 @@ fn run_diagnosis(context: &RestartContext) -> DiagnosisResult {
         return deterministic_diagnosis(context);
     }
 
-    // Check for OpenRouter API key
-    let api_key = match std::env::var("OPENROUTER_API_KEY") {
+    // Check for OpenRouter API key (Phase 446 canonical-first dual-read).
+    // Canonical name is OPENROUTER_KEY. OPENROUTER_API_KEY is a deprecated fallback
+    // with a one-shot tracing::warn!. Do NOT abstract into rc-common::secrets — that is Phase 448.
+    let api_key = match std::env::var("OPENROUTER_KEY") {
         Ok(key) if !key.is_empty() => key,
-        _ => {
-            tracing::info!("OPENROUTER_API_KEY not set — using deterministic fallback");
-            return deterministic_diagnosis(context);
+        _ => match std::env::var("OPENROUTER_API_KEY") {
+            Ok(key) if !key.is_empty() => {
+                tracing::warn!("OPENROUTER_API_KEY is deprecated — rename to OPENROUTER_KEY (read once, will not repeat)");
+                key
+            }
+            _ => {
+                tracing::info!("OPENROUTER_API_KEY not set — using deterministic fallback");
+                return deterministic_diagnosis(context);
+            }
         }
     };
 
