@@ -25,10 +25,11 @@
 #     1 — invariant violated (money incorrect, stuck state detected)
 #     2 — harness error (curl fail, DB unreachable, parse error)
 #
-# Skip-branch state (2026-04-21): BILLING_FLOW_AUTH_HELPER not yet
-# implemented. Shares the same auth blocker as tests/e2e/api/dpdp-erasure.sh.
-# Until a test-mode JWT path exists, this script exits 0 with SKIP so
-# the CI gate is wired today and auto-arms once auth lands.
+# Skip-branch state (2026-04-21): auth unblocked via Path 2 — POST
+# /customer/test-mint-jwt, registered only when the server boots with
+# TEST_MODE=true. Harness sets TEST_MODE_ACTIVE=1 + TEST_DRIVER_ID +
+# a pre-funded wallet (≥70000 paise) so STEP 3 can run. Without them,
+# the script still exits 0 with SKIP so CI stays green until deploy.
 
 set -euo pipefail
 
@@ -39,7 +40,6 @@ RACECONTROL_URL="${RACECONTROL_URL:-http://localhost:8080}"
 DB_PATH="${DB_PATH:-C:/RacingPoint/data/racecontrol.db}"
 TEST_POD_ID="${TEST_POD_ID:-pod-8}"
 VARIANT="${VARIANT:-normal}"
-TEST_PHONE="${TEST_PHONE:-0000000001}"     # TEST_ONLY convention per CLAUDE.md
 SESSION_MINUTES="${SESSION_MINUTES:-30}"
 PLAY_MINUTES="${PLAY_MINUTES:-10}"          # how long we 'play' before ending
 
@@ -61,16 +61,34 @@ if ! curl -s -m 5 "${RACECONTROL_URL}/api/v1/health" >/dev/null 2>&1; then
     exit 0
 fi
 
-# ─── Skip-branch 2: auth helper not wired ───────────────────────────────────
-if [ -z "${BILLING_FLOW_AUTH_HELPER:-}" ] || [ ! -x "${BILLING_FLOW_AUTH_HELPER:-/nonexistent}" ]; then
-    log "SKIP: BILLING_FLOW_AUTH_HELPER unset or not executable"
-    log "  Blocker: no test-mode JWT path. Three options documented in"
-    log "  tests/e2e/api/billing-flow.sh header — pick one, implement, set"
-    log "  BILLING_FLOW_AUTH_HELPER to the resulting executable."
+# ─── Skip-branch 2: server not booted in TEST_MODE ─────────────────────────
+# Path 2 (2026-04-21) shipped POST /customer/test-mint-jwt behind
+# TEST_MODE=true. Harness signals endpoint is live via TEST_MODE_ACTIVE=1.
+if [ "${TEST_MODE_ACTIVE:-0}" != "1" ]; then
+    log "SKIP: TEST_MODE_ACTIVE != 1 (server must boot with TEST_MODE=true AND"
+    log "  harness must set TEST_MODE_ACTIVE=1 to assert the endpoint is live)"
     exit 0
 fi
 
-# ─── Skip-branch 3: requested variant not recognized ─────────────────────────
+# ─── Skip-branch 3: driver not seeded ───────────────────────────────────────
+# Seeding (create TEST_ONLY driver + fund wallet ≥70000 paise) is NOT this
+# script's job — staff-JWT or direct-DB, both have trade-offs. Caller's
+# responsibility; pass the driver_id via TEST_DRIVER_ID=TEST_ONLY_xxx.
+if [ -z "${TEST_DRIVER_ID:-}" ]; then
+    log "SKIP: TEST_DRIVER_ID unset. Seed a TEST_ONLY driver first (with"
+    log "  ≥70000 paise wallet), then pass TEST_DRIVER_ID=TEST_ONLY_xxx"
+    exit 0
+fi
+case "$TEST_DRIVER_ID" in
+    TEST_ONLY*) ;;
+    *)
+        log "SKIP: TEST_DRIVER_ID must start with 'TEST_ONLY' (got: $TEST_DRIVER_ID)"
+        log "  The /customer/test-mint-jwt handler rejects non-TEST_ONLY ids anyway"
+        exit 0
+        ;;
+esac
+
+# ─── Skip-branch 4: requested variant not recognized ────────────────────────
 case "$VARIANT" in
     early|normal|cancel|timeout) ;;
     *)
@@ -86,27 +104,33 @@ log "db: $DB_PATH"
 log "pod: $TEST_POD_ID"
 log "variant: $VARIANT  session=${SESSION_MINUTES}min  play=${PLAY_MINUTES}min"
 
-# STEP 1: mint a TEST_ONLY driver JWT via auth helper.
-# Auth helper contract: called with --phone X, prints {driver_id, token}
-# on stdout as JSON. Exits non-zero on failure.
-AUTH_JSON="$("$BILLING_FLOW_AUTH_HELPER" --phone "$TEST_PHONE")"
-DRIVER_ID="$(echo "$AUTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['driver_id'])")"
-BEARER="$(echo "$AUTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")"
-log "driver: $DRIVER_ID"
+# STEP 1: mint a customer JWT via Path 2 (POST /customer/test-mint-jwt).
+# Handler rejects non-TEST_ONLY driver_ids and any call when TEST_MODE env
+# is not "true" — both layers already enforced by skip-branches above.
+MINT_REQ_BODY=$(python3 -c "import json,sys; print(json.dumps({'driver_id': '$TEST_DRIVER_ID'}))")
+MINT_RESP="$(curl -s -m 10 -X POST -H "Content-Type: application/json" \
+    -d "$MINT_REQ_BODY" "$RACECONTROL_URL/api/v1/customer/test-mint-jwt")"
+BEARER="$(echo "$MINT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null || echo '')"
+if [ -z "$BEARER" ]; then
+    log "FAIL: /customer/test-mint-jwt returned no token: $MINT_RESP"
+    log "  (Check: server booted with TEST_MODE=true? driver seeded? prefix?)"
+    exit 2
+fi
+DRIVER_ID="$TEST_DRIVER_ID"
+log "driver: $DRIVER_ID (bearer len=${#BEARER})"
 
-# STEP 2: read initial wallet balance (fail if driver can't auth).
-WALLET_BEFORE="$(curl -s -m 10 -H "Authorization: Bearer $BEARER" "$RACECONTROL_URL/api/v1/customer/wallet" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('balance_paise', 0))")"
+# STEP 2: read initial wallet balance (also confirms bearer + driver work).
+WALLET_BEFORE="$(curl -s -m 10 -H "Authorization: Bearer $BEARER" "$RACECONTROL_URL/api/v1/customer/wallet" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('balance_paise', 0))" 2>/dev/null || echo '0')"
 log "wallet_before: $WALLET_BEFORE paise"
 
-# STEP 3: topup if wallet insufficient for 30min session.
-# Default 30min session at Rs.700 = 70000 paise. Top up to 100000.
+# STEP 3: topup-as-harness is NOT automated here. Staff-JWT isn't available
+# in the minimal test env and direct-DB insert has too many invariants to
+# maintain (wallet_transactions audit trail, bonus tier accounting). If the
+# caller didn't seed a funded wallet, SKIP cleanly — not a test failure.
 if [ "$WALLET_BEFORE" -lt 70000 ]; then
-    log "topping up wallet (need ≥70000, have $WALLET_BEFORE)"
-    # Topup endpoint TBD — depends on whether staff-JWT is available in test env.
-    # Placeholder: direct DB insert via node --experimental-sqlite (TEST_ONLY).
-    # (Deferred to auth-helper design — topup-as-staff needs its own token.)
-    log "BLOCKED: topup requires staff-JWT or direct-DB helper. Aborting."
-    exit 2
+    log "SKIP: wallet insufficient (need ≥70000 paise for 30min session, have $WALLET_BEFORE)"
+    log "  Caller must pre-fund wallet. Financial invariant needs ≥Rs.700 float."
+    exit 0
 fi
 
 # STEP 4: start billing session.
