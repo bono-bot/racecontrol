@@ -37,6 +37,18 @@ const GRAPHS = [
   { repo: 'mcp-sheets',         path: '../racingpoint-mcp-sheets/graphify-out/graph.json' },
   { repo: 'claude-skills',      path: '../../.claude/skills/graphify-out/graph.json' },
   { repo: 'memory',             path: '../../.claude/projects/C--Users-bono/memory/graphify-out/graph.json' },
+  // P1.5 (2026-04-22): Bono-side graphs mirrored via scp into bono-mirror/.
+  // Refresh cadence: whenever graphify_bono_all is rerun on Bono (~daily via cron
+  // once P6.2 lands). Repos are SEPARATE from James-side siblings (whatsapp-bot vs
+  // racingpoint-whatsapp-bot, etc) — same project family, different codebases.
+  { repo: 'bono-whatsapp-bot',    path: '../bono-mirror/racingpoint-whatsapp-bot-bono/graphify-out/graph.json' },
+  { repo: 'bono-discord-bot',     path: '../bono-mirror/racingpoint-discord-bot-bono/graphify-out/graph.json' },
+  { repo: 'bono-hiring-bot',      path: '../bono-mirror/racingpoint-hiring-bot/graphify-out/graph.json' },
+  { repo: 'bono-cloud-dashboard', path: '../bono-mirror/racingpoint-cloud-dashboard/graphify-out/graph.json' },
+  { repo: 'bono-google',          path: '../bono-mirror/racingpoint-google/graphify-out/graph.json' },
+  { repo: 'bono-dashboard',       path: '../bono-mirror/racingpoint-dashboard/graphify-out/graph.json' },
+  { repo: 'bono-api-gateway',     path: '../bono-mirror/racingpoint-api-gateway/graphify-out/graph.json' },
+  { repo: 'bono-meta-corpus',     path: '../bono-mirror/meta-corpus/graphify-out/graph.json' },
 ];
 
 const OUT_DIR = process.argv.includes('--out')
