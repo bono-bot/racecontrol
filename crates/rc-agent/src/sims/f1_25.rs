@@ -296,9 +296,9 @@ impl F125Adapter {
             };
 
             let lap_session_type = match self.session_type {
-                1 | 2 | 3 | 4 => SessionType::Practice,
-                5 | 6 | 7 | 8 => SessionType::Qualifying,
-                9 | 10 | 11 => SessionType::Race,
+                1..=4 => SessionType::Practice,
+                5..=8 => SessionType::Qualifying,
+                9..=11 => SessionType::Race,
                 12 => SessionType::Hotlap,
                 _ => SessionType::Practice,
             };
@@ -608,9 +608,9 @@ impl SimAdapter for F125Adapter {
             return Ok(None);
         }
         let session_type = match self.session_type {
-            1 | 2 | 3 | 4 => SessionType::Practice,
-            5 | 6 | 7 | 8 => SessionType::Qualifying,
-            9 | 10 | 11 => SessionType::Race,
+            1..=4 => SessionType::Practice,
+            5..=8 => SessionType::Qualifying,
+            9..=11 => SessionType::Race,
             12 => SessionType::Hotlap,
             _ => SessionType::Practice,
         };

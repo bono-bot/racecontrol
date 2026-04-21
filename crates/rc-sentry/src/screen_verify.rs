@@ -45,9 +45,9 @@ fn color_matches(colorref: u32) -> bool {
     let g = ((colorref >> 8) & 0xFF) as u8;
     let b = ((colorref >> 16) & 0xFF) as u8;
 
-    let r_diff = if r > EXPECTED_R { r - EXPECTED_R } else { EXPECTED_R - r };
-    let g_diff = if g > EXPECTED_G { g - EXPECTED_G } else { EXPECTED_G - g };
-    let b_diff = if b > EXPECTED_B { b - EXPECTED_B } else { EXPECTED_B - b };
+    let r_diff = r.abs_diff(EXPECTED_R);
+    let g_diff = g.abs_diff(EXPECTED_G);
+    let b_diff = b.abs_diff(EXPECTED_B);
 
     r_diff <= TOLERANCE && g_diff <= TOLERANCE && b_diff <= TOLERANCE
 }
@@ -157,9 +157,9 @@ use std::cell::RefCell;
 #[cfg(test)]
 thread_local! {
     /// Mock pixel data: Vec of (x, y, colorref). Use CLR_INVALID for invalid points.
-    static MOCK_PIXELS: RefCell<Vec<(i32, i32, u32)>> = RefCell::new(Vec::new());
+    static MOCK_PIXELS: RefCell<Vec<(i32, i32, u32)>> = const { RefCell::new(Vec::new()) };
     /// Mock screen dimensions (width, height). Defaults to 1920x1080.
-    static MOCK_SCREEN_SIZE: RefCell<(i32, i32)> = RefCell::new((1920, 1080));
+    static MOCK_SCREEN_SIZE: RefCell<(i32, i32)> = const { RefCell::new((1920, 1080)) };
 }
 
 #[cfg(test)]

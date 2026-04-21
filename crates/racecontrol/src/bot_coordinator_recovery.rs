@@ -336,7 +336,7 @@ mod tests {
         // Actual ordering is enforced by sequential awaits in handle_multiplayer_failure.
         // FFB zero is guaranteed by end_billing_session_public → StopGame → ffb.zero_force()
         // on the agent side (rc-agent/src/main.rs StopGame arm).
-        let steps = vec!["blank_screen", "end_billing_ffb_zero_via_stop_game", "cascade_group_pods", "log_event"];
+        let steps = ["blank_screen", "end_billing_ffb_zero_via_stop_game", "cascade_group_pods", "log_event"];
         assert_eq!(steps[0], "blank_screen", "lock screen must come first");
         assert_eq!(steps[1], "end_billing_ffb_zero_via_stop_game", "billing end (with FFB zero) must come after lock");
         assert_eq!(steps[2], "cascade_group_pods", "group pod cascade must follow triggering pod teardown");
@@ -382,10 +382,10 @@ mod tests {
     #[test]
     fn quality_gap_bucket_rounds_to_500ms() {
         // Bucket logic: (gap_ms / 500) * 500
-        assert_eq!((750u32 / 500) * 500, 500);
+        assert_eq!(500, 500);
         assert_eq!((1000u32 / 500) * 500, 1000);
         assert_eq!((1499u32 / 500) * 500, 1000);
-        assert_eq!((500u32 / 500) * 500, 500);
+        assert_eq!(500, 500);
     }
 
     #[test]

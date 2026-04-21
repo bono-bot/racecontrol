@@ -27,6 +27,7 @@ const MAINTENANCE_MODE_FILE: &str = r"C:\RacingPoint\MAINTENANCE_MODE";
 
 /// Persistent rollback state — survives process restarts.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub struct RollbackState {
     pub depth: u32,
     pub last_rollback_reason: String,
@@ -35,16 +36,6 @@ pub struct RollbackState {
     pub rolled_back_hashes: Vec<String>,
 }
 
-impl Default for RollbackState {
-    fn default() -> Self {
-        Self {
-            depth: 0,
-            last_rollback_reason: String::new(),
-            last_rollback_time: String::new(),
-            rolled_back_hashes: Vec::new(),
-        }
-    }
-}
 
 impl RollbackState {
     /// Load state from disk, returning default if missing or corrupt.

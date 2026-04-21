@@ -51,7 +51,7 @@ pub enum GossipMessage {
 }
 
 impl GossipMessage {
-    fn from_seq(&self) -> (&str, u64) {
+    fn sender_and_seq(&self) -> (&str, u64) {
         match self {
             GossipMessage::Ping { from, seq, .. } => (from, *seq),
             GossipMessage::Pong { from, seq, .. } => (from, *seq),
@@ -111,7 +111,7 @@ fn run_receiver(
             Ok((n, addr)) => {
                 match serde_json::from_slice::<GossipMessage>(&buf[..n]) {
                     Ok(msg) => {
-                        let (from, seq) = msg.from_seq();
+                        let (from, seq) = msg.sender_and_seq();
                         let key = (from.to_string(), seq);
                         if seen.contains_key(&key) {
                             tracing::debug!(

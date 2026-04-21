@@ -17,7 +17,7 @@ use crate::diagnostic_engine;
 use crate::pre_flight;
 use crate::self_monitor;
 use crate::self_test;
-use crate::session_enforcer::{ProcessMonitor, SessionEnforcer};
+use crate::session_enforcer::ProcessMonitor;
 use crate::event_loop::{ConnectionState, CrashRecoveryState, LaunchState};
 use rc_common::protocol::{AgentMessage, CoreMessage, CoreToAgentMessage};
 use rc_common::types::*;
@@ -295,7 +295,7 @@ pub async fn handle_ws_message(
             crate::remote_ops::BILLING_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
             conn.blank_timer_armed = false;
             let billing_session_id_clone = billing_session_id.clone();
-            let _ = state.failure_monitor_tx.send_modify(|s| {
+            state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = true;
                 s.active_billing_session_id = Some(billing_session_id_clone);
                 // Pattern I Part 5 (C2): atomic set_at timestamp lets the HTTP
@@ -315,7 +315,7 @@ pub async fn handle_ws_message(
                 state.overlay.activate(driver_name.clone(), allocated_seconds);
             }
             state.lock_screen.show_active_session(driver_name, allocated_seconds, allocated_seconds);
-            tokio::task::spawn_blocking(|| ac_launcher::minimize_background_windows());
+            tokio::task::spawn_blocking(ac_launcher::minimize_background_windows);
 
             // LAUNCH-05: Build and send LaunchTimeline on successful launch (BillingStarted = playable signal).
             // Fire-and-forget — channel full or closed means server is not listening, which is acceptable.
@@ -365,7 +365,7 @@ pub async fn handle_ws_message(
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
             conn.launch_state = LaunchState::Idle;
-            let _ = state.failure_monitor_tx.send_modify(|s| {
+            state.failure_monitor_tx.send_modify(|s| {
                 s.billing_active = false;
                 s.active_billing_session_id = None;
                 s.active_billing_session_id_set_at = None; // Pattern I Part 5 (C2): keep pair in sync
@@ -724,7 +724,7 @@ pub async fn handle_ws_message(
                 let _ = ws_tx.send(Message::Text(json_str.into())).await;
 
                 conn.launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
-                let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
+                state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
 
                 let pod_id_clone = state.pod_id.clone();
                 let launch_result = tokio::task::spawn_blocking(move || ac_launcher::launch_ac(&params)).await;
@@ -765,7 +765,7 @@ pub async fn handle_ws_message(
                             sim_type: launch_sim, state: report_state,
                             child: None, pid: report_pid, last_exit_code: None,
                         });
-                        let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = report_pid; });
+                        state.failure_monitor_tx.send_modify(|s| { s.game_pid = report_pid; });
 
                         // LAUNCH-FIX-2: Hide native lock screen IMMEDIATELY when game process starts.
                         // The native Win32 TOPMOST window blocks AC from acquiring exclusive fullscreen.
@@ -1023,7 +1023,7 @@ pub async fn handle_ws_message(
                 let splash_name = conn.current_driver_name.clone().unwrap_or_else(|| "Driver".to_string());
                 state.lock_screen.show_launch_splash(splash_name);
                 conn.launch_state = LaunchState::WaitingForLive { launched_at: std::time::Instant::now(), attempt: 1 };
-                let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
+                state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = Some(std::time::Instant::now()); });
 
                 let launching_info = GameLaunchInfo {
                     pod_id: state.pod_id.clone(), sim_type: launch_sim,
@@ -1048,7 +1048,7 @@ pub async fn handle_ws_message(
                         tracing::info!(target: LOG_TARGET, "Generic sim {:?} launched (pid: {:?})", launch_sim, gp.pid);
                         let gp_pid = gp.pid;
                         state.game_process = Some(gp);
-                        let _ = state.failure_monitor_tx.send_modify(|s| { s.game_pid = gp_pid; });
+                        state.failure_monitor_tx.send_modify(|s| { s.game_pid = gp_pid; });
 
                         if let Some(pid) = gp_pid {
                             // Direct exe launch — we have the pid immediately.
@@ -1123,7 +1123,7 @@ pub async fn handle_ws_message(
                                             "GAME-07: Game window confirmed for {:?} (PID {})",
                                             launch_sim, pid
                                         );
-                                        let _ = failure_tx.send_modify(|s| { s.game_pid = Some(pid); });
+                                        failure_tx.send_modify(|s| { s.game_pid = Some(pid); });
                                         let info = GameLaunchInfo {
                                             pod_id: pod_id_clone.clone(), sim_type: launch_sim,
                                             game_state: GameState::Running, pid: Some(pid),
@@ -1174,7 +1174,7 @@ pub async fn handle_ws_message(
                         state.heartbeat_status.game_running.store(false, std::sync::atomic::Ordering::Relaxed);
                         state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                         conn.launch_state = LaunchState::Idle;
-                        let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
+                        state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
                         let info = GameLaunchInfo {
                             pod_id: state.pod_id.clone(), sim_type: launch_sim,
                             game_state: GameState::Error, pid: None, launched_at: None,
@@ -1225,7 +1225,7 @@ pub async fn handle_ws_message(
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
             conn.launch_state = LaunchState::Idle;
-            let _ = state.failure_monitor_tx.send_modify(|s| {
+            state.failure_monitor_tx.send_modify(|s| {
                 s.recovery_in_progress = true;
                 s.launch_started_at = None;
             });
@@ -1302,7 +1302,7 @@ pub async fn handle_ws_message(
             state.last_ac_status = None;
             state.ac_status_stable_since = None;
             conn.launch_state = LaunchState::Idle;
-            let _ = state.failure_monitor_tx.send_modify(|s| {
+            state.failure_monitor_tx.send_modify(|s| {
                 s.launch_started_at = None;
                 s.recovery_in_progress = false;
             });
@@ -1433,10 +1433,8 @@ pub async fn handle_ws_message(
                     Ok(false) => tracing::warn!(target: LOG_TARGET, "FFB: wheelbase not found for SetFfb"),
                     Err(e) => tracing::error!(target: LOG_TARGET, "FFB gain error: {}", e),
                 }
-            } else {
-                if let Err(e) = ac_launcher::set_ffb(&preset) {
-                    tracing::error!(target: LOG_TARGET, "Failed to set FFB (legacy): {}", e);
-                }
+            } else if let Err(e) = ac_launcher::set_ffb(&preset) {
+                tracing::error!(target: LOG_TARGET, "Failed to set FFB (legacy): {}", e);
             }
         }
 
@@ -2073,7 +2071,7 @@ pub async fn handle_ws_message(
                 vec![LaunchTimelineEvent {
                     kind: "timeout".to_string(),
                     detail: Some(format!("elapsed_secs={}", elapsed_secs)),
-                    elapsed_ms: (elapsed_secs as u64) * 1000,
+                    elapsed_ms: elapsed_secs * 1000,
                     timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
                 }],
                 None,
@@ -2495,7 +2493,7 @@ pub(crate) async fn apply_session_ended(
     state.ac_status_stable_since = None;
     conn.launch_state = LaunchState::Idle;
     // Commit 3 D11 characterisation helper — tested in isolation.
-    let _ = state.failure_monitor_tx.send_modify(|s| {
+    state.failure_monitor_tx.send_modify(|s| {
         crate::failure_monitor::reset_fms_for_session_end(s);
     });
     ffb_controller::safe_session_end(&state.ffb).await;

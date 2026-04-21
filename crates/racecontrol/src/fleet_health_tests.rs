@@ -33,9 +33,9 @@ use super::*;
         // started_at should be ~100 seconds before now
         let delta_before = (before - started).num_seconds();
         let delta_after = (after - started).num_seconds();
-        assert!(delta_before >= 99 && delta_before <= 101,
+        assert!((99..=101).contains(&delta_before),
             "started_at should be ~100s before call time, got delta={}", delta_before);
-        assert!(delta_after >= 99 && delta_after <= 101,
+        assert!((99..=101).contains(&delta_after),
             "started_at should be ~100s before call time, got delta={}", delta_after);
     }
 
@@ -100,7 +100,7 @@ use super::*;
             Some(Utc::now() - chrono::Duration::seconds(300));
 
         let uptime = (Utc::now() - store.agent_started_at.unwrap()).num_seconds();
-        assert!(uptime >= 299 && uptime <= 302,
+        assert!((299..=302).contains(&uptime),
             "uptime computed live should be ~300s, got {}", uptime);
     }
 

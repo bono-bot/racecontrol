@@ -90,17 +90,13 @@ pub async fn poll_server(client: &reqwest::Client, config: &GuardianConfig) -> S
 /// Connection refused = server process is dead (host is up).
 /// Timeout = network issue or server hung.
 /// Other = DNS, Tailscale, etc.
-fn classify_error(error_str: &str, is_timeout: bool) -> ServerStatus {
+fn classify_error(error_str: &str, _is_timeout: bool) -> ServerStatus {
     if error_str.contains("Connection refused")
         || error_str.contains("connection refused")
         || error_str.contains("os error 111")
         || error_str.contains("os error 10061")
     {
         ServerStatus::Dead {
-            error: error_str.to_string(),
-        }
-    } else if is_timeout {
-        ServerStatus::Unreachable {
             error: error_str.to_string(),
         }
     } else {

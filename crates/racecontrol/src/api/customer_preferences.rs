@@ -91,7 +91,7 @@ pub(crate) async fn update_preferences(
 
     // Validate frequency_cap if provided
     if let Some(cap) = req.frequency_cap_per_week {
-        if cap < 0 || cap > 10 {
+        if !(0..=10).contains(&cap) {
             return Json(json!({"error": "frequency_cap_per_week must be 0-10"}));
         }
     }

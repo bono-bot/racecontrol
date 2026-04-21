@@ -1538,7 +1538,7 @@
         use rc_common::types::SimType;
         // Simulate serde roundtrip: SimType -> str -> SimType (as DB would store)
         let sim = SimType::F125;
-        let as_json = serde_json::to_value(&sim).unwrap();
+        let as_json = serde_json::to_value(sim).unwrap();
         let as_str = as_json.as_str().unwrap();
         assert_eq!(as_str, "f1_25");
         let parsed: SimType = serde_json::from_value(serde_json::Value::String(as_str.to_string())).unwrap();
@@ -3131,7 +3131,7 @@
         let total_minutes = timer.elapsed_seconds / 60;
         assert_eq!(total_minutes, 30, "cumulative driving time = 30 minutes");
         let final_cost = crate::billing_pricing::snap_cost_for_minutes(
-            total_minutes as u32,
+            total_minutes,
             2500,   // rate_paise_per_minute (₹25/min)
             70000,  // 30-min pkg price (₹700)
             90000,  // 60-min pkg price (₹900)

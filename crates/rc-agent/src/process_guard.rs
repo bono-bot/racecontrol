@@ -15,7 +15,6 @@ use std::time::Duration;
 
 use chrono::Utc;
 use tokio::sync::{mpsc, RwLock};
-use walkdir;
 
 use rc_common::protocol::AgentMessage;
 use rc_common::types::{MachineWhitelist, ProcessViolation, ViolationType};

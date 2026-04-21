@@ -426,8 +426,8 @@ impl DebugMemory {
         let exit_code = error_context
             .split("exit code")
             .nth(1)
-            .map(|s| s.trim_start_matches(|c: char| c == ':' || c == ' '))
-            .and_then(|s| s.split(|c: char| c == ')' || c == ' ' || c == ',').next())
+            .map(|s| s.trim_start_matches([':', ' ']))
+            .and_then(|s| s.split([')', ' ', ',']).next())
             .filter(|s| !s.is_empty() && s.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '-'));
 
         if let Some(code) = exit_code {
@@ -754,7 +754,7 @@ impl PodErrorContext {
 /// Returns a formatted context string to append to the LLM prompt, or empty string on failure.
 async fn fetch_fleet_solutions(config: &AiDebuggerConfig, error_context: &str) -> String {
     // Extract the server HTTP base from the WS URL (ws://host:port/ws/agent -> http://host:port)
-    let base = config.ollama_url.replace("/api/chat", ""); // ollama_url is separate, use core URL pattern
+    let _base = config.ollama_url.replace("/api/chat", ""); // ollama_url is separate, use core URL pattern
     // The server is always at 192.168.31.23:8080 — derive from the core_url or hardcode venue server
     let search_url = format!(
         "http://192.168.31.23:8080/api/v1/mesh/solutions/search?q={}&limit=3",
@@ -1650,7 +1650,7 @@ fn fix_browser_dead(_snapshot: &PodStateSnapshot) -> AutoFixResult {
 async fn query_ollama(url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
     let resp = client
-        .post(&format!("{}/api/generate", url))
+        .post(format!("{}/api/generate", url))
         .json(&serde_json::json!({
             "model": model,
             "prompt": prompt,

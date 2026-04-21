@@ -58,7 +58,7 @@ fn is_venue_hours() -> bool {
     // IST = UTC + 5:30
     let ist = now_utc + ChronoDuration::hours(5) + ChronoDuration::minutes(30);
     let hour = ist.hour();
-    hour >= VENUE_OPEN_HOUR_IST && hour < VENUE_CLOSE_HOUR_IST
+    (VENUE_OPEN_HOUR_IST..VENUE_CLOSE_HOUR_IST).contains(&hour)
 }
 
 /// Check if it's a typically busy period (weekday evenings or weekends).
@@ -69,8 +69,8 @@ fn is_typically_busy() -> bool {
     let weekday = ist.weekday();
 
     match weekday {
-        Weekday::Sat | Weekday::Sun => hour >= 11 && hour < 22,
-        _ => hour >= 16 && hour < 22, // weekday evenings
+        Weekday::Sat | Weekday::Sun => (11..22).contains(&hour),
+        _ => (16..22).contains(&hour), // weekday evenings
     }
 }
 

@@ -270,7 +270,7 @@ fn tier1_deterministic(trigger: &DiagnosticTrigger) -> TierResult {
     match trigger {
         DiagnosticTrigger::SentinelUnexpected { file_name } => {
             // Path traversal guard: only clear known-safe sentinels
-            if CLEARABLE_SENTINELS.iter().any(|s| *s == file_name.as_str()) {
+            if CLEARABLE_SENTINELS.contains(&file_name.as_str()) {
                 if is_safe_sentinel_name(file_name) {
                     let path = std::path::Path::new(SENTINEL_BASE_DIR).join(file_name);
                     if std::fs::remove_file(&path).is_ok() {

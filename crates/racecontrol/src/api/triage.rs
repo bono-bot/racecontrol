@@ -178,7 +178,7 @@ pub fn is_ambiguous(parsed: &ParsedQuery, raw_query: &str) -> bool {
     // Long queries with detail but no keyword matches are RESEARCH_NEW, not ambiguous.
     parsed.pod_ids.is_empty()
         && parsed.symptom_classes.is_empty()
-        && raw_query.trim().split_whitespace().count() < 5
+        && raw_query.split_whitespace().count() < 5
 }
 
 // ─── Verdict builder ───────────────────────────────────────────────────────

@@ -12,7 +12,6 @@ use windows::{
     Win32::Graphics::Direct3D::*,
     Win32::Graphics::Direct3D11::*,
     Win32::Graphics::Dxgi::*,
-    Win32::Graphics::Dxgi::Common::*,
 };
 
 /// Raw BGRA pixel buffer from a DXGI frame capture.

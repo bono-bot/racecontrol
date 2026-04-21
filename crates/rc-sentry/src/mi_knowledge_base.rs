@@ -346,10 +346,8 @@ impl KnowledgeBase {
         })?;
 
         let mut result = Vec::new();
-        for rule in rules {
-            if let Ok(r) = rule {
-                result.push(r);
-            }
+        for r in rules.flatten() {
+            result.push(r);
         }
         Ok(result)
     }

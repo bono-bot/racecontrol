@@ -17,7 +17,6 @@ use std::sync::Arc;
 use chrono::Utc;
 
 use rc_common::pod_id::normalize_pod_id;
-use rc_common::types::BillingSessionStatus;
 
 use crate::billing::{
     PauseReason, WaitingForGameEntry,

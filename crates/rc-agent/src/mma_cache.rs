@@ -12,7 +12,6 @@
 
 use rusqlite::{params, Connection};
 
-use crate::knowledge_base::KB_PATH;
 
 const LOG_TARGET: &str = "mma-cache";
 

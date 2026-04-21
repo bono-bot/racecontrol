@@ -3784,7 +3784,7 @@ async fn test_financial_e2e_full_wallet_lifecycle() {
     .fetch_one(&state.db)
     .await
     .unwrap();
-    assert_eq!(credited, 100000 + refund_paise as i64, "total_credited should include topup + refund");
+    assert_eq!(credited, 100000 + refund_paise, "total_credited should include topup + refund");
     assert_eq!(debited, 70000, "total_debited should be session charge only");
 }
 

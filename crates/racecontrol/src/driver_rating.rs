@@ -286,7 +286,7 @@ pub async fn backfill_ratings(db: SqlitePool, venue_id: String) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn rating_class_boundaries() {
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn consistency_score_perfect() {
         // All same times → std_dev = 0 → consistency = 100
-        let times = vec![60000.0, 60000.0, 60000.0, 60000.0, 60000.0];
+        let times = [60000.0, 60000.0, 60000.0, 60000.0, 60000.0];
         let n = times.len() as f64;
         let mean = times.iter().sum::<f64>() / n;
         let variance = times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / n;

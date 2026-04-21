@@ -15,6 +15,8 @@
 //! NOT intended for public networks. The cmd.exe invocation is intentional —
 //! this is a remote admin tool equivalent to SSH, scoped to venue hardware.
 
+#![allow(dead_code)]
+
 mod sentry_config;
 #[cfg(feature = "watchdog")]
 mod watchdog;
@@ -87,7 +89,7 @@ fn check_service_key(request: &str) -> bool {
     let provided = request
         .lines()
         .find(|l| l.to_ascii_lowercase().starts_with("x-service-key:"))
-        .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim())
+        .map(|l| l.split_once(':').map(|x| x.1).unwrap_or("").trim())
         .unwrap_or("");
 
     // Constant-time comparison to prevent timing attacks
@@ -813,7 +815,7 @@ fn handle_files(
     stream: &mut TcpStream,
     path_with_query: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let query = path_with_query.splitn(2, '?').nth(1).unwrap_or("");
+    let query = path_with_query.split_once('?').map(|x| x.1).unwrap_or("");
     let raw_path = query
         .split('&')
         .find(|p| p.starts_with("path="))

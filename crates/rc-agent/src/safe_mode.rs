@@ -292,7 +292,7 @@ pub fn detect_running_protected_game() -> Option<SimType> {
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
-    for (_pid, process) in sys.processes() {
+    for process in sys.processes().values() {
         let pname = process.name().to_string_lossy().to_string();
         for &protected in PROTECTED_EXE_NAMES {
             if pname.eq_ignore_ascii_case(protected) {

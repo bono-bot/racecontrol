@@ -2,8 +2,6 @@ use std::ffi::OsString;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow;
-use tracing;
 use windows_service::service::{
     ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
     ServiceType,

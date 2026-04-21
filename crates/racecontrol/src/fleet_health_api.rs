@@ -137,37 +137,6 @@ pub(crate) fn compute_stuck_session_candidate(
     silent_reconnect_suspected && has_active_session
 }
 
-#[cfg(test)]
-mod pattern_i_part5_tests {
-    use super::compute_stuck_session_candidate;
-
-    #[test]
-    fn flags_when_silent_reconnect_and_active_session() {
-        // The canonical stuck case: server has a session, pod's WS is
-        // silently dead, HTTP responds. Part-5-patched pods self-heal
-        // within one T2 tick; a pre-patch pod would stay stuck here.
-        assert!(compute_stuck_session_candidate(true, true));
-    }
-
-    #[test]
-    fn no_flag_when_ws_connected() {
-        // Normal racing customer on a live WS — never flag.
-        assert!(!compute_stuck_session_candidate(false, true));
-    }
-
-    #[test]
-    fn no_flag_when_no_active_session() {
-        // Pod in silent-reconnect with NO active session — still worth
-        // investigating (Pattern I class) but not a stuck-session case.
-        assert!(!compute_stuck_session_candidate(true, false));
-    }
-
-    #[test]
-    fn no_flag_when_both_false() {
-        assert!(!compute_stuck_session_candidate(false, false));
-    }
-}
-
 // ── GET /api/v1/fleet/health ──────────────────────────────────────────────────
 
 /// RESIL-07: Fleet health response cache — avoids repeated DB queries + 4 lock reads.
@@ -538,4 +507,35 @@ pub async fn blocked_start_handler(
     crate::whatsapp_alerter::send_whatsapp(&state.config, &msg).await;
 
     axum::http::StatusCode::OK
+}
+
+#[cfg(test)]
+mod pattern_i_part5_tests {
+    use super::compute_stuck_session_candidate;
+
+    #[test]
+    fn flags_when_silent_reconnect_and_active_session() {
+        // The canonical stuck case: server has a session, pod's WS is
+        // silently dead, HTTP responds. Part-5-patched pods self-heal
+        // within one T2 tick; a pre-patch pod would stay stuck here.
+        assert!(compute_stuck_session_candidate(true, true));
+    }
+
+    #[test]
+    fn no_flag_when_ws_connected() {
+        // Normal racing customer on a live WS — never flag.
+        assert!(!compute_stuck_session_candidate(false, true));
+    }
+
+    #[test]
+    fn no_flag_when_no_active_session() {
+        // Pod in silent-reconnect with NO active session — still worth
+        // investigating (Pattern I class) but not a stuck-session case.
+        assert!(!compute_stuck_session_candidate(true, false));
+    }
+
+    #[test]
+    fn no_flag_when_both_false() {
+        assert!(!compute_stuck_session_candidate(false, false));
+    }
 }

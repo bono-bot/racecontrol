@@ -373,7 +373,7 @@ mod tests {
         // Allow up to 302s: pause_until = record_at + 300s, and pause_remaining() uses
         // Instant::now() which may be slightly before or after the record_with_ts timestamp.
         assert!(
-            secs >= 295 && secs <= 302,
+            (295..=302).contains(&secs),
             "pause should be ~5 minutes, got {}s",
             secs
         );

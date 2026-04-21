@@ -14,7 +14,6 @@ use racecontrol_crate::api::debug_launches::debug_launches_approve_fix;
 use racecontrol_crate::auth::middleware::StaffClaims;
 use racecontrol_crate::state::AppState;
 use rc_common::protocol::{LaunchOrigin, LaunchState};
-use sqlx::SqlitePool;
 
 /// Create an in-memory AppState for approve-fix tests.
 async fn make_test_state() -> Arc<AppState> {

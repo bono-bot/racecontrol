@@ -1514,7 +1514,7 @@ async fn send_input(Json(req): Json<InputRequest>) -> Result<Json<InputResponse>
 
     match run_ps(&ps_script, 5).await {
         Ok(output) if output.status.success() => {
-            let real_coord = req.coordinate.map(|c| scale_coord(c));
+            let real_coord = req.coordinate.map(scale_coord);
             Ok(Json(InputResponse {
                 status: "ok".into(),
                 action: req.action.clone(),
@@ -1678,7 +1678,7 @@ async fn detect_local_ip() -> Option<String> {
     let text = String::from_utf8_lossy(&output.stdout);
     for line in text.lines() {
         if line.contains("IPv4") && line.contains("192.168.") {
-            if let Some(ip) = line.split(':').last() {
+            if let Some(ip) = line.split(':').next_back() {
                 return Some(ip.trim().to_string());
             }
         }

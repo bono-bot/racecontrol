@@ -216,7 +216,7 @@ fn parse_quoted_tokens(line: &str) -> Vec<&str> {
 ///
 /// Internal: accepts an arbitrary library root path for testability.
 /// Returns installed games found in that library.
-fn scan_single_steam_library(library_root: &Path, pod_id: &str) -> Vec<InstalledGame> {
+fn scan_single_steam_library(library_root: &Path, _pod_id: &str) -> Vec<InstalledGame> {
     let steamapps = library_root.join("steamapps");
     let mut games: Vec<InstalledGame> = Vec::new();
 
@@ -261,7 +261,7 @@ fn scan_single_steam_library(library_root: &Path, pod_id: &str) -> Vec<Installed
         games.push(InstalledGame {
             game_id: game_id.to_string(),
             display_name: display_name.to_string(),
-            sim_type: Some(sim_type.clone()),
+            sim_type: Some(*sim_type),
             exe_path: exe_path.to_string_lossy().to_string(),
             launchable,
             scan_method: "steam_library".to_string(),
@@ -358,7 +358,7 @@ fn game_id_to_display_name(game_id: &str) -> String {
 ///
 /// Returns an [`InstalledGame`] for each game where at least one known exe path exists.
 /// This function performs blocking I/O — call from `spawn_blocking`.
-pub fn scan_non_steam_games(pod_id: &str) -> Vec<InstalledGame> {
+pub fn scan_non_steam_games(_pod_id: &str) -> Vec<InstalledGame> {
     let mut games: Vec<InstalledGame> = Vec::new();
 
     for (sim_type, game_id, paths) in NON_STEAM_GAMES {
@@ -367,7 +367,7 @@ pub fn scan_non_steam_games(pod_id: &str) -> Vec<InstalledGame> {
             games.push(InstalledGame {
                 game_id: game_id.to_string(),
                 display_name: game_id_to_display_name(game_id),
-                sim_type: Some(sim_type.clone()),
+                sim_type: Some(*sim_type),
                 exe_path: exe_path.to_string(),
                 launchable: true,
                 scan_method: "direct_scan".to_string(),

@@ -232,7 +232,7 @@ async fn recover_interrupted_sessions(core_ip: &str, pod_id: &str) -> usize {
 #[cfg(feature = "http-client")]
 async fn fetch_server_allowlist(client: &reqwest::Client, base_url: &str) -> anyhow::Result<Vec<String>> {
     let resp = client
-        .get(&format!("{}/api/v1/config/kiosk-allowlist", base_url))
+        .get(format!("{}/api/v1/config/kiosk-allowlist", base_url))
         .timeout(Duration::from_secs(10))
         .send()
         .await?;
@@ -2114,7 +2114,7 @@ async fn main() -> Result<()> {
             if let (Some(jwt), Some(exp)) = (&state.current_jwt, state.jwt_expires_at) {
                 if exp > now_ts + 60 {
                     // Valid JWT — build URL with ?jwt= param
-                    let base = state.config.core.url.trim_end_matches('/');
+                    let _base = state.config.core.url.trim_end_matches('/');
                     // Determine if this is the primary or failover URL by matching active_url
                     let active = active_url.read().await.clone();
                     // Strip any existing query string from the base URL stored in active_url
@@ -2448,7 +2448,7 @@ fn reconnect_delay_for_attempt(attempt: u32) -> Duration {
         let mut hasher = DefaultHasher::new();
         std::time::SystemTime::now().hash(&mut hasher);
         std::thread::current().id().hash(&mut hasher);
-        (hasher.finish() % (base.as_millis() as u64 / 4).max(1)) as u64
+        hasher.finish() % (base.as_millis() as u64 / 4).max(1) 
     };
     base + Duration::from_millis(jitter_ms)
 }

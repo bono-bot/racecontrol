@@ -196,6 +196,7 @@ impl std::fmt::Debug for PeerConfig {
 /// Direct WhatsApp alert configuration for MON-04.
 /// Bypasses server relay -- alerts fire even when server is down.
 #[derive(Clone, Deserialize)]
+#[derive(Default)]
 pub struct AlertConfig {
     /// Whether direct WhatsApp alerts are enabled.
     #[serde(default)]
@@ -230,18 +231,6 @@ impl std::fmt::Debug for AlertConfig {
     }
 }
 
-impl Default for AlertConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            whatsapp_url: String::new(),
-            whatsapp_instance: String::new(),
-            whatsapp_api_key: String::new(),
-            whatsapp_number: String::new(),
-            comms_psk: String::new(),
-        }
-    }
-}
 
 /// Load config from TOML file, or use defaults.
 /// The config path is read from argv[2] or defaults to `rc-sentry.toml` in CWD.

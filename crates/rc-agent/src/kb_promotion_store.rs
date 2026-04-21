@@ -15,7 +15,6 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge_base::KB_PATH;
 
 const LOG_TARGET: &str = "kb-promotion-store";
 

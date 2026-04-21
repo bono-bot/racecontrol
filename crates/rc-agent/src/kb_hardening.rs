@@ -94,7 +94,7 @@ pub fn spawn(
         }
 
         // Unreachable but satisfies lifecycle logging requirement
-        #[allow(unreachable_code)]
+        
         tracing::info!(target: LOG_TARGET, "KB hardening promoter exiting");
     });
 }

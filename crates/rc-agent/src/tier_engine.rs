@@ -2033,7 +2033,7 @@ fn tier1_deterministic_sync(
     match trigger {
         DiagnosticTrigger::SentinelUnexpected { file_name } => {
             // Gemini P1: Path traversal guard — validate file_name is safe
-            if CLEARABLE_SENTINELS.iter().any(|s| *s == file_name.as_str()) {
+            if CLEARABLE_SENTINELS.contains(&file_name.as_str()) {
                 if is_safe_sentinel_name(file_name) {
                     let path = std::path::Path::new(SENTINEL_BASE_DIR).join(file_name);
                     if std::fs::remove_file(&path).is_ok() {
@@ -2259,7 +2259,7 @@ fn tier1_deterministic_sync(
         // POS kiosk escape: AUTO-FIX — minimize intruder, bring Edge to front
         DiagnosticTrigger::PosKioskEscaped { foreground_process } => {
             tracing::warn!(target: LOG_TARGET, foreground = %foreground_process, "POS kiosk escape — auto-fixing: minimize intruder, restore Edge");
-            if tier1_restore_pos_kiosk(&foreground_process) {
+            if tier1_restore_pos_kiosk(foreground_process) {
                 actions_taken.push(format!("POS: minimized '{}', restored Edge kiosk to foreground", foreground_process));
             } else {
                 tracing::warn!(target: LOG_TARGET, "POS: kiosk restore failed — escalating to staff");
@@ -2442,7 +2442,7 @@ fn tier1_kill_orphans() -> Vec<String> {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All, false);
     let mut killed = Vec::new();
-    for (_pid, proc_) in sys.processes() {
+    for proc_ in sys.processes().values() {
         let name_lower = proc_.name().to_string_lossy().to_lowercase();
         if ORPHAN_PROCESS_NAMES.iter().any(|orphan| name_lower.contains(orphan)) {
             let display_name = proc_.name().to_string_lossy().to_string();
@@ -2516,7 +2516,7 @@ fn tier1_restart_edge_kiosk() -> bool {
     sys.refresh_processes(ProcessesToUpdate::All, false);
     let mut killed = 0u32;
     let mut kill_failed = 0u32;
-    for (_pid, proc_) in sys.processes() {
+    for proc_ in sys.processes().values() {
         let name = proc_.name().to_string_lossy().to_lowercase();
         if name.contains("msedge") {
             if proc_.kill() {

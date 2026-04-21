@@ -860,10 +860,8 @@ impl KnowledgeBase {
         })?;
 
         let mut solutions = Vec::new();
-        for row in rows {
-            if let Ok(sol) = row {
-                solutions.push(sol);
-            }
+        for sol in rows.flatten() {
+            solutions.push(sol);
         }
         Ok(solutions)
     }

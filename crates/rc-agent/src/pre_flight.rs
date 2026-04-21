@@ -16,7 +16,6 @@ use std::sync::atomic::Ordering;
 
 use tokio::task::spawn_blocking;
 use tokio::time::{timeout, Duration};
-use tracing;
 
 use crate::app_state::AppState;
 use crate::ffb_controller::FfbBackend;
@@ -213,7 +212,9 @@ async fn check_hid(ffb: &dyn FfbBackend) -> CheckResult {
 /// Uses spawn_blocking because sysinfo::refresh_processes blocks 100-300ms on Windows.
 /// Two-stage: (1) process running? (2) config.json present and valid?
 async fn check_conspit() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         use sysinfo::{ProcessesToUpdate, System};
 
         // BUG FIX (2026-04-11): Actual process name is ConspitLink2.0.exe, NOT
@@ -280,9 +281,7 @@ async fn check_conspit() -> CheckResult {
         name: "conspit_link",
         status: CheckStatus::Fail,
         detail: format!("spawn_blocking panicked: {}", e),
-    });
-
-    result
+    })
 }
 
 /// Orphan game check: kill stale game process before new session.
@@ -502,7 +501,9 @@ async fn check_lock_screen_http_on(addr: &str) -> CheckResult {
 /// pods 4/5/6/8 in MaintenanceRequired state indefinitely.
 #[cfg(windows)]
 pub(crate) async fn check_window_rect() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         unsafe extern "system" {
             fn GetSystemMetrics(nIndex: i32) -> i32;
             fn FindWindowA(lpClassName: *const u8, lpWindowName: *const u8) -> isize;
@@ -576,9 +577,7 @@ pub(crate) async fn check_window_rect() -> CheckResult {
         name: "lock_screen_window_rect",
         status: CheckStatus::Warn,
         detail: format!("spawn_blocking panicked in window rect check: {}", e),
-    });
-
-    result
+    })
 }
 
 #[cfg(not(windows))]
@@ -763,7 +762,9 @@ async fn check_popup_windows() -> CheckResult {
 
     #[cfg(windows)]
     {
-        let result = spawn_blocking(|| {
+        
+
+        spawn_blocking(|| {
             use sysinfo::{ProcessesToUpdate, System};
 
             let mut sys = System::new();
@@ -824,9 +825,7 @@ async fn check_popup_windows() -> CheckResult {
             name: "popup_windows",
             status: CheckStatus::Warn,
             detail: format!("spawn_blocking panicked in popup check: {}", e),
-        });
-
-        result
+        })
     }
 }
 
@@ -853,7 +852,9 @@ async fn check_browser_alive() -> CheckResult {
 /// Returns Warn (not Fail) if enumeration fails — a non-critical advisory check.
 #[cfg(windows)]
 async fn check_gpu_health() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         unsafe extern "system" {
             fn EnumDisplayDevicesW(
                 lp_device: *const u16,
@@ -925,9 +926,7 @@ async fn check_gpu_health() -> CheckResult {
         name: "gpu_health",
         status: CheckStatus::Warn,
         detail: format!("GPU check panicked: {}", e),
-    });
-
-    result
+    })
 }
 
 #[cfg(not(windows))]
@@ -951,7 +950,9 @@ async fn check_gpu_health() -> CheckResult {
 /// but the customer experience may be degraded.
 #[cfg(windows)]
 async fn check_display_topology() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         unsafe extern "system" {
             fn GetSystemMetrics(nIndex: i32) -> i32;
         }
@@ -1006,9 +1007,7 @@ async fn check_display_topology() -> CheckResult {
         name: "display_topology",
         status: CheckStatus::Warn,
         detail: format!("Display topology check panicked: {}", e),
-    });
-
-    result
+    })
 }
 
 #[cfg(not(windows))]
@@ -1028,7 +1027,9 @@ async fn check_display_topology() -> CheckResult {
 /// gaming peripherals (pedals, shifters, handbrakes). This is advisory (Warn)
 /// since not all pods may have all peripherals.
 async fn check_input_devices() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         match hidapi::HidApi::new() {
             Ok(api) => {
                 let mut wheelbase_found = false;
@@ -1104,9 +1105,7 @@ async fn check_input_devices() -> CheckResult {
         name: "input_devices",
         status: CheckStatus::Warn,
         detail: format!("Input device check panicked: {}", e),
-    });
-
-    result
+    })
 }
 
 // ─── P2-04: Audio Device Health Check ───────────────────────────────────────
@@ -1118,7 +1117,9 @@ async fn check_input_devices() -> CheckResult {
 /// required for billing to proceed.
 #[cfg(windows)]
 async fn check_audio_device() -> CheckResult {
-    let result = spawn_blocking(|| {
+    
+
+    spawn_blocking(|| {
         // waveOutGetNumDevs is in winmm.dll — use dynamic loading to avoid
         // adding mmeapi feature to winapi Cargo.toml
         unsafe extern "system" {
@@ -1145,9 +1146,7 @@ async fn check_audio_device() -> CheckResult {
         name: "audio_device",
         status: CheckStatus::Warn,
         detail: format!("Audio device check panicked: {}", e),
-    });
-
-    result
+    })
 }
 
 #[cfg(not(windows))]

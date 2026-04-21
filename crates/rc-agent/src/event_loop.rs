@@ -707,7 +707,7 @@ pub async fn run(
                                 if !params.car.is_empty() {
                                     if let Some(ref actual_car) = config.car_model {
                                         let exp_lower = params.car.to_lowercase().replace('_', "");
-                                        let act_lower = actual_car.to_lowercase().replace(' ', "").replace('_', "");
+                                        let act_lower = actual_car.to_lowercase().replace([' ', '_'], "");
                                         // Both stripped of separators — "ferrari_sf90" → "ferrarisf90"
                                         // "Ferrari SF90 Stradale" → "ferrarisf90stradale"
                                         // Check if either contains the other
@@ -726,7 +726,7 @@ pub async fn run(
                                 if !params.track.is_empty() {
                                     if let Some(ref actual_track) = config.track_name {
                                         let exp_lower = params.track.to_lowercase().replace('_', "");
-                                        let act_lower = actual_track.to_lowercase().replace('-', "").replace(' ', "").replace('_', "");
+                                        let act_lower = actual_track.to_lowercase().replace(['-', ' ', '_'], "");
                                         if !act_lower.contains(&exp_lower) && !exp_lower.contains(&act_lower) {
                                             mismatches.push((
                                                 "track_name".to_string(),
@@ -957,7 +957,7 @@ pub async fn run(
                         conn.config_verified = false;
                         conn.game_running_since = None;
                         conn.shm_defer_logged = false;
-                        let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
+                        state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                         let msg = AgentMessage::GameStatusUpdate {
                             pod_id: state.pod_id.clone(),
@@ -1003,7 +1003,7 @@ pub async fn run(
                             conn.config_verified = false;
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
-                            let _ = state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
+                            state.failure_monitor_tx.send_modify(|s| { s.launch_started_at = None; });
 
                             let msg = AgentMessage::GameStatusUpdate {
                                 pod_id: state.pod_id.clone(),
@@ -1044,7 +1044,7 @@ pub async fn run(
                         pod_id: state.pod_id.clone(),
                         state: state.detector.state(),
                     };
-                    let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
+                    state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
                     tracing::info!(target: LOG_TARGET, "Driving state changed: {:?}", state.detector.state());
@@ -1058,12 +1058,12 @@ pub async fn run(
                         pod_id: state.pod_id.clone(),
                         state: state.detector.state(),
                     };
-                    let _ = state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
+                    state.failure_monitor_tx.send_modify(|s| { s.driving_state = Some(state.detector.state()); });
                     let json = serde_json::to_string(&msg)?;
                     let _ = ws_tx.send(Message::Text(json.into())).await;
                     tracing::info!(target: LOG_TARGET, "Driving state changed (timeout): {:?}", state.detector.state());
                 }
-                let _ = state.failure_monitor_tx.send_modify(|s| {
+                state.failure_monitor_tx.send_modify(|s| {
                     s.hid_connected = state.detector.is_hid_connected();
                     s.last_udp_secs_ago = state.detector.last_udp_packet_elapsed_secs();
                 });
@@ -1186,7 +1186,7 @@ pub async fn run(
                                 ready_delay_ms: None,
                                 session_id: None, launch_stage: None, clean_exit_heuristic: None,
                             };
-                            let _ = state.failure_monitor_tx.send_modify(|s| {
+                            state.failure_monitor_tx.send_modify(|s| {
                                 s.game_pid = Some(pid);
                             });
                             let msg = AgentMessage::GameStateUpdate(info);
@@ -1291,7 +1291,7 @@ pub async fn run(
                             // HARD-03: Reset shm defer state on game exit
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
-                            let _ = state.failure_monitor_tx.send_modify(|s| {
+                            state.failure_monitor_tx.send_modify(|s| {
                                 s.launch_started_at = None;
                                 s.game_pid = None;
                             });
@@ -1303,7 +1303,7 @@ pub async fn run(
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                                let _ = state.failure_monitor_tx.send_modify(|s| {
+                                state.failure_monitor_tx.send_modify(|s| {
                                     s.billing_paused = true;
                                 });
                                 // FSM-04: billing pause is atomic with crash detection — BillingPaused
@@ -1645,7 +1645,7 @@ pub async fn run(
                         conn.config_verified = false;
                         conn.game_running_since = None;
                         conn.shm_defer_logged = false;
-                        let _ = state.failure_monitor_tx.send_modify(|s| {
+                        state.failure_monitor_tx.send_modify(|s| {
                             s.launch_started_at = None;
                             s.game_pid = None;
                         });
@@ -1656,7 +1656,7 @@ pub async fn run(
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_agent_msg).unwrap_or_default().into())).await;
                             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
-                            let _ = state.failure_monitor_tx.send_modify(|s| { s.billing_paused = true; });
+                            state.failure_monitor_tx.send_modify(|s| { s.billing_paused = true; });
                             ffb_controller::safe_session_end(&state.ffb).await;
                             if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                 let pause_msg = AgentMessage::BillingPaused {
@@ -1760,7 +1760,7 @@ pub async fn run(
                             conn.config_verified = false;
                             conn.game_running_since = None;
                             conn.shm_defer_logged = false;
-                            let _ = state.failure_monitor_tx.send_modify(|s| {
+                            state.failure_monitor_tx.send_modify(|s| {
                                 s.launch_started_at = None;
                                 s.game_pid = None;
                             });
@@ -1847,7 +1847,7 @@ pub async fn run(
                         // VALIDATION WINDOW: Only credit success after 60s if no new crash.
                         // If the game crashes again within 60s, the new crash triggers quarantine
                         // (>3 fires in 5min) and this confirmation becomes a no-op.
-                        let val_sim_type = suggestion.sim_type.clone();
+                        let val_sim_type = suggestion.sim_type;
                         let val_error_ctx = suggestion.error_context.clone();
                         let val_fix_type = fix_result.fix_type.clone();
                         tokio::spawn(async move {
@@ -2271,7 +2271,7 @@ pub async fn run(
                                 conn.exit_grace_armed = false;
                                 conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
                             }
-                            let _ = state.failure_monitor_tx.send_modify(|s| { s.billing_paused = false; });
+                            state.failure_monitor_tx.send_modify(|s| { s.billing_paused = false; });
                             state.overlay.deactivate();
                             if let Some(ref sid) = state.failure_monitor_tx.borrow().active_billing_session_id.clone() {
                                 let resume_msg = AgentMessage::BillingResumed {
@@ -2379,7 +2379,7 @@ pub async fn run(
                                     launched_at: std::time::Instant::now(),
                                     attempt: 1,
                                 };
-                                let _ = state.failure_monitor_tx.send_modify(|s| {
+                                state.failure_monitor_tx.send_modify(|s| {
                                     s.launch_started_at = Some(std::time::Instant::now());
                                 });
                                 let launch_result = tokio::task::spawn_blocking(move || {
@@ -2398,7 +2398,7 @@ pub async fn run(
                                         // HARD-03: Record game_running_since for shm defer on relaunch
                                         conn.game_running_since = Some(std::time::Instant::now());
                                         conn.shm_defer_logged = false;
-                                        let _ = state.failure_monitor_tx.send_modify(|s| {
+                                        state.failure_monitor_tx.send_modify(|s| {
                                             s.game_pid = Some(result.pid);
                                         });
                                         tracing::info!(target: LOG_TARGET, "Attempt 2: ac_launcher::launch_ac returned successfully (pid={})", result.pid);
@@ -2439,7 +2439,7 @@ pub async fn run(
                                     session_id: None, launch_stage: None, clean_exit_heuristic: None,
                                 };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&AgentMessage::GameStateUpdate(info)).unwrap_or_default().into())).await;
-                                let _ = state.failure_monitor_tx.send_modify(|s| {
+                                state.failure_monitor_tx.send_modify(|s| {
                                     s.launch_started_at = Some(std::time::Instant::now());
                                 });
 
@@ -2448,7 +2448,7 @@ pub async fn run(
                                         tracing::info!(target: LOG_TARGET, "Attempt 2: {:?} launched (pid: {:?})", last_sim_type, gp.pid);
                                         let gp_pid = gp.pid;
                                         state.game_process = Some(gp);
-                                        let _ = state.failure_monitor_tx.send_modify(|s| {
+                                        state.failure_monitor_tx.send_modify(|s| {
                                             s.game_pid = gp_pid;
                                         });
                                     }
@@ -2480,7 +2480,7 @@ pub async fn run(
                             }
                             // Pattern I Part 5 Commit 3 (D11 characterisation): shared
                             // 6-field reset helper — see failure_monitor::reset_fms_for_session_end.
-                            let _ = state.failure_monitor_tx.send_modify(|s| {
+                            state.failure_monitor_tx.send_modify(|s| {
                                 crate::failure_monitor::reset_fms_for_session_end(s);
                             });
                             ffb_controller::safe_session_end(&state.ffb).await;

@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use image::RgbImage;
 use imageproc::geometric_transformations::{self, Interpolation, Projection};
 

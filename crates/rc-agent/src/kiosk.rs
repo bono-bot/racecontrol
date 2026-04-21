@@ -8,8 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use sysinfo::System;
-use tracing;
-use serde_json;
 
 const LOG_TARGET: &str = "kiosk";
 
@@ -931,7 +929,7 @@ pub async fn classify_process(
     };
 
     let result = client
-        .post(&format!("{}/api/generate", ollama_url))
+        .post(format!("{}/api/generate", ollama_url))
         .json(&serde_json::json!({
             "model": ollama_model,
             "prompt": prompt,

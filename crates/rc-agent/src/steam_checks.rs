@@ -78,7 +78,7 @@ fn is_steam_running() -> bool {
     use sysinfo::System;
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    for (_pid, process) in sys.processes() {
+    for process in sys.processes().values() {
         let name = process.name().to_string_lossy();
         if name.eq_ignore_ascii_case("steam.exe") {
             return true;
@@ -93,7 +93,7 @@ fn is_steam_updating() -> bool {
     use sysinfo::System;
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    for (_pid, process) in sys.processes() {
+    for process in sys.processes().values() {
         let name = process.name().to_string_lossy();
         // SteamOverlayUpdate.exe indicates Steam applying an update
         if name.eq_ignore_ascii_case("SteamOverlayUpdate.exe") {
@@ -222,12 +222,12 @@ pub fn wait_for_game_window(sim_type: SimType, timeout_secs: u64) -> Result<u32,
             "INV-9 v2: Deadline reached for {:?}. Observed top-level visible window classes during wait: [{}]. Dismissed {} vguiPopupWindow(s). If a Steam dialog was visible, its class is in this list and is not currently matched by dismiss_steam_dialogs.",
             sim_type, observed_str, dialogs_dismissed
         );
-        return Err(format!(
+        Err(format!(
             "Game failed to launch - only Steam dialog visible after {}s timeout for {:?}. \
             Steam may have shown a dialog (DRM check, update, login) instead of launching the game. \
             Dismissed {} dialog(s) during wait. Observed window classes: [{}]",
             timeout_secs, sim_type, dialogs_dismissed, observed_str
-        ));
+        ))
     }
     #[cfg(not(windows))]
     Err(format!(

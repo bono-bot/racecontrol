@@ -96,7 +96,6 @@ fn poll_health() -> bool {
         "GET {} HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
         cfg.health_path
     );
-    let request = request; // bind the formatted String
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -513,8 +512,8 @@ mod tests {
 
     #[test]
     fn fsm_suspect_escalates_to_crashed() {
-        let state = WatchdogState::Suspect(2);
-        let healthy = false;
+        let _state = WatchdogState::Suspect(2);
+        let _healthy = false;
         let n = 2;
         let next_n = n + 1;
         let next = if next_n >= HYSTERESIS_THRESHOLD {
