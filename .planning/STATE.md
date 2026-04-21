@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-21T02:21:02.719Z"
+last_updated: "2026-04-21T16:37:00.000Z"
 last_activity: 2026-04-21
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 11
+  completed_plans: 11
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 445 — typed-api-contract-rust-ts-codegen
+**Current focus:** Phase 445 SHIPPED 2026-04-21 22:07 IST — typed API contract (Rust→TS codegen) live on cloud admin
 
 ## Current Phase
 
-**Phase:** 445
-**Status:** Executing Phase 445 (Plan 00 closed 2026-04-21)
+**Phase:** 445 — SHIPPED
+**Status:** Phase 445 SHIPPED 2026-04-21 22:07 IST. PR #9 merged at `d52a8a72`. Cloud admin rebuilt (build_id `cDyHRUgWTiqZTchmlEPgz`, git_commit `dfaabe6`). 9/9 TYP-XX requirements traced. See [445-PHASE-SUMMARY.md](phases/445-typed-api-contract-rust-ts-codegen/445-PHASE-SUMMARY.md) + [445-05-DEPLOY-EVIDENCE.md](phases/445-typed-api-contract-rust-ts-codegen/445-05-DEPLOY-EVIDENCE.md).
 **Last activity:** 2026-04-21
 
 ## Progress
