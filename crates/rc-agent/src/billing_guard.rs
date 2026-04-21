@@ -231,6 +231,8 @@ mod tests {
             active_billing_session_id: None,
             active_billing_session_id_set_at: None,
             sim_type: None,
+            session_last_known_driving_seconds: None,
+            session_last_known_driver: None,
         }
     }
 

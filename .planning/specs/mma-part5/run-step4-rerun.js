@@ -12,10 +12,11 @@ const https = require("https");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const ROOT = "C:/Users/bono/racingpoint/racecontrol";
-const OUT_DIR = path.join(ROOT, ".planning/specs/mma-part5/verify-rerun");
-const KEY_FILE = path.join(ROOT, "data/openrouter-mma-key.txt");
-const FIX_COMMIT = "49eb2821";
+const ROOT = "C:/Users/bono/AppData/Local/Temp/rc-part5-verify";
+const OUT_DIR = path.join(ROOT, ".planning/specs/mma-part5/verify-rerun-2");
+// Key file from original repo (worktree doesn't copy untracked data/)
+const KEY_FILE = "C:/Users/bono/racingpoint/racecontrol/data/openrouter-mma-key.txt";
+const FIX_COMMIT = "273687fc";  // W-2 + mesh_key + W-3 polish on top of 49eb2821
 
 const API_KEY = fsSync.readFileSync(KEY_FILE, "utf8").trim();
 if (!API_KEY) {
@@ -32,10 +33,10 @@ function gitShow(commit, filePath) {
   );
 }
 
-// NOTE: original run had all 3 models; mimo crashed extractJson on null content.
-// This is a re-dispatch for mimo ONLY. kimi.json + mistral.json already on disk
-// from first run — leaving untouched.
+// Re-re-run against 273687fc polish — full 3-model dispatch for fresh aggregate.
 const MODELS = [
+  { id: "moonshotai/kimi-k2-0905",     short: "kimi",    price_prompt: 0.60, price_completion: 2.50, role: "reasoner-adversarial" },
+  { id: "mistralai/mistral-medium-3.1", short: "mistral", price_prompt: 0.40, price_completion: 2.00, role: "code-expert-adversarial" },
   { id: "xiaomi/mimo-v2-pro",           short: "mimo",    price_prompt: 0.15, price_completion: 0.60, role: "sre-adversarial" },
 ];
 
@@ -51,9 +52,10 @@ async function loadContext() {
   const wsh_part5 = wsh_full.split("\n").slice(2324, 2570).join("\n");
   const fha_full = gitShow(FIX_COMMIT, "crates/racecontrol/src/fleet_health_api.rs");
   const fha_part5 = fha_full.split("\n").slice(100, 220).join("\n");
-  // V-C cache field — pull the failure_monitor.rs struct excerpt
+  // V-C + W-2 cache fields — slice expanded (38, 120) → (38, 150) after
+  // rerun-1 mimo-W-1 false positive traced to truncation cutting reset body.
   const fms_full = gitShow(FIX_COMMIT, "crates/rc-agent/src/failure_monitor.rs");
-  const fms_struct = fms_full.split("\n").slice(38, 120).join("\n");
+  const fms_struct = fms_full.split("\n").slice(38, 150).join("\n");
 
   return { spec, findings, step4_prior, module, wsh_part5, fha_part5, fms_struct };
 }

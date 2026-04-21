@@ -1,0 +1,58 @@
+{
+  "verdict": "PASS",
+  "score_out_of_5": 4.5,
+  "prior_defects_status": [
+    {
+      "defect_id": "V-A",
+      "fix_addresses_root_cause": true,
+      "evidence": "session_end_fallback.rs:225-250 explicit tokio::time::timeout on response.bytes() + serde_json::from_slice in-memory decode",
+      "residual_risk": "none",
+      "note": "timeout race closed by separating network I/O from parse; no silent skip on stall"
+    },
+    {
+      "defect_id": "V-B",
+      "fix_addresses_root_cause": true,
+      "evidence": "session_end_fallback.rs:44-54 OnceLock<reqwest::Client> memoized once per process",
+      "residual_risk": "none",
+      "note": "client reuse eliminates fd/connection-pool churn; no per-call rebuild"
+    },
+    {
+      "defect_id": "V-C",
+      "fix_addresses_root_cause": true,
+      "evidence": "failure_monitor.rs:94-95 + session_end_fallback.rs:267-275 cache read/write of session_last_known_driving_seconds & driver_name",
+      "residual_risk": "low",
+      "note": "driving_seconds and driver_name now cached; laps/best_lap still 0/None (P3 follow-up)"
+    }
+  ],
+  "new_defects_found": [
+    {
+      "defect_id": "W-1",
+      "severity": "P2",
+      "category": "correctness",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:189",
+      "description": "OnceLock HTTP_CLIENT is never re-created if the first build fails (unwrap_or_else fallback to Client::new). A poisoned OnceLock stays poisoned, so transient DNS or TLS config error at first call permanently disables the fallback.",
+      "exploit_or_trigger": "Pod reboots during network partition; first HTTP call races with bad resolver config → OnceLock poisoned → fallback silently dead for rest of process life.",
+      "suggested_fix": "Replace unwrap_or_else with expect + early return Err so the task retries on next tick instead of poisoning the singleton.",
+      "confidence_1_to_5": 4
+    },
+    {
+      "defect_id": "W-2",
+      "severity": "P3",
+      "category": "observability",
+      "file_line": "crates/rc-agent/src/session_end_fallback.rs:195-199",
+      "description": "Empty service-key early-return logs at ERROR level but emits no metric/alert. Missing mesh-key file is a deploy mis-configuration that should page operators.",
+      "exploit_or_trigger": "Mis-deployed pod missing mesh-key file → fallback skips forever with only one ERROR log line; fleet/health shows stuck_session_candidate but root cause is buried.",
+      "suggested_fix": "Emit a counter metric (e.g. session_end_fallback_auth_failures_total) and/or escalate to on-call via existing alert channel.",
+      "confidence_1_to_5": 3
+    }
+  ],
+  "deploy_readiness": {
+    "can_ship_as_is": true,
+    "must_fix_before_ship": [],
+    "nice_to_have": [
+      "W-1",
+      "W-2"
+    ]
+  },
+  "adversarial_summary": "Fix commit 49eb2821 closes all three prior Step-4 blockers at root cause: V-A timeout race eliminated via bytes+timeout split, V-B client reuse implemented with OnceLock, V-C cache added for driving_seconds & driver_name. Two new low-severity issues surfaced (W-1 poisoned OnceLock, W-2 missing alert on auth failure) but neither is customer-blocking. Test coverage expanded; laps/best_lap cache deferred to follow-up. Score 4.5/5 → PASS, safe to deploy."
+}

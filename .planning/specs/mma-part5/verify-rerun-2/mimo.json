@@ -1,0 +1,6 @@
+{
+  "__malformed": true,
+  "__error": "null or non-string content (likely hit max_tokens cap — finish_reason=length)",
+  "__model": "xiaomi/mimo-v2-pro",
+  "__raw_content": null
+}

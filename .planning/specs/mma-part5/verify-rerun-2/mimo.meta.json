@@ -1,0 +1,12 @@
+{
+  "model": "xiaomi/mimo-v2-pro",
+  "short": "mimo",
+  "role": "sre-adversarial",
+  "elapsed_sec": "278.0",
+  "prompt_tokens": 22503,
+  "completion_tokens": 24000,
+  "cost_usd": 0.017775449999999998,
+  "finish_reason": "length",
+  "json_ok": false,
+  "json_error": "null or non-string content (likely hit max_tokens cap — finish_reason=length)"
+}

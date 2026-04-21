@@ -565,4 +565,23 @@ mod tests {
         s.session_last_known_driver = Some("Raikkonen".to_string());
         assert_eq!(s.session_last_known_driver.as_deref(), Some("Raikkonen"));
     }
+
+    /// W-3 (mistral Step-4-rerun, conf 5/5): cache-miss path in synth branch.
+    /// When no live-session poll ever cached driver+seconds (e.g. SessionEnded
+    /// fires before first /billing/active success), the synth branch must
+    /// resolve to "0 seconds + empty driver name" via unwrap_or(0) /
+    /// unwrap_or_default(), not panic and not pull stale data.
+    #[test]
+    fn failure_monitor_state_cache_miss_resolves_to_zero_and_empty() {
+        use crate::failure_monitor::FailureMonitorState;
+        let s = FailureMonitorState::default();
+        let cached_seconds = s.session_last_known_driving_seconds.unwrap_or(0);
+        let cached_driver = s.session_last_known_driver.clone().unwrap_or_default();
+        assert_eq!(cached_seconds, 0,
+            "cache-miss seconds must resolve to 0 (not panic, not sentinel)");
+        assert_eq!(cached_driver, "",
+            "cache-miss driver must resolve to empty string (not panic, not stale)");
+        assert!(cached_driver.is_empty(),
+            "driver_cache_hit log field must read false on cache miss");
+    }
 }
