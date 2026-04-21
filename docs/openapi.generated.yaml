@@ -1,0 +1,24 @@
+openapi: 3.1.0
+info:
+  title: Racing Point racecontrol API
+  description: Generated from utoipa annotations. Admin-surface subset (Phase 445 D-06).
+  contact:
+    name: RacingPoint
+    email: bono@racingpoint.in
+  license:
+    name: MIT
+    identifier: MIT
+  version: 1.0.0
+paths: {}
+components: {}
+tags:
+- name: admin
+  description: Admin panel surface
+- name: fleet
+  description: Fleet health + status
+- name: billing
+  description: Billing sessions + pricing
+- name: games
+  description: Game catalog + launch
+- name: drivers
+  description: Driver/customer management

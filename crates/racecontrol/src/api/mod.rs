@@ -8,6 +8,11 @@ pub mod routes;
 pub mod security;
 pub mod survival;
 
+// Phase 445 — OpenApi umbrella module (feature-gated; only exists when gen-types feature is on).
+// Plan 02b populates with admin handler route annotations.
+#[cfg(feature = "gen-types")]
+pub mod openapi;
+
 // ─── Domain handler modules (Phase 380 split from routes.rs) ─────────────
 pub mod accounting_handlers;
 pub mod activity_routes;
