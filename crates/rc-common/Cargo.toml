@@ -20,8 +20,14 @@ wait-timeout = "0.2"
 workspace = true
 optional = true
 
+# Phase 445 — ts-rs derive support (Plan 02a adds #[cfg_attr(feature = "ts-rs", derive(TS))] to admin-consumed types)
+[dependencies.ts-rs]
+workspace = true
+optional = true
+
 [features]
 tokio = ["dep:tokio"]
+ts-rs = ["dep:ts-rs"]
 
 [dev-dependencies]
 regex = "1"

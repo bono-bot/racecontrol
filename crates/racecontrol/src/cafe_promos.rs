@@ -63,6 +63,16 @@ pub async fn list_active_promos(
     Ok((StatusCode::OK, Json(active)))
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/cafe/promos",
+    tag = "cafe",
+    responses(
+        (status = 200, description = "List of cafe promos", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub async fn list_cafe_promos(
     State(state): State<Arc<AppState>>,
 ) -> Result<(StatusCode, Json<Vec<CafePromo>>), (StatusCode, Json<serde_json::Value>)> {

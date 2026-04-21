@@ -52,6 +52,14 @@ use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, Dashboar
 
 // ─── Wallet (staff-facing) ───────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/wallet/bonus-tiers",
+    tag = "wallet",
+    responses(
+        (status = 200, description = "Active wallet top-up bonus tiers", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn wallet_bonus_tiers(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {
@@ -79,6 +87,14 @@ pub(crate) async fn wallet_bonus_tiers(
 ///
 /// Reads from `system_settings` key `wallet_topup_presets_paise` (JSON array of i64).
 /// Falls back to a hardcoded safe default if unset so venues never see an empty list.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/wallet/topup-presets",
+    tag = "wallet",
+    responses(
+        (status = 200, description = "Unified wallet top-up preset amounts (paise)", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn wallet_topup_presets(
     State(state): State<Arc<AppState>>,
 ) -> Json<Value> {

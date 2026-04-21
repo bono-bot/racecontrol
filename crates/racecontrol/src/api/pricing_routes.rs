@@ -53,6 +53,16 @@ use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, Dashboar
 
 // ─── Pricing ────────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/pricing",
+    tag = "pricing",
+    responses(
+        (status = 200, description = "List of pricing tiers", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_pricing_tiers(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, i64, i64, bool, bool, i64)>(
         "SELECT id, name, duration_minutes, price_paise, is_trial, is_active, sort_order

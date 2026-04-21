@@ -95,6 +95,16 @@ pub(crate) struct ListDriversQuery {
     search: Option<String>,
 }
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/drivers",
+    tag = "drivers",
+    responses(
+        (status = 200, description = "List of drivers (PII masked without manager role)", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn list_drivers(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListDriversQuery>,

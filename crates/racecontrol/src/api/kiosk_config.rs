@@ -72,6 +72,14 @@ pub(crate) const BASELINE_PROCESSES: &[&str] = &[
     "system",
 ];
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/config/kiosk-allowlist",
+    tag = "config",
+    responses(
+        (status = 200, description = "Kiosk process allowlist entries (public — rc-agent fetches without JWT)", body = serde_json::Value),
+    )
+))]
 pub(crate) async fn list_kiosk_allowlist(State(state): State<Arc<AppState>>) -> Json<Value> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String)>(
         "SELECT id, process_name, added_by, notes, created_at

@@ -1,0 +1,61 @@
+#!/bin/bash
+# scripts/git-hooks/pre-commit — Phase 445 drift guard (TRACKED SOURCE).
+#
+# This is the version-controlled source of truth for the Phase 445 drift
+# guard. It is installed to .git/hooks/pre-commit via
+# scripts/install-hooks.sh. `.git/hooks/pre-commit` is local/untracked —
+# this file is the canonical copy fresh clones get.
+#
+# Behaviour:
+#   - Fast-exit if no Rust source, generated types, or openapi.generated.yaml
+#     is staged (most commits).
+#   - Otherwise runs scripts/check-generated-types-drift.sh to verify the
+#     committed generated/ tree matches what gen-types would produce right now.
+#   - Exits 1 (blocks commit) on drift, with remediation instructions.
+#   - If cargo is not in PATH, skip with warning — CI will still catch it.
+#
+# Chains with any pre-existing .git/hooks/pre-commit: install-hooks.sh's
+# strategy is to NOT overwrite if the destination hook is a different script
+# (e.g., SEC-GATE-02). Integration is done via a wrapper or documented in
+# the installer's --dry-run output.
+#
+# Bypass (do NOT do this without reason): git commit --no-verify
+# (CI will still fail — this hook is a local convenience, CI is the gate.)
+
+STAGED=$(git diff --cached --name-only)
+NEEDS_CHECK=false
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    crates/rc-common/src/types.rs|crates/rc-common/src/inventory_types.rs|crates/rc-common/src/fleet_health_types.rs) NEEDS_CHECK=true ;;
+    crates/racecontrol/src/api/openapi.rs|crates/racecontrol/src/api/*/*.rs) NEEDS_CHECK=true ;;
+    packages/shared-types/generated/*) NEEDS_CHECK=true ;;
+    docs/openapi.generated.yaml) NEEDS_CHECK=true ;;
+  esac
+done <<< "$STAGED"
+
+if [ "$NEEDS_CHECK" = "false" ]; then
+  exit 0  # no relevant files — fast path, don't pay cargo build cost
+fi
+
+echo "[pre-commit] Phase 445 drift check (relevant files staged)..."
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "[pre-commit] cargo not in PATH — skipping drift check (CI will catch it)"
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/scripts/check-generated-types-drift.sh" ]; then
+  echo "[pre-commit] scripts/check-generated-types-drift.sh not found — skipping"
+  exit 0
+fi
+
+if ! bash "$REPO_ROOT/scripts/check-generated-types-drift.sh"; then
+  echo ""
+  echo "[pre-commit] BLOCKED: generated types are stale."
+  echo "[pre-commit] Run: cargo run --release --bin gen-types --features gen-types"
+  echo "[pre-commit] Then: git add packages/shared-types/generated/ docs/openapi.generated.yaml"
+  echo "[pre-commit] To bypass (CI will still fail): git commit --no-verify"
+  exit 1
+fi
+exit 0

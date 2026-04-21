@@ -2293,7 +2293,7 @@ Plans:
 
 **Requirements:** TYP-01..TYP-09 (derived from CONTEXT D-01..D-20)
 **Depends on:** Phase 414 (billing FSM stable) + Phase 415 (MP group booking — avoids contract churn mid-migration)
-**Plans:** 1/7 plans executed
+**Plans:** 6/7 plans executed
 
 **Scope:**
 - racecontrol route definitions annotated with `utoipa`/`aide` for OpenAPI extraction
@@ -2313,11 +2313,11 @@ Plans:
 
 Plans:
 - [x] 445-00-PLAN.md — Safety audits (D-14 enum guard, admin-type whitelist, ts-rs spike, determinism harness)
-- [ ] 445-01-PLAN.md — Workspace deps + feature flags + gen-types binary skeleton
-- [ ] 445-02a-PLAN.md — rc-common TS derives + gen-types body
-- [ ] 445-02b-PLAN.md — utoipa annotations on 43 admin handlers + ApiDoc umbrella
-- [ ] 445-03-PLAN.md — Admin migration (D-12 drift audit + index.ts re-exports)
-- [ ] 445-04-PLAN.md — CI gate + D-20 regression fixture + deploy-audit.sh + pre-commit hook
+- [x] 445-01-PLAN.md — Workspace deps + feature flags + gen-types binary skeleton
+- [x] 445-02a-PLAN.md — rc-common TS derives + gen-types body
+- [x] 445-02b-PLAN.md — utoipa annotations on 43 admin handlers + ApiDoc umbrella
+- [x] 445-03-PLAN.md — Admin migration (D-12 drift audit + index.ts re-exports)
+- [x] 445-04-PLAN.md — CI gate + D-20 regression fixture + deploy-audit.sh + pre-commit hook
 - [ ] 445-05-PLAN.md — Cloud parity + phase SUMMARY + STATE/ROADMAP/SWAPLOG update
 
 ---

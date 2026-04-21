@@ -3,7 +3,7 @@
 # Monitors kiosk(:3300), web(:3200), admin(:3201) via HTTP health check.
 # Auto-restarts crashed apps. Runs as schtask.
 
-# Singleton mutex — prevent multiple instances
+# Singleton mutex -- prevent multiple instances
 $mutexName = "Global\FrontendWatchdog"
 $mutex = New-Object System.Threading.Mutex($false, $mutexName)
 if (-not $mutex.WaitOne(0)) {
@@ -16,12 +16,26 @@ $maxLogSizeKB = 512
 $checkIntervalSec = 30
 
 # App definitions
+#
+# BatFile: canonical start-<app>.bat that holds the full env set (RC_URL,
+# RC_JWT_SECRET, RC_CLOUD_URL, PORT, HOSTNAME, NODE_OPTIONS, ...). Start-App
+# respawns via `cmd /c <BatFile>` so every restart path inherits the same env
+# as a fresh boot. Previously we spawned bare `node server.js` with only
+# PORT/HOSTNAME/NODE_OPTIONS set -- admin /api/auth/login would throw 500
+# because RC_URL was missing. Incident: 2026-04-20 PID 12852 (16h outage
+# until manual restart via schtasks). See start-admin.bat comment for full
+# history.
+#
+# Env fallback: the in-script Env map is used only if BatFile is missing on
+# disk (defense-in-depth). Admin Env intentionally stays minimal -- the bat
+# is the source of truth for all secrets and upstream URLs.
 $apps = @(
     @{
         Name = "kiosk"
         Port = 3300
         HealthUrl = "http://127.0.0.1:3300/kiosk/api/health"
         Dir = "C:\RacingPoint\kiosk"
+        BatFile = "C:\RacingPoint\start-kiosk-server.bat"
         Env = @{ PORT = "3300"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     },
     @{
@@ -29,6 +43,7 @@ $apps = @(
         Port = 3200
         HealthUrl = "http://127.0.0.1:3200/api/health"
         Dir = "C:\RacingPoint\web"
+        BatFile = "C:\RacingPoint\start-web.bat"
         Env = @{ PORT = "3200"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     },
     @{
@@ -36,6 +51,7 @@ $apps = @(
         Port = 3201
         HealthUrl = "http://127.0.0.1:3201/api/health"
         Dir = "C:\RacingPoint\admin"
+        BatFile = "C:\RacingPoint\start-admin.bat"
         Env = @{ PORT = "3201"; HOSTNAME = "0.0.0.0"; NODE_OPTIONS = "--max-old-space-size=256" }
     }
 )
@@ -93,30 +109,47 @@ function Start-App {
     }
     Start-Sleep -Seconds 2
 
-    # Set env vars and start node
-    foreach ($key in $app.Env.Keys) {
-        [System.Environment]::SetEnvironmentVariable($key, $app.Env[$key], "Process")
-    }
-
-    $nodeExe = "C:\Program Files\nodejs\node.exe"
-    $serverJs = Join-Path $app.Dir "server.js"
-
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $nodeExe
-    $psi.Arguments = $serverJs
-    $psi.WorkingDirectory = $app.Dir
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    foreach ($key in $app.Env.Keys) {
-        $psi.EnvironmentVariables[$key] = $app.Env[$key]
-    }
+    # Preferred restart path: spawn via canonical start-<app>.bat so all env
+    # vars (RC_URL, RC_JWT_SECRET, RC_CLOUD_URL, ...) come from the single
+    # source of truth that also runs at boot (HKLM Run). If the bat is
+    # missing, fall back to the legacy bare-node path with the in-script
+    # Env map (kept for defense-in-depth only -- the bat is canonical).
+    $useBat = ($app.ContainsKey('BatFile')) -and (Test-Path $app.BatFile)
 
     try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        Write-Log "  Started $($app.Name) PID=$($proc.Id)"
-        Start-Sleep -Seconds 3
+        if ($useBat) {
+            Write-Log "  Spawning via $($app.BatFile)"
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = "C:\Windows\System32\cmd.exe"
+            $psi.Arguments = "/c `"`"$($app.BatFile)`"`""
+            $psi.WorkingDirectory = $app.Dir
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            Write-Log "  Started cmd.exe wrapper PID=$($proc.Id) (node PID will be a child)"
+        } else {
+            Write-Log "  BatFile missing ($($app.BatFile)) -- FALLBACK to bare node"
+            foreach ($key in $app.Env.Keys) {
+                [System.Environment]::SetEnvironmentVariable($key, $app.Env[$key], "Process")
+            }
+            $nodeExe = "C:\Program Files\nodejs\node.exe"
+            $serverJs = Join-Path $app.Dir "server.js"
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $nodeExe
+            $psi.Arguments = $serverJs
+            $psi.WorkingDirectory = $app.Dir
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            foreach ($key in $app.Env.Keys) {
+                $psi.EnvironmentVariables[$key] = $app.Env[$key]
+            }
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $procId = $proc.Id
+            $appName = $app.Name
+            Write-Log "  Started $appName PID=$procId -- FALLBACK path, may be missing RC_URL/RC_JWT_SECRET"
+        }
 
-        # Verify it's actually listening
+        Start-Sleep -Seconds 3
         if (Test-PortListening -port $app.Port) {
             Write-Log "  CONFIRMED $($app.Name) listening on :$($app.Port)"
         } else {

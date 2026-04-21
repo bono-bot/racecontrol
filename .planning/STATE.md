@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
 status: executing
-last_updated: "2026-04-21T00:19:20.240Z"
-last_activity: 2026-04-20
+last_updated: "2026-04-21T02:21:02.719Z"
+last_activity: 2026-04-21
 progress:
   total_phases: 4
   completed_phases: 4
@@ -368,7 +368,23 @@ If records[] is non-empty → Phase 384 COMPLETE → unblocks all downstream pha
 **Summary:** `.planning/phases/445-typed-api-contract-rust-ts-codegen/445-00-SUMMARY.md`
 **Spike:** `.planning/phases/445-typed-api-contract-rust-ts-codegen/445-00-SPIKE.md`
 
-*Last updated: 2026-04-21T05:46 IST — Phase 445-00 (Wave 0 safety audits + scaffolding) closed; D-14 structural gate live, admin whitelist 42 entries, ts-rs Verdict A locked, 3 Wave-0 script gates armed in skip-mode awaiting Plan 01 (`46d409a5` + `8b7dd677` + `8751b55f`)*
+## Phase 445 Plan 01 — Wave 1 deps + scaffolding closed (2026-04-21)
+
+**Completed:** 2026-04-21T06:14 IST (GSD executor, auto mode)
+**Scope:** 4 workspace dependencies added (utoipa 5.4, utoipa-axum 0.2, ts-rs 12, serde_yaml 0.9) with 4-tier feature isolation (workspace → optional crate dep → feature → required-features [[bin]]). Created `crates/racecontrol/src/api/openapi.rs` ApiDoc umbrella (feature-gated behind `gen-types`) and `crates/racecontrol/src/bin/gen_types.rs` skeleton binary. First emission of `docs/openapi.generated.yaml` (572 B, 5 tags, 0 paths) + `packages/shared-types/generated/index.ts` (105 B placeholder). Plan 00's 3 skip-branch gates (determinism + drift + hand-vs-generated) graduated from SKIP to active. Requirements TYP-01 + TYP-02 structurally satisfied.
+**Commits:**
+
+- `4141529e` — Task 1: 4 workspace deps in root Cargo.toml + optional ts-rs on rc-common + optional utoipa/utoipa-axum/ts-rs/serde_yaml on racecontrol + gen-types feature + [[bin]] gen-types with required-features. Cargo.lock transitives resolved.
+- `ef5cf07e` — Task 2: `#[derive(OpenApi)]` struct ApiDoc in new api/openapi.rs + fn main() stub in new bin/gen_types.rs + feature-gated `pub mod openapi` in api/mod.rs + first-emitted docs/openapi.generated.yaml + packages/shared-types/generated/index.ts.
+
+**Verification:** `cargo build --release --bin gen-types --features gen-types` exits 0 (binary 3,774,464 B). `cargo check --release` on racecontrol/rc-agent/rc-sentry all green (regression-free). `cargo tree -e features -p rc-agent-crate | grep -c ts-rs` = 0 + `-p rc-sentry | grep -c ts-rs` = 0 + `-p racecontrol-crate | grep -c ts-rs` = 0 default / 26 with --features gen-types (Pitfall 1 feature isolation VERIFIED). 3x determinism confirmed (sha256 `673ee228...` yaml + `0469501f...` index.ts byte-identical). `bash scripts/check-gen-types-determinism.sh` → `DETERMINISTIC: 0c927858...`. `bash scripts/check-generated-types-drift.sh` → `OK: no drift`. `cargo test -p rc-common --test enum_tagging_audit` still 1 passed.
+**Decisions:** (1) Weak-dep pattern `dep:ts-rs` on rc-common prevents unification into rc-agent/rc-sentry. (2) required-features = ["gen-types"] on [[bin]] skips binary cleanly from default build. (3) OpenApi module feature-gated — live axum Router unchanged (Pitfall 3). (4) gen_types.rs body uses SPIKE Verdict A shape (direct fn main() + export_all(&Config)) — Plan 02a replaces the index.ts placeholder block with real per-type calls.
+**Deviations:** 1 Rule 1 auto-fix (missing `use utoipa::OpenApi;` in gen_types.rs — compile-error E0599, fixed inline pre-commit) + 1 Rule 2 skip (REQUIREMENTS.md doesn't track TYP-* — matches Plan 00 precedent, SUMMARY frontmatter records the intent).
+**Next plan:** 445-02a Wave 2a (rc-common TS derives on 42 apex types + gen-types binary body replacement with real `TS::export_all(&cfg)` calls) AND 445-02b Wave 2b (utoipa annotations on 43 admin handlers + OpenApiRouter wiring in ApiDoc).
+**Summary:** `.planning/phases/445-typed-api-contract-rust-ts-codegen/445-01-SUMMARY.md`
+
+*Last updated: 2026-04-21T06:14 IST — Phase 445-01 (Wave 1 deps + scaffolding) closed; 4 workspace deps + gen-types feature + binary skeleton shipped; rc-agent/rc-sentry/racecontrol default build regression-free; Plan 00 determinism + drift gates now armed (`4141529e` + `ef5cf07e`)*
+*Previous: 2026-04-21T05:46 IST — Phase 445-00 (Wave 0 safety audits + scaffolding) closed; D-14 structural gate live, admin whitelist 42 entries, ts-rs Verdict A locked, 3 Wave-0 script gates armed in skip-mode awaiting Plan 01 (`46d409a5` + `8b7dd677` + `8751b55f`)*
 *Previous: 2026-04-18T04:49 IST — Phase 414-05 (Wave 5 kiosk frontend Tasks 1+2) closed; IdleWarningDialog + paused-meter UI + 3 label fixes; kiosk build 27 chunks clean; Task 3 awaiting venue checkpoint (`a4654235` + `29508f64`)*
 *Previous: 2026-04-18 IST — Phase 413-10 (pre-deploy integration test) closed; live 200+JSON from real pod IP (192.168.31.89) + 403 from Staff IPs + rc-agent periodic_refetch lifecycle green; Plan 11 fleet deploy cleared to proceed (`dce4279b` + `9019da74` + `4c2e9032`)*
 *Previous: 2026-04-18 IST — Phase 413-07 (deploy-server.sh WMIC commandline match) closed; Factor 3 of 2026-04-18 03:13 IST deploy abort resolved — all 3 factors now in source (`bee5d207`)*

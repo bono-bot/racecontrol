@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 ///   demoted      retired
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum SolutionStatus {
     /// Newly discovered by a single node, not yet verified across fleet.
@@ -34,6 +36,8 @@ pub enum SolutionStatus {
 
 /// Classification of what kind of fix a solution applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum FixType {
     /// Local deterministic fix (kill process, clear sentinel, restart).
@@ -54,6 +58,8 @@ pub enum FixType {
 
 /// Which tier of the diagnostic engine found or applied this solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosisTier {
     /// Tier 1: Deterministic checks (local, $0).
@@ -87,6 +93,8 @@ impl DiagnosisTier {
 /// A diagnosed and verified solution to a specific problem.
 /// Stored in local KB (per node) and fleet KB (server).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(deny_unknown_fields)]
 pub struct MeshSolution {
     /// Unique ID — hash of problem_key.

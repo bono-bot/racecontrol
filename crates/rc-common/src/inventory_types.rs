@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 /// `deploy/configs/rc-agent-pod{id}.toml` on disk. See
 /// `crates/racecontrol/src/api/pods.rs::load_pod_inventory`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct PodInventory {
     pub pod_number: u32,
     pub pod_name: String,
@@ -36,6 +38,8 @@ pub struct PodInventory {
 /// non-enumerable content (F1 25, iRacing). A populated `cars` array enables
 /// strict validation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct GameInventory {
     /// Canonical game key (assetto_corsa, f1_25, iracing, etc.)
     pub key: String,
@@ -51,6 +55,8 @@ pub struct GameInventory {
 
 /// Inclusive AI opponent count range.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct AiCountRange {
     pub min: u32,
     pub max: u32,
@@ -70,6 +76,8 @@ impl Default for AiCountRange {
 /// (361-02) and admin (361-03) render `reason` + `suggestion` in toast
 /// notifications; they discriminate on `code`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct ValidityError {
     pub reason: String,
     pub suggestion: String,
@@ -78,6 +86,8 @@ pub struct ValidityError {
 
 /// Machine-readable validity error discriminant. Serializes to SCREAMING_SNAKE_CASE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ValidityErrorCode {
     GameNotInstalled,
@@ -91,11 +101,15 @@ pub enum ValidityErrorCode {
 /// because this enumerates WHAT IS ON DISK right now (drift detection source),
 /// whereas PodInventory reflects the committed TOML (source of truth).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct ContentDirsResponse {
     pub games: Vec<GameDirs>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct GameDirs {
     pub game_key: String,
     pub cars_dir: String,

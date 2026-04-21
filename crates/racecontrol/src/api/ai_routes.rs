@@ -62,6 +62,17 @@ pub(crate) struct AiChatRequest {
 }
 
 /// Staff/admin AI chat — full business context.
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    post,
+    path = "/api/v1/ai/chat",
+    tag = "ai_chat",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "AI chat response", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
 pub(crate) async fn ai_chat(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AiChatRequest>,

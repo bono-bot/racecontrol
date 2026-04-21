@@ -1,0 +1,778 @@
+openapi: 3.1.0
+info:
+  title: Racing Point racecontrol API
+  description: Generated from utoipa annotations. Admin-surface subset (Phase 445 D-06).
+  contact:
+    name: RacingPoint
+    email: bono@racingpoint.in
+  license:
+    name: MIT
+    identifier: MIT
+  version: 1.0.0
+paths:
+  /api/v1/activity:
+    get:
+      tags:
+      - activity
+      operationId: global_activity
+      parameters:
+      - name: limit
+        in: query
+        description: Max rows (default 100, cap 500)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Global activity log
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/ai/chat:
+    post:
+      tags:
+      - ai_chat
+      summary: Staff/admin AI chat — full business context.
+      operationId: ai_chat
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: AI chat response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/billing/active:
+    get:
+      tags:
+      - billing
+      operationId: active_billing_sessions
+      responses:
+        '200':
+          description: Active billing sessions across fleet
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/billing/rates:
+    get:
+      tags:
+      - billing
+      operationId: list_billing_rates
+      responses:
+        '200':
+          description: List of per-minute billing rate tiers
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/billing/start:
+    post:
+      tags:
+      - billing
+      operationId: start_billing
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: Billing session started
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+        '409':
+          description: Pod already has active billing session
+      security:
+      - staffJWT: []
+  /api/v1/cafe/promos:
+    get:
+      tags:
+      - cafe
+      operationId: list_cafe_promos
+      responses:
+        '200':
+          description: List of cafe promos
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/config/audit:
+    get:
+      tags:
+      - config
+      summary: GET /api/v1/config/audit
+      operationId: get_audit_log
+      responses:
+        '200':
+          description: Config push audit log (last 100 entries)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/config/kiosk-allowlist:
+    get:
+      tags:
+      - config
+      operationId: list_kiosk_allowlist
+      responses:
+        '200':
+          description: Kiosk process allowlist entries (public — rc-agent fetches without JWT)
+          content:
+            application/json:
+              schema: {}
+  /api/v1/config/pod/{pod_id}:
+    get:
+      tags:
+      - config
+      summary: |-
+        GET /api/v1/config/pod/{pod_id}
+        Retrieve stored AgentConfig for a pod (returns 404 if none stored).
+      operationId: get_pod_config_handler
+      parameters:
+      - name: pod_id
+        in: path
+        description: Pod identifier
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Stored AgentConfig for pod
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+        '404':
+          description: No config stored for pod
+      security:
+      - staffJWT: []
+  /api/v1/config/push:
+    post:
+      tags:
+      - config
+      summary: |-
+        POST /api/v1/config/push
+        Validate, queue, and deliver a config push to all or selected pods.
+      operationId: push_config
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: Config push queued + delivered to target pods
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: Validation failure
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/coupons:
+    get:
+      tags:
+      - coupons
+      operationId: list_coupons
+      responses:
+        '200':
+          description: List of coupons
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/customer/membership:
+    get:
+      tags:
+      - customer
+      operationId: customer_membership
+      responses:
+        '200':
+          description: Active customer membership + tier list
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Customer JWT required
+      security:
+      - customerJWT: []
+  /api/v1/customer/packages:
+    get:
+      tags:
+      - customer
+      operationId: customer_list_packages
+      responses:
+        '200':
+          description: Active customer packages
+          content:
+            application/json:
+              schema: {}
+  /api/v1/deploy/rolling:
+    post:
+      tags:
+      - deploy
+      summary: |-
+        POST /api/deploy/rolling — Start a canary-first rolling deploy to all pods.
+        Returns 202 Accepted immediately; rolling deploy runs as background task.
+        Returns 409 Conflict if any deploy is already active.
+        Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
+      description: 'Body: { "binary_url": "http://192.168.31.27:9998/rc-agent.exe", "force": false }'
+      operationId: deploy_rolling_handler
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '202':
+          description: Rolling deploy started
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+        '409':
+          description: Deploy already active
+        '423':
+          description: Deploy window locked
+      security:
+      - staffJWT: []
+  /api/v1/deploy/status:
+    get:
+      tags:
+      - deploy
+      summary: GET /api/deploy/status — Get deploy state for all pods.
+      operationId: deploy_status
+      responses:
+        '200':
+          description: Per-pod deploy status
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/deploy/{pod_id}:
+    post:
+      tags:
+      - deploy
+      summary: |-
+        POST /api/deploy/:pod_id — Deploy rc-agent binary to a single pod.
+        Returns 202 Accepted immediately; deploy runs as background task.
+        Returns 409 Conflict if deploy is already in progress or pod has active billing.
+        Returns 404 if pod not found.
+        Returns 423 Locked if weekend peak hours and force=false (DEPLOY-03).
+      operationId: deploy_single_pod
+      parameters:
+      - name: pod_id
+        in: path
+        description: Pod identifier
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '202':
+          description: Deploy started (background task)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+        '404':
+          description: Pod not found
+        '409':
+          description: Deploy already in progress or pod has active billing
+        '423':
+          description: Deploy window locked (weekend peak hours)
+      security:
+      - staffJWT: []
+  /api/v1/drivers:
+    get:
+      tags:
+      - drivers
+      operationId: list_drivers
+      responses:
+        '200':
+          description: List of drivers (PII masked without manager role)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/fleet/health:
+    get:
+      tags:
+      - fleet
+      summary: GET /api/v1/fleet/health handler.
+      description: |-
+        Returns a JSON object with `pods` (9 entries sorted by pod_number 1–9,
+        pod 9 = POS) and `timestamp`.
+        No authentication required — designed for Uday's phone on the LAN.
+
+        Pods that have never sent a WS message still appear with
+        ws_connected=false, http_reachable=false, and all optional fields null.
+      operationId: fleet_health_handler
+      responses:
+        '200':
+          description: Fleet health snapshot (array of PodFleetStatus + timestamp)
+          content:
+            application/json:
+              schema: {}
+  /api/v1/games/active:
+    get:
+      tags:
+      - games
+      operationId: active_games
+      responses:
+        '200':
+          description: Currently active game sessions across fleet
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/games/catalog:
+    get:
+      tags:
+      - games
+      summary: |-
+        Returns the full game catalog — authoritative source for all UI game lists.
+        Each entry includes the sim_type id (snake_case), display name, and abbreviation.
+        Pods filter this list against their `installed_games` field.
+      operationId: games_catalog
+      responses:
+        '200':
+          description: Full games catalog (authoritative for all UI game lists)
+          content:
+            application/json:
+              schema: {}
+  /api/v1/games/launch:
+    post:
+      tags:
+      - games
+      operationId: launch_game
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: Game launch command dispatched
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+        '409':
+          description: Game already active on pod
+      security:
+      - staffJWT: []
+  /api/v1/games/stop:
+    post:
+      tags:
+      - games
+      operationId: stop_game
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: Game stop command dispatched
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/hr/recognition:
+    get:
+      tags:
+      - hr
+      operationId: hr_recognition_data
+      responses:
+        '200':
+          description: Staff kudos + badges for recognition page
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/kiosk/experiences:
+    get:
+      tags:
+      - kiosk
+      operationId: list_kiosk_experiences
+      responses:
+        '200':
+          description: Active kiosk experiences (public + staff-managed)
+          content:
+            application/json:
+              schema: {}
+  /api/v1/kiosk/settings:
+    get:
+      tags:
+      - kiosk
+      operationId: get_kiosk_settings
+      responses:
+        '200':
+          description: Kiosk settings key-value map
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/mesh/stats:
+    get:
+      tags:
+      - mesh
+      operationId: mesh_stats
+      responses:
+        '200':
+          description: Mesh intelligence solution counts + stats
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pods:
+    get:
+      tags:
+      - pods
+      operationId: list_pods
+      responses:
+        '200':
+          description: List of registered pods
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pods/lockdown-all:
+    post:
+      tags:
+      - pods
+      operationId: lockdown_all_pods
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+        required: true
+      responses:
+        '200':
+          description: Kiosk lockdown command dispatched to all connected pods (skips active billing)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pods/restart-all:
+    post:
+      tags:
+      - pods
+      operationId: restart_all_pods
+      responses:
+        '200':
+          description: Restart command dispatched to all reachable pods
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pods/shutdown-all:
+    post:
+      tags:
+      - pods
+      operationId: shutdown_all_pods
+      responses:
+        '200':
+          description: Shutdown command dispatched to all reachable pods
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pods/wake-all:
+    post:
+      tags:
+      - pods
+      operationId: wake_all_pods
+      responses:
+        '200':
+          description: WoL magic packets dispatched to all pods with MAC addresses
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/presets:
+    get:
+      tags:
+      - presets
+      summary: GET /api/v1/presets (public — pods and kiosk need the list without JWT)
+      operationId: list_presets
+      responses:
+        '200':
+          description: Pricing presets with reliability metadata
+          content:
+            application/json:
+              schema: {}
+  /api/v1/pricing:
+    get:
+      tags:
+      - pricing
+      operationId: list_pricing_tiers
+      responses:
+        '200':
+          description: List of pricing tiers
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/pricing/rules:
+    get:
+      tags:
+      - pricing
+      operationId: list_pricing_rules
+      responses:
+        '200':
+          description: List of dynamic pricing rules
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/staff:
+    get:
+      tags:
+      - staff
+      operationId: list_staff
+      responses:
+        '200':
+          description: List of staff members
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/staff/gamification/challenges:
+    get:
+      tags:
+      - staff
+      operationId: staff_challenges_list
+      responses:
+        '200':
+          description: Active staff challenges with progress %
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/staff/gamification/kudos:
+    get:
+      tags:
+      - staff
+      operationId: staff_kudos_list
+      responses:
+        '200':
+          description: Staff kudos list (last 30 days)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/staff/gamification/leaderboard:
+    get:
+      tags:
+      - staff
+      operationId: staff_gamification_leaderboard
+      responses:
+        '200':
+          description: Staff gamification leaderboard (sessions hosted this month)
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/time-trials:
+    get:
+      tags:
+      - time_trials
+      operationId: list_time_trials
+      responses:
+        '200':
+          description: List of time trials
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/tournaments:
+    get:
+      tags:
+      - tournaments
+      operationId: list_tournaments
+      responses:
+        '200':
+          description: List of tournaments
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Staff JWT required
+      security:
+      - staffJWT: []
+  /api/v1/wallet/bonus-tiers:
+    get:
+      tags:
+      - wallet
+      operationId: wallet_bonus_tiers
+      responses:
+        '200':
+          description: Active wallet top-up bonus tiers
+          content:
+            application/json:
+              schema: {}
+  /api/v1/wallet/topup-presets:
+    get:
+      tags:
+      - wallet
+      summary: |-
+        v47.0 Phase 360 (SSOT): unified wallet top-up preset amounts.
+        Both the PWA wallet/topup page and the POS WalletTopupModal fetch from this
+        endpoint instead of hardcoding their own lists. Fixes the drift where PWA
+        showed [500,1000,2000,3000,4000,5000] but POS showed [500,700,900,1000,2000,3000].
+      description: |-
+        Reads from `system_settings` key `wallet_topup_presets_paise` (JSON array of i64).
+        Falls back to a hardcoded safe default if unset so venues never see an empty list.
+      operationId: wallet_topup_presets
+      responses:
+        '200':
+          description: Unified wallet top-up preset amounts (paise)
+          content:
+            application/json:
+              schema: {}
+components: {}
+tags:
+- name: admin
+  description: Admin panel surface
+- name: fleet
+  description: Fleet health + status
+- name: billing
+  description: Billing sessions + pricing
+- name: games
+  description: Game catalog + launch
+- name: drivers
+  description: Driver/customer management
+- name: pods
+  description: Pod operations
+- name: staff
+  description: Staff + gamification
+- name: deploy
+  description: Deploy + rolling updates
+- name: mesh
+  description: Mesh intelligence stats
+- name: wallet
+  description: Wallet bonus tiers + topup presets
+- name: kiosk
+  description: Kiosk experiences + settings
+- name: tournaments
+  description: Tournaments
+- name: customer
+  description: Customer packages + membership
+- name: coupons
+  description: Coupons
+- name: presets
+  description: Pricing presets
+- name: cafe
+  description: Cafe promos
+- name: hr
+  description: HR recognition
+- name: time_trials
+  description: Time trials
+- name: config
+  description: Config audit + push
+- name: ai_chat
+  description: AI chat
+- name: pricing
+  description: Pricing tiers + rules
+- name: activity
+  description: Activity log

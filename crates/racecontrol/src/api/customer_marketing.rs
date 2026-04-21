@@ -228,8 +228,12 @@ pub(crate) async fn customer_session_share(
 }
 
 // ─── Referrals, Coupons, Packages (split to customer_referral.rs) ──────────
+// Phase 445 Wave 2b: made `pub(crate)` so api/openapi.rs can reference
+// crate::api::customer_marketing::customer_referral::customer_list_packages
+// in ApiDoc's paths(...) list (utoipa's `#[utoipa::path]` macro generates
+// a sibling `__path_<fn>` struct that must be visible at the ref site).
 #[path = "customer_referral.rs"]
-mod customer_referral;
+pub(crate) mod customer_referral;
 pub(crate) use customer_referral::{
     customer_referral_code, customer_generate_referral_code, customer_redeem_referral,
     customer_apply_coupon, customer_list_packages,
@@ -237,6 +241,16 @@ pub(crate) use customer_referral::{
 
 // ─── Memberships ─────────────────────────────────────────────────────────────
 
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/customer/membership",
+    tag = "customer",
+    responses(
+        (status = 200, description = "Active customer membership + tier list", body = serde_json::Value),
+        (status = 401, description = "Customer JWT required"),
+    ),
+    security(("customerJWT" = []))
+))]
 pub(crate) async fn customer_membership(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
