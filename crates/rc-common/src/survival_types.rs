@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct ActionId(pub String);
 
 impl ActionId {
@@ -49,7 +49,7 @@ pub enum SentinelKind {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub enum SurvivalLayer {
     Layer1Watchdog,
     Layer2FleetHealer,
@@ -274,7 +274,7 @@ pub struct SurvivalReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct HealLease {
     pub pod_id: String,
     pub granted_to: SurvivalLayer,
@@ -288,7 +288,7 @@ pub struct HealLease {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct HealLeaseRequest {
     pub pod_id: String,
     pub layer: SurvivalLayer,
@@ -299,7 +299,7 @@ pub struct HealLeaseRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct HealLeaseResponse {
     pub granted: bool,
     pub lease: Option<HealLease>,

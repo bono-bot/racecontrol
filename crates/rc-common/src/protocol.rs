@@ -88,7 +88,7 @@ pub struct ReputationPayload {
 /// (enforced by launch_status_value_contract tests — Phase 62 pattern).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum LaunchState {
     LaunchStarted,           // JSON: "launch_started"
@@ -127,7 +127,7 @@ pub struct LaunchStatusCard {
 /// Staff note payload — carried by DashboardEvent::LaunchNoteAdded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts-rs", ts(export, export_to = "../../packages/shared-types/generated/"))]
+#[cfg_attr(feature = "ts-rs", ts(export))]
 pub struct LaunchNoteEvent {
     pub launch_id: String,
     pub pod_id: String,
