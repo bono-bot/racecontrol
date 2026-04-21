@@ -27,7 +27,7 @@ for (const e of g.links) {
 }
 
 const comms = [...commCounts.entries()]
-  .filter(([cid, n]) => n >= 5)  // only render communities with HTML files (graphify's default threshold)
+  .filter(([cid, n]) => fs.existsSync(path.join(outDir, 'communities', `community_${cid}.html`)))
   .sort((a,b)=>b[1]-a[1]);
 
 let html = `<!doctype html>
