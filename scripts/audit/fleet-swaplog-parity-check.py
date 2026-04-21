@@ -83,7 +83,8 @@ def parse_size(cell: str) -> Optional[int]:
 
 
 def is_racecontrol_row(row: dict) -> bool:
-    size = parse_size(row["size"])
+    size_cell = row["size"]
+    size = parse_size(size_cell)
     reason = row["reason"].lower()
     commit = row["commit"]
 
@@ -95,6 +96,25 @@ def is_racecontrol_row(row: dict) -> bool:
     if "kiosk" in commit.lower():
         return False
     if "web :3200" in commit.lower() or "web only" in commit.lower():
+        return False
+
+    # Exclude frontend-only deploys that mention "racecontrol" only as the
+    # git-repo context (not a binary swap). Pattern: size cell marked
+    # "N/A (frontend rebuild, ...)" OR commit cell annotated with
+    # "PR #N merge" OR reason contains "frontend rebuild, no rust binary".
+    # These rows document a cloud admin/kiosk/web rebuild against a racecontrol
+    # merge commit — server .23 racecontrol binary is UNCHANGED.
+    size_lower = size_cell.lower()
+    commit_lower = commit.lower()
+    if "frontend rebuild" in size_lower or "frontend rebuild" in reason:
+        return False
+    if size_lower.startswith("n/a") and (
+        "frontend" in size_lower or "no rust binary" in size_lower
+    ):
+        return False
+    if "pr #" in commit_lower and "merge" in commit_lower:
+        # Merge commits into main that didn't change the .23 binary — the
+        # SWAPLOG row is ship-documentation, not a server swap record.
         return False
 
     # Size-based positive: racecontrol binaries are 50-80 MB.
