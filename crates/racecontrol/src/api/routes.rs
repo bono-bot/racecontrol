@@ -117,7 +117,7 @@ use super::ai_training::*;
 /// - `staff_routes(state)` -- staff/admin routes with permissive JWT middleware (logs warnings)
 /// - `service_routes()` -- service routes (sync, actions, terminal, bot) with in-handler auth
 pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
+    let router = Router::new()
         .merge(auth_rate_limited_routes())
         .merge(public_routes())
         .merge(customer_routes())
@@ -125,7 +125,23 @@ pub fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(staff_routes(state))
         .merge(service_routes())
         .merge(survival::survival_routes())
-        .merge(crate::fleet_healer::fleet_healer_routes())
+        .merge(crate::fleet_healer::fleet_healer_routes());
+
+    // Path 2: /customer/test-mint-jwt — only registered when TEST_MODE=true.
+    // Arms Phase 7 DPDP + Phase 8 billing-flow E2E tests. Handler re-checks
+    // the env (defense in depth). See customer_auth::customer_test_mint_jwt.
+    if std::env::var("TEST_MODE").as_deref() == Ok("true") {
+        tracing::warn!(
+            "TEST_MODE=true — registering /customer/test-mint-jwt. DO NOT ENABLE IN PROD."
+        );
+        router.merge(test_mode_routes())
+    } else {
+        router
+    }
+}
+
+fn test_mode_routes() -> Router<Arc<AppState>> {
+    Router::new().route("/customer/test-mint-jwt", post(customer_test_mint_jwt))
 }
 
 // ─── Rate-limited auth endpoints (5 req/min per IP via tower_governor) ───

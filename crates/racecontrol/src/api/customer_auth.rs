@@ -121,6 +121,69 @@ pub(crate) async fn customer_verify_otp(
     }
 }
 
+// ─── Test-mode JWT minter (Path 2) ────────────────────────────────────────
+//
+// Registered in api_routes() ONLY when TEST_MODE=true. Used by
+// tests/e2e/api/dpdp-erasure.sh (Phase 7) and billing-flow.sh (Phase 8)
+// to obtain a customer JWT without going through phone+OTP.
+//
+// Safety layers:
+//   1. Route not registered at boot unless TEST_MODE=true (routes.rs gate).
+//   2. Handler re-checks TEST_MODE so an accidental merge in prod still
+//      returns 404.
+//   3. driver_id must start with "TEST_ONLY" (standing rule "No Fake Data").
+//   4. Driver row must exist in DB so fabricated ids cannot be minted for.
+//   5. Every successful mint logs at WARN with driver_id.
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TestMintJwtRequest {
+    driver_id: String,
+}
+
+pub(crate) async fn customer_test_mint_jwt(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TestMintJwtRequest>,
+) -> (StatusCode, Json<Value>) {
+    if std::env::var("TEST_MODE").as_deref() != Ok("true") {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" })));
+    }
+
+    if !req.driver_id.starts_with("TEST_ONLY") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "driver_id must start with TEST_ONLY" })),
+        );
+    }
+
+    let exists: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM drivers WHERE id = ?")
+        .bind(&req.driver_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if exists.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "driver not found" })),
+        );
+    }
+
+    match auth::create_jwt(&req.driver_id, &state.config.auth.jwt_secret) {
+        Ok(token) => {
+            tracing::warn!(
+                driver_id = %req.driver_id,
+                "TEST_MODE: minted customer JWT via /customer/test-mint-jwt"
+            );
+            (StatusCode::OK, Json(json!({ "token": token })))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("jwt error: {}", e) })),
+        ),
+    }
+}
+
 /// Extract driver_id from Authorization: Bearer <jwt> header
 pub(crate) fn extract_driver_id(state: &AppState, headers: &axum::http::HeaderMap) -> Result<String, String> {
     let auth_header = headers
