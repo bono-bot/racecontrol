@@ -1,0 +1,115 @@
+# Data-content validation rule pack for F4.
+#
+# Schema per rule:
+#   id:          Short machine key, used as --only <id> flag value.
+#   name:        Human-readable identifier (also used as dict key internally).
+#   description: One-paragraph explanation of what drift this detects.
+#   source:      Origin-of-truth — file path, DB table, HTTP endpoint.
+#   target:      Value being compared against the source.
+#   check_type:  {file_section, key_value_match, sql_sum_invariant, config_mirror}.
+#   catches:     Historical incident class the rule prevents re-occurring.
+#   severity:    {P0, P1, P2}. P0 = fleet-blocking; P1 = single-pod; P2 = cosmetic.
+#   status:      {implemented, stubbed, skipped}.
+#                - implemented: handler runs real logic, returns violations.
+#                - stubbed:     handler returns {status: "stubbed", todo: ...},
+#                               no exception, framework survives.
+#                - skipped:     explicitly deferred / deduped, handler not
+#                               dispatched (rules with status=skipped are
+#                               filtered out before handler dispatch).
+#
+# R5 (SWAPLOG binary-hash parity) intentionally NOT listed below — already
+# covered by scripts/audit/fleet-swaplog-parity-check.py. Adding it here
+# would duplicate detection without adding signal.
+
+version: 1
+
+rules:
+  - id: R1
+    name: python_ini_racecontrol_section
+    description: >
+      Assetto Corsa python.ini on each pod must contain a [RACECONTROL]
+      section with ACTIVE=1. Source-of-truth schema comes from
+      crates/rc-agent/src/ac_launcher.rs::ensure_python_ini_racecontrol.
+      Without this section, the RaceControl Python plugin never loads and
+      the pod records zero laps. This was the Zero Laps P0 class discovered
+      2026-04-16 and fixed at runtime via ac0b215e.
+    source: crates/rc-agent/src/ac_launcher.rs (schema definition)
+    target: per-pod python.ini (Documents/Assetto Corsa/cfg/ or install dir)
+    check_type: file_section
+    required_section: "[RACECONTROL]"
+    required_keys:
+      - ACTIVE
+    catches: Zero Laps P0 — 7/8 pods missing section for weeks; 0 laps ever
+    severity: P0
+    status: implemented
+    notes: >
+      Implementation runs only when --python-ini <path> is passed OR a list of
+      target paths is supplied via the rules config later. CLI default is
+      stubbed (no SSH access to pods). Unit tests cover the fixture path.
+
+  - id: R2
+    name: mesh_service_key_pod_server_match
+    description: >
+      The mesh_service_key stored on each pod must equal the value returned
+      by the authoritative server endpoint
+      GET /api/v1/pods/mesh-service-key (pod-IP-gated). Fetch-at-boot +
+      5min refetch (Phase 413.1 Plan 06, 9fb4a1a2) made pods self-heal, but
+      an independent cross-check is still valuable — the runtime fetch
+      could silently fall back to cached defaults if the server is down at
+      the exact refetch moment.
+    source: GET /api/v1/pods/mesh-service-key on server .23
+    target: per-pod rc-agent in-memory mesh_service_key OR HKLM fallback
+    check_type: key_value_match
+    catches: Gap-4 class (pre-Option-Z) — rc-agent used stale HKLM key, mesh handshake failed
+    severity: P1
+    status: stubbed
+    todo: >
+      Requires live pod + server access. Implement in next session once ops
+      approves a live-probe pass. Needs: (1) server admin token to call
+      /api/v1/pods/mesh-service-key from the checker host, (2) SSH to each
+      pod to read rc-agent debug endpoint or HKLM.
+
+  - id: R3
+    name: billing_session_total_cost_matches_events
+    description: >
+      For every row in the billing_session table,
+      billing_session.total_cost must equal the SUM of
+      billing_events.amount_paise WHERE billing_session_id = ?. Drift here
+      silently overbills or underbills customers. The orphan-refund class
+      (v45.0) and BILL-14 sim_type=None silent abort both manifest as
+      total_cost != SUM(events).
+    source: SELECT billing_session.id, total_cost FROM billing_session
+    target: SELECT SUM(amount_paise) FROM billing_events WHERE billing_session_id = ?
+    check_type: sql_sum_invariant
+    catches: silent orphan-refund class; BILL-14 sim_type=None abort
+    severity: P0
+    status: stubbed
+    todo: >
+      Requires read access to server .23 SQLite DB
+      (C:\RacingPoint\data\racecontrol.db) OR Bono VPS mirror at
+      /root/racecontrol/data/racecontrol.db. Not committed in checker tonight
+      because: (a) schema column names are load-bearing and should be
+      verified against crates/racecontrol/src/db/migrations.rs by reading,
+      not guessing; (b) running the query against a live DB without pre-audit
+      risks long scans in production (table sizes unknown to this agent).
+
+  - id: R4
+    name: kiosk_settings_server_kiosk_cache_match
+    description: >
+      The kiosk_settings row on the server (cloud-authoritative after
+      2026-04-18) must match the kiosk-cached config delivered to each pod's
+      kiosk UI. The 2026-04-18 fleet-wide lockdown incident surfaced a flaw
+      where cloud kiosk_settings was assumed-correct but individual pods
+      had diverged cached copies — flipping enabled=false on cloud did not
+      immediately re-sync pods that had cached enabled=true.
+    source: server kiosk_settings DB row
+    target: kiosk-cached config on each pod (path TBD per pod layout)
+    check_type: config_mirror
+    catches: cloud-authoritative kiosk_settings flaw (2026-04-18 lockdown)
+    severity: P0
+    status: stubbed
+    todo: >
+      Requires (1) server DB access (same blocker as R3), (2) kiosk-side
+      config cache path — needs investigation in kiosk/ repo to confirm
+      whether the cached config is a file, localStorage, or only in
+      running-process memory. Open question for next session.
