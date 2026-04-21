@@ -20,6 +20,10 @@
 //   # Dry run (no API calls, validates model selection + batch prep)
 //   OPENROUTER_KEY="..." DRY_RUN=1 node scripts/multi-model-audit.js
 //
+//   # Tier 4 graphify context (P4.1) — prepends structural context for a symbol
+//   OPENROUTER_KEY="..." AUDIT_SYMBOL="handle_ws_message" node scripts/multi-model-audit.js
+//   # Neighbour count defaults to 8; override with AUDIT_SYMBOL_NEIGHBOURS=12
+//
 // Spec: .planning/specs/UNIFIED-MMA-PROTOCOL.md (v3.0, 844 lines)
 //
 // Security note: all execSync calls use hardcoded git commands with no user input.
@@ -41,6 +45,14 @@ const LEGACY_MODEL = process.env.MODEL; // backward compat: single model mode
 const DRY_RUN = process.env.DRY_RUN === '1';
 const SESSION_BUDGET = parseFloat(process.env.MMA_SESSION_BUDGET || '5');
 const AUDIT_ALLOW_STALE = process.env.AUDIT_ALLOW_STALE === '1';
+// Tier 4 graphify wiring (P4.1, roadmap 2026-04-22):
+// When AUDIT_SYMBOL is set, every batch prompt is prefixed with the graphify
+// structural context (caller/callee + community + source_repo) for that symbol.
+// This shifts MMA from textual-only to structure+text, preventing the class of
+// hallucination where a model doesn't know a given helper exists or is only
+// called from one place. Skip by leaving AUDIT_SYMBOL unset.
+const AUDIT_SYMBOL = process.env.AUDIT_SYMBOL || '';
+const AUDIT_SYMBOL_NEIGHBOURS = parseInt(process.env.AUDIT_SYMBOL_NEIGHBOURS || '8', 10);
 const MAX_RETRIES = 2;
 const MODEL_TIMEOUT = 60000; // MMA-16: 60s per model call
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -301,6 +313,38 @@ function bundleFiles(files) {
 // for milestone-ship and security audits — keep both in use.
 
 function estimateTokens(text) { return Math.ceil(text.length / 4); }
+
+// ─── Tier 4 graphify context (P4.1) ────────────────────────────────────────
+// Runs scripts/graphify-helpers/context-for-symbol.sh synchronously and
+// returns a prompt-ready markdown block. Returns '' on any failure so batches
+// still run without graphify context rather than blocking the whole audit.
+function fetchGraphifyContext(symbol, neighbours = 8) {
+  if (!symbol) return '';
+  const helper = path.join(REPO_ROOT, 'scripts', 'graphify-helpers', 'context-for-symbol.sh');
+  if (!fs.existsSync(helper)) {
+    console.error(`[graphify-context] helper not found at ${helper} — running audit without structural context`);
+    return '';
+  }
+  try {
+    const out = execSync(`bash "${helper}" "${symbol}" ${neighbours}`, {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 15000,
+      cwd: REPO_ROOT,
+    });
+    const parsed = JSON.parse(out);
+    if (!parsed || parsed.matches === 0) {
+      return `\n## Graphify structural context for \`${symbol}\`\n\n_No matches in unified graph. Continuing with textual-only audit._\n\n`;
+    }
+    // Truncate to keep token usage bounded — full JSON can be large for hub symbols.
+    const summary = JSON.stringify(parsed, null, 2);
+    const truncated = summary.length > 8000 ? summary.slice(0, 8000) + '\n... [truncated for token budget]' : summary;
+    return `\n## Graphify structural context for \`${symbol}\`\n\n\`\`\`json\n${truncated}\n\`\`\`\n\n_Use this to ground findings in actual caller/callee relationships rather than textual search._\n\n`;
+  } catch (err) {
+    console.error(`[graphify-context] ${symbol}: ${err.message} — audit will run without structural context`);
+    return '';
+  }
+}
 
 // ─── Auto-split for context limits ─────────────────────────────────────────
 function splitBatchIfNeeded(batch, maxTokens) {
@@ -860,6 +904,15 @@ async function runAudit() {
   const auditedCommit = checkCodebaseFreshness();
 
   let rawBatches = prepareBatches();
+
+  // P4.1: prepend graphify structural context when AUDIT_SYMBOL is set.
+  if (AUDIT_SYMBOL) {
+    const ctx = fetchGraphifyContext(AUDIT_SYMBOL, AUDIT_SYMBOL_NEIGHBOURS);
+    if (ctx) {
+      for (const batch of rawBatches) batch.prompt = ctx + batch.prompt;
+      console.log(`[graphify-context] prepended context for '${AUDIT_SYMBOL}' (${AUDIT_SYMBOL_NEIGHBOURS} neighbours) to ${rawBatches.length} batch(es)\n`);
+    }
+  }
 
   // BATCH_FILTER env var: run only batches whose name starts with any comma-separated prefix.
   // Example: BATCH_FILTER=07,08 → only standing-rules-crosssystem + frontend-nextjs
