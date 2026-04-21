@@ -1,0 +1,86 @@
+# Temporal invariants — F2 of the functional-layer milestone.
+#
+# Input:  .planning/event-ledger.json  (F1 output, not yet produced)
+# Output: .planning/invariant-violations.json
+# Runner: scripts/audit/temporal-invariant-check.py
+#
+# Rule classes
+# ------------
+# MIN_CADENCE  — event must fire at least once per window_seconds
+# LATENCY      — to_event must follow from_event within max_delta_seconds
+# REQUIRES     — event can only fire after one of requires_prior events
+# NO_DUPE      — event fires at most once per keyed_by tuple
+# NO_ORPHAN    — event requires a prior requires_prior_start in same scope
+# ORDER        — expected events must appear in order within a scope
+#
+# confidence tier for false-positive budget (not enforced here, tracking only):
+# confidence_score: 0.0-1.0 — 1.0 = deterministic structural; lower values = heuristic
+#
+# Each rule cites the historical incident it was designed to catch.
+
+version: 1
+
+rules:
+  - id: INV-01
+    class: MIN_CADENCE
+    description: rc-agent heartbeat must fire at least once per 10min per pod
+    source: rc_agent
+    event_type: heartbeat
+    per_source: true
+    window_seconds: 600
+    confidence_score: 0.95
+    catches: Pattern I (Pod 6 silent-loop-death — 6h zero reconnect-loop output 2026-04-19)
+
+  - id: INV-02
+    class: LATENCY
+    description: StartWaiting must transition to GameLive within 90s
+    source: billing
+    from_event: StartWaiting
+    to_event: GameLive
+    max_delta_seconds: 90
+    scope_key: session_id
+    confidence_score: 0.9
+    catches: Game launch hang detection (Pattern A Pod 4 F1 25 class, OPEN 2026-04-21)
+
+  - id: INV-03
+    class: REQUIRES
+    description: idle_auto_end_queued must follow a pause event
+    source: billing
+    event_type: idle_auto_end_queued
+    requires_prior: [PausedManual, PausedDisconnect]
+    scope_key: session_id
+    confidence_score: 1.0
+    catches: MMA P1-A (Phase 414 one-shot guard missing, fixed 8a52cc36 2026-04-18)
+
+  - id: INV-04
+    class: NO_DUPE
+    description: billing_session_end fires at most once per session
+    source: billing
+    event_type: billing_session_end
+    keyed_by: [session_id]
+    confidence_score: 1.0
+    catches: idle_auto_end_queued firing twice (MMA P1-A pre-fix symptom)
+
+  - id: INV-05
+    class: NO_ORPHAN
+    description: billing_event requires prior billing_session_start in same session
+    source: billing
+    event_type: billing_event
+    requires_prior_start: billing_session_start
+    scope_key: session_id
+    confidence_score: 1.0
+    catches: C1 FK orphan class (investigation session_handoff_20260417_c1_fk_seed_replay_investigation.md)
+
+  - id: INV-06
+    class: ORDER
+    description: billing session FSM states must appear in expected order
+    source: billing
+    events: [Pending, WaitingForGame, Active, EndedEarly]
+    allow_skips: [StartWaiting, GameLive, PausedManual, PausedDisconnect, Cancel, Completed, idle_auto_end_queued, billing_session_start, billing_event, billing_session_end]
+    scope_key: session_id
+    confidence_score: 0.85
+    catches: FSM-order regression (Phase 414 WaitingForGame out-edges 2→5 intentional; unintentional version would fire here)
+
+# Suppressions allow specific (rule, scope) pairs to be ignored with rationale.
+# Schema: {rule: INV-XX, scope_key_value: "...", reason: "..."}
+suppressions: []

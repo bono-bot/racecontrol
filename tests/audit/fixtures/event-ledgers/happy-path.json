@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-21T12:00:00Z",
+  "window_start": "2026-04-21T00:00:00Z",
+  "window_end": "2026-04-21T03:00:00Z",
+  "events": [
+    {"ts": "2026-04-21T00:00:00Z", "source": "rc_agent", "machine": "pod_1", "type": "heartbeat", "fields": {}},
+    {"ts": "2026-04-21T00:05:00Z", "source": "rc_agent", "machine": "pod_1", "type": "heartbeat", "fields": {}},
+    {"ts": "2026-04-21T00:10:00Z", "source": "rc_agent", "machine": "pod_1", "type": "heartbeat", "fields": {}},
+    {"ts": "2026-04-21T01:00:00Z", "source": "billing", "machine": "server_23", "type": "Pending", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:00:02Z", "source": "billing", "machine": "server_23", "type": "StartWaiting", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:00:05Z", "source": "billing", "machine": "server_23", "type": "WaitingForGame", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:00:30Z", "source": "billing", "machine": "server_23", "type": "GameLive", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:00:35Z", "source": "billing", "machine": "server_23", "type": "Active", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:30:00Z", "source": "billing", "machine": "server_23", "type": "billing_session_start", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T01:30:10Z", "source": "billing", "machine": "server_23", "type": "billing_event", "fields": {"session_id": "s1", "amount": 100}},
+    {"ts": "2026-04-21T02:00:00Z", "source": "billing", "machine": "server_23", "type": "PausedManual", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T02:10:00Z", "source": "billing", "machine": "server_23", "type": "idle_auto_end_queued", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T02:10:01Z", "source": "billing", "machine": "server_23", "type": "EndedEarly", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T02:10:02Z", "source": "billing", "machine": "server_23", "type": "billing_session_end", "fields": {"session_id": "s1"}}
+  ]
+}

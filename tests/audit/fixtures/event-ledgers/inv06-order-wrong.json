@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-21T12:00:00Z",
+  "window_start": "2026-04-21T00:00:00Z",
+  "window_end": "2026-04-21T01:00:00Z",
+  "events": [
+    {"ts": "2026-04-21T00:00:00Z", "source": "rc_agent", "machine": "pod_1", "type": "heartbeat", "fields": {}},
+    {"ts": "2026-04-21T00:05:00Z", "source": "rc_agent", "machine": "pod_1", "type": "heartbeat", "fields": {}},
+    {"ts": "2026-04-21T00:10:00Z", "source": "billing", "machine": "server_23", "type": "Pending", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T00:10:02Z", "source": "billing", "machine": "server_23", "type": "EndedEarly", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T00:10:05Z", "source": "billing", "machine": "server_23", "type": "WaitingForGame", "fields": {"session_id": "s1"}},
+    {"ts": "2026-04-21T00:10:10Z", "source": "billing", "machine": "server_23", "type": "Active", "fields": {"session_id": "s1"}}
+  ]
+}
