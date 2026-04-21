@@ -207,6 +207,50 @@ if [ -n "$REPO_ROOT" ] && [ -x "$ORCHESTRATOR" ] && [ -z "${WORKFLOW_CASCADE_SKI
 fi
 
 # ---------------------------------------------------------------------------
+# P4.2: Graphify cross-repo neighbours (opt-in via GRAPHIFY_DEBUG=1)
+# ---------------------------------------------------------------------------
+# Informational only — never blocks. Shows top-N cross-repo neighbours of the
+# symbols touched by this commit, so the committer sees what's upstream /
+# downstream before pushing. Useful during debugging ("why did this break X?")
+# but noisy for normal dev flow, so it's opt-in.
+#
+# Enable: export GRAPHIFY_DEBUG=1  (or git commit with GRAPHIFY_DEBUG=1 in env)
+if [ "${GRAPHIFY_DEBUG:-0}" = "1" ]; then
+  HELPER="$(git rev-parse --show-toplevel 2>/dev/null)/scripts/graphify-helpers/context-for-symbol.sh"
+  UNIFIED_GRAPH="$(git rev-parse --show-toplevel 2>/dev/null)/graphify-out-unified/graph.json"
+  if [ -x "$HELPER" ] && [ -f "$UNIFIED_GRAPH" ]; then
+    echo ""
+    echo "[graphify-debug] cross-repo neighbours of symbols in staged files:"
+    # Extract function/class names from added lines of staged Rust/JS/TS files.
+    STAGED_CODE=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs' '*.js' '*.ts' '*.tsx' 2>/dev/null)
+    SYMBOLS=$(echo "$STAGED_CODE" | while read -r f; do
+      [ -z "$f" ] && continue
+      git diff --cached --unified=0 -- "$f" 2>/dev/null \
+        | grep -E '^\+' | grep -v '^+++' \
+        | grep -oE '(fn [a-z_][a-z0-9_]*|function [a-zA-Z_][a-zA-Z0-9_]*|pub fn [a-z_][a-z0-9_]*)' \
+        | awk '{print $NF}' \
+        | sort -u
+    done | sort -u | head -8)
+    if [ -n "$SYMBOLS" ]; then
+      for sym in $SYMBOLS; do
+        OUT=$(bash "$HELPER" "$sym" 3 2>/dev/null || echo '{}')
+        MATCHES=$(echo "$OUT" | grep -oE '"matches":\s*[0-9]+' | grep -oE '[0-9]+' | head -1)
+        if [ -n "$MATCHES" ] && [ "$MATCHES" != "0" ]; then
+          echo "  $sym — $MATCHES match(es) in unified graph"
+          echo "$OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('results',[])[:1]
+for x in r:
+  print(f\"    repo={x.get('source_repo')} community={x.get('community')}\")
+  for e in x.get('outgoing',[])[:2]: print(f\"    -> {e.get('target')} ({e.get('relation')})\")
+  for e in x.get('incoming',[])[:2]: print(f\"    <- {e.get('source')} ({e.get('relation')})\")" 2>/dev/null || true
+        fi
+      done
+    else
+      echo "  (no fn/function symbols found in staged diffs)"
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Result
 # ---------------------------------------------------------------------------
 
