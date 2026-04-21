@@ -39,6 +39,7 @@ declare -a CHECKS=(
   "fleet-swaplog-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/fleet-swaplog-parity-check.py"
   "deploy-staging-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/deploy-staging-parity-check.py"
   "workflow-centrality|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-graph-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-centrality-check.py"
+  "data-content|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/data-content-check.py"
 )
 
 # Future surfaces (stubs — registered but generators not yet written):
