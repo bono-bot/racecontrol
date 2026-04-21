@@ -41,6 +41,12 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 
+# Phase 445 — Typed API Contract (gen-types binary only; not in default build)
+utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2"
+ts-rs = { version = "12", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
+serde_yaml = "0.9"
+
 # rc-common
 rc-common = { path = "crates/rc-common" }
 
