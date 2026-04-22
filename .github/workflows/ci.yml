@@ -76,6 +76,7 @@ jobs:
           -A clippy::duplicate_mod -A clippy::needless_return -A clippy::no_effect
           -A clippy::identity_op -A clippy::absurd_extreme_comparisons
           -A clippy::manual_range_contains -A clippy::unnecessary_unwrap
+          -A clippy::collapsible_match -A clippy::manual_checked_ops
           -A dead_code -A unused_assignments -A unreachable_code -A unused_macros
           -A unused_imports -A unused_variables -A unused_attributes -A unused_mut
           -A unused_comparisons -A irrefutable_let_patterns
