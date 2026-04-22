@@ -1023,6 +1023,38 @@ Plans:
 
 ---
 
+### Phase 999.5: PricingSnapshot — capture rates at billing session start (BACKLOG)
+
+**Goal:** [Captured for future planning] Capture `per_min_paise` / `pkg_30_paise` / `pkg_60_paise` at billing session START so admin `dynamic_pricing` rule changes do not retroactively alter active sessions. Fixes P0-2 / P0-3 deferred from PR #13 `fix/billing-p0-gaps-20260422`.
+
+**Requirements:** TBD
+
+**Evidence the gap exists:**
+- `crates/racecontrol/src/billing_pricing.rs:178-181` — `compute_session_cost(elapsed_seconds, _tiers)` has `_tiers` unused; hardcodes `per_min_rate: i64 = 2500; pkg_30: i64 = 70000; pkg_60: i64 = 90000`.
+- `crates/racecontrol/src/billing_pricing.rs:255-258` — `compute_per_minute_refund(_, _, _rate_paise_per_minute, _)` has `_rate_paise_per_minute` unused; re-calls `snap_cost_for_minutes(.., 2500, 70000, 90000)`.
+- Consequence: admin pricing dashboard at `/billing/pricing` has ZERO effect on actual billing — every session is charged the hardcoded rate regardless of `pricing_rules` table state.
+
+**Scope sketch (NOT a plan — feeds `/gsd:discuss-phase 999.5`):**
+- New `PricingSnapshot { per_min_paise, pkg_30_paise, pkg_60_paise }` struct
+- DB migration: add `per_min_paise_snap` / `pkg_30_paise_snap` / `pkg_60_paise_snap` columns to `billing_sessions` (idempotent, backfill 2500/70000/90000 for historic rows)
+- Thread through: `billing.rs` (capture at start from `pricing_rules` in same place dynamic pricing is applied), `billing_session_end.rs`, `billing_timer_expiry_timeout.rs`
+- Rewrite `compute_session_cost` + `compute_per_minute_refund` to consume the snapshot
+- Test: change `pricing_rules`, start session, verify snapshot captured at start not at end
+- Admin UI tooltip: rates apply to NEW sessions only
+
+**Blockers before promoting:**
+- Backlog-gate WIP already >=3 (6 open PRs: #1 #3 #5 #8 #11 #13, plus dormant `feat/f2-temporal-invariant-check-20260421`, `fix/pos-kiosk-disable-20260421`, Part-5 branch, Phase 414 code-complete undeployed). Do NOT start this phase until WIP clears.
+- PR #13 (P0-1/P0-4/P0-5 billing fixes) should land first — overlapping file edits in `billing_pricing.rs` + `billing_guard.rs`.
+
+**Cross-reference:**
+- PR #13 body "Out of scope (deferred with inline TODOs)" — the original deferral
+- F1-F5 functional-layer milestone (deferred by Uday 2026-04-21 until post go-live)
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+---
+
 ## v47.0 Admin Dashboard Venue-Ready Hardening
 
 **Goal:** Make the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) a resilient, venue-ready central source of truth before customers start using the venue. Close 18 audit findings from the 2026-04-09 Vishal-PIN incident and absorb the superseded Phase 343 Plan 03 (admin PIN UI).
