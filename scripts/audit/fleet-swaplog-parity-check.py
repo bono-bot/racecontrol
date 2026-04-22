@@ -54,11 +54,18 @@ SWAPLOG_PATH = REPO_ROOT / "SWAPLOG.md"
 RACECONTROL_SIZE_MIN = 50_000_000
 RACECONTROL_SIZE_MAX = 80_000_000
 
-# Health probe: try LAN IP first, then localhost.
-HEALTH_URLS = [
-    "http://192.168.31.23:8080/api/v1/health",
-    "http://localhost:8080/api/v1/health",
+# Health probe: venue .23 only. Order: Tailscale (works from any mesh node
+# including Bono VPS and cloud CI), then LAN (James-side fast path).
+# DO NOT add `localhost:8080` — on Bono VPS that is the cloud racecontrol
+# binary (a different deploy), producing a false RED every tick. If you need
+# a custom endpoint (e.g. staging), set VENUE_HEALTH_URL in the environment.
+# Override: `export VENUE_HEALTH_URL=http://...:8080/api/v1/health`.
+_HEALTH_URLS_DEFAULT = [
+    "http://100.125.108.37:8080/api/v1/health",   # venue .23 via Tailscale (james@ node)
+    "http://192.168.31.23:8080/api/v1/health",    # venue .23 via LAN (James-side)
 ]
+_override = os.environ.get("VENUE_HEALTH_URL")
+HEALTH_URLS = [_override] if _override else _HEALTH_URLS_DEFAULT
 HEALTH_TIMEOUT_SEC = 3.0
 
 # SWAPLOG row format (pipe-delimited markdown table):
