@@ -1,0 +1,636 @@
+MMA STEP 1 (DIAGNOSE) — Phase 19 cross-system bridge.
+Identify ALL potential bugs, security issues, race conditions, and design flaws.
+
+OUTPUT FORMAT: JSON array only, no prose before or after. Each finding:
+{"severity":"P0|P1|P2|P3","category":"auth|dos|race|injection|logic|missing-feature","location":"file:line","issue":"short description","rationale":"why this is a problem","fix":"smallest reversible change"}
+Max 15 findings, severe first.
+
+PROBE LIST (cover these explicitly):
+1. Auth bypass on /mesh/* routes (PSK via Bearer)
+2. Timing side-channel on PSK (uses timingSafeEqual after SHA-256 pre-hash)
+3. DoS via large body (64 KB cap — does parseBody reject BEFORE JSON.parse? Check if streaming is bounded)
+4. JSONL injection via newlines/control chars in summary/question/answer/context_refs[] — validateEntry caps length but does not strip \n
+5. Rotation race: can an append sneak in during _rotateNoLock? mutex covers append but check rotation path
+6. Archive corruption: if crash between writeFile(archivePath) and unlink(filePath), both the archive AND the original exist — double-read risk?
+7. Tail amplification: 10 MB archives decompressed per request, up to MAX_ARCHIVES_SCANNED=2 = 20 MB per /mesh/wal/tail call
+8. Hook blocking session: 3s TIMEOUT_MS — does every path enforce it?
+9. dialogue.reply with forged correlation_id: reply() does _findById lookup — effective defense?
+10. ask() thread_id bug: correlation_id = entry.id, but thread_id is MUTATED AFTER append returns, so disk version has thread_id=null for root asks
+11. openDialogues iterates ALL entries every call — O(N) bounded by MAX_TAIL_N=500; acceptable?
+12. Rate limiting: no limits, a client with valid PSK can flood /mesh/wal/append
+13. agent field forgeable: client sends agent='james'|'bono'; no cryptographic binding — any PSK holder can impersonate
+14. Hook request order: 4 parallel Promise.all fetches, but if one hangs, does Promise.all hang everything?
+15. Error handling: does 500 from projector leak internal paths?
+
+SOURCE 1 — bono/mesh-wal-store.js (289 lines):
+----8<----
+import { appendFile, readFile, stat, rename, writeFile, readdir, mkdir, unlink } from 'node:fs/promises';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+
+export const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_TAIL_N = 500;
+export const ROTATE_SIZE_BYTES = 10 * 1024 * 1024;
+export const MAX_ARCHIVES_SCANNED = 2;
+
+const VALID_AGENTS = new Set(['james', 'bono']);
+const VALID_KINDS = new Set([
+  'commit', 'deploy', 'g9', 'branch-claim', 'branch-release',
+  'finding', 'blocker', 'decision', 'issue', 'task-start', 'task-end',
+  // Dialogue kinds (Plan 19-04) — free-form ask/reply exchange between agents.
+  'dialogue.ask', 'dialogue.ack', 'dialogue.read',
+  'dialogue.thinking', 'dialogue.reply', 'dialogue.followup', 'dialogue.close',
+]);
+
+export const DIALOGUE_KINDS = new Set([
+  'dialogue.ask', 'dialogue.ack', 'dialogue.read',
+  'dialogue.thinking', 'dialogue.reply', 'dialogue.followup', 'dialogue.close',
+]);
+
+function formatIst(date) {
+  const istMs = date.getTime() + 5.5 * 60 * 60 * 1000;
+  const d = new Date(istMs);
+  return d.toISOString().replace('T', ' ').slice(0, 19) + ' IST';
+}
+
+export function validateEntry(entry) {
+  if (!entry || typeof entry !== 'object') throw new Error('entry must be object');
+  if (!VALID_AGENTS.has(entry.agent)) throw new Error(`invalid agent: ${entry.agent}`);
+  if (!VALID_KINDS.has(entry.kind)) throw new Error(`invalid kind: ${entry.kind}`);
+  if (typeof entry.summary !== 'string' || !entry.summary.length) throw new Error('summary required');
+  if (entry.summary.length > 500) throw new Error('summary max 500 chars');
+  if (entry.metadata && JSON.stringify(entry.metadata).length > 4096) throw new Error('metadata max 4 KB');
+  for (const k of ['ref', 'repo', 'branch']) {
+    if (entry[k] != null && typeof entry[k] !== 'string') throw new Error(`${k} must be string`);
+    if (entry[k] && entry[k].length > 500) throw new Error(`${k} max 500 chars`);
+  }
+}
+
+export class MeshWalStore {
+  constructor(filePath) {
+    this.filePath = filePath;
+    this.dirPath = path.dirname(filePath);
+    this._mutex = Promise.resolve();
+  }
+
+  async _withLock(fn) {
+    const prev = this._mutex;
+    let release;
+    this._mutex = new Promise((r) => { release = r; });
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  async append(entry) {
+    validateEntry(entry);
+    return this._withLock(async () => {
+      await mkdir(this.dirPath, { recursive: true });
+      let size = 0;
+      try {
+        const st = await stat(this.filePath);
+        size = st.size;
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+      }
+      if (size >= ROTATE_SIZE_BYTES) await this._rotateNoLock();
+      const now = new Date();
+      const full = {
+        id: randomUUID(),
+        ts_iso: now.toISOString(),
+        ts_ist: formatIst(now),
+        agent: entry.agent,
+        kind: entry.kind,
+        summary: entry.summary,
+        ...(entry.ref ? { ref: entry.ref } : {}),
+        ...(entry.repo ? { repo: entry.repo } : {}),
+        ...(entry.branch ? { branch: entry.branch } : {}),
+        ...(entry.metadata ? { metadata: entry.metadata } : {}),
+      };
+      await appendFile(this.filePath, JSON.stringify(full) + '\n', 'utf8');
+      return full;
+    });
+  }
+
+  async tailN(n) {
+    const limit = Math.max(1, Math.min(n || 50, MAX_TAIL_N));
+    const entries = await this._readAllAvailable(limit);
+    return entries.slice(-limit);
+  }
+
+  async tailSince(isoStr) {
+    const entries = await this._readAllAvailable(MAX_TAIL_N);
+    return entries.filter((e) => e.ts_iso >= isoStr).slice(0, MAX_TAIL_N);
+  }
+
+  async _readAllAvailable(minWanted) {
+    const out = [];
+    try {
+      const text = await readFile(this.filePath, 'utf8');
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
+      }
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+    if (out.length >= minWanted) return out;
+    const archives = await this._listArchives();
+    for (const arch of archives.slice(0, MAX_ARCHIVES_SCANNED)) {
+      try {
+        const compressed = await readFile(arch);
+        const text = gunzipSync(compressed).toString('utf8');
+        const prepend = [];
+        for (const line of text.split('\n')) {
+          if (!line) continue;
+          try { prepend.push(JSON.parse(line)); } catch { /* skip */ }
+        }
+        out.unshift(...prepend);
+        if (out.length >= minWanted) break;
+      } catch { /* skip corrupt archive */ }
+    }
+    return out;
+  }
+
+  async _listArchives() {
+    try {
+      const files = await readdir(this.dirPath);
+      return files
+        .filter((f) => f.startsWith('mesh-wal-') && f.endsWith('.jsonl.gz'))
+        .sort()
+        .reverse()
+        .map((f) => path.join(this.dirPath, f));
+    } catch (e) {
+      if (e.code === 'ENOENT') return [];
+      throw e;
+    }
+  }
+
+  async _rotateNoLock() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const archivePath = path.join(this.dirPath, `mesh-wal-${stamp}.jsonl.gz`);
+    const content = await readFile(this.filePath);
+    const compressed = gzipSync(content);
+    await writeFile(archivePath, compressed);
+    await unlink(this.filePath);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dialogue projections (Plan 19-04) — all derived from the same WAL.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Append a dialogue.ask and synchronously emit a dialogue.ack referring to it.
+   * Returns { ask, ack }.
+   *
+   * @param {{ from: string, to: string, question: string,
+   *           context_refs?: string[], thread_id?: string, priority?: string }} req
+   */
+  async ask(req) {
+    if (!VALID_AGENTS.has(req.from)) throw new Error(`invalid from: ${req.from}`);
+    if (!VALID_AGENTS.has(req.to)) throw new Error(`invalid to: ${req.to}`);
+    if (req.from === req.to) throw new Error('from and to must differ');
+    if (typeof req.question !== 'string' || !req.question.length) throw new Error('question required');
+    if (req.question.length > 8000) throw new Error('question max 8000 chars');
+    const preview = req.question.slice(0, 200).replace(/\s+/g, ' ');
+    const askEntry = await this.append({
+      agent: req.from,
+      kind: 'dialogue.ask',
+      summary: `ask -> ${req.to}: ${preview}`,
+      metadata: {
+        to: req.to,
+        question: req.question,
+        context_refs: req.context_refs || [],
+        thread_id: req.thread_id || null, // filled below if null
+        priority: req.priority || 'normal',
+      },
+    });
+    // Thread root: own id. Follow-up: caller passes parent thread_id.
+    if (!askEntry.metadata.thread_id) askEntry.metadata.thread_id = askEntry.id;
+
+    const ackEntry = await this.append({
+      agent: 'bono', // the server-side comms-link hub always acks as 'bono' (it lives there)
+      kind: 'dialogue.ack',
+      summary: `ack delivered for ${askEntry.id.slice(0, 8)}`,
+      metadata: { correlation_id: askEntry.id, ack_type: 'delivered' },
+    });
+    return { ask: askEntry, ack: ackEntry };
+  }
+
+  /**
+   * Reply to an ask. correlation_id MUST reference an existing dialogue.ask entry.
+   */
+  async reply(req) {
+    if (!VALID_AGENTS.has(req.from)) throw new Error(`invalid from: ${req.from}`);
+    if (typeof req.correlation_id !== 'string' || !req.correlation_id) throw new Error('correlation_id required');
+    if (typeof req.answer !== 'string' || !req.answer.length) throw new Error('answer required');
+    if (req.answer.length > 16000) throw new Error('answer max 16000 chars');
+
+    const ask = await this._findById(req.correlation_id);
+    if (!ask || ask.kind !== 'dialogue.ask') throw new Error(`correlation_id not found: ${req.correlation_id}`);
+
+    const preview = req.answer.slice(0, 200).replace(/\s+/g, ' ');
+    return this.append({
+      agent: req.from,
+      kind: 'dialogue.reply',
+      summary: `reply to ${req.correlation_id.slice(0, 8)}: ${preview}`,
+      metadata: {
+        correlation_id: req.correlation_id,
+        thread_id: ask.metadata?.thread_id || ask.id,
+        answer: req.answer,
+        context_refs: req.context_refs || [],
+      },
+    });
+  }
+
+  /** Unanswered asks addressed TO `forAgent`. Oldest first (staleness signal). */
+  async openDialogues(forAgent) {
+    const all = await this._readAllAvailable(MAX_TAIL_N);
+    const replied = new Set(
+      all.filter((e) => e.kind === 'dialogue.reply')
+         .map((e) => e.metadata?.correlation_id)
+         .filter(Boolean),
+    );
+    return all
+      .filter((e) => e.kind === 'dialogue.ask'
+                  && e.metadata?.to === forAgent
+                  && !replied.has(e.id))
+      .sort((a, b) => a.ts_iso.localeCompare(b.ts_iso));
+  }
+
+  /** My (fromAgent) own outstanding asks that haven't been replied to. */
+  async myOpenAsks(fromAgent) {
+    const all = await this._readAllAvailable(MAX_TAIL_N);
+    const replied = new Set(
+      all.filter((e) => e.kind === 'dialogue.reply')
+         .map((e) => e.metadata?.correlation_id)
+         .filter(Boolean),
+    );
+    return all
+      .filter((e) => e.kind === 'dialogue.ask'
+                  && e.agent === fromAgent
+                  && !replied.has(e.id))
+      .sort((a, b) => a.ts_iso.localeCompare(b.ts_iso));
+  }
+
+  /** Replies to my open asks since a given ISO timestamp (for SessionStart surfacing). */
+  async repliesToMyAsks(fromAgent, sinceIso) {
+    const all = await this._readAllAvailable(MAX_TAIL_N);
+    const myAskIds = new Set(
+      all.filter((e) => e.kind === 'dialogue.ask' && e.agent === fromAgent).map((e) => e.id),
+    );
+    return all
+      .filter((e) => e.kind === 'dialogue.reply'
+                  && myAskIds.has(e.metadata?.correlation_id)
+                  && (!sinceIso || e.ts_iso >= sinceIso))
+      .sort((a, b) => a.ts_iso.localeCompare(b.ts_iso));
+  }
+
+  /** Full chronology of a thread (ask + acks + replies + followups + close). */
+  async thread(threadId) {
+    const all = await this._readAllAvailable(MAX_TAIL_N);
+    // Collect every ask whose thread_id === threadId
+    const threadAskIds = new Set(
+      all.filter((e) => e.kind === 'dialogue.ask'
+                    && (e.metadata?.thread_id === threadId || e.id === threadId))
+         .map((e) => e.id),
+    );
+    return all
+      .filter((e) => {
+        if (e.kind === 'dialogue.ask') return threadAskIds.has(e.id);
+        if (DIALOGUE_KINDS.has(e.kind)) return threadAskIds.has(e.metadata?.correlation_id);
+        return false;
+      })
+      .sort((a, b) => a.ts_iso.localeCompare(b.ts_iso));
+  }
+
+  async _findById(id) {
+    const all = await this._readAllAvailable(MAX_TAIL_N);
+    return all.find((e) => e.id === id) || null;
+  }
+}
+----8<----
+
+SOURCE 2 — bono/comms-server.js lines 207-372 (PSK auth, WAL routes, dialogue routes):
+----8<----
+      // Phase 3: HTTP fallback inbox — accepts full message envelopes when WS is down.
+      // Uses createMessage/parseMessage for HMAC integrity + replay protection (R2 fix).
+      // PSK validated via Authorization header (same as WS auth).
+      if (req.method === 'POST' && req.url === '/relay/fallback-inbox') {
+        const authHeader = req.headers['authorization'] || '';
+        const match = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = match ? match[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+
+        const body = await parseBody(req);
+        // Body should be a full message envelope (created by createMessage on James side)
+        try {
+          const msg = parseMessage(JSON.stringify(body));
+          // Route through normal WS message pipeline
+          wss.emit('message', msg, { send: () => {}, readyState: 0, _isFallback: true });
+          log.info('Fallback message received via HTTP', {
+            type: msg.type, from: msg.from, id: msg.id,
+            correlationId: msg.payload?.correlationId,
+          });
+          jsonResponse(res, 200, { ok: true, id: msg.id });
+        } catch (parseErr) {
+          log.warn('Fallback message rejected', { err: parseErr.message });
+          jsonResponse(res, 400, { error: parseErr.message });
+        }
+        return;
+      }
+
+      // Mesh WAL — Phase 19 shared cross-agent event log (CTX-04)
+      // Append-only JSONL at meshWalPath. PSK-auth-gated. See .planning/phases/19-shared-context-and-history/19-01-PLAN.md.
+      if (req.method === 'POST' && req.url === '/mesh/wal/append') {
+        const authHeader = req.headers['authorization'] || '';
+        const match = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = match ? match[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+        const body = await parseBody(req, MESH_WAL_MAX_BODY);
+        try {
+          const entry = await meshWal.append(body);
+          jsonResponse(res, 200, { ok: true, id: entry.id, ts_iso: entry.ts_iso });
+          log.info('Mesh WAL append', { id: entry.id, agent: entry.agent, kind: entry.kind });
+        } catch (walErr) {
+          jsonResponse(res, 400, { error: walErr.message });
+        }
+        return;
+      }
+
+      if (req.method === 'GET' && req.url && req.url.startsWith('/mesh/wal/tail')) {
+        const authHeader = req.headers['authorization'] || '';
+        const match = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = match ? match[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+        const u = new URL(req.url, 'http://localhost');
+        const sinceIso = u.searchParams.get('since');
+        const nRaw = u.searchParams.get('n');
+        const kindFilter = u.searchParams.getAll('kind');
+        const agentFilter = u.searchParams.get('agent');
+        let entries;
+        if (sinceIso) {
+          entries = await meshWal.tailSince(sinceIso);
+        } else {
+          const n = nRaw ? parseInt(nRaw, 10) : 50;
+          entries = await meshWal.tailN(Number.isFinite(n) ? n : 50);
+        }
+        if (kindFilter.length) entries = entries.filter((e) => kindFilter.includes(e.kind));
+        if (agentFilter) entries = entries.filter((e) => e.agent === agentFilter);
+        jsonResponse(res, 200, { entries, count: entries.length });
+        return;
+      }
+
+      // Mesh Dialogue — Plan 19-04: free-form ask/reply between agents.
+      // All dialogue is persisted as kind=dialogue.* entries in the same WAL.
+      // PSK-auth on every route. Auto-emits dialogue.ack alongside dialogue.ask.
+
+      if (req.method === 'POST' && req.url === '/mesh/dialogue/ask') {
+        const authHeader = req.headers['authorization'] || '';
+        const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = tokenMatch ? tokenMatch[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+        const body = await parseBody(req, MESH_WAL_MAX_BODY);
+        const startMs = Date.now();
+        try {
+          const { ask, ack } = await meshWal.ask(body);
+          const ackElapsedMs = Date.now() - startMs;
+          jsonResponse(res, 200, {
+            ok: true,
+            correlation_id: ask.id,
+            thread_id: ask.metadata?.thread_id || ask.id,
+            ack_id: ack.id,
+            ack_emitted_ms: ackElapsedMs,
+          });
+          log.info('Mesh dialogue ask', { id: ask.id, from: ask.agent, to: body.to });
+        } catch (askErr) {
+          jsonResponse(res, 400, { error: askErr.message });
+        }
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/mesh/dialogue/reply') {
+        const authHeader = req.headers['authorization'] || '';
+        const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = tokenMatch ? tokenMatch[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+        const body = await parseBody(req, MESH_WAL_MAX_BODY);
+        try {
+          const reply = await meshWal.reply(body);
+          jsonResponse(res, 200, { ok: true, entry_id: reply.id, correlation_id: body.correlation_id });
+          log.info('Mesh dialogue reply', { id: reply.id, from: reply.agent, correlation_id: body.correlation_id });
+        } catch (replyErr) {
+          const code = replyErr.message.startsWith('correlation_id not found') ? 400 : 400;
+          jsonResponse(res, code, { error: replyErr.message });
+        }
+        return;
+      }
+
+      if (req.method === 'GET' && req.url && req.url.startsWith('/mesh/dialogue/')) {
+        const authHeader = req.headers['authorization'] || '';
+        const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/);
+        const token = tokenMatch ? tokenMatch[1] : '';
+        if (!token || !validatePsk(token)) {
+          jsonResponse(res, 401, { error: 'Unauthorized' });
+          return;
+        }
+        const u = new URL(req.url, 'http://localhost');
+        const forAgent = u.searchParams.get('for');
+        const path = u.pathname;
+        try {
+          if (path === '/mesh/dialogue/open') {
+            if (!forAgent) { jsonResponse(res, 400, { error: 'for param required' }); return; }
+            const entries = await meshWal.openDialogues(forAgent);
+            jsonResponse(res, 200, { entries, count: entries.length });
+            return;
+          }
+          if (path === '/mesh/dialogue/mine') {
+            if (!forAgent) { jsonResponse(res, 400, { error: 'for param required' }); return; }
+            const entries = await meshWal.myOpenAsks(forAgent);
+            jsonResponse(res, 200, { entries, count: entries.length });
+            return;
+          }
+          if (path === '/mesh/dialogue/replies') {
+            if (!forAgent) { jsonResponse(res, 400, { error: 'for param required' }); return; }
+            const sinceIso = u.searchParams.get('since');
+            const entries = await meshWal.repliesToMyAsks(forAgent, sinceIso);
+            jsonResponse(res, 200, { entries, count: entries.length });
+            return;
+          }
+          if (path === '/mesh/dialogue/thread') {
+            const threadId = u.searchParams.get('id');
+            if (!threadId) { jsonResponse(res, 400, { error: 'id param required' }); return; }
+            const entries = await meshWal.thread(threadId);
+            jsonResponse(res, 200, { entries, count: entries.length });
+            return;
+          }
+----8<----
+
+SOURCE 3 — scripts/mesh-wal-inject.js (SessionStart hook, 144 lines):
+----8<----
+#!/usr/bin/env node
+// SessionStart hook: inject dialogue + WAL tail into Claude Code context.
+// Phase 19, Plans 01 + 04 (CTX-04 + dialogue primitive).
+//
+// Register in ~/.claude/settings.json SessionStart hooks with command:
+//   node C:/Users/bono/racingpoint/comms-link/scripts/mesh-wal-inject.js
+//
+// Env:
+//   COMMS_PSK (required) — mesh auth
+//   COMMS_URL (default: ws://srv1422716.hstgr.cloud:8765)
+//   MESH_AGENT (default: 'james') — identity used for dialogue queries
+//   MESH_WAL_TAIL_N (default: 30)
+//
+// Output (in this order, with sections suppressed when empty):
+//   [mesh-dialogue] N asks waiting for you:
+//     [id] <from> -> you: "preview"  (context: ref)
+//   [mesh-dialogue] K replies to your open asks:
+//     re [id] <from>: "preview"
+//   [mesh-dialogue] M of your asks still unanswered:
+//     [id] -> <to>: "preview"  (N hours ago)
+//   [mesh-wal] Recent cross-agent events (last L, newest last):
+//     <ts> <agent> <kind>: <summary>
+//
+// Silent no-op on any failure within 3 s. Never blocks session start.
+
+import http from 'node:http';
+import https from 'node:https';
+
+const TIMEOUT_MS = 3000;
+const TAIL_N = parseInt(process.env.MESH_WAL_TAIL_N || '30', 10);
+const AGENT = process.env.MESH_AGENT || 'james';
+
+const psk = process.env.COMMS_PSK;
+if (!psk) process.exit(0); // silent
+
+const httpUrl = (process.env.COMMS_URL || 'ws://srv1422716.hstgr.cloud:8765').replace(/^ws(s?):/, 'http$1:');
+
+function fetchJson(pathAndQuery) {
+  return new Promise((resolve) => {
+    const parsed = new URL(pathAndQuery, httpUrl);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const req = lib.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${psk}` },
+        timeout: TIMEOUT_MS,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) { resolve(null); return; }
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
+        });
+      },
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+function humanAgo(ts_iso) {
+  const diffMs = Date.now() - new Date(ts_iso).getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function preview(s, n = 140) {
+  if (!s) return '';
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > n ? flat.slice(0, n) + '…' : flat;
+}
+
+async function main() {
+  const [openAsks, replies, mine, wal] = await Promise.all([
+    fetchJson(`/mesh/dialogue/open?for=${AGENT}`),
+    fetchJson(`/mesh/dialogue/replies?for=${AGENT}`),
+    fetchJson(`/mesh/dialogue/mine?for=${AGENT}`),
+    fetchJson(`/mesh/wal/tail?n=${TAIL_N}`),
+  ]);
+
+  let printed = false;
+
+  if (openAsks && openAsks.count > 0) {
+    console.log(`[mesh-dialogue] ${openAsks.count} ask${openAsks.count === 1 ? '' : 's'} waiting for you:`);
+    for (const e of openAsks.entries) {
+      const shortId = e.id.slice(0, 8);
+      const q = preview(e.metadata?.question || e.summary);
+      const ago = humanAgo(e.ts_iso);
+      const refs = e.metadata?.context_refs?.length ? `  (ref: ${e.metadata.context_refs.join(', ')})` : '';
+      console.log(`  [${shortId}@${ago}] ${e.agent} -> you: "${q}"${refs}`);
+    }
+    printed = true;
+  }
+
+  if (replies && replies.count > 0) {
+    console.log(`[mesh-dialogue] ${replies.count} repl${replies.count === 1 ? 'y' : 'ies'} to your open asks:`);
+    for (const e of replies.entries) {
+      const shortCid = (e.metadata?.correlation_id || '').slice(0, 8);
+      const ago = humanAgo(e.ts_iso);
+      const a = preview(e.metadata?.answer || e.summary);
+      console.log(`  re [${shortCid}@${ago}] ${e.agent}: "${a}"`);
+    }
+    printed = true;
+  }
+
+  if (mine && mine.count > 0) {
+    console.log(`[mesh-dialogue] ${mine.count} of your ask${mine.count === 1 ? '' : 's'} still unanswered:`);
+    for (const e of mine.entries) {
+      const shortId = e.id.slice(0, 8);
+      const q = preview(e.metadata?.question || e.summary);
+      const ago = humanAgo(e.ts_iso);
+      const to = e.metadata?.to || '?';
+      console.log(`  [${shortId}@${ago}] -> ${to}: "${q}"`);
+    }
+    printed = true;
+  }
+
+  if (wal && wal.entries && wal.entries.length) {
+    console.log(`[mesh-wal] Recent cross-agent events (last ${wal.count}, newest last):`);
+    for (const e of wal.entries) {
+      // Suppress dialogue.* rows from the generic WAL tail — already surfaced above.
+      if (e.kind && e.kind.startsWith('dialogue.')) continue;
+      const ref = e.ref ? ` [${e.ref}]` : '';
+      const repo = e.repo ? ` (${e.repo})` : '';
+      console.log(`  ${e.ts_ist} ${e.agent} ${e.kind}: ${e.summary}${ref}${repo}`);
+    }
+    printed = true;
+  }
+
+  process.exit(0);
+  void printed;
+}
+
+main().catch(() => process.exit(0));
+----8<----
+
+RETURN: JSON array only, most severe first, max 15 findings.
