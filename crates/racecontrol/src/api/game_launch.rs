@@ -75,9 +75,49 @@ pub(crate) async fn launch_game(
         .get("launch_args")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let force_supersede = body
+        .get("force_supersede")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if pod_id.is_empty() || sim_type_str.is_empty() {
         return Json(json!({ "error": "pod_id and sim_type are required" })).into_response();
+    }
+
+    // GAME-SWITCH: if caller explicitly opts in (force_supersede=true) and a game
+    // is already Launching/Running on this pod, stop it first before launching
+    // the new sim. Without this, /games/launch returns 409 game_already_active
+    // (LIFE-04/LAUNCH-05 double-launch protection) and the kiosk "pick a different
+    // game" flow silently fails. Stopping-state is NOT superseded — we wait for
+    // the existing stop to complete instead.
+    if force_supersede {
+        let needs_stop = {
+            let games = state.game_launcher.active_games.read().await;
+            games.get(pod_id).map(|t| {
+                matches!(t.game_state, GameState::Launching | GameState::Running)
+            }).unwrap_or(false)
+        };
+        if needs_stop {
+            tracing::info!(
+                pod_id = pod_id,
+                new_sim = sim_type_str,
+                "GAME-SWITCH: stopping active game before launching new sim",
+            );
+            crate::game_launcher_ops::stop_game(&state, pod_id).await;
+            // stop_game awaits the agent's Stop ACK up to 5s and clears the
+            // tracker on success. If the tracker is still present (e.g. stuck
+            // in Stopping because the agent didn't ACK), poll for up to 3s more
+            // before proceeding — if the launch still races, the existing
+            // 409-on-Stopping path will catch it with an accurate error.
+            for _ in 0..10 {
+                let still_present = {
+                    let games = state.game_launcher.active_games.read().await;
+                    games.contains_key(pod_id)
+                };
+                if !still_present { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+        }
     }
 
     // Act 2: Trial sessions are AC-only — reject game launches for other sims during trials

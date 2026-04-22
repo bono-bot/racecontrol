@@ -247,8 +247,11 @@ export default function StaffTerminal() {
         }
 
         // Launch game — auto-cancel billing on failure to prevent orphan charges
+        // GAME-SWITCH: supersede prior game if one is already active on this pod
+        const giAc = gameStates.get(selectedPodId);
+        const supersedeAc = !!giAc && (giAc.game_state === "running" || giAc.game_state === "launching" || giAc.game_state === "loading");
         try {
-          const launchResult = await api.launchGame(selectedPodId, simType, launchArgs);
+          const launchResult = await api.launchGame(selectedPodId, simType, launchArgs, { force_supersede: supersedeAc });
           if (!launchResult.ok) {
             if (billingSessionId) {
               sendCommand("end_billing", { billing_session_id: billingSessionId });
@@ -432,8 +435,12 @@ export default function StaffTerminal() {
       <GameLaunchRequestBanner
         requests={gameLaunchRequests}
         onConfirm={async (req) => {
+          // GAME-SWITCH: PWA launch-request may target a pod with an active game —
+          // supersede it rather than 409ing.
+          const giReq = gameStates.get(req.pod_id);
+          const supersedeReq = !!giReq && (giReq.game_state === "running" || giReq.game_state === "launching" || giReq.game_state === "loading");
           try {
-            await api.launchGame(req.pod_id, req.sim_type, JSON.stringify({ game: req.sim_type }));
+            await api.launchGame(req.pod_id, req.sim_type, JSON.stringify({ game: req.sim_type }), { force_supersede: supersedeReq });
           } catch (err) {
             toastError(
               `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
@@ -552,9 +559,14 @@ export default function StaffTerminal() {
                   wizard.reset();
                   wizard.goToStep("select_game");
                 } else {
+                  // GAME-SWITCH: if this pod already has a game Running/Launching/Loading,
+                  // tell the server to supersede it. Without force_supersede the server
+                  // returns HTTP 409 game_already_active and the picker silently fails.
+                  const gi = gameStates.get(podId);
+                  const needsSupersede = !!gi && (gi.game_state === "running" || gi.game_state === "launching" || gi.game_state === "loading");
                   // Non-AC: send minimal args so server can inject duration_minutes
                   try {
-                    await api.launchGame(podId, simType, JSON.stringify({ game: simType }));
+                    await api.launchGame(podId, simType, JSON.stringify({ game: simType }), { force_supersede: needsSupersede });
                   } catch (err) {
                     toastError(
                       `Launch failed. Check pod connection and try again. (${err instanceof Error ? err.message : "Network error"})`
