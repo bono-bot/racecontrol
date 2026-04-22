@@ -1074,11 +1074,10 @@ pub fn try_auto_fix(suggestion: &str, snapshot: &PodStateSnapshot) -> Option<Aut
         return Some(fix_dll_repair(snapshot));
     }
 
-    // Pattern 12: Steam restart
-    if (lower.contains("steam") && lower.contains("update"))
-        || (lower.contains("steam") && lower.contains("downloading")) {
-        return Some(fix_steam_restart(snapshot));
-    }
+    // Pattern 12 (Steam restart) removed 2026-04-22: kill+relaunch of steam.exe
+    // caused the Steam-popup-loop on pods via overlap with game_doctor Check 12
+    // and process_guard. Steam stuck on "update/downloading" now escalates to
+    // staff (no automated kill+restart).
 
     // Pattern 13: Performance throttle
     if lower.contains("low fps") || lower.contains("frame drops") || lower.contains("stuttering") {
@@ -1503,35 +1502,7 @@ fn fix_dll_repair(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     }
 }
 
-fn fix_steam_restart(_snapshot: &PodStateSnapshot) -> AutoFixResult {
-    // Guard: never execute real system commands during cargo test
-    #[cfg(test)]
-    {
-        return AutoFixResult {
-            fix_type: "steam_restart".to_string(),
-            detail: "kill=true, restart=true".to_string(),
-            success: true,
-        };
-    }
-    #[cfg(not(test))]
-    {
-        // Kill Steam, wait briefly, then restart it
-        let kill = spawn_safe("taskkill")
-            .args(["/IM", "steam.exe", "/F"])
-            .output();
-        let killed = matches!(kill, Ok(ref o) if o.status.success());
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let restart = spawn_safe("cmd")
-            .args(["/C", "start", "", r"C:\Program Files (x86)\Steam\steam.exe"])
-            .spawn();
-        let restarted = restart.is_ok();
-        AutoFixResult {
-            fix_type: "steam_restart".to_string(),
-            detail: format!("kill={}, restart={}", killed, restarted),
-            success: killed || restarted,
-        }
-    }
-}
+// fix_steam_restart removed 2026-04-22: replaced by Pattern 12 deletion above.
 
 fn fix_performance_throttle(_snapshot: &PodStateSnapshot) -> AutoFixResult {
     #[cfg(test)]
@@ -2389,22 +2360,7 @@ mod tests {
         assert_eq!(result.unwrap().fix_type, "dll_repair");
     }
 
-    // Pattern 12: Steam restart
-    #[test]
-    fn test_fix_pattern_steam_update_keyword() {
-        let snap = default_snapshot();
-        let result = try_auto_fix("Steam update downloading stuck at 99%", &snap);
-        assert!(result.is_some(), "steam+update keyword must dispatch");
-        assert_eq!(result.unwrap().fix_type, "steam_restart");
-    }
-
-    #[test]
-    fn test_fix_pattern_steam_downloading_keyword() {
-        let snap = default_snapshot();
-        let result = try_auto_fix("Steam is downloading content — launch blocked", &snap);
-        assert!(result.is_some(), "steam+downloading keyword must dispatch");
-        assert_eq!(result.unwrap().fix_type, "steam_restart");
-    }
+    // Pattern 12 tests removed 2026-04-22 with fix_steam_restart.
 
     // Pattern 13: Performance throttle
     #[test]

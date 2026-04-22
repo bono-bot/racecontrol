@@ -235,7 +235,11 @@ impl Default for PreflightConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProcessGuardConfig {
-    #[serde(default = "default_true")]
+    // Default flipped to false 2026-04-22: process guard caused visible
+    // kiosk chaos by fighting with game_doctor + ai_debugger over the
+    // same processes (Steam, ConspitLink). Re-enable per-pod in TOML
+    // only when a specific enforcement need is proven.
+    #[serde(default)]
     pub enabled: bool,
     #[serde(default = "default_scan_interval")]
     pub scan_interval_secs: u64,
@@ -243,7 +247,7 @@ pub struct ProcessGuardConfig {
 
 impl Default for ProcessGuardConfig {
     fn default() -> Self {
-        Self { enabled: true, scan_interval_secs: 60 }
+        Self { enabled: false, scan_interval_secs: 60 }
     }
 }
 

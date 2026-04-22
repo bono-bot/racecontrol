@@ -304,22 +304,11 @@ pub fn diagnose_and_fix() -> GameDiagnosis {
         }
     }
 
-    // ── Check 12 (Scanner Qwen3): Steam not running (AC requires Steam) ──
-    if !crate::ac_launcher::is_process_running("steam.exe") {
-        issues.push("Steam not running — AC requires Steam to be active".to_string());
-        // Try to start Steam
-        let steam_path = Path::new(r"C:\Program Files (x86)\Steam\steam.exe");
-        if steam_path.exists() {
-            tracing::warn!(target: LOG_TARGET, "Steam not running — starting");
-            let mut cmd = rc_common::spawn_safe::spawn_safe(steam_path.to_str().unwrap_or("steam.exe"));
-            cmd.arg("-silent");
-            if cmd.spawn().is_ok() {
-                fixes.push("started Steam (was not running)".to_string());
-                // Give Steam 5s to initialize
-                std::thread::sleep(std::time::Duration::from_secs(5));
-            }
-        }
-    }
+    // Check 12 removed 2026-04-22: auto-spawning steam.exe on every retry
+    // caused the Steam-popup-loop on pods (multi-owner overlap with
+    // ai_debugger and process_guard). Steam must now be already-running —
+    // if not, pre_launch_validate() below returns the existing
+    // "Steam not running — AC requires Steam" error and staff assists.
 
     // ── Build diagnosis ──
     let total_fixes = fixes.len();
