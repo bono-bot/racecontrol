@@ -11,6 +11,7 @@ members = [
     "crates/rc-process-guard",
     "crates/rc-sentry-ai",
     "crates/rc-guardian",
+    "crates/rc-process-manager",
 ]
 
 [workspace.package]

@@ -1,0 +1,22 @@
+[package]
+name = "rc-process-manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# S8 Wave 1 scaffold — plan_process_manager_crate_20260423.md.
+# Future waves: W2 registry+enum, W3 typed spawn/kill API, W4 caller migration,
+# W5 bidirectional CI gate, W6 clippy disallowed-methods, W7 60s scan loop,
+# W8 daily-pod-reset schtask.
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rc-common = { path = "../rc-common" }
+
+[lib]
+name = "rc_process_manager"
+path = "src/lib.rs"
