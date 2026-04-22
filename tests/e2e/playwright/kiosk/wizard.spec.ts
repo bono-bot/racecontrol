@@ -1,24 +1,29 @@
 import { test, expect } from '@playwright/test';
+import { setupKioskApiMocks, loginAndOpenWizard } from './helpers/mocks';
 
 // ---- Shared error capture ----
-// Wizard tests run against the LIVE server (no API mocks) because:
-// 1. Staff login needs a real JWT for subsequent API calls
-// 2. Driver search needs real driver data from the database
-// 3. Pod grid needs real fleet health data
+// Wizard tests mock racecontrol API calls via `setupKioskApiMocks`. CI has
+// no live backend; historical "runs against live server" approach produced
+// 0/20 green for weeks. Mocked mode covers the UI state-machine assertions
+// these tests actually care about.
 
 let jsErrors: string[] = [];
 
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
+  await setupKioskApiMocks(page);
   page.on('pageerror', (err) => {
     // Ignore WebSocket errors (expected when WS reconnects during page transitions)
     if (/WebSocket|ws:|wss:/.test(err.message)) return;
+    // Ignore network errors — spec-specific routes may deliberately 404/500.
+    if (/Failed to fetch|NetworkError|fetch failed/i.test(err.message)) return;
     jsErrors.push(err.message);
   });
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  // DOM snapshot on failure
+  if (testInfo.status === 'skipped') return;
+
   if (testInfo.status !== testInfo.expectedStatus) {
     try {
       const dom = await page.content();
@@ -29,7 +34,6 @@ test.afterEach(async ({ page }, testInfo) => {
     } catch { /* page may have closed */ }
   }
 
-  // Fail test if uncaught JS errors occurred
   if (jsErrors.length > 0) {
     const errList = jsErrors.join('; ');
     jsErrors = [];
@@ -38,57 +42,17 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 // ---- Helper: enter wizard via staff login + pod card click ----
-// Current flow: /kiosk/staff → "Tap to Sign In" → PIN entry → pod grid → click idle pod
-// API mocks provide staff auth + fleet data with idle pods.
-
 async function enterWizard(page: import('@playwright/test').Page) {
-  await page.goto('/kiosk/staff', { waitUntil: 'domcontentloaded' });
-  // Wait for React hydration
-  await page.waitForTimeout(3000);
+  await loginAndOpenWizard(page, 1);
 
-  // Step 1: Click "Tap to Sign In" (idle state)
-  const signInBtn = page.getByText('Tap to Sign In');
-  if (await signInBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
-    await signInBtn.click();
-    await page.waitForTimeout(1000);
-
-    // Step 2: Enter staff PIN via keypad
-    const pin = (process.env.STAFF_PIN ?? '7080').split('');
-    for (const digit of pin) {
-      await page.locator(`button:has-text("${digit}")`).first().click();
-      await page.waitForTimeout(150);
-    }
-    // Auto-submits at 4 digits — wait for dashboard to load
-    await page.waitForTimeout(3000);
-  }
-
-  // Step 3: Click an idle pod card to open the setup wizard
-  // Pod cards are cursor:pointer divs containing "Pod N" + "Idle" + "Ready"
-  // Use the pod card container (main > div > div with cursor-pointer)
-  const podCards = page.locator('main >> div[class*="cursor-pointer"], main >> div[class*="cursor"]');
-  const pod1Card = page.getByText('Pod 1').first();
-
-  if (await podCards.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-    await podCards.first().click();
-  } else if (await pod1Card.isVisible({ timeout: 5000 }).catch(() => false)) {
-    // Click the parent div that has the cursor-pointer
-    await pod1Card.click();
-  }
-
-  // Wait for wizard side panel to appear — the search input is the definitive indicator
-  // Wait for wizard panel — use multiple selectors to find the search input
-  await page.waitForTimeout(2000);
-  await page.screenshot({ path: 'tests/e2e/results/wizard-debug-after-pod-click.png' });
-
-  // Just use the simplest possible selector
+  // Give the wizard side-panel time to mount. Search input is the
+  // definitive indicator the wizard has loaded.
+  await page.waitForTimeout(1500);
   const searchInput = page.locator('input[placeholder="Name or phone..."]');
   const inputCount = await searchInput.count();
   const inputVisible = inputCount > 0 ? await searchInput.first().isVisible() : false;
-
   if (!inputVisible) {
-    // Don't skip — let the test proceed and fail naturally
-    // The wizard opened but the search input might need more time
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2500);
   }
 }
 
