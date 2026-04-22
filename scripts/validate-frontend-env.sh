@@ -17,11 +17,19 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
-APPS=("kiosk" "web" "apps/racingpoint-admin" "pwa")
+# Optional first arg: restrict validation to a single app (e.g. "kiosk").
+# Without arg: scan all Next.js apps. Used by per-app `prebuild` scripts so
+# one app's missing var doesn't block a sibling app's build.
+if [ -n "${1:-}" ]; then
+  APPS=("$1")
+else
+  APPS=("kiosk" "web" "apps/racingpoint-admin" "pwa")
+fi
 TOTAL_MISSING=0
 
 echo "============================================================"
 echo "NEXT_PUBLIC_ Environment Validation (GAP-9)"
+echo "Scope: ${APPS[*]}"
 echo "============================================================"
 echo ""
 
@@ -51,16 +59,22 @@ for app in "${APPS[@]}"; do
 
   MISSING=0
   for var in $VARS; do
+    # Next.js bakes NEXT_PUBLIC_ vars at build time from EITHER process env
+    # (CI workflows set them via `env:` blocks) OR .env.production.local
+    # (local prod builds). Accept whichever is present.
+    env_value="${!var:-}"
+    if [ -n "$env_value" ]; then
+      continue
+    fi
     if [ -f "$ENV_FILE" ] && grep -q "^${var}=" "$ENV_FILE"; then
-      # Check if value is non-empty
       VALUE=$(grep "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)
       if [ -z "$VALUE" ]; then
         echo -e "  ${RED}EMPTY: ${var} (defined but no value)${RESET}"
-        ((MISSING++))
+        ((MISSING++)) || true
       fi
     else
       echo -e "  ${RED}MISSING: ${var}${RESET}"
-      ((MISSING++))
+      ((MISSING++)) || true
     fi
   done
 
