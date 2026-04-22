@@ -29,7 +29,9 @@ describe("Phase 368 D-09 — debug page incidents region untouched (P1-03)", () 
     expect(start, "START marker not found in debug/page.tsx").toBeGreaterThanOrEqual(0);
     expect(end, "END marker not found in debug/page.tsx").toBeGreaterThan(start);
 
-    const region = pageSrc.slice(start, end + endMarker.length);
+    // Normalize line endings so CI (Linux, LF) and Windows dev (CRLF) produce
+    // the same SHA. Without this, the fixture is platform-specific.
+    const region = pageSrc.slice(start, end + endMarker.length).replace(/\r\n/g, "\n");
     const sha = crypto.createHash("sha256").update(region).digest("hex");
 
     // Fixture is at racecontrol/tests/fixtures/368-debug-page-incidents-sha.txt
