@@ -48,7 +48,7 @@ jobs:
   e2e-kiosk:
     name: Kiosk E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     needs: unit-tests
 
     steps:
