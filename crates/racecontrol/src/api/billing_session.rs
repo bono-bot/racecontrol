@@ -568,3 +568,29 @@ pub(crate) async fn extend_billing(
         Err(e) => Json(json!({ "ok": false, "error": e })),
     }
 }
+
+/// POST /api/v1/billing/{id}/stop-service — service-key-authed sibling of stop_billing.
+///
+/// Purpose: rc-agent `billing_guard::attempt_orphan_end` calls this to end orphan
+/// sessions (billing_active=true but no game process for N seconds). The plain
+/// `/billing/{id}/stop` is in the staff-JWT block — rc-agent has no JWT, so it
+/// needs this sibling with X-Service-Key auth. Mirrors the
+/// `/mesh/audit-check-service` / `/mesh/audit-seed-service` pattern.
+///
+/// Auth: X-Service-Key header must match `config.pods.sentry_service_key`.
+pub(crate) async fn stop_billing_service(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    body: Option<Json<Value>>,
+) -> axum::response::Response {
+    let expected = state.config.pods.sentry_service_key.as_deref().unwrap_or("");
+    let provided = headers
+        .get("X-Service-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if expected.is_empty() || provided.is_empty() || provided != expected {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Invalid service key").into_response();
+    }
+    stop_billing(State(state), Path(id), body).await.into_response()
+}

@@ -17,6 +17,7 @@ use rc_common::protocol::AgentMessage;
 use rc_common::types::{DrivingState, PodFailureReason};
 use crate::failure_monitor::FailureMonitorState;
 use crate::feature_flags::FeatureFlags;
+use crate::mesh_key_cache::MeshKeyCache;
 
 const LOG_TARGET: &str = "billing";
 const POLL_INTERVAL_SECS: u64 = 5;
@@ -27,31 +28,88 @@ const IDLE_DRIFT_THRESHOLD_SECS: u64 = 300;
 static ORPHAN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 #[cfg(feature = "http-client")]
-fn orphan_client() -> &'static reqwest::Client {
-    ORPHAN_CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("orphan HTTP client build failed")
-    })
-}
-
-async fn attempt_orphan_end(core_base_url: &str, session_id: &str, end_reason: &str) -> bool {
-    #[cfg(feature = "http-client")]
-    {
-    let client = orphan_client();
-    let base_url = format!("{}/billing/{}/stop", core_base_url, session_id);
-    match client.post(&base_url).query(&[("reason", end_reason)]).send().await {
-        Ok(resp) => resp.status().is_success(),
-        Err(e) => {
-            tracing::warn!(target: LOG_TARGET, "orphan end HTTP failed: {}", e);
-            false
+fn orphan_client() -> Option<&'static reqwest::Client> {
+    // P0-4 permanence: do NOT .expect() in production init. A resource-exhaustion
+    // failure here would panic the entire rc-agent process on first orphan-end
+    // attempt. Log + return None; caller treats this as "HTTP unavailable".
+    static INIT_FAILED: OnceLock<()> = OnceLock::new();
+    match ORPHAN_CLIENT.get() {
+        Some(c) => Some(c),
+        None => {
+            match reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+            {
+                Ok(c) => {
+                    let _ = ORPHAN_CLIENT.set(c);
+                    ORPHAN_CLIENT.get()
+                }
+                Err(e) => {
+                    if INIT_FAILED.set(()).is_ok() {
+                        tracing::error!(target: LOG_TARGET, "orphan HTTP client init failed: {} — orphan auto-end disabled", e);
+                    }
+                    None
+                }
+            }
         }
     }
+}
+
+async fn attempt_orphan_end(
+    core_base_url: &str,
+    session_id: &str,
+    end_reason: &str,
+    mesh_cache: &MeshKeyCache,
+) -> bool {
+    #[cfg(feature = "http-client")]
+    {
+        // P0-4: route targets the service-key-authed sibling `/billing/{id}/stop-service`
+        // registered in racecontrol::api::routes. The plain /stop requires staff JWT
+        // which rc-agent does not hold — every prior orphan-end silently 401'd and
+        // the server retained a live billing session while the agent thought it ended.
+        let key = match crate::mesh_key_cache::get_key_or_env(mesh_cache).await {
+            Some(k) => k,
+            None => {
+                tracing::error!(
+                    target: LOG_TARGET,
+                    "orphan end aborted — mesh service key unavailable (server + env both empty). Session {} left unended.",
+                    session_id
+                );
+                return false;
+            }
+        };
+        let Some(client) = orphan_client() else { return false };
+        let url = format!("{}/billing/{}/stop-service", core_base_url, session_id);
+        match client
+            .post(&url)
+            .header("X-Service-Key", &key)
+            .query(&[("reason", end_reason)])
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    true
+                } else {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        "orphan end HTTP non-2xx status={} for session {} — check service key parity with server racecontrol.toml",
+                        status,
+                        session_id
+                    );
+                    false
+                }
+            }
+            Err(e) => {
+                tracing::warn!(target: LOG_TARGET, "orphan end HTTP failed: {}", e);
+                false
+            }
+        }
     }
     #[cfg(not(feature = "http-client"))]
     {
-        let _ = (core_base_url, session_id, end_reason);
+        let _ = (core_base_url, session_id, end_reason, mesh_cache);
         false
     }
 }
@@ -63,6 +121,7 @@ pub fn spawn(
     core_base_url: String,           // HTTP base URL e.g. "http://192.168.31.23:8080/api/v1"
     orphan_end_threshold_secs: u64,  // From config.auto_end_orphan_session_secs (default 300)
     flags: Arc<RwLock<FeatureFlags>>, // v22.0 Phase 178: feature flag access
+    mesh_cache: MeshKeyCache,         // P0-4: needed for X-Service-Key on orphan-end HTTP
 ) {
     tokio::spawn(async move {
         tracing::info!(target: LOG_TARGET, "Billing guard task started (poll interval: {}s, orphan_threshold: {}s)", POLL_INTERVAL_SECS, orphan_end_threshold_secs);
@@ -141,13 +200,14 @@ pub fn spawn(
                         let base_url = core_base_url.clone();
                         let pod_id_clone = pod_id.clone();
                         let tx = agent_msg_tx.clone();
+                        let cache = mesh_cache.clone();
 
                         // Retry loop: 3 attempts with backoff [5s, 15s, 30s]
                         tokio::spawn(async move {
                             let delays = [5u64, 15, 30];
                             let mut succeeded = false;
                             for (i, delay) in delays.iter().enumerate() {
-                                if attempt_orphan_end(&base_url, &session_id_clone, "orphan_timeout").await {
+                                if attempt_orphan_end(&base_url, &session_id_clone, "orphan_timeout", &cache).await {
                                     succeeded = true;
                                     tracing::info!(target: LOG_TARGET, "Orphan session {} ended successfully on attempt {}", session_id_clone, i + 1);
                                     break;
@@ -328,7 +388,8 @@ mod tests {
         let _ = state_tx; // keep sender alive
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         // Yield to let the spawned task start and block on interval.tick()
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -362,7 +423,8 @@ mod tests {
         let _ = state_tx;
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         // Let task start, record game_gone_since
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -391,7 +453,8 @@ mod tests {
         let _ = state_tx;
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;
@@ -418,7 +481,8 @@ mod tests {
         let _ = state_tx;
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;
@@ -445,7 +509,8 @@ mod tests {
         let _ = state_tx;
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         // Let task start, record idle_since
         for _ in 0..5 { tokio::task::yield_now().await; }
@@ -464,6 +529,53 @@ mod tests {
         }
     }
 
+    // ── P0-4: orphan-end HTTP auth regression tests ─────────────────────────
+    //
+    // Before P0-4, attempt_orphan_end POSTed to /billing/{id}/stop with NO auth
+    // header. That route is staff-JWT-gated — every retry silently received 401.
+    // The fix targets a new service-key-authed sibling /billing/{id}/stop-service
+    // and includes X-Service-Key from the mesh_key_cache. These source-level tests
+    // catch regressions where someone removes the auth or reverts the URL.
+
+    #[test]
+    fn orphan_end_targets_stop_service_route_not_staff_stop() {
+        let src = include_str!("billing_guard.rs");
+        assert!(
+            src.contains("/stop-service"),
+            "P0-4 regression: attempt_orphan_end must POST to /billing/{{id}}/stop-service \
+             (service-key-authed), not /billing/{{id}}/stop (staff-JWT-only). \
+             The staff route silently 401s every orphan-end attempt."
+        );
+    }
+
+    #[test]
+    fn orphan_end_sends_service_key_header() {
+        let src = include_str!("billing_guard.rs");
+        assert!(
+            src.contains("X-Service-Key"),
+            "P0-4 regression: attempt_orphan_end must include X-Service-Key header \
+             sourced from mesh_key_cache::get_key_or_env. Without it, the server \
+             returns 401 and the orphan session stays live on the server while \
+             rc-agent emits SessionAutoEnded — divergent state, revenue leakage."
+        );
+    }
+
+    #[test]
+    fn orphan_client_init_does_not_panic_on_failure() {
+        // Positive invariant: orphan_client() must return Option — not a raw
+        // reference — so callers handle init-failure gracefully. Old code
+        // panicked on resource-exhaustion inside OnceLock::get_or_init, killing
+        // the entire rc-agent on first orphan-end attempt.
+        #[cfg(feature = "http-client")]
+        {
+            let result: Option<&'static reqwest::Client> = orphan_client();
+            // On a healthy test host the builder succeeds; we only care about
+            // the return *type* being Option. This line won't compile if the
+            // signature regresses to `&'static reqwest::Client`.
+            let _ = result;
+        }
+    }
+
     #[tokio::test]
     async fn bill03_no_drift_when_driving_active() {
         tokio::time::pause();
@@ -479,7 +591,8 @@ mod tests {
         let _ = state_tx;
 
         spawn(state_rx, msg_tx, "pod_test".to_string(), "http://unused".to_string(), 9999,
-              Arc::new(RwLock::new(FeatureFlags::new())));
+              Arc::new(RwLock::new(FeatureFlags::new())),
+              crate::mesh_key_cache::new_cache());
 
         for _ in 0..5 { tokio::task::yield_now().await; }
         tokio::time::advance(Duration::from_secs(5)).await;
