@@ -1,6 +1,6 @@
 {
-  "timestamp_ist": "2026-04-20 21:41 IST",
-  "commit": "cf9e03f8",
+  "timestamp_ist": "2026-04-23 00:30 IST",
+  "commit": "1685d2c4",
   "overall_exit": 0,
   "summary": [],
   "checks": [
@@ -14,13 +14,19 @@
       "name": "fleet-swaplog-parity",
       "status": "green",
       "exit": 0,
-      "output": "OK: SWAPLOG racecontrol tail = f9c6678b, live build_id = f9c6678b @ http://192.168.31.23:8080/api/v1/health"
+      "output": "OK: SWAPLOG racecontrol tail = f9c6678b, live build_id = f9c6678b @ http://100.125.108.37:8080/api/v1/health"
     },
     {
       "name": "deploy-staging-parity",
       "status": "green",
       "exit": 0,
-      "output": "deploy-staging-parity: green (tracked=c4e78d0a021d matches staging=c4e78d0a021d)"
+      "output": "deploy-staging-parity: SKIPPED (staging path not present at /root/deploy-staging/deploy-server.sh) \u2014 tracked source md5=c4e78d0a021d"
+    },
+    {
+      "name": "workflow-centrality",
+      "status": "green",
+      "exit": 0,
+      "output": "workflow-centrality-check: no drift \u2014 FSM centrality matches baseline."
     }
   ]
 }
