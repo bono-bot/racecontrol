@@ -1055,6 +1055,41 @@ Plans:
 
 ---
 
+### Phase 999.6: Billing portal walk-in RegistrationModal (BACKLOG)
+
+**Goal:** [Captured for future planning] Add a walk-in customer `RegistrationModal` to the billing portal at [web/src/app/billing/page.tsx](../../web/src/app/billing/page.tsx) so POS staff can register new customers without context-switching to the kiosk at `.23:3300/register`. Matches the existing scope comment (billing page header allows "customer registration modal (walk-in form only, no game picker)") which was spec'd but never implemented.
+
+**Requirements:** TBD
+
+**Evidence the gap exists:**
+- [kiosk/src/app/register/page.tsx](../../kiosk/src/app/register/page.tsx) — dedicated 7267-byte walk-in registration page (name, DOB, guardian-name-for-minors, waiver consent, minor auto-detection). POSTs to `/api/v1/venue/register`.
+- [web/src/app/billing/page.tsx](../../web/src/app/billing/page.tsx) — grep `register|Register` returns ZERO matches. Imports only `WalletTopupModal`. Scope comment at file head allows the modal but no implementation exists.
+- `web/src/app/register/` — directory does NOT exist.
+- Backend endpoint wired and shared-capable: [crates/racecontrol/src/api/customer_register.rs:228](../../crates/racecontrol/src/api/customer_register.rs#L228) (`venue_register` handler), [crates/racecontrol/src/api/routes.rs:186](../../crates/racecontrol/src/api/routes.rs#L186) (`POST /venue/register`). Currently only kiosk consumes it.
+
+**Scope sketch (NOT a plan — feeds `/gsd:discuss-phase 999.6`):**
+- New `web/src/components/RegistrationModal.tsx` — port kiosk registration form (name + DOB + guardian-if-minor + waiver checkbox + minor auto-detection)
+- Add state + handler + button to `web/src/app/billing/page.tsx` that opens the modal
+- POST to existing `/api/v1/venue/register` endpoint (no backend change)
+- Success path: close modal + show toast with new customer ID, do NOT auto-start a session (staff chooses next action)
+- Error handling: surface real server error reason (align with B1 pattern already in billing page.tsx)
+- Test: Playwright e2e — open modal, fill form, submit, verify new driver appears in /customers
+- Do NOT add game-picker UI — scope comment forbids it
+
+**Blockers before promoting:**
+- Backlog-gate WIP ≥3 (6 open PRs + dormant branches). Do NOT start until WIP clears.
+- Typed API contract (Phase 445 ts-rs codegen) should cover `venue_register` request/response types — verify before implementing modal.
+
+**Cross-reference:**
+- Original design intent in billing page.tsx scope comment (lines ~3-20 — "ALLOWED: ... customer registration modal (walk-in form only, no game picker)")
+- 2026-04-22 session: user confirmed gap during cloud-admin 404 audit
+- Related (not same): cloud admin dashboard still lacks /api/* routes — see memory `project_cloud_admin_api_404_epidemic_20260422.md`. This 999.6 is venue-web only (port 3200), not cloud admin.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+---
+
 ## v47.0 Admin Dashboard Venue-Ready Hardening
 
 **Goal:** Make the admin dashboard (venue .23:3201 + cloud admin.racingpoint.cloud) a resilient, venue-ready central source of truth before customers start using the venue. Close 18 audit findings from the 2026-04-09 Vishal-PIN incident and absorb the superseded Phase 343 Plan 03 (admin PIN UI).
