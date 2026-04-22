@@ -131,3 +131,6 @@ web/public/git-commit.txt
 web/public/build-info.json
 pwa/public/git-commit.txt
 pwa/public/build-info.json
+# inventory run outputs (per-pod raw JSON + parsed JSONL)
+logs/game-inventory/
+logs/ac-content/
