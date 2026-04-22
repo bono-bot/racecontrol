@@ -79,6 +79,16 @@ pub(crate) async fn launch_game(
         .get("force_supersede")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // S-3: experience_id optional on /games/launch so staff picker + PWA flows
+    // can persist which pre-defined experience was launched. Without this,
+    // billing_sessions.experience_id stayed NULL for every /games/launch
+    // session — fleet_intelligence experience_score couldn't attribute
+    // failures to experiences. Empty string treated as None.
+    let experience_id: Option<String> = body
+        .get("experience_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     if pod_id.is_empty() || sim_type_str.is_empty() {
         return Json(json!({ "error": "pod_id and sim_type are required" })).into_response();
@@ -325,9 +335,16 @@ pub(crate) async fn launch_game(
             // Previously only launch_or_assist() (PIN auth flow) wrote these fields.
             // The /games/launch path (kiosk game selection, admin dashboard) skipped the update,
             // leaving car/track/sim_type NULL for most sessions.
+            //
+            // S-3 (2026-04-22): Also persist experience_id when caller provides it. Without this,
+            // every /games/launch session had billing_sessions.experience_id = NULL — breaking
+            // fleet_intelligence experience_score attribution. COALESCE keeps the existing value
+            // if the caller didn't pass one, so we don't clobber an experience_id already set by
+            // a prior /kiosk/pod-launch-experience call on the same session.
             {
                 if let Err(e) = sqlx::query(
-                    "UPDATE billing_sessions SET car = ?, track = ?, sim_type = ? \
+                    "UPDATE billing_sessions SET car = ?, track = ?, sim_type = ?, \
+                     experience_id = COALESCE(?, experience_id) \
                      WHERE id = (SELECT id FROM billing_sessions \
                      WHERE pod_id = ? AND status IN ('active', 'waiting_for_game') \
                      AND car IS NULL \
@@ -336,10 +353,11 @@ pub(crate) async fn launch_game(
                 .bind(&launch_car)
                 .bind(&launch_track)
                 .bind(sim_type_str)
+                .bind(experience_id.as_deref())
                 .bind(pod_id)
                 .execute(&state.db)
                 .await {
-                    tracing::warn!("DB-2: Failed to update billing_sessions car/track/sim_type for pod {}: {}", pod_id, e);
+                    tracing::warn!("DB-2/S-3: Failed to update billing_sessions car/track/sim_type/experience_id for pod {}: {}", pod_id, e);
                 }
             }
 

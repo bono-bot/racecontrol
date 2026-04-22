@@ -6,19 +6,21 @@ use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 // ─── Game String Parsing ─────────────────────────────────────────────────
 
 /// Parse a game string (from kiosk_experiences, custom launch args, etc.) into a SimType.
-/// Returns AssettoCorsa as default fallback for unknown game strings.
-pub fn parse_sim_type(game: &str) -> rc_common::types::SimType {
+/// Returns Err for unknown strings — callers MUST handle None rather than silently
+/// launching AC. Prior behaviour (fallback to AssettoCorsa) masked typos in experience
+/// DB rows and caused wrong-game launches that were indistinguishable from user intent.
+pub fn parse_sim_type(game: &str) -> Result<rc_common::types::SimType, String> {
     use rc_common::types::SimType;
     match game {
-        "assetto_corsa" | "ac" => SimType::AssettoCorsa,
-        "assetto_corsa_evo" | "ace" => SimType::AssettoCorsaEvo,
-        "assetto_corsa_rally" | "ea_wrc" | "acr" | "wrc" => SimType::AssettoCorsaRally,
-        "iracing" => SimType::IRacing,
-        "f1_25" | "f1" => SimType::F125,
-        "le_mans_ultimate" | "lmu" => SimType::LeMansUltimate,
-        "forza" => SimType::Forza,
-        "forza_horizon_5" | "fh5" => SimType::ForzaHorizon5,
-        _ => SimType::AssettoCorsa,
+        "assetto_corsa" | "ac" => Ok(SimType::AssettoCorsa),
+        "assetto_corsa_evo" | "ace" => Ok(SimType::AssettoCorsaEvo),
+        "assetto_corsa_rally" | "ea_wrc" | "acr" | "wrc" => Ok(SimType::AssettoCorsaRally),
+        "iracing" => Ok(SimType::IRacing),
+        "f1_25" | "f1" => Ok(SimType::F125),
+        "le_mans_ultimate" | "lmu" => Ok(SimType::LeMansUltimate),
+        "forza" => Ok(SimType::Forza),
+        "forza_horizon_5" | "fh5" => Ok(SimType::ForzaHorizon5),
+        other => Err(format!("unknown sim_type: {}", other)),
     }
 }
 
@@ -108,7 +110,69 @@ pub(crate) async fn launch_or_assist(
         parsed.to_string()
     };
 
-    let sim_type = parse_sim_type(&game);
+    let sim_type = match parse_sim_type(&game) {
+        Ok(st) => st,
+        Err(e) => {
+            // Unknown game string in an experience row or custom launch args. Previously
+            // silently fell through to AssettoCorsa — a wrong-game launch that looked
+            // intentional. Surface it as assistance instead so staff can fix the DB row.
+            tracing::error!(
+                pod_id = pod_id,
+                game = game.as_str(),
+                error = e.as_str(),
+                "launch_or_assist: unknown sim_type — aborting and notifying staff"
+            );
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(pod_id).cloned()
+            };
+            if let Some(sender) = sender {
+                let _ = sender.send(CoreMessage::wrap(CoreToAgentMessage::ShowAssistanceScreen {
+                    driver_name: driver_name.to_string(),
+                    message: format!("Unrecognised game '{}' — staff will assist", game),
+                })).await;
+            }
+            let _ = state.dashboard_tx.send(DashboardEvent::AssistanceNeeded {
+                pod_id: pod_id.to_string(),
+                driver_name: driver_name.to_string(),
+                game: game.clone(),
+                reason: format!("Unrecognised sim_type '{}' (experience config error)", game),
+            });
+            return None;
+        }
+    };
+
+    // GAME-SWITCH: customer/PWA experience-launch path bypasses /games/launch's 409 guard
+    // (launch_or_assist sends LaunchGame WS directly). If a game is already Launching/Running
+    // on this pod, send StopGame first so the agent isn't asked to spawn a second game on
+    // top of the first — double-spawn causes broken HUD / no telemetry / wheel conflicts.
+    {
+        use rc_common::types::GameState;
+        let needs_stop = {
+            let games = state.game_launcher.active_games.read().await;
+            games.get(pod_id).map(|t| {
+                matches!(t.game_state, GameState::Launching | GameState::Running)
+            }).unwrap_or(false)
+        };
+        if needs_stop {
+            tracing::info!(
+                pod_id = pod_id,
+                new_game = game.as_str(),
+                "GAME-SWITCH (launch_or_assist): stopping active game before launching new sim",
+            );
+            crate::game_launcher_ops::stop_game(state, pod_id).await;
+            // stop_game awaits Stop ACK up to 5s and clears the tracker on success.
+            // Brief post-ACK poll for tracker clearance (parity with /games/launch path).
+            for _ in 0..10 {
+                let still_present = {
+                    let games = state.game_launcher.active_games.read().await;
+                    games.contains_key(pod_id)
+                };
+                if !still_present { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+        }
+    }
 
     // Clone sender, drop lock before .await — prevents deadlock
     let sender = {

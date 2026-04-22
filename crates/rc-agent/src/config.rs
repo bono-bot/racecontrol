@@ -69,13 +69,54 @@ pub(crate) fn detect_installed_games(games: &GamesConfig) -> Vec<SimType> {
     installed
 }
 
-/// Check if a Steam app is installed by looking for its appmanifest file.
+/// Check if a Steam app is installed by looking for its appmanifest file across
+/// ALL configured Steam library folders, not just the primary install location.
+///
+/// 2026-04-22: previously only checked `C:\Program Files (x86)\Steam\steamapps\`.
+/// Sim-racing rigs routinely put large games on secondary SSDs (AC + F1 25 +
+/// iRacing are 400+GB combined), and Steam records those in libraryfolders.vdf.
+/// The primary-only check produced false negatives for any game installed on a
+/// secondary library — pods reported F1 25 as "not installed" and kiosk launch
+/// hit ShowAssistanceScreen even though the game was ready to run.
 fn is_steam_app_installed(app_id: u32) -> bool {
-    let manifest = format!(
-        r"C:\Program Files (x86)\Steam\steamapps\appmanifest_{}.acf",
-        app_id
-    );
-    std::path::Path::new(&manifest).exists()
+    for lib in steam_library_paths() {
+        let manifest = lib.join("steamapps").join(format!("appmanifest_{}.acf", app_id));
+        if manifest.exists() { return true; }
+    }
+    false
+}
+
+/// Parse libraryfolders.vdf from the primary Steam install to enumerate all
+/// configured library folders. Falls back to `[primary]` if the VDF is missing
+/// or unparseable so we never regress below the old behaviour.
+fn steam_library_paths() -> Vec<std::path::PathBuf> {
+    let primary = std::path::PathBuf::from(r"C:\Program Files (x86)\Steam");
+    let vdf = primary.join("steamapps").join("libraryfolders.vdf");
+    let mut paths = vec![primary.clone()];
+    if let Ok(content) = std::fs::read_to_string(&vdf) {
+        // libraryfolders.vdf:
+        //   "libraryfolders" { "0" { "path" "C:\\..." ... } "1" { "path" "D:\\..." ... } }
+        // Simple line-scan works; we only need the "path" values.
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("\"path\"") {
+                // Extract the second quoted string on the line.
+                let rest = rest.trim_start();
+                if let Some(start) = rest.find('"') {
+                    if let Some(end) = rest[start + 1..].find('"') {
+                        let raw = &rest[start + 1..start + 1 + end];
+                        // VDF escapes backslashes as "\\" — unescape.
+                        let unescaped = raw.replace("\\\\", "\\");
+                        let p = std::path::PathBuf::from(&unescaped);
+                        if p.exists() && !paths.contains(&p) {
+                            paths.push(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    paths
 }
 
 /// Known Steam games and their SimType mapping.
@@ -94,10 +135,11 @@ const KNOWN_STEAM_GAMES: &[(u32, SimType, &str)] = &[
 /// but NOT configured in the TOML [games.*] sections.
 /// This is a diagnostic-only function — it does NOT auto-configure games.
 pub(crate) fn warn_unconfigured_steam_games(games: &GamesConfig) {
-    let steam_dir = r"C:\Program Files (x86)\Steam\steamapps";
-    let steam_path = std::path::Path::new(steam_dir);
-
-    if !steam_path.exists() {
+    // 2026-04-22: now enumerates ALL Steam library folders via libraryfolders.vdf
+    // (not just the primary install location) so we detect games on secondary
+    // SSDs too. Same fix as is_steam_app_installed above.
+    let libraries = steam_library_paths();
+    if libraries.is_empty() {
         return; // No Steam installation — skip silently
     }
 
@@ -123,9 +165,11 @@ pub(crate) fn warn_unconfigured_steam_games(games: &GamesConfig) {
             continue; // Already configured
         }
 
-        // Check if installed on disk
-        let manifest = format!("{}\\appmanifest_{}.acf", steam_dir, app_id);
-        if std::path::Path::new(&manifest).exists() {
+        // Check all libraries for the appmanifest
+        let present = libraries.iter().any(|lib| {
+            lib.join("steamapps").join(format!("appmanifest_{}.acf", app_id)).exists()
+        });
+        if present {
             unconfigured.push((app_id, sim_type, name));
         }
     }
@@ -151,22 +195,26 @@ pub(crate) fn warn_unconfigured_steam_games(games: &GamesConfig) {
     }
 
     // Also scan for ANY unknown appmanifest files (games we don't know about)
-    if let Ok(entries) = std::fs::read_dir(steam_dir) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name();
-            let fname_str = fname.to_string_lossy();
-            if fname_str.starts_with("appmanifest_") && fname_str.ends_with(".acf") {
-                if let Some(id_str) = fname_str.strip_prefix("appmanifest_").and_then(|s| s.strip_suffix(".acf")) {
-                    if let Ok(app_id) = id_str.parse::<u32>() {
-                        // Skip Steamworks Common Redistributables (228980) and known games
-                        let is_known = KNOWN_STEAM_GAMES.iter().any(|(id, _, _)| *id == app_id)
-                            || app_id == 228980;
-                        if !is_known && !configured_app_ids.contains(&app_id) {
-                            tracing::info!(
-                                target: LOG_TARGET,
-                                "GAME-DIAG: Unknown Steam app {} installed (not in known game registry)",
-                                app_id
-                            );
+    // across every Steam library, not just the primary.
+    for lib in &libraries {
+        let steamapps = lib.join("steamapps");
+        if let Ok(entries) = std::fs::read_dir(&steamapps) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name();
+                let fname_str = fname.to_string_lossy();
+                if fname_str.starts_with("appmanifest_") && fname_str.ends_with(".acf") {
+                    if let Some(id_str) = fname_str.strip_prefix("appmanifest_").and_then(|s| s.strip_suffix(".acf")) {
+                        if let Ok(app_id) = id_str.parse::<u32>() {
+                            // Skip Steamworks Common Redistributables (228980) and known games
+                            let is_known = KNOWN_STEAM_GAMES.iter().any(|(id, _, _)| *id == app_id)
+                                || app_id == 228980;
+                            if !is_known && !configured_app_ids.contains(&app_id) {
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    "GAME-DIAG: Unknown Steam app {} installed in {} (not in known game registry)",
+                                    app_id, lib.display()
+                                );
+                            }
                         }
                     }
                 }
