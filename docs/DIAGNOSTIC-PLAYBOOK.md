@@ -576,3 +576,51 @@ Incomplete GSD phases can **cause** bugs in the open issues list:
 4. **Update the Open Issues table** after every fix. If you fixed it, move it to Resolved.
 5. **Verify the exact behavior, not proxies.** Health 200 ≠ fixed. Build_id match ≠ fixed.
 6. **If the fix exists in git but isn't deployed, that's NOT fixed.** Deploy + verify = fixed.
+
+---
+
+## Pod AC "exit 53 within 2s of Running" — diagnostic ladder
+
+**Symptom:** Server log shows `Pod pod_N game state: Running (AssettoCorsa)` immediately followed by `Pod pod_N game state: Error (AssettoCorsa)` within 1-5 seconds. Error aggregator reports `Process exited unexpectedly (exit code: 53)`. AC's own `log.txt` is stale (game crashes before log flush). Customer sees brief AC window then return to kiosk / blanked screen.
+
+**Incident backstory:** 2026-04-22 — Pod 3 had this pattern cycling all day. 6 interventions were applied (reboot, NTP sync, python.ini `[CONSPIT] ACTIVE=0`, ConspitLink singleton cull, USB cable reseat, Steam login). Game then launched cleanly. **Which intervention was actually causal remained ambiguous** — they were applied too close together. Pod 5 was later found with `ActiveUser=0` but AC launched cleanly there, ruling Steam state out as a sufficient condition. Treat the ladder below as the checklist; do not assume a single axis.
+
+**Check (in order, stop at first evidence-of-cause):**
+
+1. **Check Steam client UI directly on the pod** (not just registry).
+   - Is a login dialog / update prompt / DRM overlay visible over a blank desktop?
+   - Any pending 2FA notification from Steam Guard?
+   - `HKCU:\Software\Valve\Steam\ActiveProcess\ActiveUser` is a supporting signal but NOT decisive — Pod 5 had `ActiveUser=0` AND AC launched cleanly (2026-04-22).
+   - **Fix:** walk up, click through whatever is blocking, or log in manually, check "remember me".
+
+2. **Check rc-agent crash cadence.**
+   - `ssh server "findstr pod_N C:\\RacingPoint\\logs\\racecontrol-.$(date -u +%Y-%m-%d).jsonl | findstr \"recovered from a crash\""`
+   - If rc-agent is restarting on a regular cadence (~5-10 min), the pod is in a crash loop — reboot the pod before proceeding.
+
+3. **Check wheelbase integrity.**
+   - RESIL-04 events in server log for this pod in the last hour?
+   - If yes: reseat USB cable, try a different USB port, then swap the wheelbase unit with a known-good pod for 15 min. A RESIL-04 that follows the wheelbase to the new pod = bad unit; stays with the port = bad port / PC.
+
+4. **Check ConspitLink2.0.exe instance count.**
+   - The standing rule is singleton. `Get-Process ConspitLink2.0 | measure-object` should return 1.
+   - **Fix:** `scripts/conspitlink-cull.sh` runs every 5 min automatically. Manual: `taskkill /F /IM ConspitLink2.0.exe` then start one instance from `C:\Program Files (x86)\Conspit Link 2.0\ConspitLink2.0.exe`.
+   - Note: ConspitLink count > 1 is common across the fleet. Not a unique Pod 3 signal on its own.
+
+5. **Check AC content delta.**
+   - `dir C:\Program Files (x86)\Steam\steamapps\common\assettocorsa\content\cars /AD /B | measure-object` — compare to a known-working pod.
+   - A corrupt car dir can crash AC on initial index. Remove any cars this pod has that working pods don't.
+
+6. **Check AC Python plugin state.**
+   - `%USERPROFILE%\Documents\Assetto Corsa\cfg\python.ini` — compare `[SECTION] ACTIVE=` flags to a working pod.
+   - `[CONSPIT] ACTIVE=1` is NOT uniquely problematic — Pods 6 and 7 have it and work. Config-delta alone is not a cause.
+   - If suspect, temporarily set all `ACTIVE=0` except RACECONTROL, retest, re-enable one at a time.
+
+7. **Check clock drift.**
+   - Fleet health `clock_drift_secs` field; RESIL-08 events in log.
+   - Pod 3 (2026-04-22) was on `Source: Local CMOS Clock` with no NTP peer. Fix: `w32tm /config /manualpeerlist:time.windows.com,0x9 /syncfromflags:manual /update && net stop w32time && net start w32time && w32tm /resync /rediscover`.
+
+**Detection monitor (runs automatically):**
+
+`scripts/ac-crash-monitor.sh` on James .27 — Task Scheduler every 2 min. Parses server log for `Running → Error within 5s` on any pod, posts to comms-link INBOX.md. This is the canonical detection — catches the symptom regardless of which axis above was the cause. Deduped by fingerprint per fire.
+
+**Why this ladder and not a single check:** The 2026-04-22 Pod 3 incident burned hours trying each axis in isolation, each time "found the cause" was premature. Only running all 7 in parallel, combined with physical intervention, got the pod back. Don't fall for the single-cause narrative on this class.
