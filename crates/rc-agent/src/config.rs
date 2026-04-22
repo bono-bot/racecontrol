@@ -615,8 +615,9 @@ mod process_guard_config_tests {
 
     #[test]
     fn process_guard_config_defaults() {
+        // Default flipped to false 2026-04-22 — see config_schema.rs.
         let cfg = ProcessGuardConfig::default();
-        assert!(cfg.enabled);
+        assert!(!cfg.enabled);
         assert_eq!(cfg.scan_interval_secs, 60);
     }
 
