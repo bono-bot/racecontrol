@@ -327,8 +327,10 @@
     }
     #[test]
     fn cost_29_minutes() {
+        // P0-1 (2026-04-22): snap clamps at pkg_30_price so 29 min no longer
+        // charges more than 30 min. Previous assertion `== 72500` was the bug.
         let cost = compute_session_cost(29 * 60, &test_tiers());
-        assert_eq!(cost.total_paise, 72500);
+        assert_eq!(cost.total_paise, 70000);
         assert_eq!(cost.tier_name, "Standard");
     }
     #[test]
@@ -374,12 +376,35 @@
         let (r, p30, p60) = (2500i64, 70000i64, 90000i64);
         assert_eq!(snap_cost_for_minutes(0, r, p30, p60), 0);
         assert_eq!(snap_cost_for_minutes(15, r, p30, p60), 37500);
-        assert_eq!(snap_cost_for_minutes(29, r, p30, p60), 72500);
+        // P0-1 fix: per-minute accumulation is now clamped at pkg_30_price. 28 min
+        // at ₹25/min would be 70000, 29 min would be 72500 — both now snap down to
+        // 70000 because charging more than the 30-min package for <30 min of drive
+        // time violates the "customer always gets best deal" contract.
+        assert_eq!(snap_cost_for_minutes(27, r, p30, p60), 67500);
+        assert_eq!(snap_cost_for_minutes(28, r, p30, p60), 70000);
+        assert_eq!(snap_cost_for_minutes(29, r, p30, p60), 70000);
         assert_eq!(snap_cost_for_minutes(30, r, p30, p60), 70000);
         assert_eq!(snap_cost_for_minutes(35, r, p30, p60), 81665);
         assert_eq!(snap_cost_for_minutes(59, r, p30, p60), 90000);
         assert_eq!(snap_cost_for_minutes(60, r, p30, p60), 90000);
         assert_eq!(snap_cost_for_minutes(75, r, p30, p60), 112500);
+    }
+
+    /// P0-1 explicit regression: assert the boundary inversion cannot return.
+    /// For every minute M in [1, 29], cost(M) must be <= cost(30) = pkg_30_price.
+    #[test]
+    fn snap_cost_never_exceeds_pkg_30_before_30_min() {
+        use crate::billing_pricing::snap_cost_for_minutes;
+        let (r, p30, p60) = (2500i64, 70000i64, 90000i64);
+        for m in 1u32..30 {
+            let c = snap_cost_for_minutes(m, r, p30, p60);
+            assert!(
+                c <= p30,
+                "P0-1 regression: snap_cost_for_minutes({}) = {} exceeds pkg_30_price {} — \
+                 29 min would cost more than a 30 min package",
+                m, c, p30
+            );
+        }
     }
     #[test]
     fn snap_debit_credit_back_at_30() {

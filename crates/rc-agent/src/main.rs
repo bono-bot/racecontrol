@@ -1689,6 +1689,7 @@ async fn main() -> Result<()> {
         core_http_base,
         config.auto_end_orphan_session_secs,
         flags_arc.clone(),  // v22.0 Phase 178: pass feature flags for billing_guard gate
+        mesh_key_cache.clone(),  // P0-4: X-Service-Key for orphan-end HTTP (stop-service route)
     );
     tracing::info!(target: LOG_TARGET, "Billing guard started (orphan_timeout={}s)", config.auto_end_orphan_session_secs);
 

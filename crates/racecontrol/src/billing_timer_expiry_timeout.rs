@@ -198,12 +198,13 @@ pub(crate) async fn handle_offline_auto_end(
         .await;
 
         let _ = sqlx::query(
-            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata)
-             VALUES (?, ?, 'offline_auto_ended', 0, ?)",
+            "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, metadata, venue_id)
+             VALUES (?, ?, 'offline_auto_ended', 0, ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
         .bind(&session_id)
         .bind(format!("{{\"reason\":\"{}\",\"refund_paise\":{}}}", reason.replace('"', "\\\""), refund_paise))
+        .bind(&state.config.venue.venue_id)
         .execute(&state.db)
         .await;
 

@@ -883,6 +883,11 @@ fn service_routes() -> Router<Arc<AppState>> {
         // Audit check via service key — rc-agent Tier 0 short-circuit (ai_debugger.rs)
         // The plain /mesh/audit-check is staff-JWT-gated; rc-agent has no JWT.
         .route("/mesh/audit-check-service", get(mesh_audit_check_service))
+        // P0-4 (billing orphan auto-end): rc-agent billing_guard::attempt_orphan_end.
+        // The plain /billing/{id}/stop is staff-JWT-gated; rc-agent has no JWT, so
+        // orphan SESSION-01 escalations went to 401 silently before this route existed.
+        // Auth: X-Service-Key header must match config.pods.sentry_service_key.
+        .route("/billing/{id}/stop-service", post(stop_billing_service))
         // GLD-C-03: CSV telemetry fallback from rc-agent at session end (D-07/D-09)
         // Auth: X-Service-Key (sentry_service_key). Max body: 50MB.
         .route(
