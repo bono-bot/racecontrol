@@ -1,0 +1,62 @@
+{
+  "_comment": "Hand-authored reference graph for P5.4 benchmark. Every edge here is what a perfect extractor would emit for fixture/src/main.rs. The scorer runs graphify on the fixture and compares emitted edges to these. Missing edges = coverage gap; extra edges = false positives (noise).",
+  "_schema_version": "1",
+  "_fixture": "fixture/src/main.rs",
+  "_generated_by": "human, 2026-04-22",
+  "edge_categories": {
+    "A_function_calls": {
+      "description": "Direct function-to-function calls. Pure AST should get these.",
+      "expected_edges": [
+        { "source": "main", "target": "a_calls_b", "relation": "calls" },
+        { "source": "main", "target": "reads_config_fields", "relation": "calls" },
+        { "source": "main", "target": "writes_config_field", "relation": "calls" },
+        { "source": "main", "target": "spawns_subprocess", "relation": "calls" },
+        { "source": "main", "target": "reads_file", "relation": "calls" },
+        { "source": "main", "target": "dispatch", "relation": "calls" },
+        { "source": "main", "target": "uses_println", "relation": "calls" },
+        { "source": "a_calls_b", "target": "b_is_called", "relation": "calls" },
+        { "source": "b_is_called", "target": "c_leaf", "relation": "calls" }
+      ]
+    },
+    "B_struct_fields": {
+      "description": "Struct-field reads and writes. G3 gap — pure AST misses these.",
+      "expected_edges": [
+        { "source": "reads_config_fields", "target": "Config.name", "relation": "reads_field" },
+        { "source": "reads_config_fields", "target": "Config.count", "relation": "reads_field" },
+        { "source": "reads_config_fields", "target": "Config.enabled", "relation": "reads_field" },
+        { "source": "writes_config_field", "target": "Config.enabled", "relation": "writes_field" },
+        { "source": "main", "target": "Config.name", "relation": "writes_field" },
+        { "source": "main", "target": "Config.count", "relation": "writes_field" },
+        { "source": "main", "target": "Config.enabled", "relation": "writes_field" }
+      ]
+    },
+    "C_external_boundary": {
+      "description": "Syscalls / subprocess / file I/O. G6 gap — needs syscall-pattern extractor.",
+      "expected_edges": [
+        { "source": "spawns_subprocess", "target": "node", "relation": "spawns_process" },
+        { "source": "reads_file", "target": "/etc/hostname", "relation": "reads_file" }
+      ]
+    },
+    "D_dynamic_dispatch": {
+      "description": "Dyn trait dispatch. Pure AST cannot resolve; runtime-trace needed (P5.1).",
+      "expected_edges": [
+        { "source": "dispatch", "target": "FastHandler::handle", "relation": "dispatched_to" },
+        { "source": "dispatch", "target": "SlowHandler::handle", "relation": "dispatched_to" }
+      ]
+    },
+    "E_macro_expansion": {
+      "description": "Macro-expanded calls. println! expands to std::io::_print in practice.",
+      "expected_edges": [
+        { "source": "uses_println", "target": "println!", "relation": "calls_macro" }
+      ]
+    }
+  },
+  "_totals": {
+    "A_function_calls": 9,
+    "B_struct_fields": 7,
+    "C_external_boundary": 2,
+    "D_dynamic_dispatch": 2,
+    "E_macro_expansion": 1,
+    "total": 21
+  }
+}

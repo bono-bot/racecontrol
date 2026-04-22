@@ -1,0 +1,75 @@
+{
+  "date": "2026-04-22",
+  "overall": 0.8571428571428571,
+  "total_expected": 21,
+  "total_matched": 18,
+  "results": {
+    "A_function_calls": {
+      "description": "Direct function-to-function calls. Pure AST should get these.",
+      "expected": 9,
+      "matched": 9,
+      "direction_reversed": 7,
+      "by_graphify": 9,
+      "by_extras": 0,
+      "coverage": 1,
+      "missing": []
+    },
+    "B_struct_fields": {
+      "description": "Struct-field reads and writes. G3 gap — pure AST misses these.",
+      "expected": 7,
+      "matched": 5,
+      "direction_reversed": 0,
+      "by_graphify": 0,
+      "by_extras": 5,
+      "coverage": 0.7142857142857143,
+      "missing": [
+        {
+          "source": "main",
+          "target": "Config.count",
+          "relation": "writes_field"
+        },
+        {
+          "source": "main",
+          "target": "Config.enabled",
+          "relation": "writes_field"
+        }
+      ]
+    },
+    "C_external_boundary": {
+      "description": "Syscalls / subprocess / file I/O. G6 gap — needs syscall-pattern extractor.",
+      "expected": 2,
+      "matched": 1,
+      "direction_reversed": 0,
+      "by_graphify": 0,
+      "by_extras": 1,
+      "coverage": 0.5,
+      "missing": [
+        {
+          "source": "spawns_subprocess",
+          "target": "node",
+          "relation": "spawns_process"
+        }
+      ]
+    },
+    "D_dynamic_dispatch": {
+      "description": "Dyn trait dispatch. Pure AST cannot resolve; runtime-trace needed (P5.1).",
+      "expected": 2,
+      "matched": 2,
+      "direction_reversed": 0,
+      "by_graphify": 0,
+      "by_extras": 2,
+      "coverage": 1,
+      "missing": []
+    },
+    "E_macro_expansion": {
+      "description": "Macro-expanded calls. println! expands to std::io::_print in practice.",
+      "expected": 1,
+      "matched": 1,
+      "direction_reversed": 0,
+      "by_graphify": 0,
+      "by_extras": 1,
+      "coverage": 1,
+      "missing": []
+    }
+  }
+}

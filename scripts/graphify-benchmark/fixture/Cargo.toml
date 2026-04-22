@@ -1,0 +1,12 @@
+[package]
+name = "graphify-bench-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# Hand-authored fixture for P5.4 benchmark. NOT compiled in production; kept as
+# a known-answer Rust codebase that the benchmark scorer measures graphify
+# extraction coverage against. Do not add this to the workspace.
+
+[[bin]]
+name = "bench-fixture"
+path = "src/main.rs"
