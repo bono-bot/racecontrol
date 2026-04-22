@@ -175,6 +175,24 @@ pub struct SessionCost {
 }
 
 /// Compute session cost using snap-to-package tiered pricing.
+///
+/// # P0-2 gap (not yet fixed — deferred pending pricing-snapshot infrastructure)
+///
+/// The `_tiers` parameter is currently **unused**. Rates are hardcoded to the
+/// production defaults (₹25/min, ₹700/30min, ₹900/60min). If admin changes
+/// `billing_rates` via the pricing editor, `refresh_rate_tiers()` updates
+/// `state.billing.rate_tiers` but this function ignores the cache and continues
+/// to charge the old rates. A proper fix requires either:
+///   (a) deriving pkg_30 / pkg_60 from the tier set (impossible today — the
+///       tier schema has `rate_per_min_paise` but no package-price column); or
+///   (b) introducing a `PricingSnapshot { per_min, pkg_30, pkg_60 }` captured
+///       at session start and threaded through every cost-accounting path, so
+///       mid-session rate changes do not retroactively apply.
+///
+/// Option (b) is the right fix and requires a DB migration + session-column
+/// + multiple handler touchpoints. Tracked in audit report (2026-04-22 billing
+/// gap audit) as P0-2. Do not remove `_tiers` parameter — it is a placeholder
+/// for the future signature.
 pub fn compute_session_cost(elapsed_seconds: u32, _tiers: &[BillingRateTier]) -> SessionCost {
     let per_min_rate: i64 = 2500;
     let pkg_30: i64 = 70000;
@@ -211,6 +229,15 @@ pub fn compute_session_cost(elapsed_seconds: u32, _tiers: &[BillingRateTier]) ->
 }
 
 /// Snap-to-package cost for N whole minutes. Customer always gets best deal.
+///
+/// P0-1 fix (2026-04-22): the 0-29 branch previously returned the raw per-minute
+/// accumulation with no ceiling. At per_min_rate=2500 + pkg_30=70000 that produced
+/// a boundary inversion — 29 min = 72500 (₹725) while 30 min = 70000 (₹700). A
+/// customer who quit 1 min early paid MORE than a customer who stayed the full
+/// half-hour, violating the file header's "Customer always gets best deal"
+/// contract. We now clamp per-minute accumulation at pkg_30_price so it can never
+/// exceed the package. Similarly for 30-59 clamping at pkg_60_price (already
+/// present pre-fix) and for 60+ clamping is implicit in the pkg_60 base.
 pub fn snap_cost_for_minutes(minutes: u32, per_min_rate: i64, pkg_30_price: i64, pkg_60_price: i64) -> i64 {
     if minutes == 0 { return 0; }
     if minutes >= 60 {
@@ -222,7 +249,8 @@ pub fn snap_cost_for_minutes(minutes: u32, per_min_rate: i64, pkg_30_price: i64,
         let cost = pkg_30_price + extra * (pkg_30_price / 30);
         return cost.min(pkg_60_price);
     }
-    (minutes as i64) * per_min_rate
+    let linear = (minutes as i64) * per_min_rate;
+    linear.min(pkg_30_price)
 }
 
 /// Per-minute overflow rate at a given elapsed minute.
@@ -252,6 +280,21 @@ pub fn compute_refund_with_rates(allocated_seconds: i64, driving_seconds: i64, w
 }
 
 /// Compute refund for a per-minute session that ended early. Uses snap pricing.
+///
+/// # P0-3 gap (not yet fixed — same blocker as P0-2)
+///
+/// The `_total_debited_paise` and `_rate_paise_per_minute` parameters are
+/// ignored; rates are hardcoded to ₹25/₹700/₹900 defaults. When admin changes
+/// pricing, refunds computed at session-end will still use the old rates,
+/// producing discrepancies with what the session was actually charged.
+///
+/// # P2 gap: minute-rounding asymmetry with `compute_refund_with_rates`
+///
+/// This function uses floor-minutes (`driving_seconds / 60`) while
+/// `compute_refund_with_rates` uses ceiling-minutes (`(driving_seconds + 59) / 60`).
+/// That asymmetry is unintentional — per-minute sessions currently get one
+/// partial minute free on refund. Bundle this with the P0-3 pricing-snapshot
+/// fix when that infrastructure lands. Tracked in audit report (2026-04-22) P2-2.
 pub fn compute_per_minute_refund(wallet_debit_paise: i64, _total_debited_paise: i64, _rate_paise_per_minute: i64, driving_seconds: i64) -> i64 {
     if wallet_debit_paise <= 0 { return 0; }
     let minutes_used = (driving_seconds / 60) as u32;
