@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # deploy-probe.sh — graphify blast-radius probe for deploy-gate enumeration.
 #
-# Wave 1 scaffold — plan_graphify_blast_radius_20260423.md.
+# Wave 1 scaffold + Wave 2 freshness — plan_graphify_blast_radius_20260423.md.
 # Next waves: 2-hop BFS (W4), E2E cross-ref (W5), graph-diff (W6), symptom probe (W7).
 #
 # Usage: bash scripts/graphify-helpers/deploy-probe.sh <branch> [flags]
 # Flags:
-#   --require-fresh          exit 1 if graph older than HEAD by > 1h
+#   --require-fresh          exit 1 if graph older than HEAD by > MAX_AGE
+#   --max-age-min N          stale threshold in minutes (default 60)
 #   --max-hops N             BFS depth (default 1 in this wave)
 #   --graph-file PATH        override default graph lookup
 #   --no-color               disable ANSI colors
@@ -19,14 +20,16 @@ set -euo pipefail
 BRANCH=""
 REQUIRE_FRESH=0
 MAX_HOPS=1
+MAX_AGE_MIN=60
 GRAPH_FILE=""
 USE_COLOR=1
 
-print_usage() { sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; }
+print_usage() { sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --require-fresh) REQUIRE_FRESH=1; shift ;;
+    --max-age-min) MAX_AGE_MIN="$2"; shift 2 ;;
     --max-hops) MAX_HOPS="$2"; shift 2 ;;
     --graph-file) GRAPH_FILE="$2"; shift 2 ;;
     --no-color) USE_COLOR=0; shift ;;
@@ -58,18 +61,49 @@ if [[ -z "$GRAPH_FILE" || ! -f "$GRAPH_FILE" ]]; then
   [[ "$REQUIRE_FRESH" == 1 ]] && exit 1 || { echo "continuing without graph — coverage will be 'UNKNOWN'"; }
 fi
 
-# --- Freshness check ---
+# --- Freshness check (Wave 2) ---
+# Prefer graph-internal built_at metadata (epoch secs or ISO-8601) when present;
+# fall back to file mtime. Compare against origin/main HEAD commit time.
 graph_mtime=0
+graph_source="none"
 head_commit_time=$(git log -1 --format=%ct origin/main 2>/dev/null || git log -1 --format=%ct HEAD)
 graph_age_note=""
+max_age_s=$(( MAX_AGE_MIN * 60 ))
+
 if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" ]]; then
-  graph_mtime=$(stat -c %Y "$GRAPH_FILE" 2>/dev/null || stat -f %m "$GRAPH_FILE")
+  # Try graph-internal metadata first (graphify may emit built_at/generated_at in future schemas).
+  built_at_raw=$(jq -r '.built_at // .generated_at // .graph.built_at // .graph.generated_at // ""' "$GRAPH_FILE" 2>/dev/null || true)
+  if [[ -n "$built_at_raw" && "$built_at_raw" != "null" && "$built_at_raw" != "" ]]; then
+    if [[ "$built_at_raw" =~ ^[0-9]+$ ]]; then
+      graph_mtime="$built_at_raw"
+      graph_source="built_at(epoch)"
+    else
+      # ISO-8601 → epoch. date -d is GNU-only; fall back to python if it fails.
+      graph_mtime=$(date -d "$built_at_raw" +%s 2>/dev/null || python3 -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$built_at_raw" 2>/dev/null || echo 0)
+      graph_source="built_at(iso)"
+    fi
+  fi
+  if [[ "$graph_mtime" == 0 ]]; then
+    graph_mtime=$(stat -c %Y "$GRAPH_FILE" 2>/dev/null || stat -f %m "$GRAPH_FILE")
+    graph_source="file_mtime"
+  fi
+
   age_s=$(( head_commit_time - graph_mtime ))
-  if (( age_s > 3600 )); then
-    graph_age_note="${C_WARN}STALE (graph $((age_s/60))min behind origin/main HEAD)${C_END}"
-    [[ "$REQUIRE_FRESH" == 1 ]] && { echo "$graph_age_note — run \`/graphify --update\` then retry" >&2; exit 1; }
+  if (( age_s > max_age_s )); then
+    graph_age_note="${C_WARN}STALE (graph $((age_s/60))min behind origin/main HEAD; threshold=${MAX_AGE_MIN}min; source=${graph_source})${C_END}"
+    if [[ "$REQUIRE_FRESH" == 1 ]]; then
+      {
+        echo "$graph_age_note"
+        echo "  HEAD commit time: $(date -d "@$head_commit_time" -Iseconds 2>/dev/null || echo "@$head_commit_time")"
+        echo "  graph build time: $(date -d "@$graph_mtime" -Iseconds 2>/dev/null || echo "@$graph_mtime")"
+        echo "  run: /graphify --update   (or pass --max-age-min $(( (age_s/60)+5 )) to this probe)"
+      } >&2
+      exit 1
+    fi
+  elif (( age_s < 0 )); then
+    graph_age_note="${C_OK}fresh (graph newer than HEAD by $(( -age_s/60 ))min; source=${graph_source})${C_END}"
   else
-    graph_age_note="${C_OK}fresh${C_END}"
+    graph_age_note="${C_OK}fresh ($((age_s/60))min behind HEAD; source=${graph_source})${C_END}"
   fi
 fi
 
@@ -95,7 +129,7 @@ fn_count=$(echo "$changed_fns" | grep -c . || true)
 
 # --- Header ---
 echo ""
-echo "${C_HEAD}═══ graphify deploy probe (Wave 1 scaffold) ═══${C_END}"
+echo "${C_HEAD}═══ graphify deploy probe (Wave 1+2 scaffold) ═══${C_END}"
 printf "%-22s %s\n" "branch:"       "$BRANCH"
 printf "%-22s %s\n" "merge-base:"   "${base:-unknown}"
 printf "%-22s %s\n" "graph.json:"   "${GRAPH_FILE:-<absent>}"
@@ -161,5 +195,5 @@ if [[ -n "$unindexed_paths" ]]; then
 fi
 
 echo ""
-echo "${C_DIM}Wave 1 scaffold — reports 1-hop neighbours only. Waves 4/5/6/7 add: 2-hop BFS, E2E cross-ref, graph-diff, symptom probe.${C_END}"
+echo "${C_DIM}Wave 1+2 — 1-hop neighbours, freshness-via-built_at/mtime, --max-age-min + --require-fresh. Waves 3/4/5/6/7 add: dynamic coverage matrix, 2-hop BFS, E2E cross-ref, graph-diff, symptom probe.${C_END}"
 exit 0
