@@ -194,11 +194,26 @@ export const api = {
   gamesCatalog: () =>
     fetchApi<{ games: { id: string; name: string; abbr: string; installed_pod_count: number }[] }>("/games/catalog"),
 
-  // Game Launcher
-  launchGame: (pod_id: string, sim_type: string, launch_args?: string) =>
+  // Game Launcher. Set force_supersede=true when the pod already has a game
+  // Running/Launching and the caller is deliberately switching to a different
+  // sim. Without it, the server returns HTTP 409 game_already_active (double-
+  // launch protection is intentional for first-time launches but wrong for
+  // switch-game flows).
+  launchGame: (
+    pod_id: string,
+    sim_type: string,
+    launch_args?: string,
+    opts?: { force_supersede?: boolean; experience_id?: string },
+  ) =>
     fetchApi<{ ok: boolean; error?: string; warning?: string }>("/games/launch", {
       method: "POST",
-      body: JSON.stringify({ pod_id, sim_type, launch_args }),
+      body: JSON.stringify({
+        pod_id,
+        sim_type,
+        launch_args,
+        force_supersede: opts?.force_supersede ?? false,
+        experience_id: opts?.experience_id,
+      }),
     }),
   relaunchGame: (pod_id: string) =>
     fetchApi<{ ok: boolean }>(`/games/relaunch/${pod_id}`, {

@@ -5,54 +5,58 @@ use rc_common::types::SimType;
 
 #[test]
 fn test_parse_sim_type_assetto_corsa() {
-    assert_eq!(parse_sim_type("assetto_corsa"), SimType::AssettoCorsa);
-    assert_eq!(parse_sim_type("ac"), SimType::AssettoCorsa);
+    assert_eq!(parse_sim_type("assetto_corsa"), Ok(SimType::AssettoCorsa));
+    assert_eq!(parse_sim_type("ac"), Ok(SimType::AssettoCorsa));
 }
 
 #[test]
 fn test_parse_sim_type_assetto_corsa_evo() {
-    assert_eq!(parse_sim_type("assetto_corsa_evo"), SimType::AssettoCorsaEvo);
-    assert_eq!(parse_sim_type("ace"), SimType::AssettoCorsaEvo);
+    assert_eq!(parse_sim_type("assetto_corsa_evo"), Ok(SimType::AssettoCorsaEvo));
+    assert_eq!(parse_sim_type("ace"), Ok(SimType::AssettoCorsaEvo));
 }
 
 #[test]
 fn test_parse_sim_type_assetto_corsa_rally() {
-    assert_eq!(parse_sim_type("assetto_corsa_rally"), SimType::AssettoCorsaRally);
-    assert_eq!(parse_sim_type("acr"), SimType::AssettoCorsaRally);
+    assert_eq!(parse_sim_type("assetto_corsa_rally"), Ok(SimType::AssettoCorsaRally));
+    assert_eq!(parse_sim_type("acr"), Ok(SimType::AssettoCorsaRally));
 }
 
 #[test]
 fn test_parse_sim_type_iracing() {
-    assert_eq!(parse_sim_type("iracing"), SimType::IRacing);
+    assert_eq!(parse_sim_type("iracing"), Ok(SimType::IRacing));
 }
 
 #[test]
 fn test_parse_sim_type_f1() {
-    assert_eq!(parse_sim_type("f1_25"), SimType::F125);
-    assert_eq!(parse_sim_type("f1"), SimType::F125);
+    assert_eq!(parse_sim_type("f1_25"), Ok(SimType::F125));
+    assert_eq!(parse_sim_type("f1"), Ok(SimType::F125));
 }
 
 #[test]
 fn test_parse_sim_type_lmu() {
-    assert_eq!(parse_sim_type("le_mans_ultimate"), SimType::LeMansUltimate);
-    assert_eq!(parse_sim_type("lmu"), SimType::LeMansUltimate);
+    assert_eq!(parse_sim_type("le_mans_ultimate"), Ok(SimType::LeMansUltimate));
+    assert_eq!(parse_sim_type("lmu"), Ok(SimType::LeMansUltimate));
 }
 
 #[test]
 fn test_parse_sim_type_forza() {
-    assert_eq!(parse_sim_type("forza"), SimType::Forza);
+    assert_eq!(parse_sim_type("forza"), Ok(SimType::Forza));
 }
 
 #[test]
 fn test_parse_sim_type_forza_horizon_5() {
-    assert_eq!(parse_sim_type("forza_horizon_5"), SimType::ForzaHorizon5);
-    assert_eq!(parse_sim_type("fh5"), SimType::ForzaHorizon5);
+    assert_eq!(parse_sim_type("forza_horizon_5"), Ok(SimType::ForzaHorizon5));
+    assert_eq!(parse_sim_type("fh5"), Ok(SimType::ForzaHorizon5));
 }
 
 #[test]
-fn test_parse_sim_type_unknown_defaults_to_ac() {
-    assert_eq!(parse_sim_type("unknown_game"), SimType::AssettoCorsa);
-    assert_eq!(parse_sim_type(""), SimType::AssettoCorsa);
+fn test_parse_sim_type_unknown_returns_err() {
+    // Regression: previously fell through to AssettoCorsa, masking typos in
+    // experience DB rows. Now an Err — caller MUST handle (launch_or_assist
+    // surfaces ShowAssistanceScreen + AssistanceNeeded dashboard event).
+    assert!(parse_sim_type("unknown_game").is_err());
+    assert!(parse_sim_type("").is_err());
+    assert!(parse_sim_type("AC").is_err(), "case-sensitive: 'AC' is not 'ac'");
 }
 
 // ─── check_pod_has_game tests ────────────────────────────────────────

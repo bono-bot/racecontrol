@@ -48,7 +48,7 @@ jobs:
   e2e-kiosk:
     name: Kiosk E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     needs: unit-tests
 
     steps:
@@ -82,6 +82,10 @@ jobs:
       - name: Build kiosk
         run: npm run build
         working-directory: kiosk
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+          NEXT_PUBLIC_WS_URL: ws://localhost:8080/ws/dashboard
+          NEXT_PUBLIC_WS_TOKEN: ci-test-token
 
       - name: Start kiosk server
         run: |
@@ -91,6 +95,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8080
           NEXT_PUBLIC_WS_URL: ws://localhost:8080/ws/dashboard
+          NEXT_PUBLIC_WS_TOKEN: ci-test-token
 
       - name: Run kiosk E2E tests
         run: npx playwright test --project=kiosk

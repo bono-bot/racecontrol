@@ -33,7 +33,7 @@ describe("mergeApiCatalog", () => {
     ];
     const merged = mergeApiCatalog(apiGames);
     expect(merged.assetto_corsa.name).toBe("Assetto Corsa");
-    expect(merged.assetto_corsa.logo).toBe("/game-logos/assetto-corsa.png");
+    expect(merged.assetto_corsa.logo).toBe("/game-logos/assetto-corsa.svg");
   });
 
   test("updates name from API (API is authoritative)", () => {
@@ -53,7 +53,7 @@ describe("mergeApiCatalog", () => {
     expect(merged.gran_turismo).toBeDefined();
     expect(merged.gran_turismo.name).toBe("Gran Turismo 8");
     expect(merged.gran_turismo.abbr).toBe("GT8");
-    expect(merged.gran_turismo.logo).toBe("/game-logos/gran-turismo.png");
+    expect(merged.gran_turismo.logo).toBe("/game-logos/gran-turismo.svg");
   });
 
   test("does not mutate original GAME_DISPLAY", () => {

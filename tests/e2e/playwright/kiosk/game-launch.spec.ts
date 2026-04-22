@@ -1,15 +1,28 @@
 import { test, expect } from '@playwright/test';
+import { setupKioskApiMocks, loginAndOpenWizard } from './helpers/mocks';
 
 // ---- JS error capture ----
 let jsErrors: string[] = [];
 test.beforeEach(async ({ page }) => {
   jsErrors = [];
+  // Register API mocks BEFORE any navigation so the kiosk can hydrate.
+  // Without mocks every fetch fails, wizard never renders, and tests
+  // time out 30s on driver-search visibility.
+  await setupKioskApiMocks(page);
   page.on('pageerror', (err) => {
     if (/WebSocket|ws:|wss:/.test(err.message)) return;
+    // Expected when a spec-specific page.route() 404s an endpoint the
+    // kiosk calls; those are test-driven, not product bugs.
+    if (/Failed to fetch|NetworkError|fetch failed/i.test(err.message)) return;
     jsErrors.push(err.message);
   });
 });
 test.afterEach(async ({ page }, testInfo) => {
+  // Tests that called `test.skip()` mid-body have status 'skipped'; the
+  // page may have generated JS errors before the skip fired, but those
+  // errors do not indicate a product regression.
+  if (testInfo.status === 'skipped') return;
+
   if (testInfo.status !== testInfo.expectedStatus) {
     try {
       await testInfo.attach('dom-snapshot.html', {
@@ -27,28 +40,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 // ---- Helper: enter wizard via staff login + pod card ----
 async function enterWizard(page: import('@playwright/test').Page) {
-  await page.goto('/kiosk/staff', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(3000);
-
-  const signInBtn = page.getByText('Tap to Sign In');
-  if (await signInBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
-    await signInBtn.click();
-    await page.waitForTimeout(1000);
-    const pin = (process.env.STAFF_PIN ?? '7080').split('');
-    for (const digit of pin) {
-      await page.locator(`button:has-text("${digit}")`).first().click();
-      await page.waitForTimeout(150);
-    }
-    await page.waitForTimeout(3000);
-  }
-
-  // Click idle pod card
-  const podCards = page.locator('main >> div[class*="cursor-pointer"], main >> div[class*="cursor"]');
-  if (await podCards.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-    await podCards.first().click();
-  } else {
-    await page.getByText('Pod 1').first().click().catch(() => {});
-  }
+  await loginAndOpenWizard(page, 1);
 
   // Wait for wizard
   const searchInput = page.locator('input[placeholder="Name or phone..."]');
