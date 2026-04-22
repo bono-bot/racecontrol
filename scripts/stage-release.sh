@@ -25,9 +25,11 @@ REPO_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
 STAGING_DIR="${STAGING_DIR:-$HOME/racingpoint/deploy-staging}"
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-pass() { echo -e "  ${GREEN}OK${NC}    $1"; }
-fail() { echo -e "  ${RED}FAIL${NC}  $1"; }
-info() { echo -e "  ${YELLOW}...${NC}   $1"; }
+# Helpers emit to stderr so $(fn) captures only the function's return value,
+# not the logging text. Fixes manifest racecontrol_sha256 pollution (2026-04-22).
+pass() { echo -e "  ${GREEN}OK${NC}    $1" >&2; }
+fail() { echo -e "  ${RED}FAIL${NC}  $1" >&2; }
+info() { echo -e "  ${YELLOW}...${NC}   $1" >&2; }
 
 MODE="${1:---all}"
 
@@ -70,6 +72,14 @@ echo -e "  ${CYAN}>>>${NC}   Git HEAD: ${FULL_VERSION}"
 if [ -n "$GIT_DIRTY" ]; then
     echo -e "  ${YELLOW}!!${NC}    Working tree has uncommitted changes"
 fi
+
+# Couple cargo's build.rs hash-capture to the SAME value we just captured.
+# Without this, build.rs does its own `git rev-parse HEAD` during compilation
+# and — if HEAD moves between stage-release start and build.rs execution
+# (concurrent agent checkout, post-checkout hook) — embeds a different hash
+# than the filename/manifest. Incident 2026-04-22: racecontrol-c7bff15c.exe
+# embedded aa7f99ae. build.rs already honors GIT_HASH_FORCE as priority 1.
+export GIT_HASH_FORCE="$GIT_HASH"
 
 # ─── Check-only mode ─────────────────────────────────────────────────
 if [ "$MODE" = "--check" ]; then
