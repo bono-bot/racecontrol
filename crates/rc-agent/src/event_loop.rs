@@ -1338,6 +1338,18 @@ pub async fn run(
                                 state.failure_monitor_tx.send_modify(|s| {
                                     s.billing_paused = true;
                                 });
+                                // CUSTOMER-GAME-CLOSE (2026-04-23 — plan_customer_game_close_pause_and_blank_20260423.md):
+                                // Non-AC sims (F1 25, iRacing, LMU, Forza, EVO, WRC, FH5) detect
+                                // customer game-close via process-exit monitoring, which fires the
+                                // same path as a true crash. Billing is already paused instantly via
+                                // BillingPaused above, so the meter is safe. But the Windows desktop
+                                // is exposed for up to 30s during the PausedWaitingRelaunch countdown.
+                                // Blank the screen immediately so the desktop is never visible while
+                                // crash recovery is in progress. The "Game crashed — relaunching..."
+                                // toast (overlay.show_toast) still renders on top via its own Win32
+                                // topmost window. If the relaunch succeeds and the game returns Live,
+                                // the existing splash-dismiss path (close_browser) clears the blank.
+                                state.lock_screen.show_blank_screen();
                                 // FSM-04: billing pause is atomic with crash detection — BillingPaused
                                 // message is sent BEFORE relaunch attempt. If WS send fails, skip
                                 // relaunch and set AutoEndPending to avoid phantom billing.
