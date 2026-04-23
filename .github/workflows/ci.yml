@@ -81,6 +81,14 @@ jobs:
           -A unused_imports -A unused_variables -A unused_attributes -A unused_mut
           -A unused_comparisons -A irrefutable_let_patterns
 
+      # Static audit: catch the multi-owner spawn/kill bug class that
+      # produced the Steam-popup-loop incident (2026-04-22). Report-only
+      # for now — flip to --strict after msedge.exe + acmanager.exe
+      # overlaps are consolidated.
+      - name: Process-ownership audit (report-only)
+        shell: bash
+        run: bash scripts/audit/process-ownership.sh
+
       # Minimal-features and explicit-default builds retired (2026-04-22).
       # Per CLAUDE.md single-binary-tier policy: "The --no-default-features
       # build exists for CI verification and future testing scenarios only —
