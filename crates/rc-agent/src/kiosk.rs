@@ -26,9 +26,15 @@ pub static FREEDOM_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Lock-free read of freedom_mode state — safe to call from any thread,
 /// any module, without needing a &mut KioskManager.
+///
+/// Uses `Ordering::Acquire` to pair with `Ordering::Release` on the stores
+/// in `enter_freedom_mode`, `exit_freedom_mode`, and the TTL/sync path of
+/// `is_freedom_mode`. This guarantees cross-thread visibility without
+/// depending on x86 total-store-order semantics (portable to ARM64 weak
+/// memory; rc-agent is x86 today but the contract shouldn't rely on it).
 #[inline]
 pub fn is_freedom_mode_global() -> bool {
-    FREEDOM_MODE_ACTIVE.load(Ordering::Relaxed)
+    FREEDOM_MODE_ACTIVE.load(Ordering::Acquire)
 }
 
 /// How often (seconds) rc-agent polls the server for the dynamic allowlist.
@@ -617,7 +623,7 @@ impl KioskManager {
     pub fn enter_freedom_mode(&mut self) {
         self.freedom_mode = true;
         self.freedom_mode_since = Some(std::time::Instant::now());
-        FREEDOM_MODE_ACTIVE.store(true, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(true, Ordering::Release);
         self.deactivate();
         tracing::info!(target: LOG_TARGET, "Kiosk: FREEDOM MODE — all apps allowed, monitoring active (30min timeout)");
     }
@@ -626,7 +632,7 @@ impl KioskManager {
     pub fn exit_freedom_mode(&mut self) {
         self.freedom_mode = false;
         self.freedom_mode_since = None;
-        FREEDOM_MODE_ACTIVE.store(false, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
         tracing::info!(target: LOG_TARGET, "Kiosk: exiting freedom mode");
     }
 
@@ -643,13 +649,13 @@ impl KioskManager {
                         "Kiosk: freedom mode auto-expired after 30 minutes (KI-02 safety timeout)");
                     self.freedom_mode = false;
                     self.freedom_mode_since = None;
-                    FREEDOM_MODE_ACTIVE.store(false, Ordering::Relaxed);
+                    FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
                     return false;
                 }
             }
         }
         // Keep atomic in sync with instance state on every read path.
-        FREEDOM_MODE_ACTIVE.store(self.freedom_mode, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(self.freedom_mode, Ordering::Release);
         self.freedom_mode
     }
 
@@ -1282,7 +1288,7 @@ mod freedom_mode_contract_tests {
     #[test]
     fn enter_freedom_mode_sets_global_atomic() {
         let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
-        FREEDOM_MODE_ACTIVE.store(false, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
         let mut k = KioskManager::new();
         assert!(!is_freedom_mode_global(), "precondition: atomic must be false");
 
@@ -1294,7 +1300,7 @@ mod freedom_mode_contract_tests {
     #[test]
     fn exit_freedom_mode_clears_global_atomic() {
         let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
-        FREEDOM_MODE_ACTIVE.store(false, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
         let mut k = KioskManager::new();
         k.enter_freedom_mode();
         assert!(is_freedom_mode_global());
@@ -1307,7 +1313,7 @@ mod freedom_mode_contract_tests {
     #[test]
     fn is_freedom_mode_keeps_atomic_in_sync() {
         let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
-        FREEDOM_MODE_ACTIVE.store(true, Ordering::Relaxed); // deliberately wrong
+        FREEDOM_MODE_ACTIVE.store(true, Ordering::Release); // deliberately wrong
         let mut k = KioskManager::new();
         // Instance is default-false; is_freedom_mode() must resync the atomic.
         assert!(!k.is_freedom_mode());
@@ -1318,7 +1324,7 @@ mod freedom_mode_contract_tests {
     #[test]
     fn ttl_expiry_clears_global_atomic() {
         let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
-        FREEDOM_MODE_ACTIVE.store(false, Ordering::Relaxed);
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
         let mut k = KioskManager::new();
         k.enter_freedom_mode();
         assert!(is_freedom_mode_global());
