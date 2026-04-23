@@ -93,7 +93,7 @@ Read all 8 pod `rc-agent.toml` files via `/exec` to port 8090. Results (see `obs
 
 Every pod in the fleet has only an AC adapter at startup. F1 25, iRacing, LMU, ACE, ACR, FH5 all suffer the same launch failure chain because none of their UDP/SHM adapters are constructed. Only Assetto Corsa works end-to-end.
 
-**Also observed (P0 secret leak — fleet-wide):** All 8 pod TOMLs contain the same hardcoded `openrouter_api_key = "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"`. Tracked separately, delegated to Bono for rotation.
+**Also observed (P0 secret leak — fleet-wide):** All 8 pod TOMLs contained a hardcoded `openrouter_api_key = "[REDACTED 2026-04-22 — rotate at openrouter.ai/settings/keys; live key removed from pod TOMLs in c0bcdf68; historic git revisions still expose it]"`. Tracked separately.
 
 ### H-B: Per-launch adapter swap DOES NOT EXIST — CONFIRMED
 
