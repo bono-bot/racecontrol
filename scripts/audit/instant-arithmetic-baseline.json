@@ -1,0 +1,121 @@
+{
+  "description": "Baseline of known `Instant::now() - Duration::` patterns. The instant-arithmetic-check.py checker fails CI if a new (file, content_hash) pair appears that isn't in this list. See feedback_instant_arithmetic_on_ci.md for the class and PR #2 (c957350e) for the recurrence that motivated the lint.",
+  "entries": [
+    {
+      "content": "created_at: Instant::now() - Duration::from_secs(TTL_SECS + 10),",
+      "file": "crates/racecontrol/src/billing_replay.rs",
+      "hash": "a6fe5958da2e"
+    },
+    {
+      "content": "let mut last_http_fallback = Instant::now() - Duration::from_secs(fallback_interval_secs + 1);",
+      "file": "crates/racecontrol/src/cloud_sync.rs",
+      "hash": "34ccac5c6786"
+    },
+    {
+      "content": "let old = Instant::now() - Duration::from_secs(5);",
+      "file": "crates/racecontrol/src/error_rate.rs",
+      "hash": "0cc11293eead"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_millis(100);",
+      "file": "crates/racecontrol/src/metric_alerts.rs",
+      "hash": "a11023fad12e"
+    },
+    {
+      "content": "let cutoff = Instant::now() - Duration::from_secs(self.cooldown_secs);",
+      "file": "crates/racecontrol/src/port_allocator.rs",
+      "hash": "ce544503f894"
+    },
+    {
+      "content": "let cutoff = Instant::now() - Duration::from_secs(self.cooldown_secs);",
+      "file": "crates/racecontrol/src/port_allocator.rs",
+      "hash": "ce544503f894"
+    },
+    {
+      "content": "let since = std::time::Instant::now() - Duration::from_secs(3);",
+      "file": "crates/rc-agent/src/event_loop.rs",
+      "hash": "22e61e1e3c1f"
+    },
+    {
+      "content": "let since = std::time::Instant::now() - Duration::from_secs(6);",
+      "file": "crates/rc-agent/src/event_loop.rs",
+      "hash": "a1a1e211e4ce"
+    },
+    {
+      "content": "s.launch_started_at = Some(Instant::now() - Duration::from_secs(60)); // only 60s",
+      "file": "crates/rc-agent/src/failure_monitor.rs",
+      "hash": "48174fd61a64"
+    },
+    {
+      "content": "s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));",
+      "file": "crates/rc-agent/src/failure_monitor.rs",
+      "hash": "e43766787a68"
+    },
+    {
+      "content": "s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));",
+      "file": "crates/rc-agent/src/failure_monitor.rs",
+      "hash": "e43766787a68"
+    },
+    {
+      "content": "s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));",
+      "file": "crates/rc-agent/src/failure_monitor.rs",
+      "hash": "e43766787a68"
+    },
+    {
+      "content": "s.launch_started_at = Some(Instant::now() - Duration::from_secs(100));",
+      "file": "crates/rc-agent/src/failure_monitor.rs",
+      "hash": "e43766787a68"
+    },
+    {
+      "content": "let disconnected_at = std::time::Instant::now() - Duration::from_secs(30);",
+      "file": "crates/rc-agent/src/main.rs",
+      "hash": "1faed857e83f"
+    },
+    {
+      "content": "let disconnected_at_old = std::time::Instant::now() - Duration::from_secs(35);",
+      "file": "crates/rc-agent/src/main.rs",
+      "hash": "3110402c5e83"
+    },
+    {
+      "content": "let disconnected_at = std::time::Instant::now() - Duration::from_secs(20);",
+      "file": "crates/rc-agent/src/main.rs",
+      "hash": "407019aff62f"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(70);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "0d0ac849c01a"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(200);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "2e53f172495a"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(60);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "8aafcbec0ecb"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(60);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "8aafcbec0ecb"
+    },
+    {
+      "content": ".unwrap_or_else(|| Instant::now() - Duration::from_secs(10));",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "8d9171c7d96d"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(59);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "9be2aebd1841"
+    },
+    {
+      "content": "let past = Instant::now() - Duration::from_secs(120);",
+      "file": "crates/rc-agent/src/session_enforcer.rs",
+      "hash": "fc40242ef0aa"
+    }
+  ],
+  "version": 1
+}
