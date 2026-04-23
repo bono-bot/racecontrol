@@ -12,11 +12,14 @@
 // `disallowed-methods` lint banning `Command::new` / `spawn_safe` outside this crate.
 
 pub mod manager;
+pub mod process;
 pub mod registry;
 
 pub use manager::ProcessManager;
-pub use registry::Registry;
+pub use process::ManagedProcess;
+pub use registry::{Entry, Registry, RegistryError, RespawnPolicy};
 
-/// Semver discriminator for the registry schema. Bump when W2 lands the real
-/// enum + TOML so cached schemas don't silently drift.
-pub const REGISTRY_SCHEMA_VERSION: u32 = 0;
+/// Semver discriminator for the registry schema. W2 ships schema_version 1
+/// (enum + TOML + loader); W3 will keep the same value unless the typed API
+/// forces a shape change. Bump in lockstep with `registry::SCHEMA_VERSION`.
+pub const REGISTRY_SCHEMA_VERSION: u32 = registry::SCHEMA_VERSION;

@@ -1,0 +1,102 @@
+# rc-process-manager/process_registry.toml
+#
+# Declarative ownership manifest for every process class the RacingPoint fleet
+# legally spawns or kills. Edited in LOCKSTEP with the `ManagedProcess` enum in
+# src/process.rs — W5 bidirectional CI gate enforces variant ⇄ entry parity and
+# fails a commit that drifts one without the other.
+#
+# Wave 2 seed set (plan_process_manager_crate_20260423.md §Wave 2). Extend per
+# migration need as Wave 4 caller PRs land.
+#
+# Q3 resolution (Uday 2026-04-23): permissive allowlist pre-Venu-go-live — all
+# entries carry `survives_daily_reset = true`. Post-launch tightening flips the
+# selected variants (WindowsTerminal, orphan Msedge, openconsole family) to
+# `false` without any schema change.
+#
+# Field semantics
+#   process               — ManagedProcess variant (PascalCase, must match enum)
+#   owner_crate           — the single crate that is permitted to invoke
+#                           `ProcessManager::request_spawn` for this variant.
+#                           Value "system" = no Rust owner; lifecycle is external
+#                           (Windows service, installer, or user action).
+#   max_instances         — W7 scan loop kills extras beyond this count for
+#                           `respawn_policy = "singleton"`; `"managed"` logs
+#                           only; `"owner-managed"` is not enforced by manager.
+#   respawn_policy        — "singleton" | "managed" | "owner-managed"
+#   survives_daily_reset  — W8 daily-pod-reset schtask reads this. true = kept
+#                           at 04:00 IST; false = killed. Pre-Venu: all true.
+#   notes                 — free-form; keep short.
+
+schema_version = 1
+
+[[entry]]
+process = "Steam"
+owner_crate = "steam_launcher"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "Steam client for Content Manager MP launches"
+
+[[entry]]
+process = "AssettoCorsa2"
+owner_crate = "ac_launcher"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "acs.exe — SP direct spawn via ac_launcher; MP goes through AcManager"
+
+[[entry]]
+process = "RcAgent"
+owner_crate = "rc_sentry"
+max_instances = 1
+respawn_policy = "owner-managed"
+survives_daily_reset = true
+notes = "rc-agent respawn owned by rc-sentry; manager MUST NOT auto-kill"
+
+[[entry]]
+process = "RcSentry"
+owner_crate = "rc_watchdog"
+max_instances = 1
+respawn_policy = "owner-managed"
+survives_daily_reset = true
+notes = "rc-sentry managed by Windows service rc-watchdog.exe"
+
+[[entry]]
+process = "ConspitLink"
+owner_crate = "rc_agent"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "ConspitLink2.0.exe wheelbase driver; multi-owner bug (Pod 6 ×2 2026-04-22) is the driving case for this crate"
+
+[[entry]]
+process = "Kiosk"
+owner_crate = "rc_agent"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "Edge kiosk (customer-facing fullscreen browser)"
+
+[[entry]]
+process = "AcManager"
+owner_crate = "ac_launcher"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "Content Manager — URI-based MP launcher"
+
+[[entry]]
+process = "Msedge"
+owner_crate = "system"
+max_instances = 1
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "msedge.exe orphan class; single legitimate instance is the Kiosk (tracked separately); any additional instance is a Wave 4/W6 lint failure"
+
+[[entry]]
+process = "WindowsTerminal"
+owner_crate = "system"
+max_instances = 0
+respawn_policy = "singleton"
+survives_daily_reset = true
+notes = "Pod 1 WindowsTerminal 488-proc orphan tree observed 2026-04-23; max_instances=0 marks any running as a violation. survives=true kept pre-Venu per Q3."
