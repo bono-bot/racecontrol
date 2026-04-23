@@ -12,8 +12,8 @@ use rc_common::types::{LapData, TelemetryFrame};
 
 const LOG_TARGET: &str = "overlay";
 
-/// Height of the HUD bar (px).
-const BAR_HEIGHT: i32 = 96;
+/// Height of the HUD bar (px). Matches kiosk `RacingHUD.tsx` 105px top-bar spec.
+const BAR_HEIGHT: i32 = 105;
 /// Maximum bar width.
 const BAR_WIDTH: i32 = 1920;
 /// Repaint interval (ms) — matches the old HTTP polling rate.
@@ -123,10 +123,29 @@ struct SectionRect {
 }
 
 /// Compute section layout rectangles for the given window width.
-/// Returns 6 rects, one per HUD section, horizontally centered.
+///
+/// Returns 6 rects matching the order of `HudRenderer::sections`:
+///   [LapCounter, CurrentLap, GearSpeed, PrevLap(=Last), BestLap, SessionTimer]
+///
+/// Mirrors the kiosk `RacingHUD.tsx` 3-cluster layout:
+///   LEFT  cluster: [LapCounter | CurrentLap+sectors]
+///   CENTER      : [GearSpeed + RPM LED dots]            ← absolutely centered
+///   RIGHT cluster: [Last | Best | Session]
+///
+/// The 6 rects together span `total_content` pixels and are horizontally
+/// centered within `window_width`. This is a v1 approximation — a future pass
+/// can split the layout into true left-cluster/absolute-center/right-cluster
+/// anchoring instead of a single centered strip.
 fn compute_layout(window_width: i32) -> Vec<SectionRect> {
-    let section_widths: [i32; 6] = [120, 200, 100, 200, 200, 60];
-    let total_content: i32 = section_widths.iter().sum(); // 880
+    let section_widths: [i32; 6] = [
+        70,   // LapCounter  — "LAP 12"
+        280,  // CurrentLap  — current lap time + 3 live sectors
+        320,  // GearSpeed   — gear + large speed digits + RPM dots
+        210,  // PrevLap     — "Last" lap time + sectors
+        210,  // BestLap     — "Best" lap time + sectors (purple)
+        140,  // SessionTimer — remaining / taxi meter
+    ];
+    let total_content: i32 = section_widths.iter().sum(); // 1230
     let start_x = (window_width - total_content).max(0) / 2;
     let mut rects = Vec::with_capacity(6);
     let mut sx = start_x;
@@ -142,15 +161,15 @@ fn compute_layout(window_width: i32) -> Vec<SectionRect> {
 struct GdiResources {
     font_label: winapi::shared::windef::HFONT,        // 11px bold
     font_value: winapi::shared::windef::HFONT,        // 22px bold
-    font_gear: winapi::shared::windef::HFONT,         // 32px bold
-    font_speed: winapi::shared::windef::HFONT,        // 16px bold
+    font_gear: winapi::shared::windef::HFONT,         // 36px bold
+    font_speed_big: winapi::shared::windef::HFONT,    // 48px black — matches RacingHUD 68px speed
     font_lap: winapi::shared::windef::HFONT,          // 18px bold
     font_sector: winapi::shared::windef::HFONT,       // 12px bold
     font_sector_label: winapi::shared::windef::HFONT, // 10px normal
     font_unit: winapi::shared::windef::HFONT,         // 9px normal
     font_badge: winapi::shared::windef::HFONT,        // 9px bold
     pen_divider: winapi::shared::windef::HPEN,        // 1px solid #282828
-    brush_bg: winapi::shared::windef::HBRUSH,         // #121212
+    brush_bg: winapi::shared::windef::HBRUSH,         // #09090B (zinc-950 — matches RacingHUD)
     brush_rpm_bg: winapi::shared::windef::HBRUSH,     // #1E1E1E
     brush_red: winapi::shared::windef::HBRUSH,        // #E10600
 }
@@ -169,15 +188,16 @@ impl GdiResources {
         Self {
             font_label: create_font(null_hdc, "Segoe UI", 11, true),
             font_value: create_font(null_hdc, "Segoe UI", 22, true),
-            font_gear: create_font(null_hdc, "Segoe UI", 32, true),
-            font_speed: create_font(null_hdc, "Segoe UI", 16, true),
+            font_gear: create_font(null_hdc, "Segoe UI", 36, true),
+            font_speed_big: create_font(null_hdc, "Segoe UI Black", 48, true),
             font_lap: create_font(null_hdc, "Segoe UI", 18, true),
             font_sector: create_font(null_hdc, "Segoe UI", 12, true),
             font_sector_label: create_font(null_hdc, "Segoe UI", 10, false),
             font_unit: create_font(null_hdc, "Segoe UI", 9, false),
             font_badge: create_font(null_hdc, "Segoe UI", 9, true),
             pen_divider: CreatePen(PS_SOLID as i32, 1, rgb(40, 40, 40)),
-            brush_bg: CreateSolidBrush(rgb(18, 18, 18)),
+            // #09090B — zinc-950 to match RacingHUD.tsx bg
+            brush_bg: CreateSolidBrush(rgb(9, 9, 11)),
             brush_rpm_bg: CreateSolidBrush(rgb(30, 30, 30)),
             brush_red: CreateSolidBrush(rgb(225, 6, 0)),
         }
@@ -192,7 +212,7 @@ impl Drop for GdiResources {
             DeleteObject(self.font_label as *mut _);
             DeleteObject(self.font_value as *mut _);
             DeleteObject(self.font_gear as *mut _);
-            DeleteObject(self.font_speed as *mut _);
+            DeleteObject(self.font_speed_big as *mut _);
             DeleteObject(self.font_lap as *mut _);
             DeleteObject(self.font_sector as *mut _);
             DeleteObject(self.font_sector_label as *mut _);
@@ -421,7 +441,11 @@ impl HudComponent for CurrentLapSection {
     }
 }
 
-/// Gear + speed + RPM number section (match arm 2).
+/// Gear + big speed digits + RPM LED dots (center cluster).
+///
+/// Ports kiosk `RacingHUD.tsx` center cluster: gear indicator, 48-68px speed,
+/// and 10-dot LED RPM strip (3 green, 4 amber, 3 red). A future pass will add
+/// the throttle/brake pedal bars flanking the speed cluster.
 #[cfg(windows)]
 struct GearSpeedSection;
 
@@ -438,27 +462,73 @@ impl HudComponent for GearSpeedSection {
             (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
         }
         let col_white: u32 = rgb(255, 255, 255);
-        let col_dim: u32 = rgb(68, 68, 68);
+        let col_dim: u32 = rgb(113, 113, 122);        // zinc-500 mono label
+        let col_green_on: u32 = rgb(16, 185, 129);    // emerald-500
+        let col_green_off: u32 = rgb(5, 46, 22);      // emerald-950/30
+        let col_amber_on: u32 = rgb(251, 191, 36);    // amber-400
+        let col_amber_off: u32 = rgb(56, 32, 8);      // amber-950/30
+        let col_red_on: u32 = rgb(225, 6, 0);         // rp-red
+        let col_red_off: u32 = rgb(53, 6, 4);         // red-950/30
 
         unsafe {
+            // ─── Gear indicator (left of the cluster) ───────────────────────
             let gear_str = match data.gear {
                 0 => "N".to_string(),
                 g if g < 0 => "R".to_string(),
                 g => g.to_string(),
             };
-            draw_text_at(hdc, res.font_gear, col_white, rect.x + 12, 14, &gear_str);
+            draw_text_at(hdc, res.font_gear, col_white, rect.x + 10, 22, &gear_str);
+            draw_text_at(hdc, res.font_unit, col_dim, rect.x + 10, 74, "GEAR");
 
+            // ─── Big speed digits (center of the cluster) ────────────────────
             let speed_str = if data.speed_kmh > 0.0 {
                 format!("{}", data.speed_kmh.round() as i32)
             } else {
                 "---".to_string()
             };
-            draw_text_at(hdc, res.font_speed, rgb(187, 187, 187), rect.x + 52, 18, &speed_str);
-            draw_text_at(hdc, res.font_unit, col_dim, rect.x + 52, 38, "KM/H");
+            draw_text_at(hdc, res.font_speed_big, col_white, rect.x + 70, 6, &speed_str);
+            draw_text_at(hdc, res.font_unit, col_dim, rect.x + 70, 76, "KM/H");
 
+            // ─── RPM LED dots (right of the cluster) ─────────────────────────
+            // 10 dots: 0..3 green, 3..7 amber, 7..10 red. Lit count proportional
+            // to rpm/max_rpm, matching RacingHUD RpmDots component.
+            use winapi::shared::windef::RECT;
+            use winapi::um::winuser::FillRect;
+            let max = if data.max_rpm > 0 { data.max_rpm as f32 } else { 8000.0 };
+            // Clamp max to a sane range: AC can report 18000+ for some cars, but
+            // typical dashboards scale to max_rpm. If max_rpm read is absurd
+            // (> 50000), fall back to 8000 so LEDs still light up below redline.
+            let max = if max > 50000.0 { 8000.0 } else { max };
+            let lit = ((data.rpm as f32 / max).min(1.0) * 10.0).round() as i32;
+
+            let dots_x0 = rect.x + 215;
+            let dots_y = 40;
+            let dot_size = 10;
+            let dot_gap = 3;
+            for i in 0..10 {
+                let (on_col, off_col) = if i < 3 {
+                    (col_green_on, col_green_off)
+                } else if i < 7 {
+                    (col_amber_on, col_amber_off)
+                } else {
+                    (col_red_on, col_red_off)
+                };
+                let col = if i < lit { on_col } else { off_col };
+                let x = dots_x0 + i * (dot_size + dot_gap);
+                let brush = TempBrush::new(col);
+                let r = RECT {
+                    left: x,
+                    top: dots_y,
+                    right: x + dot_size,
+                    bottom: dots_y + dot_size,
+                };
+                FillRect(hdc, &r, brush.handle());
+            }
+
+            // Numeric RPM below the dots, mono-spaced
             if data.rpm > 0 {
                 let rpm_str = format!("{}", data.rpm);
-                draw_text_at(hdc, res.font_sector_label, col_dim, rect.x + 52, 56, &rpm_str);
+                draw_text_at(hdc, res.font_sector_label, col_dim, dots_x0, 60, &rpm_str);
             }
         }
     }
@@ -662,14 +732,18 @@ struct HudRenderer {
 #[cfg(windows)]
 impl HudRenderer {
     fn new() -> Self {
+        // Section order mirrors RacingHUD.tsx left→center→right clusters:
+        //   LEFT : LapCounter | CurrentLap (current time + live sectors)
+        //   CENTER: GearSpeed (speed/gear/RPM LED dots)
+        //   RIGHT: PrevLap(=Last) | BestLap (purple) | SessionTimer
         Self {
             sections: vec![
-                Box::new(SessionTimerSection),
+                Box::new(LapCounterSection),
                 Box::new(CurrentLapSection),
                 Box::new(GearSpeedSection),
                 Box::new(PrevLapSection),
                 Box::new(BestLapSection),
-                Box::new(LapCounterSection),
+                Box::new(SessionTimerSection),
             ],
             rpm_bar: RpmBarSection,
         }
@@ -1483,20 +1557,20 @@ mod tests {
     fn test_compute_layout() {
         let rects = compute_layout(1920);
         assert_eq!(rects.len(), 6);
-        // Total content = 120+200+100+200+200+60 = 880
-        // start_x = (1920 - 880) / 2 = 520
-        assert_eq!(rects[0].x, 520);
-        assert_eq!(rects[0].w, 120);
-        assert_eq!(rects[1].x, 640);  // 520 + 120
-        assert_eq!(rects[1].w, 200);
-        assert_eq!(rects[2].x, 840);  // 640 + 200
-        assert_eq!(rects[2].w, 100);
-        assert_eq!(rects[3].x, 940);  // 840 + 100
-        assert_eq!(rects[3].w, 200);
-        assert_eq!(rects[4].x, 1140); // 940 + 200
-        assert_eq!(rects[4].w, 200);
-        assert_eq!(rects[5].x, 1340); // 1140 + 200
-        assert_eq!(rects[5].w, 60);
+        // Total content = 70+280+320+210+210+140 = 1230
+        // start_x = (1920 - 1230) / 2 = 345
+        assert_eq!(rects[0].x, 345);
+        assert_eq!(rects[0].w, 70);
+        assert_eq!(rects[1].x, 415);  // 345 + 70
+        assert_eq!(rects[1].w, 280);
+        assert_eq!(rects[2].x, 695);  // 415 + 280
+        assert_eq!(rects[2].w, 320);
+        assert_eq!(rects[3].x, 1015); // 695 + 320
+        assert_eq!(rects[3].w, 210);
+        assert_eq!(rects[4].x, 1225); // 1015 + 210
+        assert_eq!(rects[4].w, 210);
+        assert_eq!(rects[5].x, 1435); // 1225 + 210
+        assert_eq!(rects[5].w, 140);
 
         // All rects have y=12 and h=BAR_HEIGHT
         for r in &rects {
@@ -1506,7 +1580,7 @@ mod tests {
 
         // Narrow screen: content should start at 0 (clamped)
         let narrow = compute_layout(800);
-        assert_eq!(narrow[0].x, 0); // (800-880).max(0)/2 = 0
+        assert_eq!(narrow[0].x, 0); // (800-1230).max(0)/2 = 0
     }
 
     #[test]
