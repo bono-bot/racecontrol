@@ -129,7 +129,7 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
     // install.bat should have already done this, but verify
     step(2, "Verifying Defender exclusions");
     if let Err(e) = verify_defender_exclusion(dest) {
-        warn(&format!("{}", e));
+        warn(&e.to_string());
         warn("Batch wrapper should have handled this — proceeding");
     }
 
@@ -237,7 +237,7 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
     // ── Step 14: Start rc-agent + rc-sentry ────────────────
     step(14, "Starting rc-agent + rc-sentry");
     if let Err(e) = start_rc_agent(src, dest) {
-        warn(&format!("{}", e));
+        warn(&e.to_string());
     }
     start_rc_sentry(dest);
 
@@ -784,7 +784,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
 
     // -- OpenSSH Server service --
     let sshd_exists = run("sc", &["query", "sshd"])
-        .map_or(false, |o| o.status.success());
+        .is_ok_and(|o| o.status.success());
     if sshd_exists {
         info("Removing sshd service...");
         let _ = run("sc", &["stop", "sshd"]);
@@ -797,7 +797,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
     // -- OpenSSH Server capability --
     let capability_installed = run_ps(
         "$s = (Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*').State; if ($s -eq 'Installed') { exit 0 } else { exit 1 }",
-    ).map_or(false, |o| o.status.success());
+    ).is_ok_and(|o| o.status.success());
     if capability_installed {
         info("Removing OpenSSH.Server capability...");
         let result = run_ps(
@@ -814,7 +814,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
 
     // -- OpenSSH registry keys --
     let openssh_reg = run("reg", &["query", r"HKLM\SOFTWARE\OpenSSH"])
-        .map_or(false, |o| o.status.success());
+        .is_ok_and(|o| o.status.success());
     if openssh_reg {
         let _ = run("reg", &["delete", r"HKLM\SOFTWARE\OpenSSH", "/f"]);
         ok("Removed HKLM\\SOFTWARE\\OpenSSH registry key");
@@ -826,7 +826,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
         "query",
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
         "/v", "OpenSSHD",
-    ]).map_or(false, |o| o.status.success());
+    ]).is_ok_and(|o| o.status.success());
     if opensshd_run {
         let _ = run("reg", &[
             "delete",
@@ -854,7 +854,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
 
     // -- Salt minion --
     let salt_exists = run("sc", &["query", "salt-minion"])
-        .map_or(false, |o| o.status.success());
+        .is_ok_and(|o| o.status.success());
     if salt_exists {
         info("Removing salt-minion service...");
         let _ = run("sc", &["stop", "salt-minion"]);
@@ -893,7 +893,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
     let mut hexnode_found = false;
     for proc in &hexnode_procs {
         let killed = run("taskkill", &["/F", "/IM", proc])
-            .map_or(false, |o| o.status.success());
+            .is_ok_and(|o| o.status.success());
         if killed {
             hexnode_found = true;
         }
@@ -909,7 +909,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
     ];
     for svc in &hexnode_services {
         let exists = run("sc", &["query", svc])
-            .map_or(false, |o| o.status.success());
+            .is_ok_and(|o| o.status.success());
         if exists {
             let _ = run("sc", &["stop", svc]);
             let _ = run("sc", &["delete", svc]);
@@ -1217,7 +1217,7 @@ fn health_check(dest: &Path) -> u32 {
         "if ((Get-MpPreference).ExclusionPath -contains '{}') {{ exit 0 }} else {{ exit 1 }}",
         dest.to_string_lossy()
     ))
-    .map_or(false, |o| o.status.success());
+    .is_ok_and(|o| o.status.success());
 
     if defender_ok {
         ok("Defender exclusion active");
@@ -1244,7 +1244,7 @@ fn health_check(dest: &Path) -> u32 {
          try {{ $u.Connect('{}', {}); $u.Send(@(0x52,0x50), 2) | Out-Null; echo 'OK' }} \
          catch {{ echo 'FAIL' }} finally {{ $u.Close() }}",
         CORE_IP, HEARTBEAT_PORT
-    )).map_or(false, |o| String::from_utf8_lossy(&o.stdout).contains("OK"));
+    )).is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("OK"));
 
     if udp_ok {
         ok(&format!("UDP heartbeat reachable ({}:{})", CORE_IP, HEARTBEAT_PORT));
@@ -1254,7 +1254,7 @@ fn health_check(dest: &Path) -> u32 {
 
     // 7. Port 8090 (rc-agent HTTP server)
     let port_ok = run("curl", &["-s", "-m", "5", "http://127.0.0.1:8090/ping"])
-        .map_or(false, |o| {
+        .is_ok_and(|o| {
             String::from_utf8_lossy(&o.stdout).contains("pong")
         });
 
@@ -1270,7 +1270,7 @@ fn health_check(dest: &Path) -> u32 {
         r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
         "/v", "RCAgent",
     ])
-    .map_or(false, |o| o.status.success());
+    .is_ok_and(|o| o.status.success());
 
     if run_key_ok {
         ok("RCAgent Run key set (auto-start on boot)");
@@ -1294,7 +1294,7 @@ fn health_check(dest: &Path) -> u32 {
             r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
             "/v", "RCSentry",
         ])
-        .map_or(false, |o| o.status.success());
+        .is_ok_and(|o| o.status.success());
 
         if sentry_key_ok {
             ok("RCSentry Run key set (auto-start on boot)");
@@ -1304,7 +1304,7 @@ fn health_check(dest: &Path) -> u32 {
 
         // Check port 8091
         let sentry_port_ok = run("curl", &["-s", "-m", "3", "http://127.0.0.1:8091/ping"])
-            .map_or(false, |o| {
+            .is_ok_and(|o| {
                 String::from_utf8_lossy(&o.stdout).contains("pong")
             });
         if sentry_port_ok {
@@ -1341,14 +1341,14 @@ fn run_ps(script: &str) -> Result<Output, String> {
 /// Uses line-based matching to avoid false positives (e.g., "rc-agent-new.exe").
 fn is_process_running(name: &str) -> bool {
     run("tasklist", &["/FI", &format!("IMAGENAME eq {}", name), "/NH"])
-        .map_or(false, |o| {
+        .is_ok_and(|o| {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let name_lower = name.to_lowercase();
             stdout.lines().any(|line| {
                 let lower = line.to_lowercase();
                 // tasklist output: "rc-agent.exe    1234 Console  1  12,345 K"
                 // Match exact image name at start of line (before whitespace)
-                lower.split_whitespace().next().map_or(false, |first| first == name_lower)
+                lower.split_whitespace().next().is_some_and(|first| first == name_lower)
             })
         })
 }
@@ -1373,28 +1373,25 @@ fn is_mutex_held(name: &str) -> bool {
 fn dump_diagnostics(dest: &Path, label: &str) {
     let log = dest.join("rc-agent.log");
     if log.exists() {
-        if let Ok(content) = fs::read_to_string(&log) {
-            if !content.trim().is_empty() {
+        if let Ok(content) = fs::read_to_string(&log)
+            && !content.trim().is_empty() {
                 info(&format!("-- rc-agent.log ({}) --", label));
                 println!("{}", content.trim());
                 info("------------------------------------");
             }
-        }
     } else {
         info("No log file — crash happened before logger init");
         info("Likely: mutex held, config error, or Defender");
     }
 
     let stderr = dest.join("rc-agent-stderr.txt");
-    if stderr.exists() {
-        if let Ok(content) = fs::read_to_string(&stderr) {
-            if !content.trim().is_empty() {
+    if stderr.exists()
+        && let Ok(content) = fs::read_to_string(&stderr)
+            && !content.trim().is_empty() {
                 info(&format!("-- stderr ({}) --", label));
                 println!("{}", content.trim());
                 info("-----------------------");
             }
-        }
-    }
 }
 
 /// Wait up to 15s for rc-agent's HTTP server on port 8090.
@@ -1495,7 +1492,7 @@ fn enable_ansi_colors() {
 /// Check if running as admin (same method as install.bat).
 fn is_admin() -> bool {
     let sys_drive = env::var("SYSTEMDRIVE").unwrap_or_else(|_| "C:".into());
-    run("fsutil", &["dirty", "query", &sys_drive]).map_or(false, |o| o.status.success())
+    run("fsutil", &["dirty", "query", &sys_drive]).is_ok_and(|o| o.status.success())
 }
 
 fn wait_and_exit(code: i32) -> ! {
