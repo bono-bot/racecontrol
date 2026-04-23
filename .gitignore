@@ -28,6 +28,11 @@ agent-err.txt
 # Python cache
 __pycache__/
 
+# PoE gate audit logs — per-session, grows unbounded; summaries (if any) checked in separately
+.claim-poe/log.jsonl
+.deploy-poe/log.jsonl
+.debug-poe/log.jsonl
+
 # Kiosk
 kiosk/node_modules
 kiosk/.next
