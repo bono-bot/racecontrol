@@ -87,6 +87,24 @@ Evidence captured 2026-04-23 evening from James .27 → `localhost:3000` (admin 
 
 **Net:** 9 of 11 originally-planned smoke rows passed; 2 require credentials James doesn't hold; the rest fall into "real-load testing" or "production deploy" that can't run from a dev environment.
 
+## Browser-DOM smoke (chrome-devtools-mcp, 2026-04-23 evening)
+
+Per doctrine v3 §7 (upgrade not exploration): HTTP-layer smoke is necessary but NOT sufficient. The patient must walk. Browser-DOM verification ran against `localhost:3001` dev server.
+
+| Test | Result | Evidence |
+|---|---|---|
+| `GET /login` | renders | Full PIN keypad (10 digits + Clear + Unlock), heading "RacingPoint", "Admin Dashboard" subtitle, all 26 page assets load 200. Pre-existing hydration warning at `(auth)/login/page.tsx:65` (mainSiteUrl SSR/client mismatch — predates A1; tracked separately) |
+| `GET /billing` | renders shell | FULL admin sidebar with 50+ navigation links (DASHBOARD/OPERATIONS/FLEET/RACING/MARKETING/CAFE/FINANCE/HR/AI sections); main "Active Sessions" header; graceful "Failed to load active sessions" + "Retry" button on 401 from `/api/rc/billing/active` (no admin JWT cookie) — backward compat preserved |
+| `GET /fleet` (round 1) | rendered + 4 console errors | `ERR_CONTENT_DECODING_FAILED` x4 from polling `/api/rc/fleet/health` — REGRESSION discovered |
+| Diagnose regression | proxy was forwarding `Content-Encoding: gzip` from upstream; Node `fetch().arrayBuffer()` had auto-decompressed body; browser tried to decompress already-plain bytes | Pre-A1 used `NextResponse.json(JSON.parse(text))` which DROPPED all upstream headers, so this never manifested. A1's correct header-passthrough policy needed `content-encoding`+`content-length` added to strip-list |
+| FIX (admin@`4b25aff`) | strip `content-encoding`+`content-length` in `STRIP_HEADERS_RES` | hot reload picked up; re-test |
+| `GET /fleet` (round 2, post-fix) | clean | console errors went 6 → 2 (only the expected 401s for unauth `/api/rc/activity` + `/api/auth/me`); 3 successful `/api/rc/fleet/health` polling calls |
+| Direct `GET /api/rc/fleet/health` in browser | JSON renders cleanly | Full Pod 1-8 + POS data, all healthy, real timestamps, no decode errors. Strongest evidence proxy is end-to-end functional |
+
+**Screenshots in this dir:** `smoke-fleet-page.png` (pre-fix, with errors visible), `smoke-fleet-after-fix.png` (post-fix clean state).
+
+**Doctrine §7 vindicated.** curl-level smoke missed the regression because curl handles compression symmetrically. Browser was the only verifier that catches this class. If A1 had shipped to production without browser smoke, every authed dashboard page would have shown cryptic decode errors.
+
 **Path correction discovered during smoke:** original draft put meta endpoints at `/api/rc/__health` + `/api/rc/__metrics`. Next.js excludes underscore-prefixed folders from routing (private folder convention) — those returned 404 HTML. Moved to `/api/admin-gateway/{health,metrics}` (outside the `[...path]` proxy hierarchy, semantically clearer as gateway-meta not racecontrol-proxy). Re-smoke confirmed both routes resolve.
 
 ## Deploy plan (separate from this branch)
