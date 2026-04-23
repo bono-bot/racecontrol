@@ -3862,6 +3862,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-process-manager"
+version = "0.1.0"
+dependencies = [
+ "rc-common",
+ "serde",
+ "thiserror 2.0.18",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
 name = "rc-sentry"
 version = "0.1.0"
 dependencies = [
