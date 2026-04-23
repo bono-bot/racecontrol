@@ -129,7 +129,7 @@ fn_count=$(echo "$changed_fns" | grep -c . || true)
 
 # --- Header ---
 echo ""
-echo "${C_HEAD}═══ graphify deploy probe (Wave 1+2 scaffold) ═══${C_END}"
+echo "${C_HEAD}═══ graphify deploy probe (Wave 1+2+3 scaffold) ═══${C_END}"
 printf "%-22s %s\n" "branch:"       "$BRANCH"
 printf "%-22s %s\n" "merge-base:"   "${base:-unknown}"
 printf "%-22s %s\n" "graph.json:"   "${GRAPH_FILE:-<absent>}"
@@ -171,29 +171,82 @@ if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" && "$fn_count" -gt 0 ]]; then
   printf "${C_OK}indexed: %s${C_END}  ${C_WARN}unindexed: %s${C_END}  (of %s changed functions)\n" "$indexed" "$unindexed" "$fn_count"
 fi
 
-# --- Coverage matrix (W3 stub — static repo list, to be generated from roadmap) ---
+# --- Coverage matrix (Wave 3 — dynamic from graph.json) ---
+# Canonical prefix list derived from project_graphify_utilization_roadmap.md Tier 1/1b.
+# Each row is `prefix_to_match|label`. Substring match against node source_file in graph.
+# Keep label width fixed for visual alignment in the table.
 echo ""
-echo "${C_HEAD}── repo coverage matrix (W1 stub — static) ──${C_END}"
-cat <<EOF
-  racecontrol/crates/........... INDEXED (graphify-racecontrol)
-  racecontrol/app/.............. INDEXED
-  racecontrol/scripts/.......... NOT INDEXED  (MANUAL-REVIEW if changed)
-  racecontrol/tests/e2e/........ NOT INDEXED  (MANUAL-REVIEW if changed)
-  packages/shared-types/........ NOT INDEXED  (MANUAL-REVIEW if changed)
-  comms-link/................... INDEXED (graphify-comms-link)
-  racingpoint-admin/............ INDEXED (graphify-admin)
-  racingpoint-whatsapp-bot/..... INDEXED (graphify-whatsapp)
-  (Bono-only repos × 6)......... NOT INDEXED  (Tier 1b deferred per roadmap)
-EOF
+echo "${C_HEAD}── repo coverage matrix (Wave 3 — dynamic) ──${C_END}"
 
-# --- Manual-review flags ---
-unindexed_paths=$(echo "$changed_files" | awk '/^scripts\// || /^tests\/e2e\// || /^packages\/shared-types\// {print}' | head -20)
-if [[ -n "$unindexed_paths" ]]; then
-  echo ""
-  echo "${C_WARN}── MANUAL REVIEW (unindexed paths changed) ──${C_END}"
-  echo "$unindexed_paths" | sed 's/^/  /'
+coverage_rows=(
+  "crates/|racecontrol/crates/"
+  "racecontrol/src/|racecontrol/app/"
+  "scripts/|racecontrol/scripts/"
+  "tests/e2e/|racecontrol/tests/e2e/"
+  "packages/shared-types/|packages/shared-types/"
+  "comms-link/|comms-link/"
+  "racingpoint-admin/|racingpoint-admin/"
+  "racingpoint-whatsapp-bot/|racingpoint-whatsapp-bot/"
+  "racingpoint-discord-bot/|racingpoint-discord-bot/"
+  "racingpoint-voice/|racingpoint-voice/"
+  "racingpoint-dashboard/|racingpoint-dashboard/"
+)
+
+if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" ]]; then
+  # Extract unique source_file set once to avoid re-reading JSON per row.
+  sources_tmp=$(mktemp)
+  jq -r '.nodes[] | .source_file // empty' "$GRAPH_FILE" 2>/dev/null | sort -u > "$sources_tmp"
+  total_sources=$(wc -l < "$sources_tmp")
+  for row in "${coverage_rows[@]}"; do
+    prefix="${row%%|*}"
+    label="${row#*|}"
+    # Count unique source files whose path contains prefix (case-insensitive, handle both / and \).
+    # `|| true` because grep -c returns 1 on zero matches (pipefail would kill us).
+    hit=$(grep -ci -E "(^|[/\\\\])$(echo "$prefix" | sed 's/[.[\*^$()+?{|]/\\&/g')" "$sources_tmp" 2>/dev/null | head -1 || true)
+    hit=${hit:-0}
+    if (( hit > 0 )); then
+      printf "  %-38s INDEXED   (%s file%s)\n" "$label" "$hit" "$([[ $hit == 1 ]] || echo s)"
+    else
+      printf "  %-38s ${C_WARN}NOT INDEXED${C_END} (MANUAL-REVIEW if changed)\n" "$label"
+    fi
+  done
+  printf "${C_DIM}  (total unique source files in graph: %s)${C_END}\n" "$total_sources"
+  rm -f "$sources_tmp"
+else
+  for row in "${coverage_rows[@]}"; do
+    label="${row#*|}"
+    printf "  %-38s UNKNOWN   (no graph.json loaded)\n" "$label"
+  done
+fi
+
+# --- Manual-review flags (Wave 3 — derived from coverage matrix misses) ---
+# Build a dynamic unindexed-prefix list from the coverage rows that just missed,
+# instead of the Wave 1 hardcoded `scripts/|tests/e2e/|packages/shared-types/`.
+unindexed_prefixes=""
+if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" ]]; then
+  sources_tmp=$(mktemp)
+  jq -r '.nodes[] | .source_file // empty' "$GRAPH_FILE" 2>/dev/null | sort -u > "$sources_tmp"
+  for row in "${coverage_rows[@]}"; do
+    prefix="${row%%|*}"
+    hit_mr=$(grep -ci -E "(^|[/\\\\])$(echo "$prefix" | sed 's/[.[\*^$()+?{|]/\\&/g')" "$sources_tmp" 2>/dev/null | head -1 || true)
+    hit_mr=${hit_mr:-0}
+    (( hit_mr == 0 )) && unindexed_prefixes="${unindexed_prefixes}^${prefix}|"
+  done
+  rm -f "$sources_tmp"
+fi
+# Strip trailing |
+unindexed_prefixes="${unindexed_prefixes%|}"
+
+if [[ -n "$unindexed_prefixes" && -n "$changed_files" ]]; then
+  # shellcheck disable=SC2086
+  unindexed_paths=$(echo "$changed_files" | awk -v pfx="$unindexed_prefixes" 'BEGIN{n=split(pfx,arr,"|")} { for(i=1;i<=n;i++){ p=arr[i]; sub(/^\^/,"",p); if (index($0,p)==1) { print; break } } }' | head -20)
+  if [[ -n "$unindexed_paths" ]]; then
+    echo ""
+    echo "${C_WARN}── MANUAL REVIEW (changed files fall under NOT INDEXED prefixes) ──${C_END}"
+    echo "$unindexed_paths" | sed 's/^/  /'
+  fi
 fi
 
 echo ""
-echo "${C_DIM}Wave 1+2 — 1-hop neighbours, freshness-via-built_at/mtime, --max-age-min + --require-fresh. Waves 3/4/5/6/7 add: dynamic coverage matrix, 2-hop BFS, E2E cross-ref, graph-diff, symptom probe.${C_END}"
+echo "${C_DIM}Wave 1+2+3 — 1-hop neighbours + freshness-via-built_at/mtime + dynamic coverage matrix (--max-age-min + --require-fresh). Waves 4/5/6/7 add: 2-hop BFS, E2E cross-ref, graph-diff, symptom probe.${C_END}"
 exit 0
