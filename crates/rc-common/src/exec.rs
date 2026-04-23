@@ -212,6 +212,23 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    // NOTE: The following 3 tests exercise `run_cmd_sync`, which hardcodes
+    // `Command::new("cmd.exe")`. They are Windows-only by construction. On
+    // non-Windows hosts (Linux CI / dev machines / on-call Bono VPS), cmd.exe
+    // does not exist and `child.spawn()` returns ENOENT, so these tests panic
+    // with "expected 'hello' in stdout, got: ''" / "expected timed_out=true" /
+    // "expected truncated=true". Before this gate, `cargo test -p rc-common`
+    // failed 3/264 on any Linux shell (including this audit host).
+    //
+    // `test_run_cmd_sync_bad_command` happens to pass on Linux because ENOENT
+    // (spawn failure) satisfies its "exit!=0 OR stderr non-empty" assertion —
+    // but that passes for the wrong reason, so we gate it too.
+    //
+    // `test_truncate_output_fn` below tests `truncate_output()` directly
+    // (pure byte-slice logic) and is correctly cross-platform, so it is NOT
+    // gated.
+
+    #[cfg(windows)]
     #[test]
     fn test_run_cmd_sync_basic() {
         let result = run_cmd_sync("echo hello", Duration::from_secs(10), 64 * 1024);
@@ -224,6 +241,7 @@ mod tests {
         assert!(!result.timed_out);
     }
 
+    #[cfg(windows)]
     #[test]
     fn test_run_cmd_sync_timeout() {
         // ping -n 10 adds ~9 seconds of delay; timeout is 1s so it must be killed.
@@ -231,6 +249,7 @@ mod tests {
         assert!(result.timed_out, "expected timed_out=true, got: {result:?}");
     }
 
+    #[cfg(windows)]
     #[test]
     fn test_run_cmd_sync_bad_command() {
         let result = run_cmd_sync(
@@ -245,6 +264,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn test_output_truncation() {
         // echo produces very short output; max_output=5 means it should be truncated.
