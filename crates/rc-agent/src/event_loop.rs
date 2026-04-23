@@ -860,23 +860,55 @@ pub async fn run(
                                         conn.ac_live_since = None;
                                         conn.ac_live_has_input = false;
                                         // ZERO-LAPS FIX STRATEGY B (2026-04-15, Pod 8 canary verified):
-                                        // Only arm the exit-grace timer if we've already seen Live.
+                                        // Only treat the Off as an exit event if we've already seen Live.
                                         // The initial Off during AC's asset load (CSP shaders, track
                                         // splines, car physics LUTs) is a LOADING signal — not an
-                                        // exit signal. Before this gate, the timer armed at T+3s,
-                                        // fired at T+33s, and killed playable sessions regardless
-                                        // of whether AC had since reached Live. Gating on
-                                        // launch_state::Live means we only treat Off as "game exiting"
-                                        // after confirming the game actually started.
+                                        // exit signal. Gating on launch_state::Live means we only
+                                        // treat Off as "game exiting" after confirming the game actually started.
                                         // Evidence: iters 0-2 on 1136fd1a all died at 27-28s;
                                         // iter 3 on commit a6e2e026 ran 994s without kill.
                                         // EXIT-GRACE-GUARD-1/2: verified — crash recovery blocks exit grace (RECOVER-07)
                                         let in_live = matches!(conn.launch_state, LaunchState::Live);
                                         if in_live && !matches!(conn.crash_recovery, CrashRecoveryState::PausedWaitingRelaunch { .. }) {
-                                            tracing::info!(target: LOG_TARGET, "AcStatus::Off detected (post-Live) — arming 30s exit grace timer (AC)");
-                                            conn.exit_grace_timer = Box::pin(tokio::time::sleep(Duration::from_secs(30)));
-                                            conn.exit_grace_armed = true;
-                                            conn.exit_grace_sim_type = Some(rc_common::types::SimType::AssettoCorsa);
+                                            // CUSTOMER-GAME-CLOSE (2026-04-23 — plan_customer_game_close_pause_and_blank_20260423.md):
+                                            // Policy: INSTANT meter-pause + INSTANT desktop-blank when customer
+                                            // closes the game post-Live (Alt-F4 / Esc-quit / Win-key+close).
+                                            // Emits AcStatus::Off immediately to server so handle_game_off fires
+                                            // the GameStopped FSM event (Active → WaitingForGame) and the meter
+                                            // freezes from this instant (no 30s accrual on the desktop). Also calls
+                                            // show_blank_screen so the Windows desktop is never exposed. If
+                                            // AcStatus::Live returns within ~30s (customer came back / launcher
+                                            // respawn), the existing Live-emit path transitions server back to
+                                            // Active and the meter resumes — net cost to the customer is the actual
+                                            // off-track duration, not a flat 30s penalty.
+                                            //
+                                            // This replaces the previous 30s exit-grace timer which delayed the
+                                            // AcStatus::Off notification. The timer is no longer armed on this
+                                            // path; the cleanup it performed at expiry is inlined below.
+                                            tracing::info!(
+                                                target: LOG_TARGET,
+                                                "CUSTOMER-GAME-CLOSE: AcStatus::Off post-Live — emitting Off + blanking (instant pause)"
+                                            );
+                                            let off_msg = AgentMessage::GameStatusUpdate {
+                                                pod_id: state.pod_id.clone(),
+                                                ac_status: AcStatus::Off,
+                                                sim_type: Some(rc_common::types::SimType::AssettoCorsa),
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&off_msg) {
+                                                let _ = ws_tx.send(Message::Text(json.into())).await;
+                                            }
+                                            // Hide the Windows desktop (taskbar, icons, whatever the customer
+                                            // would see now that acs.exe has exited). Bypasses the
+                                            // billing_active-guard on BlankScreen / RCAGENT_BLANK_SCREEN paths
+                                            // because the blank is intrinsic to this pause event, not a staff
+                                            // action.
+                                            state.lock_screen.show_blank_screen();
+                                            // Inline the cleanup that used to run at grace-timer expiry
+                                            // (see event_loop.rs:2263-2266 in the exit_grace_timer arm).
+                                            conn.exit_grace_sim_type = None;
+                                            conn.current_sim_type = None;
+                                            conn.loading_emitted = false;
+                                            conn.f1_udp_playable_received = false;
                                         } else if !in_live {
                                             tracing::info!(target: LOG_TARGET, "ZL-SKIP-ARM: AcStatus::Off detected but launch_state is not Live yet — not arming grace timer");
                                         }
