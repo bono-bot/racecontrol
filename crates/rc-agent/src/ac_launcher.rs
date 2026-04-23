@@ -2257,7 +2257,18 @@ fn ensure_python_ini_racecontrol() -> Result<()> {
 
 /// Minimize all visible windows except the game, overlay, and essential system processes.
 /// Uses an allow-list approach: anything not on the list gets minimized.
+///
+/// FREEDOM-MODE CONTRACT: early-return when freedom_mode is active. Minimizing
+/// every non-allowlisted window in freedom mode defeats the whole point —
+/// staff may have intentionally opened a non-allowlisted app (browser, Content
+/// Manager, file explorer) for investigation. This is also the downstream of
+/// `enforce_safe_state`, so gating here covers both tick-driven and
+/// session-end-driven call paths.
 pub fn minimize_background_windows() {
+    if crate::kiosk::is_freedom_mode_global() {
+        tracing::debug!(target: LOG_TARGET, "minimize_background_windows skipped: freedom_mode active");
+        return;
+    }
     let ps_script = r#"
         Add-Type -Name WinMin -Namespace NativeMin -MemberDefinition '
             [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -2341,55 +2352,6 @@ fn bring_game_to_foreground() {
             .output();
         tracing::info!(target: LOG_TARGET, "Brought AC window to foreground via PowerShell fallback");
     }
-}
-
-/// Full pod cleanup after a session ends.
-/// Kills game, dismisses error dialogs, minimizes background windows
-/// (including Conspit Link), and ensures the lock screen is in the foreground.
-#[allow(dead_code)]
-pub fn cleanup_after_session() {
-    tracing::info!(target: LOG_TARGET, "Starting post-session cleanup...");
-
-    // 1. Kill AC and Content Manager (Conspit Link stays running — minimized in step 3)
-    let _ = spawn_safe("taskkill").args(["/IM", "acs.exe", "/F"]).output();
-    let _ = spawn_safe("taskkill").args(["/IM", "AssettoCorsa.exe", "/F"]).output();
-    let _ = spawn_safe("taskkill").args(["/IM", "Content Manager.exe", "/F"]).output();
-    tracing::info!(target: LOG_TARGET, "Killed AC + Content Manager (Conspit Link kept alive)");
-
-    // 2. Kill error/crash dialogs and system popups
-    for proc in DIALOG_PROCESSES {
-        let _ = spawn_safe("taskkill").args(["/IM", proc, "/F"]).output();
-    }
-    tracing::info!(target: LOG_TARGET, "Dismissed error dialogs and system popups");
-
-    // 3. Minimize all background windows, bring lock screen to foreground
-    let ps_script = r#"
-        Add-Type -Name Win -Namespace Native -MemberDefinition '
-            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-        '
-        # Minimize Steam, Conspit, Settings, NVIDIA overlay
-        Get-Process -Name steam,steamwebhelper,ConspitLink2.0,SystemSettings,ApplicationFrameHost -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
-            ForEach-Object { [Native.Win]::ShowWindow($_.MainWindowHandle, 6) }
-
-        # Close Settings windows
-        Get-Process -Name SystemSettings,ApplicationFrameHost -ErrorAction SilentlyContinue |
-            ForEach-Object { $_.CloseMainWindow() }
-
-        # Bring lock screen browser (msedge "Racing Point") to foreground and maximize
-        $edge = Get-Process -Name msedge -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowTitle -match 'Racing Point' } |
-            Select-Object -First 1
-        if ($edge) {
-            [Native.Win]::SetForegroundWindow($edge.MainWindowHandle)
-            [Native.Win]::ShowWindow($edge.MainWindowHandle, 3)  # SW_MAXIMIZE
-        }
-    "#;
-    let _ = spawn_safe_capture("powershell")
-        .args(["-NoProfile", "-Command", ps_script])
-        .output();
-    tracing::info!(target: LOG_TARGET, "Background windows minimized, lock screen foregrounded");
 }
 
 /// Enforce a known-good safe state on the pod — the "factory reset" for runtime.

@@ -11,6 +11,32 @@ use sysinfo::System;
 
 const LOG_TARGET: &str = "kiosk";
 
+/// Global freedom-mode flag for lock-free reads from anywhere in rc-agent.
+///
+/// Mirror of `KioskManager.freedom_mode`. Updated inside `enter_freedom_mode`,
+/// `exit_freedom_mode`, and the TTL expiry path of `is_freedom_mode`. Enforcement
+/// functions (overlay::enforce_topmost, ac_launcher::enforce_safe_state,
+/// off_track_blanking::show, etc.) MUST call `is_freedom_mode_global()` at the
+/// top and early-return when true. This is defense-in-depth against the
+/// FREEDOM-MODE CONTRACT — call-site gating alone is structurally incomplete
+/// because every new caller has to remember to add the check, and history
+/// shows they don't (PR #33: overlay topmost + browser watchdog were both
+/// added later without the gate).
+pub static FREEDOM_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Lock-free read of freedom_mode state — safe to call from any thread,
+/// any module, without needing a &mut KioskManager.
+///
+/// Uses `Ordering::Acquire` to pair with `Ordering::Release` on the stores
+/// in `enter_freedom_mode`, `exit_freedom_mode`, and the TTL/sync path of
+/// `is_freedom_mode`. This guarantees cross-thread visibility without
+/// depending on x86 total-store-order semantics (portable to ARM64 weak
+/// memory; rc-agent is x86 today but the contract shouldn't rely on it).
+#[inline]
+pub fn is_freedom_mode_global() -> bool {
+    FREEDOM_MODE_ACTIVE.load(Ordering::Acquire)
+}
+
 /// How often (seconds) rc-agent polls the server for the dynamic allowlist.
 pub const ALLOWLIST_REFRESH_SECS: u64 = 300; // 5 minutes
 
@@ -597,6 +623,7 @@ impl KioskManager {
     pub fn enter_freedom_mode(&mut self) {
         self.freedom_mode = true;
         self.freedom_mode_since = Some(std::time::Instant::now());
+        FREEDOM_MODE_ACTIVE.store(true, Ordering::Release);
         self.deactivate();
         tracing::info!(target: LOG_TARGET, "Kiosk: FREEDOM MODE — all apps allowed, monitoring active (30min timeout)");
     }
@@ -605,10 +632,15 @@ impl KioskManager {
     pub fn exit_freedom_mode(&mut self) {
         self.freedom_mode = false;
         self.freedom_mode_since = None;
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
         tracing::info!(target: LOG_TARGET, "Kiosk: exiting freedom mode");
     }
 
     /// Check if in freedom mode. Auto-expires after 30 minutes.
+    ///
+    /// Also mirrors the current state to the global atomic so lock-free readers
+    /// (enforcement functions in other modules) stay in sync even if they never
+    /// see the TTL expiry path.
     pub fn is_freedom_mode(&mut self) -> bool {
         if self.freedom_mode {
             if let Some(since) = self.freedom_mode_since {
@@ -617,10 +649,13 @@ impl KioskManager {
                         "Kiosk: freedom mode auto-expired after 30 minutes (KI-02 safety timeout)");
                     self.freedom_mode = false;
                     self.freedom_mode_since = None;
+                    FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
                     return false;
                 }
             }
         }
+        // Keep atomic in sync with instance state on every read path.
+        FREEDOM_MODE_ACTIVE.store(self.freedom_mode, Ordering::Release);
         self.freedom_mode
     }
 
@@ -1226,3 +1261,86 @@ pub fn install_keyboard_hook() {}
 
 #[cfg(all(not(windows), feature = "keyboard-hook"))]
 pub fn remove_keyboard_hook() {}
+
+#[cfg(test)]
+mod freedom_mode_contract_tests {
+    //! Regression tests for the FREEDOM-MODE CONTRACT — PR #33 + hardening.
+    //!
+    //! Root-cause from the pod_4 customer incident (2026-04-23): freedom_mode
+    //! was implemented as a call-site check, not a function-level check. Every
+    //! new enforcement function added later had to remember the gate. When one
+    //! forgot (overlay topmost + browser watchdog), exclusive-fullscreen games
+    //! auto-minimized during the staff-supervised freedom session.
+    //!
+    //! These tests lock the contract: the global atomic MUST track instance
+    //! state on every transition so lock-free readers in other modules
+    //! (overlay::enforce_topmost, ac_launcher::minimize_background_windows,
+    //! off_track_blanking::show) stay in sync.
+
+    use super::*;
+
+    /// Serialize these tests — they all mutate the process-global FREEDOM_MODE_ACTIVE.
+    fn global_lock() -> &'static std::sync::Mutex<()> {
+        static M: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        M.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    #[test]
+    fn enter_freedom_mode_sets_global_atomic() {
+        let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
+        let mut k = KioskManager::new();
+        assert!(!is_freedom_mode_global(), "precondition: atomic must be false");
+
+        k.enter_freedom_mode();
+        assert!(is_freedom_mode_global(), "enter_freedom_mode must flip atomic to true");
+        assert!(k.is_freedom_mode(), "instance state must agree with atomic");
+    }
+
+    #[test]
+    fn exit_freedom_mode_clears_global_atomic() {
+        let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
+        let mut k = KioskManager::new();
+        k.enter_freedom_mode();
+        assert!(is_freedom_mode_global());
+
+        k.exit_freedom_mode();
+        assert!(!is_freedom_mode_global(), "exit must flip atomic to false");
+        assert!(!k.is_freedom_mode());
+    }
+
+    #[test]
+    fn is_freedom_mode_keeps_atomic_in_sync() {
+        let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
+        FREEDOM_MODE_ACTIVE.store(true, Ordering::Release); // deliberately wrong
+        let mut k = KioskManager::new();
+        // Instance is default-false; is_freedom_mode() must resync the atomic.
+        assert!(!k.is_freedom_mode());
+        assert!(!is_freedom_mode_global(),
+            "is_freedom_mode() must resync atomic to match instance state");
+    }
+
+    #[test]
+    fn ttl_expiry_clears_global_atomic() {
+        let _g = global_lock().lock().unwrap_or_else(|e| e.into_inner());
+        FREEDOM_MODE_ACTIVE.store(false, Ordering::Release);
+        let mut k = KioskManager::new();
+        k.enter_freedom_mode();
+        assert!(is_freedom_mode_global());
+
+        // Force TTL expiry by backdating freedom_mode_since past the 1800s cutoff.
+        // checked_sub returns None on short-uptime CI runners (Instant cannot
+        // represent times before process start). Skip the synthetic-backdate
+        // assertion when that happens — the runtime path is exercised elsewhere.
+        let Some(backdated) = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(1801))
+        else {
+            return;
+        };
+        k.freedom_mode_since = Some(backdated);
+        assert!(!k.is_freedom_mode(), "TTL must expire freedom_mode");
+        assert!(!is_freedom_mode_global(),
+            "TTL expiry must propagate to the global atomic — enforcement functions depend on it");
+    }
+}
