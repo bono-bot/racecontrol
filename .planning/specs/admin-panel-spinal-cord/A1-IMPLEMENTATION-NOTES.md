@@ -126,3 +126,76 @@ Permanence Gate: code is in git. PM2 reload picks it up. No manual server edits,
 - **Track B (Kiosk + WhatsApp REST migration)** can begin. Both surfaces need to swap their `RACECONTROL_URL` env var to `http://<admin>:3201/api/rc` (with path stripping).
 - **Track C (rc-agent polling)** waits for one week of A2 metrics post-deploy to establish baseline volume before approving migration.
 - **Track D (Discord)** still waits on source code access (Bono VPS or local mirror sync).
+
+## MI emitter end-to-end verification (2026-04-23 evening)
+
+Doctrine v3 §6 ("MI = nervous system") implementation verified end-to-end via mock-RC test.
+
+### Setup
+- Mock RC server `racingpoint-admin/scripts/mock-rc-mi-test.py` listening on `127.0.0.1:9999`. Returns 500 to all paths EXCEPT `POST /api/v1/mesh/audit-seed-service` (returns 200 + logs receipt).
+- Admin `.env.local` temporarily set: `RC_URL=http://localhost:9999`, `ADMIN_GATEWAY_MI_EMIT=1`, `RC_SERVICE_KEY=mi-test-key-not-real`.
+- Admin dev server restarted clean on `:3000`.
+
+### Sequence (all timestamps UTC)
+| t (UTC) | Action | Result |
+|---|---|---|
+| 00:41:58.899 | `GET /api/rc/healthz` | proxy 500 passthrough; `recordMiSymptom(problem_key=admin_gateway_upstream_5xx_500, severity=P2)`; `ensureMiFlushTimer()` started 30s timer |
+| 00:41:58.981 | `POST /api/rc/some/write/path` | proxy 500 passthrough; second symptom merged into existing bucket → count=2 |
+| 00:42:28.925 | flush timer fires (≈30s after first symptom) | mock-RC receives `POST /api/v1/mesh/audit-seed-service` 200 |
+
+### Captured payload
+```json
+{
+  "findings": [
+    {
+      "problem_key": "admin_gateway_upstream_5xx_500",
+      "severity": "P2",
+      "symptom_patterns": [
+        "upstream_status=500",
+        "endpoint=/api/v1/healthz",
+        "caller=public",
+        "count=2"
+      ],
+      "source": "admin-gateway",
+      "request_id": "fba94172-54ac-45fa-b7c1-2943a4f23aec",
+      "endpoint": "/api/v1/healthz",
+      "caller": "public",
+      "upstream_status": 500,
+      "upstream_url": "http://localhost:9999",
+      "first_seen": "2026-04-23T00:41:58.906Z",
+      "fix_status": "unknown",
+      "escalation_message": "Admin gateway: 2 admin_gateway_upstream_5xx_500 event(s) in last 0s — sample endpoint /api/v1/healthz caller=public"
+    }
+  ]
+}
+```
+
+Header: `X-Service-Key: mi-test-key-not-real` (matched env value, propagated through `flushMiBuckets()`).
+
+### What this verifies
+| Behavior | Verified |
+|---|---|
+| `recordMiSymptom()` actually called on `res.status >= 500` | ✅ called twice |
+| 30-second flush bucket coalesces by `problem_key` | ✅ count=2 in one finding, not two findings |
+| `MI_FLUSH_INTERVAL_MS = 30_000` honored | ✅ 30.026s between first symptom and flush |
+| `X-Service-Key` header injected from `RC_SERVICE_KEY` env | ✅ value matches exactly |
+| POST target URL `${RC_URL}/api/v1/mesh/audit-seed-service` | ✅ |
+| Schema fields present per `MI-INTEGRATION.md` contract | ✅ all 12 fields including `escalation_message` |
+| Buckets cleared after flush (no immediate re-emit) | ✅ no second POST without new symptom |
+
+### Cleanup
+- `.env.local` restored from `.env.local.bak.mi-test` backup. MI emitter back to OFF (default).
+- Mock-RC stopped, admin dev server killed (was holding stale env in memory).
+
+### What is still NOT tested
+- ❌ Real production target — venue racecontrol's actual `/api/v1/mesh/audit-seed-service` handler accepting + storing the payload (requires deploy + real `RC_SERVICE_KEY` from `racecontrol.toml [pods] sentry_service_key`).
+- ❌ P1 path (`admin_gateway_upstream_unreachable`) — induced 5xx not unreachable. P1 code path is identical structure but unverified via this test.
+- ❌ Multiple distinct `problem_key` values in one flush — only one bucket exercised. Flush iteration over `miBuckets` map order untested.
+- ❌ Behavior when MI POST itself fails (`mi_emit_rejected` / `mi_emit_error` warn-log path) — mock returned 200 every time.
+- ❌ `flushMiBuckets()` called when `miBuckets.size === 0` early-exit branch — never observed.
+- ❌ `miKeyWarnedMissing` once-per-process warn dedup — would need RC_URL or RC_SERVICE_KEY missing while emit enabled.
+
+### Permanence
+- Mock-RC script lives at `racingpoint-admin/scripts/mock-rc-mi-test.py` — committed to repo for re-runnable verification.
+- No source-code change in this verification round; only `MI-INTEGRATION.md` contract behavior was probed.
+
