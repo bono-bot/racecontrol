@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # deploy-probe.sh — graphify blast-radius probe for deploy-gate enumeration.
 #
-# Wave 1 scaffold + Wave 2 freshness — plan_graphify_blast_radius_20260423.md.
-# Next waves: 2-hop BFS (W4), E2E cross-ref (W5), graph-diff (W6), symptom probe (W7).
+# Waves 1+2+3+4 — plan_graphify_blast_radius_20260423.md.
+# Next waves: E2E cross-ref (W5), graph-diff (W6), symptom probe (W7).
 #
 # Usage: bash scripts/graphify-helpers/deploy-probe.sh <branch> [flags]
 # Flags:
-#   --require-fresh          exit 1 if graph older than HEAD by > MAX_AGE
-#   --max-age-min N          stale threshold in minutes (default 60)
-#   --max-hops N             BFS depth (default 1 in this wave)
-#   --graph-file PATH        override default graph lookup
-#   --no-color               disable ANSI colors
-#   -h | --help              print usage
+#   --require-fresh            exit 1 if graph older than HEAD by > MAX_AGE
+#   --max-age-min N            stale threshold in minutes (default 60)
+#   --max-hops N               BFS depth (default 2 — W4 default)
+#   --god-node-threshold N     in-degree >= N marks a node as GOD (default 10)
+#   --graph-file PATH          override default graph lookup
+#   --no-color                 disable ANSI colors
+#   -h | --help                print usage
 # Exit codes:
 #   0 success    1 stale/missing graph (with --require-fresh)    2 query/arg failure
 
@@ -19,8 +20,9 @@ set -euo pipefail
 
 BRANCH=""
 REQUIRE_FRESH=0
-MAX_HOPS=1
+MAX_HOPS=2
 MAX_AGE_MIN=60
+GOD_NODE_THRESHOLD=10
 GRAPH_FILE=""
 USE_COLOR=1
 
@@ -31,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     --require-fresh) REQUIRE_FRESH=1; shift ;;
     --max-age-min) MAX_AGE_MIN="$2"; shift 2 ;;
     --max-hops) MAX_HOPS="$2"; shift 2 ;;
+    --god-node-threshold) GOD_NODE_THRESHOLD="$2"; shift 2 ;;
     --graph-file) GRAPH_FILE="$2"; shift 2 ;;
     --no-color) USE_COLOR=0; shift ;;
     -h|--help) print_usage; exit 0 ;;
@@ -129,7 +132,7 @@ fn_count=$(echo "$changed_fns" | grep -c . || true)
 
 # --- Header ---
 echo ""
-echo "${C_HEAD}═══ graphify deploy probe (Wave 1+2+3 scaffold) ═══${C_END}"
+echo "${C_HEAD}═══ graphify deploy probe (Wave 1+2+3+4) ═══${C_END}"
 printf "%-22s %s\n" "branch:"       "$BRANCH"
 printf "%-22s %s\n" "merge-base:"   "${base:-unknown}"
 printf "%-22s %s\n" "graph.json:"   "${GRAPH_FILE:-<absent>}"
@@ -138,19 +141,40 @@ printf "%-22s %s\n" "changed files:" "$file_count"
 printf "%-22s %s\n" "changed functions:" "$fn_count"
 echo ""
 
-# --- Graph-based coverage + blast-radius (scaffold — 1-hop only in W1) ---
+# --- Graph-based coverage + blast-radius (Wave 4: 2-hop BFS + god-node + communities) ---
 if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" && "$fn_count" -gt 0 ]]; then
-  echo "${C_HEAD}── function coverage + 1-hop neighbours ──${C_END}"
+  echo "${C_HEAD}── function coverage + ${MAX_HOPS}-hop blast radius (W4) ──${C_END}"
   node_json=$(mktemp)
   jq -c '.nodes' "$GRAPH_FILE" > "$node_json"
-  link_json=$(mktemp)
-  jq -c '.links' "$GRAPH_FILE" > "$link_json"
+
+  # Precompute (once) — avoid O(fn × links) scans later.
+  #   adj_tmp       undirected adjacency: {id: [neighbor_id,...]}
+  #   in_deg_tmp    directed in-degree:   {id: count}
+  #   meta_tmp      id → {community, source_file, label}
+  adj_tmp=$(mktemp)
+  in_deg_tmp=$(mktemp)
+  meta_tmp=$(mktemp)
+  jq -c '
+    reduce .links[] as $l ({};
+      .[$l.source | tostring] += [$l.target] |
+      .[$l.target | tostring] += [$l.source])
+    | with_entries(.value |= unique)
+  ' "$GRAPH_FILE" > "$adj_tmp"
+  jq -c '
+    reduce .links[] as $l ({}; .[$l.target | tostring] += 1)
+  ' "$GRAPH_FILE" > "$in_deg_tmp"
+  jq -c '
+    .nodes | map({ (.id | tostring): { community: .community, source_file: .source_file, label: .label } }) | add
+  ' "$GRAPH_FILE" > "$meta_tmp"
 
   indexed=0
   unindexed=0
+  god_nodes=0
+  total_blast_seed_max=0
+  total_blast_seed_max_fn=""
   while IFS= read -r fn; do
     [[ -z "$fn" ]] && continue
-    # Exact label match first, then norm_label, then contains on label.
+    # Exact label match first, then norm_label.
     node=$(jq -c --arg fn "$fn" 'map(select(.label == $fn or .norm_label == $fn)) | .[0] // empty' "$node_json")
     if [[ -z "$node" || "$node" == "null" ]]; then
       unindexed=$((unindexed+1))
@@ -158,17 +182,65 @@ if [[ -n "$GRAPH_FILE" && -f "$GRAPH_FILE" && "$fn_count" -gt 0 ]]; then
       continue
     fi
     indexed=$((indexed+1))
-    node_id=$(echo "$node" | jq -r '.id')
+    node_id=$(echo "$node" | jq -r '.id | tostring')
     community=$(echo "$node" | jq -r '.community')
     source_file=$(echo "$node" | jq -r '.source_file')
-    # 1-hop neighbours (both directions)
-    nbr_count=$(jq --arg id "$node_id" '[ .[] | select(.source == $id or .target == $id) ] | length' "$link_json")
-    printf "  %-40s community=%s  file=%s  1-hop=%s\n" "$fn" "$community" "$source_file" "$nbr_count"
+
+    # Hop 1 — direct neighbours.
+    hop1_ids=$(jq -c --arg id "$node_id" '.[$id] // []' "$adj_tmp")
+    hop1_count=$(echo "$hop1_ids" | jq 'length')
+
+    # Hop 2 — neighbours-of-neighbours, minus seed and hop1 (dedup via exclude set).
+    hop2_count=0
+    blast_ids="$hop1_ids"
+    if (( MAX_HOPS >= 2 && hop1_count > 0 )); then
+      hop2_ids=$(jq -c \
+        --argjson h1 "$hop1_ids" \
+        --arg seed "$node_id" \
+        '
+          ($h1 + [$seed | tonumber? // $seed]) as $exclude |
+          [ $h1[] as $n | .[$n | tostring] // [] | .[] ]
+          | unique
+          | map(select(. as $x | $exclude | index($x) | not))
+        ' "$adj_tmp")
+      hop2_count=$(echo "$hop2_ids" | jq 'length')
+      blast_ids=$(jq -c --argjson h1 "$hop1_ids" --argjson h2 "$hop2_ids" '$h1 + $h2 | unique' <<<'null')
+    fi
+    blast_total=$(echo "$blast_ids" | jq 'length')
+
+    # In-degree — god-node if >= threshold.
+    in_degree=$(jq -r --arg id "$node_id" '.[$id] // 0' "$in_deg_tmp")
+    god_flag=""
+    if (( in_degree >= GOD_NODE_THRESHOLD )); then
+      god_flag=" ${C_WARN}☆GOD${C_END}"
+      god_nodes=$((god_nodes+1))
+    fi
+
+    # Communities touched across blast set.
+    communities=$(jq -r --argjson ids "$blast_ids" '
+      to_entries | map(select(.key as $k | $ids | map(tostring) | index($k))) | map(.value.community) | unique | map(tostring) | join(",")
+    ' "$meta_tmp")
+    comm_count=$(echo -n "$communities" | awk -F',' '{print NF}')
+
+    if (( blast_total > total_blast_seed_max )); then
+      total_blast_seed_max=$blast_total
+      total_blast_seed_max_fn=$fn
+    fi
+
+    printf "  %-40s community=%s  1h=%s  2h=%s  blast=%s  in-deg=%s%s\n" \
+      "$fn" "$community" "$hop1_count" "$hop2_count" "$blast_total" "$in_degree" "$god_flag"
+    printf "    ${C_DIM}file=%s  touches communities: %s (%s)${C_END}\n" \
+      "$source_file" "${communities:-none}" "$comm_count"
   done <<< "$changed_fns"
 
-  rm -f "$node_json" "$link_json"
+  rm -f "$node_json" "$adj_tmp" "$in_deg_tmp" "$meta_tmp"
   echo ""
-  printf "${C_OK}indexed: %s${C_END}  ${C_WARN}unindexed: %s${C_END}  (of %s changed functions)\n" "$indexed" "$unindexed" "$fn_count"
+  printf "${C_OK}indexed: %s${C_END}  ${C_WARN}unindexed: %s${C_END}  ${C_WARN}god-nodes: %s${C_END}  (of %s changed functions, threshold in-deg >= %s)\n" \
+    "$indexed" "$unindexed" "$god_nodes" "$fn_count" "$GOD_NODE_THRESHOLD"
+  if (( total_blast_seed_max > 0 )); then
+    printf "${C_DIM}max blast seed: %s (%s nodes within %s hops)${C_END}\n" \
+      "$total_blast_seed_max_fn" "$total_blast_seed_max" "$MAX_HOPS"
+  fi
 fi
 
 # --- Coverage matrix (Wave 3 — dynamic from graph.json) ---
@@ -248,5 +320,5 @@ if [[ -n "$unindexed_prefixes" && -n "$changed_files" ]]; then
 fi
 
 echo ""
-echo "${C_DIM}Wave 1+2+3 — 1-hop neighbours + freshness-via-built_at/mtime + dynamic coverage matrix (--max-age-min + --require-fresh). Waves 4/5/6/7 add: 2-hop BFS, E2E cross-ref, graph-diff, symptom probe.${C_END}"
+echo "${C_DIM}Wave 1+2+3+4 — freshness (--max-age-min/--require-fresh) + dynamic coverage matrix + ${MAX_HOPS}-hop BFS blast radius + god-node flag (threshold in-deg >= ${GOD_NODE_THRESHOLD}) + per-function community-touch set. Waves 5/6/7 add: E2E cross-ref, graph-diff, symptom probe.${C_END}"
 exit 0
