@@ -704,13 +704,36 @@ fn wait_for_cl_or_force_preset(game_key: &str, runtime_dir: Option<&std::path::P
     Ok(())
 }
 
+/// Returns true for sim types that drive their own FFB (or use XInput rumble) and
+/// must NOT have the unrecognized-game fallback applied.
+///
+/// Engaging `set_idle_spring` on these games physically pulls the wheel toward
+/// center via the OpenFFBoard vendor HID, producing phantom haptic that the
+/// game never overrides — felt by the customer on both wheel and pedals.
+/// Pod 1 incident 2026-04-23 (Forza Horizon 5 launch).
+fn is_xinput_or_self_managed_ffb(sim_type: SimType) -> bool {
+    matches!(
+        sim_type,
+        SimType::ForzaHorizon5 | SimType::Forza | SimType::IRacing
+    )
+}
+
 /// Pre-load the correct FFB preset before game launch.
+/// - XInput / self-managed FFB games (Forza family, iRacing): skip pre-load entirely
 /// - Recognized games: force ConspitLink preset (if CL wasn't running)
 /// - Unrecognized games: apply safe 50% power cap + gentle centering
 ///
 /// Designed to be called from `spawn_blocking` in the LaunchGame handler.
 /// Failures are non-fatal — caller must handle errors gracefully.
 pub fn pre_load_game_preset(sim_type: SimType, runtime_dir: Option<&std::path::Path>) -> Result<(), String> {
+    if is_xinput_or_self_managed_ffb(sim_type) {
+        tracing::info!(
+            target: LOG_TARGET_CFG,
+            "Skipping FFB pre-load for XInput/self-managed game {:?} — game drives its own FFB",
+            sim_type
+        );
+        return Ok(());
+    }
     match sim_type_to_game_key(sim_type) {
         Some(key) => {
             tracing::info!(target: LOG_TARGET_CFG, "Pre-loading preset for {:?} (key: '{}')", sim_type, key);
@@ -1881,5 +1904,51 @@ mod tests {
 
         let result = force_preset_via_global_json("F1 25", Some(&dir));
         assert!(result.is_err(), "Should return Err when Global.json is missing");
+    }
+
+    /// Regression test for pod_1 2026-04-23 incident:
+    /// Forza Horizon 5 launch engaged idle_spring on Conspit wheelbase, producing
+    /// phantom haptic on wheel + pedals that the game never overrode.
+    /// Root cause: SimType::ForzaHorizon5 returned None from sim_type_to_game_key,
+    /// routing to apply_unrecognized_game_fallback which writes set_idle_spring(500).
+    /// Fix: skip FFB pre-load for XInput / self-managed-FFB games entirely.
+    #[test]
+    fn test_xinput_games_skip_ffb_preload() {
+        // Forza family + iRacing must be flagged as self-managed
+        assert!(is_xinput_or_self_managed_ffb(SimType::ForzaHorizon5),
+            "FH5 must skip FFB pre-load — pod_1 phantom haptic incident 2026-04-23");
+        assert!(is_xinput_or_self_managed_ffb(SimType::Forza),
+            "Forza Motorsport must skip FFB pre-load — same hardware path as FH5");
+        assert!(is_xinput_or_self_managed_ffb(SimType::IRacing),
+            "iRacing drives its own FFB — pre-load would conflict");
+
+        // Direct-FFB sims that DO need pre-load must NOT be in the skip list
+        assert!(!is_xinput_or_self_managed_ffb(SimType::AssettoCorsa));
+        assert!(!is_xinput_or_self_managed_ffb(SimType::AssettoCorsaEvo));
+        assert!(!is_xinput_or_self_managed_ffb(SimType::F125));
+        assert!(!is_xinput_or_self_managed_ffb(SimType::AssettoCorsaRally));
+        assert!(!is_xinput_or_self_managed_ffb(SimType::LeMansUltimate));
+    }
+
+    #[test]
+    fn test_pre_load_returns_ok_for_xinput_games_without_ffb_writes() {
+        // pre_load_game_preset must take the early-return path for FH5/Forza/iRacing.
+        // The early return avoids both wait_for_cl_or_force_preset (which sleeps 3s
+        // when ConspitLink is running) and apply_unrecognized_game_fallback (which
+        // writes set_idle_spring). On a dev machine, the Ok return + sub-100ms
+        // completion is the observable signal of the early-return branch.
+        let start = std::time::Instant::now();
+        let result = pre_load_game_preset(SimType::ForzaHorizon5, None);
+        let elapsed = start.elapsed();
+        assert!(result.is_ok(), "pre_load_game_preset(ForzaHorizon5) must return Ok");
+        assert!(elapsed < std::time::Duration::from_millis(100),
+            "FH5 must take early-return path (no CL wait, no HID writes); took {:?}", elapsed);
+
+        let start = std::time::Instant::now();
+        let result = pre_load_game_preset(SimType::IRacing, None);
+        let elapsed = start.elapsed();
+        assert!(result.is_ok(), "pre_load_game_preset(IRacing) must return Ok");
+        assert!(elapsed < std::time::Duration::from_millis(100),
+            "iRacing must take early-return path; took {:?}", elapsed);
     }
 }
