@@ -1,9 +1,11 @@
-# Admin Panel Gateway Contract — v1 (A1+A2+A5-stub IMPLEMENTED, A3 collapsed, A4 EXEMPT)
+# Admin Panel Gateway Contract — v1 (A1+A2+A5-stub IMPLEMENTED on venue, A3 SEPARATE for cloud, A4 EXEMPT)
 
-**Status:** IMPLEMENTED in branch `feat/admin-gateway-contract-a1-a5-20260423`. NOT deployed (deploy is human-gated). See `A1-IMPLEMENTATION-NOTES.md` for what landed and caveats.
-**Date:** 2026-04-23
+**Status:** IMPLEMENTED in branch `feat/admin-gateway-contract-a1-a5-20260423` for the **venue** organ. Cloud admin (A3) is a SEPARATE organ that must implement the same contract but is independently deployed and tested. See `A1-IMPLEMENTATION-NOTES.md` for what landed and caveats.
+**Date:** 2026-04-23 (revised 2026-04-23 evening — A3 un-collapsed per doctrine v3 §5)
 **Companion docs:**
-- Doctrine: `~/.claude/projects/C--Users-bono/memory/project_admin_panel_operator_model.md` (bidirectional spinal cord)
+- Doctrine v3 (canonical): `~/.claude/projects/C--Users-bono/memory/project_admin_panel_operator_model.md` §5 (two-skeletons exoskeleton model — A3 is its own organ, NOT a same-repo collapse)
+- Two-spine sync: `TWO-SPINE-SYNC.md` (spines do not talk directly; sync via existing brain-to-brain Phase 301)
+- MI integration: `MI-INTEGRATION.md` (gateway emits `/api/v1/mesh/audit-seed` on errors — runtime spine-to-brain channel)
 - Audit findings: `~/.claude/projects/C--Users-bono/memory/plan_admin_panel_spinal_cord_gap_20260422.md`
 - Current venue proxy (reference impl): `racingpoint-admin/src/app/api/rc/[...path]/route.ts`
 
@@ -134,12 +136,14 @@ The proxy must NEVER swallow upstream errors silently. 5xx from racecontrol pass
 |---|---|
 | Per-request log line | `ts | request_id | method | path | caller_class | status | latency_ms | upstream_status` |
 | Per-request log destination | stdout (PM2 captures) — sample 1% of GETs, 100% of writes, 100% of 4xx/5xx |
-| Metric: `admin_proxy_requests_total{method, path_class, status}` | Prometheus-scrapeable on `/api/rc/__metrics` |
-| Metric: `admin_proxy_request_duration_seconds` | histogram, same labels |
-| Health probe | `GET /api/rc/__health` returns proxy self-state + upstream RC reachability + last-success timestamp |
+| Metric: `admin_gateway_requests_total{method, status, caller}` | Prometheus-scrapeable on `/api/admin-gateway/metrics` |
+| Metric: `admin_gateway_request_duration_seconds{method, caller}` | summary (p50/p95/p99 + sum + count), same labels |
+| Health probe | `GET /api/admin-gateway/health` returns proxy self-state + upstream RC reachability + last-success timestamp |
 | Trace propagation | passthrough `traceparent` / `tracestate` headers |
 
-The reliability probe (drafted but not running per memory) consumes `__health` to alert on spine outages.
+**Path note (2026-04-23 evening correction):** original draft put meta endpoints at `/api/rc/__health` + `/api/rc/__metrics`. Next.js excludes folders prefixed with `_` from routing (private folder convention), so those returned 404 HTML on smoke. Moved to `/api/admin-gateway/{health,metrics}` — outside the `[...path]` proxy hierarchy, semantically clearer (gateway-meta, not racecontrol-proxy).
+
+The reliability probe (drafted but not running per memory) consumes `/api/admin-gateway/health` to alert on spine outages.
 
 ---
 
@@ -177,16 +181,22 @@ The venue proxy already routes some writes to `RC_CLOUD_URL` (`isCloudAuthoritat
 - Backward compatible: existing admin-UI cookie flow works unchanged
 - See `A1-IMPLEMENTATION-NOTES.md` for caveats
 
-**Phase A2 — observability** ✅ IMPLEMENTED 2026-04-23
-- `__health` route returns proxy + upstream RC reachability + last success/failure timestamps
-- `__metrics` route emits Prometheus text format (admin_gateway_requests_total counter + duration_seconds summary)
+**Phase A2 — observability** ✅ IMPLEMENTED 2026-04-23 (path corrected after smoke)
+- `/api/admin-gateway/health` returns proxy + upstream RC reachability + last success/failure timestamps
+- `/api/admin-gateway/metrics` emits Prometheus text format (admin_gateway_requests_total counter + duration_seconds summary)
 - Sampled request logging (100% writes/errors, 1% GETs)
 - Reliability probe wiring NOT done — probe doesn't exist yet (P1-5 in plan_admin_panel_spinal_cord_gap)
+- **Smoke verified 2026-04-23 evening** from James .27 → localhost:3000 dev server: health JSON returns `{healthy:true, upstream_reachable:true, upstream_status:200, upstream_latency_ms:2}`; metrics returns Prometheus counter + summary with real values from priming traffic (3 requests counted, p50=5ms p95=8ms p99=8ms). See `A1-IMPLEMENTATION-NOTES.md` smoke evidence section.
 
-**Phase A3 — cloud admin port** ✅ COLLAPSED into A1
-- Discovered: venue admin and cloud admin are the same repo (`bono-bot/racingpoint-admin`), env-driven (RC_URL switches target). Single codebase deploys to both. The 22-stub-route problem on cloud is a deploy/config issue, not a missing-proxy problem
-- A1 changes apply to BOTH deployments when shipped
-- Uday A/B/C cloud decision still pending for the broader cloud-admin-restoration question, but the gateway contract is unblocked
+**Phase A3 — cloud admin port** 🟡 SEPARATE ORGAN (un-collapsed 2026-04-23 evening per doctrine v3 §5)
+- **Earlier "A3 collapsed because same repo" framing was wrong-shape.** Same codebase ≠ same organ. The two organs (venue admin `:3201` + cloud admin `admin.racingpoint.cloud`) must implement the **same contract** but stay **independently deployed, configured, and verified**. See `TWO-SPINE-SYNC.md` and doctrine §5 for the exoskeleton model.
+- The branch currently lands the contract on the venue organ only. Cloud organ needs its own:
+  - Deploy run (separate Bono VPS PM2 reload — not auto-covered by venue deploy)
+  - Env/config (`RC_URL` → cloud RC; `ADMIN_COMING_SOON_GATE` resolution; cloud-authoritative-write rules)
+  - Browser-level revival verification per doctrine §7 (tsc-green ≠ functional organ)
+  - 22-stub-route fix (Phase 445 follow-up; cloud-only problem; would not surface on venue)
+- The cloud organ is currently gated by `ADMIN_COMING_SOON_GATE !== '0'` → middleware 503s `/api/rc/*` before the new proxy code runs. A3 also covers the gate-removal sequencing (Option 2 lands → toggle gate off, OR carve `/api/rc/` into `GATE_PUBLIC_PREFIXES`).
+- Uday A/B/C cloud decision still pending for the broader cloud-admin-restoration question. A3 stays open until cloud organ has its own §7 revival evidence.
 
 **Phase A4 — WebSocket relay** 🚫 EXEMPT (decided in §5)
 - Kiosk `/ws/dashboard` continues to hit `:8080` direct
@@ -205,7 +215,7 @@ Surface migrations (Tracks B/C/D) NOW UNBLOCKED. Track B (Kiosk + WhatsApp REST)
 
 1. **WS relay via admin: yes, no, or "exempt /ws/* from spine rule"?** (§5)
 2. **Kiosk-PIN auth header name** — does `X-Kiosk-PIN` exist or do I need to coordinate with kiosk team on header naming?
-3. **Cloud admin A/B/C decision** still blocks Phase A3 — can it be unblocked in this session, or should A3 stay deferred?
+3. **Cloud admin A/B/C decision** still blocks Phase A3 (A3 is a SEPARATE organ per doctrine v3 §5, not the same-repo collapse — needs its own deploy + revival test). Can A/B/C be unblocked, or does A3 stay deferred?
 4. **Rate limit class for "kiosk staff actions"** — staff sometimes use kiosk for admin tasks; does that fall under kiosk class (20 req/sec) or staff class?
 5. **Are there auth modes I missed?** This list comes from 4 surface audits + memory; if PWA uses a 7th auth mode, A1 needs to handle it before kiosk migration.
 
