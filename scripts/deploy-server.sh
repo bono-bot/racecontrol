@@ -46,18 +46,21 @@ rollback() {
   # genuinely failed, caller sees the failure, operator can intervene.
   # Observed 2026-04-20 07:10 + 17:27 IST: both rollbacks were cosmetic-only
   # (new binary stayed live, prev never restored) because the echo always fired.
-  local rb_out
+  local rb_out rollback_class
   rb_out=$($SSH "cd /d ${REMOTE_DIR} && if exist racecontrol-prev.exe (del /F /Q racecontrol.exe && ren racecontrol-prev.exe racecontrol.exe && echo ROLLBACK_OK) else (echo NO_PREV_BINARY)" 2>/dev/null || echo "SSH_FAIL")
   if echo "$rb_out" | grep -q "ROLLBACK_OK"; then
     echo "  Rollback swap OK"
+    rollback_class="SWAP_OK"
   elif echo "$rb_out" | grep -q "NO_PREV_BINARY"; then
     echo "  ROLLBACK ABORTED: racecontrol-prev.exe not present — cannot rollback"
     echo "  Manual recovery: ssh ${SERVER_USER}@${SERVER_IP} — inspect ${REMOTE_DIR}"
+    rollback_class="NO_PREV_BINARY"
   else
     echo "  ROLLBACK SWAP FAILED (del or ren errored): $rb_out"
     echo "  Manual recovery: ssh ${SERVER_USER}@${SERVER_IP} — inspect ${REMOTE_DIR}"
     echo "  Most likely cause: racecontrol.exe is held open by a running process;"
     echo "  taskkill /F /IM racecontrol.exe first, then retry the rollback."
+    rollback_class="FAILED"
   fi
   $SSH "schtasks /Run /TN StartRCDirect" 2>/dev/null || echo "  StartRCDirect trigger failed (non-fatal — watchdog may recover)"
   echo "Rolled back. Waiting 15s for startup..."
@@ -65,6 +68,26 @@ rollback() {
   local rb_health
   rb_health=$(curl -sf --max-time 5 "http://${SERVER_LAN}:8080/api/v1/health" 2>/dev/null || echo "UNREACHABLE")
   echo "Rollback health: $rb_health"
+
+  # rollback() is invoked from steps 5/6/7/7b after step 4 binary swap completed.
+  # Every attempt (SWAP_OK / NO_PREV_BINARY / FAILED) gets a SWAPLOG row so
+  # fleet-swaplog-parity can correlate server-SHA-change events with rollbacks.
+  # Best-effort — a SWAPLOG append failure must NOT block rollback exit.
+  # Path detection matches step 7c; SWAPLOG_PATH env override supported.
+  SWAPLOG_PATH="${SWAPLOG_PATH:-$(cd "$(dirname "$0")/../racecontrol" 2>/dev/null && pwd)/SWAPLOG.md}"
+  if [ -f "$SWAPLOG_PATH" ]; then
+    TS_IST=$(python3 -c "from datetime import datetime,timedelta; print((datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime('%Y-%m-%d %H:%M:%S IST'))" 2>/dev/null || date -u +"%Y-%m-%d %H:%M:%S UTC")
+    TRIGGERED_BY="${SWAPLOG_TRIGGERED_BY:-${USER:-unknown}@$(hostname 2>/dev/null || echo unknown)}"
+    REASON="${SWAPLOG_REASON:-deploy-server.sh rollback from $HASH (no SWAPLOG_REASON env set)}"
+    printf '| %s | ROLLBACK | - | - | %s | [ROLLBACK %s from %s -> prev] %s |\n' \
+      "$TS_IST" "$TRIGGERED_BY" "$rollback_class" "$HASH" "$REASON" \
+      >> "$SWAPLOG_PATH" 2>/dev/null \
+      && echo "  SWAPLOG rollback appended: $SWAPLOG_PATH" \
+      || echo "  SWAPLOG rollback append failed (non-fatal): $SWAPLOG_PATH"
+  else
+    echo "  SWAPLOG rollback skip: $SWAPLOG_PATH not found (set SWAPLOG_PATH env to override)"
+  fi
+
   exit 1
 }
 
