@@ -2,6 +2,7 @@
 //!
 //! Extracted from `ac_server.rs` for module size compliance (<500 lines).
 
+use std::path::Path;
 use std::sync::Arc;
 use sqlx::SqlitePool;
 
