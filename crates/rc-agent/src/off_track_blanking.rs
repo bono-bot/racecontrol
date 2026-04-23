@@ -32,7 +32,15 @@ impl OffTrackBlanking {
     }
 
     /// Show the off-track blanking overlay.
+    ///
+    /// FREEDOM-MODE CONTRACT: early-return if freedom_mode is active. The
+    /// blanking overlay uses HWND_TOPMOST over the full virtual desktop —
+    /// this would cover any game the staff launched for the customer.
     pub fn show(&mut self) {
+        if crate::kiosk::is_freedom_mode_global() {
+            tracing::debug!(target: LOG_TARGET, "off-track blanking show() skipped: freedom_mode active");
+            return;
+        }
         if self.visible {
             return;
         }

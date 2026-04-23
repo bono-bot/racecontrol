@@ -996,7 +996,16 @@ impl OverlayManager {
     }
 
     /// Re-enforce HWND_TOPMOST (call periodically from main loop).
+    ///
+    /// FREEDOM-MODE CONTRACT: early-return if freedom_mode is active. Setting
+    /// HWND_TOPMOST on the HUD knocks DX exclusive-fullscreen games out of
+    /// exclusive mode → game self-minimizes. Call-site in event_loop is also
+    /// gated, this in-function check is defense-in-depth so any future caller
+    /// cannot bypass the contract.
     pub fn enforce_topmost(&self) {
+        if crate::kiosk::is_freedom_mode_global() {
+            return;
+        }
         let data = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if data.active {
             #[cfg(windows)]
