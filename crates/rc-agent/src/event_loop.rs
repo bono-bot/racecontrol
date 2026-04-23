@@ -2036,8 +2036,16 @@ pub async fn run(
             }
 
             _ = conn.overlay_topmost_interval.tick() => {
-                state.overlay.enforce_topmost();
-                if state.kiosk_enabled && !state.kiosk.is_freedom_mode() {
+                // FREEDOM-MODE CONTRACT: overlay.enforce_topmost() sets HWND_TOPMOST on
+                // the HUD bar. For DX exclusive-fullscreen games this is enough to
+                // kick them out of exclusive mode → game self-minimizes on focus loss.
+                // Freedom mode promises "all restrictions lifted" — the HUD must NOT
+                // fight for z-order against a game the staff launched for the customer.
+                let in_freedom_mode = state.kiosk.is_freedom_mode();
+                if !in_freedom_mode {
+                    state.overlay.enforce_topmost();
+                }
+                if state.kiosk_enabled && !in_freedom_mode {
                     tokio::task::spawn_blocking(|| {
                         ac_launcher::minimize_background_windows();
                         // Native lock screen handles its own foreground via WM_TIMER in window.rs
@@ -2090,7 +2098,14 @@ pub async fn run(
                 // BWDOG-05: Native window liveness check (30s interval).
                 // Relaunches the native Win32 lock screen window when it is expected
                 // but not alive (window thread crashed, HWND destroyed, etc.).
-                if state.lock_screen.is_browser_expected() {
+                //
+                // FREEDOM-MODE CONTRACT: Skip relaunch when freedom_mode is active.
+                // launch_browser() → window.rs WM_APP+3 → SetForegroundWindow(lock_hwnd)
+                // which minimizes exclusive-fullscreen DX games. In freedom mode the
+                // desktop/game is intentionally visible; if the lock HWND died it
+                // should stay dead until freedom mode exits.
+                let in_freedom_mode = state.kiosk.is_freedom_mode();
+                if !in_freedom_mode && state.lock_screen.is_browser_expected() {
                     if !state.lock_screen.is_browser_alive() {
                         tracing::warn!(target: LOG_TARGET,
                             "BWDOG-05: Native window expected but not alive — relaunching");
