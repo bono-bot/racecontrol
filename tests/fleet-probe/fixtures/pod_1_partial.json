@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "target_id": "pod_1",
+  "host": "RCPOD-1",
+  "ip": "192.168.31.89",
+  "role": "pod",
+  "probed_at_ist": "2026-04-24T18:00:00+05:30",
+  "probe_status": "partial",
+  "probe_errors": [
+    {
+      "sub_probe": "debug_endpoint",
+      "error": "404 -- rc-agent pre-debug version"
+    }
+  ],
+  "binary_sha256": {
+    "rc-agent.exe": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "build_id": null,
+  "config_hash": {
+    "rc-agent.toml": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "running_procs": [
+    {
+      "name": "rc-agent.exe",
+      "pid": 1234,
+      "cmdline_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "scheduled_tasks": [],
+  "autostart_entries": [
+    {
+      "source": "HKLM_Run",
+      "key": "RCAgent",
+      "value": "C:\\RacingPoint\\start-rcagent.bat"
+    }
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-20T12:00:00+05:30"
+}

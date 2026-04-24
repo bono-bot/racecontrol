@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "target_id": "pos_130",
+  "host": "POS1",
+  "ip": "192.168.31.130",
+  "role": "pos",
+  "probed_at_ist": "2026-04-24T18:00:00+05:30",
+  "probe_status": "probe_failed",
+  "probe_errors": [
+    {
+      "sub_probe": "ssh_connect",
+      "error": "timeout after 15s",
+      "access_gap": "POS_SSH_DOWN"
+    }
+  ],
+  "binary_sha256": {},
+  "build_id": null,
+  "config_hash": {},
+  "running_procs": [],
+  "scheduled_tasks": [],
+  "autostart_entries": [],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": null
+}

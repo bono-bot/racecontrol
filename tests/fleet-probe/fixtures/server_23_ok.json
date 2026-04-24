@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "target_id": "server_23",
+  "host": "Racing-Point-Server",
+  "ip": "192.168.31.23",
+  "role": "server",
+  "probed_at_ist": "2026-04-24T18:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {
+    "racecontrol.exe": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "build_id": "3c2a1b48",
+  "config_hash": {
+    "racecontrol.toml.server_live": "1111111111111111111111111111111111111111111111111111111111111111",
+    "racecontrol.toml.james_proxy": "2222222222222222222222222222222222222222222222222222222222222222",
+    "racecontrol.toml.git_head": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "running_procs": [
+    {
+      "name": "racecontrol.exe",
+      "pid": 4567,
+      "cmdline_hash": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "scheduled_tasks": [
+    {"name": "StartRCDirect", "state": "Ready"}
+  ],
+  "autostart_entries": [
+    {
+      "source": "HKLM_Run",
+      "key": "RaceControl",
+      "value": "C:\\RacingPoint\\start-racecontrol.bat"
+    }
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-23T18:15:00+05:30"
+}
