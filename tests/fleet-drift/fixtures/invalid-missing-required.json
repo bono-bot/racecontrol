@@ -1,0 +1,17 @@
+{
+  "_fixture_note": "Negative fixture: missing required field env_vars_hash. MUST fail validation with an error mentioning env_vars_hash.",
+  "schema_version": "1.0",
+  "target_id": "pod_1",
+  "host": "RCPOD-1",
+  "ip": "192.168.31.89",
+  "role": "pod",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {},
+  "build_id": "0c0c8134",
+  "config_hash": {},
+  "running_procs": [],
+  "scheduled_tasks": [],
+  "autostart_entries": [],
+  "last_deploy_ts": null
+}

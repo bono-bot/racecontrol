@@ -1,0 +1,18 @@
+{
+  "_fixture_note": "Negative fixture: role='workstation' not in enum [server,pod,pos,james,vps,cloud_admin,cloud_racecontrol,relay]. MUST fail validation.",
+  "schema_version": "1.0",
+  "target_id": "james_27",
+  "host": "JAMES-PC",
+  "ip": "192.168.31.27",
+  "role": "workstation",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {},
+  "build_id": null,
+  "config_hash": {},
+  "running_procs": [],
+  "scheduled_tasks": [],
+  "autostart_entries": [],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": null
+}
