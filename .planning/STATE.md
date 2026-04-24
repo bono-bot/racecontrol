@@ -1,31 +1,39 @@
 ---
 gsd_state_version: 1.0
-milestone: v40.0
-milestone_name: Game Launch Reliability
-status: executing
-last_updated: "2026-04-21T16:37:00.000Z"
-last_activity: 2026-04-21
+milestone: v53.0
+milestone_name: Fleet Drift Graphs
+status: defining_requirements
+last_updated: "2026-04-24T07:30:00.000Z"
+last_activity: 2026-04-24
+scope: cross-repo
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 11
-  completed_plans: 11
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-14)
+See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs section added at top)
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
-**Current focus:** Phase 445 SHIPPED 2026-04-21 22:07 IST — typed API contract (Rust→TS codegen) live on cloud admin
 
-## Current Phase
+**Current focus:** v53.0 Fleet Drift Graphs — defining requirements (2026-04-24). Build graph + deploy graph + drift diff across 11 fleet targets, cross-repo scope (racecontrol + racingpoint-admin + comms-link + bono-bot).
+
+## Current Position
+
+**Phase:** Not started (defining requirements)
+**Plan:** —
+**Status:** Defining requirements for v53.0 Fleet Drift Graphs milestone (starting phase 447).
+**Last activity:** 2026-04-24 — Milestone v53.0 started; PROJECT.md Current Milestone section added; graphify-informed location/scope decisions locked.
+
+## Previous Current Phase (archived for continuity)
 
 **Phase:** 445 — SHIPPED
 **Status:** Phase 445 SHIPPED 2026-04-21 22:07 IST. PR #9 merged at `d52a8a72`. Cloud admin rebuilt (build_id `cDyHRUgWTiqZTchmlEPgz`, git_commit `dfaabe6`). 9/9 TYP-XX requirements traced. See [445-PHASE-SUMMARY.md](phases/445-typed-api-contract-rust-ts-codegen/445-PHASE-SUMMARY.md) + [445-05-DEPLOY-EVIDENCE.md](phases/445-typed-api-contract-rust-ts-codegen/445-05-DEPLOY-EVIDENCE.md).
-**Last activity:** 2026-04-21
 
 ## Progress
 

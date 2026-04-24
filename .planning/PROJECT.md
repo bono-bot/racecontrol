@@ -1,5 +1,53 @@
 # Racing Point Operations (Unified)
 
+## Current Milestone: v53.0 Fleet Drift Graphs
+
+**Started:** 2026-04-24
+**Scope:** cross-repo infrastructure (racecontrol + racingpoint-admin + comms-link + bono-bot + 11 fleet targets)
+
+**Goal:** Detect drift between "what's in git" and "what's actually running" by building a build-graph (source repos + docs + memory) and a deploy-graph (fleet-wide runtime manifest probed from Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay), then diff them.
+
+**Phase range:** 447-454 (8 phases proposed; roadmapper confirms final)
+
+**Target features:**
+- Fleet-wide probe infrastructure per target-type (server, pod, POS, james, VPS, cloud, relay)
+- Normalized manifest schema capturing `{binary_sha256, build_id, config_hash, running_procs, scheduled_tasks, autostart_entries, env_vars, last_deploy_ts}`
+- Build graph via graphify on source repos + docs + memory
+- Deploy graph via graphify on fleet manifest
+- Diff tool identifying: built-not-deployed, deployed-diverged-from-git, shape-mismatches
+- Scheduled daily drift report with alerting
+
+**Ground-truth validation:** tool must correctly flag as drift:
+1. `project_racing_hud_v1_and_ac_ephemeral_shm_20260423.md` — HUD v1 code-complete on main, only Pod 8 deployed
+2. `project_freedom_mode_focus_contract_20260423.md` — PR #33 MMA-approved, NOT deployed
+3. `project_fh5_haptic_xinput_skip_20260423.md` — fix committed, NOT deployed
+4. Q5 config drift — `D:/racecontrol.toml` vs git-tracked `racecontrol.toml` (5 categories catalogued)
+
+**Cross-repo targets (not in racecontrol/):**
+- `bono-bot/racingpoint-admin` — cloud admin Next.js app on Bono VPS
+- `comms-link/` — James-Bono WS relay (James .27:8766 + VPS :8765)
+- `bono-bot` — VPS racecontrol binary + WhatsApp/Discord bots
+
+**Why cross-repo scope is load-bearing:** Single-repo milestones (all prior precedent) captured ONE component's drift. Fleet Drift Graphs is a meta-layer: its manifest MUST include every deployable surface. Racecontrol-only scope would miss ~40% of the attack surface (cloud admin 404 class, Q5 TOML class, comms-link relay drift).
+
+**Key decisions (locked 2026-04-24):**
+
+| Decision | Value | Rationale |
+|---|---|---|
+| Milestone version | v53.0 | Next after v52.0; v50.0 still planning; v49.0 active |
+| Location | `racecontrol/.planning/` | Precedent — comms-link v1/v2, admin v1 already here as unified index |
+| Starting phase | 447 | Phase 446 already taken (Canonicalize OPENROUTER_KEY) |
+| Backlog deploy ordering | AFTER milestone | User directive 2026-04-24 — 3 backlog items as post-milestone work |
+| Cloud scope v1 | Included | admin.racingpoint.cloud + cloud racecontrol must be in deploy graph |
+
+**Graphify informed this plan:** memory graph (1277 nodes / 1393 edges / 114 communities) showed god-nodes are cross-system infrastructure (rc-agent, Bono VPS, Server .23, POS .130) and communities already mix repos — supporting cross-repo scope and the "stay in `racecontrol/.planning/`" location.
+
+**Out of scope:**
+- Automated drift REMEDIATION — v53.0 detects and reports only
+- Historical drift timeline — initial manifest is point-in-time; time series is v53.1 or later
+
+---
+
 ## Planning Milestone: v50.0 rc-agent-mobile — Reception Automation Hub
 
 **Started:** 2026-04-18 (Planning phase — not yet executing)
