@@ -35,9 +35,9 @@ These items exist in memory as confirmed code-complete-not-deployed. The diff to
 
 ### Manifest Schema (SCHEMA)
 
-- [ ] **SCHEMA-01**: System defines a normalized per-target manifest schema with fields: `target_id`, `host`, `ip`, `role`, `probed_at_ist`, `probe_status`, `binary_sha256`, `build_id`, `config_hash`, `running_procs`, `scheduled_tasks`, `autostart_entries`, `env_vars_hash`, `last_deploy_ts`
-- [ ] **SCHEMA-02**: Schema has a `schema_version` field with forward-compat unknown-field handling (schema can evolve without breaking prior manifests)
-- [ ] **SCHEMA-03**: Manifest persisted as pretty-printed JSON under `state/fleet-manifest/<iso-ts>/<target_id>.json` with a `state/fleet-manifest/<iso-ts>/_meta.json` summary index
+- [x] **SCHEMA-01**: System defines a normalized per-target manifest schema with fields: `target_id`, `host`, `ip`, `role`, `probed_at_ist`, `probe_status`, `binary_sha256`, `build_id`, `config_hash`, `running_procs`, `scheduled_tasks`, `autostart_entries`, `env_vars_hash`, `last_deploy_ts` — DONE via 447-01 (schemas/fleet-manifest.schema.json, commit 1c34f640, 2026-04-24)
+- [x] **SCHEMA-02**: Schema has a `schema_version` field with forward-compat unknown-field handling (schema can evolve without breaking prior manifests) — DONE via 447-01 (additionalProperties:true everywhere, docs/fleet-drift/schema-versioning.md, commits 1c34f640 + 0dfec421)
+- [x] **SCHEMA-03**: Manifest persisted as pretty-printed JSON under `state/fleet-manifest/<iso-ts>/<target_id>.json` with a `state/fleet-manifest/<iso-ts>/_meta.json` summary index — DIRECTORY SCAFFOLD DONE via 447-01 (state/fleet-manifest/.gitkeep + .gitignore, commit 136e058e); _meta.json example proven via 447-02
 
 ### Probe Infrastructure (PROBE)
 
@@ -131,9 +131,9 @@ Filled by roadmap — each requirement maps to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHEMA-01 | Phase 447 | Pending |
-| SCHEMA-02 | Phase 447 | Pending |
-| SCHEMA-03 | Phase 447 | Pending |
+| SCHEMA-01 | Phase 447 | Complete (447-01, 2026-04-24) |
+| SCHEMA-02 | Phase 447 | Complete (447-01, 2026-04-24) |
+| SCHEMA-03 | Phase 447 | Scaffold complete (447-01); full demo pending 447-02 |
 | PROBE-01 | Phase 448 | Pending |
 | PROBE-02 | Phase 448 | Pending |
 | PROBE-03 | Phase 448 | Pending |

@@ -1,16 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v53.0
-milestone_name: Fleet Drift Graphs
-status: roadmap_drafted
-last_updated: "2026-04-24T09:00:00.000Z"
+milestone: v40.0
+milestone_name: Game Launch Reliability
+status: executing
+last_updated: "2026-04-24T09:30:00.000Z"
 last_activity: 2026-04-24
-scope: cross-repo
 progress:
-  total_phases: 9
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_phases: 147
+  completed_phases: 46
+  total_plans: 143
+  completed_plans: 127
 ---
 
 # Project State
@@ -21,14 +20,25 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
 
-**Current focus:** v53.0 Fleet Drift Graphs — roadmap drafted + scope locked (2026-04-24). 9 phases (447-455), 37 requirements mapped, ground-truth validation gate at Phase 453, lifecycle+MI+synergy omnibus at Phase 455. Build graph + deploy graph + drift diff + lifecycle wiring across 11 fleet targets, cross-repo scope (racecontrol + racingpoint-admin + comms-link + bono-bot).
+**Current focus:** Phase 447 — Manifest Schema & Scope Lock
 
 ## Current Position
 
-**Phase:** 447 (not started)
-**Plan:** TBD
-**Status:** v53.0 roadmap drafted + scope locked 2026-04-24. 9 phases identified (447-455), 37 requirements from REQUIREMENTS-v53.md mapped 1:1 to phases (plus Phase 449 as execution gate with no new REQ mappings). Ground-truth validation gate at Phase 453 must flag all 4 known-drift items (HUD v1 PR #38, freedom mode PR #33, FH5 haptic 0f3cb05e, Q5 TOML drift) without being tuned after the fact. Phase 455 wires v53 into the deploy lifecycle, MI diagnostic pipeline, and ecosystem surfaces (backlog gate, content-drift detector, fleet health score). Awaiting `/gsd:plan-phase 447`.
-**Last activity:** 2026-04-24 — scope locked post-gap-analysis: Phase 452 absorbed DIFF-04 (canary grace) + DIFF-05 (sha→commit mapping); new Phase 455 added with 8 REQs (LIFECYCLE-01/02, MI-01/02/03, SYN-01/02/03). ROADMAP.md + REQUIREMENTS-v53.md + STATE.md updated.
+Phase: 447 (Manifest Schema & Scope Lock) — EXECUTING
+Current Plan: 2
+Total Plans in Phase: 3
+**Phase:** 447 (in progress — Plan 01 SHIPPED)
+**Plan:** 02 next (examples) / 01 SHIPPED via commits 1c34f640 + 0dfec421 + 136e058e
+**Status:** Executing Phase 447 — Plan 01/3 done, Plans 02 + 03 remaining
+**Last activity:** 2026-04-24 — 447-01 schema + versioning + state scaffold shipped
+
+### Plan 01 Completion (2026-04-24)
+
+- Files: schemas/fleet-manifest.schema.json (164 lines), docs/fleet-drift/schema-versioning.md (65 lines), state/fleet-manifest/.gitkeep, .gitignore (+6 lines)
+- Commits: `1c34f640` (schema), `0dfec421` (versioning doc), `136e058e` (scaffold)
+- Requirements closed: SCHEMA-01, SCHEMA-02, SCHEMA-03
+- Duration: ~15 min
+- See: `.planning/phases/447-manifest-schema-scope-lock/447-01-SUMMARY.md`
 
 ## Previous Current Phase (archived for continuity)
 
@@ -41,7 +51,7 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
-| 447 | Manifest Schema & Scope Lock | ○ Not started | 0% |
+| 447 | Manifest Schema & Scope Lock | ◐ Plan 01 SHIPPED (schema + versioning + scaffold) | 33% (1/3 plans) |
 | 448 | Per-Target Probe Scripts | ○ Not started (blocked on 447) | 0% |
 | 449 | First Full-Fleet Probe Run (gate) | ○ Not started (blocked on 448) | 0% |
 | 450 | Build Graph | ○ Not started (blocked on 447) | 0% |
