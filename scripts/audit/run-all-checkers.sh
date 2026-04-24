@@ -40,7 +40,14 @@ declare -a CHECKS=(
   "deploy-staging-parity|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/deploy-staging-parity-check.py"
   "workflow-centrality|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-graph-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-centrality-check.py"
   "instant-arithmetic|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/instant-arithmetic-check.py"
+  "process-ownership|true|bash $SCRIPT_DIR/process-ownership.sh"
 )
+# NOTE: data-content-check.py is shipped to origin/main (commit f0d0ffb1) but its
+# rules YAML (.planning/functional-layer/data-content-rules.yaml, commit 8810ca6c)
+# is still only on origin/feat/f4-data-content-check-20260421. Without the YAML the
+# checker exits 2 (internal error). Leaving it OUT of the CHECKS array until the
+# YAML lands on main — wiring it now would produce false RED in status.json.
+# Tracked as gap for PACT-20260424-007.
 
 # Future surfaces (stubs — registered but generators not yet written):
 #   types     — extract rc-common serde structs, cross-check vs kiosk TS types
