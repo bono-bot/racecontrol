@@ -28,7 +28,11 @@ impl Default for DetectorConfig {
             idle_threshold: Duration::from_secs(10),
             steering_deadzone: 0.02, // 2%
             pedal_threshold: 0.05,   // 5%
-            telemetry_ports: vec![9996, 20777, 5300, 6789, 5555],
+            // F1 25 telemetry port is 20778 (ADAPTER-SWAP-06, 2026-04-12).
+            // Port 20777 is owned by ConspitLink FFB driver; F1 25 is configured
+            // to broadcast telemetry to 20778 instead. Binding 20777 here would
+            // test FFB presence, not F1 25 telemetry — the finding from prior audit.
+            telemetry_ports: vec![9996, 20778, 5300, 6789, 5555],
             wheelbase_vid: 0x1209,
             wheelbase_pid: 0xFFB0,
         }

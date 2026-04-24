@@ -168,7 +168,7 @@ pub fn probe_udp_port_from_netstat_output(port: u16, netstat_stdout: &str) -> Pr
     }
 }
 
-/// Probe 6–10: UDP telemetry port bound (AC=9996, F1=20777, Forza=5300, iRacing=6789, LMU=5555).
+/// Probe 6–10: UDP telemetry port bound (AC=9996, F1=20778, Forza=5300, iRacing=6789, LMU=5555).
 async fn probe_udp_port(port: u16) -> ProbeResult {
     let result = spawn_blocking(move || {
         rc_common::spawn_safe::spawn_safe_capture("netstat")
@@ -179,7 +179,7 @@ async fn probe_udp_port(port: u16) -> ProbeResult {
 
     let game_name = match port {
         9996 => "AC",
-        20777 => "F1",
+        20778 => "F1",
         5300 => "Forza",
         6789 => "iRacing",
         5555 => "LMU",
@@ -662,7 +662,7 @@ pub async fn run_all_probes(
         timed_probe("overlay", || probe_tcp_port("overlay", "127.0.0.1:18925")),
         timed_probe("debug_server", || probe_tcp_port("debug_server", "127.0.0.1:18924")),
         timed_probe("udp_port_AC", || probe_udp_port(9996)),
-        timed_probe("udp_port_F1", || probe_udp_port(20777)),
+        timed_probe("udp_port_F1", || probe_udp_port(20778)),
         timed_probe("udp_port_Forza", || probe_udp_port(5300)),
         timed_probe("udp_port_iRacing", || probe_udp_port(6789)),
         timed_probe("udp_port_LMU", || probe_udp_port(5555)),
@@ -1066,13 +1066,13 @@ Active Connections\r\n\
 \r\n\
   Proto  Local Address          Foreign Address        State           PID\r\n\
   UDP    0.0.0.0:9996           *:*                                    12345\r\n\
-  UDP    0.0.0.0:20777          *:*                                    12346\r\n";
+  UDP    0.0.0.0:20778          *:*                                    12346\r\n";
         assert_eq!(
             probe_udp_port_from_netstat_output(9996, netstat_output),
             ProbeStatus::Pass
         );
         assert_eq!(
-            probe_udp_port_from_netstat_output(20777, netstat_output),
+            probe_udp_port_from_netstat_output(20778, netstat_output),
             ProbeStatus::Pass
         );
     }

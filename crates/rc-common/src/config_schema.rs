@@ -43,7 +43,10 @@ pub fn default_sim_port() -> u16 { 9996 }
 pub fn default_core_url() -> String { "ws://127.0.0.1:8080/ws/agent".to_string() }
 pub fn default_wheelbase_vid() -> u16 { 0x1209 }
 pub fn default_wheelbase_pid() -> u16 { 0xFFB0 }
-pub fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20777, 5300, 6789, 5555] }
+// F1 25 telemetry port is 20778 (ADAPTER-SWAP-06, 2026-04-12).
+// Port 20777 is owned by ConspitLink FFB driver; F1 25 is configured
+// to broadcast telemetry to 20778 instead.
+pub fn default_telemetry_ports() -> Vec<u16> { vec![9996, 20778, 5300, 6789, 5555] }
 pub fn default_auto_end_orphan_session_secs() -> u64 { 300 }
 
 fn default_true() -> bool { true }
