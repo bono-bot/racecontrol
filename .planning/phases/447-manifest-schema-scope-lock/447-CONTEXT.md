@@ -11,10 +11,11 @@ Publish `schemas/fleet-manifest.schema.json` covering every field that downstrea
 
 **What this phase delivers:**
 - `schemas/fleet-manifest.schema.json` — JSON Schema draft 2020-12 defining per-target manifest shape
-- `schemas/fleet-manifest.example.json` — one valid example per target class (server/pod/pos/james/vps/cloud-admin/cloud-rc/relay)
+- `schemas/examples/{target_id}.json` — one valid example per target class (server/pod/pos/james/vps/cloud-admin/cloud-rc/relay)
+- `schemas/examples/_meta.json` — SCHEMA-03 summary-index reference example
 - `docs/fleet-drift/schema-versioning.md` — forward-compat rules (unknown-field tolerance, version bump semantics)
 - `state/fleet-manifest/.gitkeep` + `.gitignore` entries for runtime manifest output (ephemeral state, not committed)
-- Unit tests validating example manifests against the schema (Node ajv or equivalent JSON-schema validator)
+- `tests/fleet-drift/validate-manifest.test.mjs` + 4 fixtures — Node ajv validator test covering positive forward-compat + negative cases
 
 **What this phase does NOT deliver:**
 - Any probe scripts (Phase 448)
@@ -104,7 +105,21 @@ Plus `schema_version` (SCHEMA-02) at the root.
 
 </deferred>
 
+<plans>
+## Plans (scoped 2026-04-24)
+
+| Plan | Wave | Depends On | Files | Requirements | Autonomous |
+|------|------|-----------|-------|--------------|------------|
+| `447-01-PLAN.md` | 1 | — | `schemas/fleet-manifest.schema.json`, `docs/fleet-drift/schema-versioning.md`, `state/fleet-manifest/.gitkeep`, `.gitignore` | SCHEMA-01, SCHEMA-02, SCHEMA-03 | yes |
+| `447-02-PLAN.md` | 2 | 447-01 | 8 × `schemas/examples/<target>.json` + `schemas/examples/_meta.json` | SCHEMA-01, SCHEMA-03 | yes |
+| `447-03-PLAN.md` | 3 | 447-01, 447-02 | `tests/fleet-drift/validate-manifest.test.mjs` + 4 fixtures + `package.json` | SCHEMA-01, SCHEMA-02, SCHEMA-03 | yes |
+
+Wave 1 ships the schema + policy doc + state scaffold — the foundation every later plan and every Phase 448+ probe depends on. Wave 2 produces the 8 realistic example manifests that prove SCHEMA-01 round-trips and serve as reference documentation. Wave 3 ships the ajv-backed Node test that proves SCHEMA-02 forward-compat works end-to-end (positive fixtures pass, negative fixtures fail).
+
+</plans>
+
 ---
 
 *Phase: 447-manifest-schema-scope-lock*
 *Context gathered: 2026-04-24 via autonomous workflow infrastructure-detect path. REQ-IDs: SCHEMA-01, SCHEMA-02, SCHEMA-03 (tracked in `.planning/REQUIREMENTS-v53.md`).*
+*Plans scoped: 2026-04-24 — 3 plans across 3 waves.*

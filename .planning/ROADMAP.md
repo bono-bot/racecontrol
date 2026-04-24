@@ -2535,7 +2535,12 @@ This is the binary gate between "milestone done" and "milestone not done." Phase
   3. Staff can open a sample manifest under `state/fleet-manifest/<iso-ts>/<target_id>.json` and read every field without a decoder
   4. A manifest written with `schema_version: 1` is still readable by a parser expecting `schema_version: 2` (unknown-field-tolerant) — proven with a fixture
   5. The `_meta.json` summary index lists every target, its probe_status, and its manifest filename for a given probe run
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 447-01-PLAN.md — Schema file + versioning doc + state/ scaffold + .gitignore (SCHEMA-01, SCHEMA-02, SCHEMA-03)
+- [ ] 447-02-PLAN.md — 8 per-target example manifests + _meta.json summary index (SCHEMA-01, SCHEMA-03)
+- [ ] 447-03-PLAN.md — Node ajv validator test + 4 fixtures + npm script wiring (SCHEMA-01, SCHEMA-02, SCHEMA-03)
 
 ### Phase 448: Per-Target Probe Scripts
 **Goal:** Every deployable surface in the fleet has a probe that emits a valid manifest, and a single orchestrator runs them all in one invocation.
