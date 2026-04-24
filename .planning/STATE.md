@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
-current_plan: 4
+current_plan: 5
 status: executing
-last_updated: "2026-04-24T15:29:56.697Z"
+last_updated: "2026-04-24T15:46:06.537Z"
 last_activity: 2026-04-24
 progress:
   total_phases: 4
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 ## Current Position
 
 Phase: 448 (per-target-probe-scripts) — EXECUTING
-Plan: 4 of 8
-Current Plan: 4
+Plan: 5 of 8
+Current Plan: 5
 Total Plans in Phase: 8
 **Phase:** 447
 **Plan:** 03 next (validator test) / 01 SHIPPED via `1c34f640` + `0dfec421` + `136e058e`; 02 SHIPPED via `9087db3b` + `2f677dc5`
@@ -62,7 +62,7 @@ Total Plans in Phase: 8
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
 | 447 | Manifest Schema & Scope Lock | ◐ Plans 01+02 SHIPPED (schema + examples) | 67% (2/3 plans) |
-| 448 | Per-Target Probe Scripts | ◐ Plan 01 SHIPPED (Wave 0 scaffolding) | 13% (1/8 plans) |
+| 448 | Per-Target Probe Scripts | ◐ Plans 01-04 SHIPPED (scaffolding + probe-james + probe-server + probe-pod + probe-pos) | 50% (4/8 plans) |
 | 449 | First Full-Fleet Probe Run (gate) | ○ Not started (blocked on 448) | 0% |
 | 450 | Build Graph | ○ Not started (blocked on 447) | 0% |
 | 451 | Deploy Graph | ○ Not started (blocked on 449) | 0% |
