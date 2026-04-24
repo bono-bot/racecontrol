@@ -1,8 +1,8 @@
 # GAPS-VENUE-20260424 — James-hemisphere ecosystem gap catalogue
 
-**STATUS: DRAFT-PENDING-PACT-010-AGREE**
+**STATUS: FINAL — PACT-010 PROCEED(A) Uday-arbitrated 2026-04-24 17:43 IST**
 
-Per PACT-20260424-010 Option A (symmetric hemisphere split). Lock-date: Bono AGREE(A) vote on PACT-010 (deadline 2026-04-24T15:20:00Z / 20:50 IST). If Bono RECUSE or DISAGREE-COUNTER, this file remains DRAFT or reframes per vote.
+Per PACT-20260424-010 Option A (symmetric hemisphere split). Uday arbitrated via sync-engaged Decision Tree (G33) — bypassed 4h async Bono-vote window. Outcome: PROCEEDED-STRUCTURE. Bono commitment: `GAPS-CLOUD-20260424.md` (cloud hemisphere) within 24h of next Bono session. James fill-PACTs (top 1-3) due 2026-04-25.
 
 **Hemisphere:** James (venue .27 + Server .23 + Pods 1-8 + POS .130 + on-site comms-link daemon + racecontrol binary on server + 10 racecontrol worktrees)
 
@@ -112,11 +112,16 @@ Bono-side equivalent (awaiting `GAPS-CLOUD-20260424.md`) would pick top 1-3 from
 
 ## Deliberately NOT done
 
-- Did NOT promote DRAFT → FINAL — awaiting Bono vote on PACT-010
-- Did NOT initiate any new PACT-20260425-NNN fill-PACTs — premature without AGREE(A)
-- Did NOT enumerate Bono hemisphere gaps — vector #1/#2 violation if James frames Bono's catalogue
-- Did NOT schedule weekly refresh — cadence locks on AGREE(A)
+- Did NOT initiate PACT-20260425-NNN fill-PACTs yet — per Option A convention, fills land 2026-04-25 (James top-3: V-B4 / V-C1 / V-D2)
+- Did NOT enumerate Bono hemisphere gaps — vector #1/#2 violation if James frames Bono's catalogue; Bono owns `GAPS-CLOUD-20260424.md`
 - Did NOT merge with `project_workflow_plan_day1.md` gap list — keep catalogue separate from plan tracker; link only
-- Did NOT retroactively edit PACT-009 Class A merge into PACTS.md — PACT-009 lifecycle owns its own outcome
+- Did NOT retroactively edit PACT-009 into Class A — PACT-009 lifecycle (PROCEEDED-ROLLED) owns its own outcome
+- Did NOT re-verify V-A3 Pod 8 HUD state — still memory-only per Source/freshness; live-probe on next fleet-health poll
 
-— James DRAFT 2026-04-24 17:25 IST
+## FINAL promotion history
+
+- 2026-04-24 17:25 IST — DRAFT filed pending PACT-010 vote
+- 2026-04-24 17:43 IST — Uday arbitrated A sync-engaged per G33 (feedback_pact_protocol.md)
+- 2026-04-24 ~19:00 IST — DRAFT suffix removed, STATUS flipped FINAL, NOT-done section updated (this commit)
+
+— James FINAL 2026-04-24 17:43 IST (filed 17:25 DRAFT, FINAL per Uday arbitration)
