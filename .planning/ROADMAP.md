@@ -2552,15 +2552,15 @@ Plans:
   3. When a target is unreachable, the probe writes a `probe_status: probe_failed` row with reason (not a missing file), so the manifest set is always complete across all 11 targets
   4. Probes use only existing access paths (SSH, rp-bono-exec relay, HTTP/JWT, Tailscale) — no new agent install required on any target
   5. Any Server .23 SSH access gaps surfaced during PROBE-01 execution are either fixed in-phase or explicitly documented in `docs/fleet-probe/access-gaps.md`
-**Plans:** 4/8 plans executed
+**Plans:** 6/8 plans executed
 
 Plans:
 - [x] 448-01-wave0-scaffolding-PLAN.md — Wave 0: shared lib + ajv CLI validator + mock helpers + 3 schema-valid fixtures + package.json test script (PROBE-09 scaffold)
 - [x] 448-02-probe-james-and-orchestrator-skeleton-PLAN.md — Wave 1: probe-james.sh (pure localhost) + probe-all.sh skeleton with --dry-run enumeration of 15 targets (PROBE-04, PROBE-09)
 - [x] 448-03-probe-server-PLAN.md — Wave 2: probe-server.sh via Tailscale SSH with Q5 three-way config_hash + SWAPLOG last_deploy_ts + PROBE_SSH mock for offline tests (PROBE-01)
 - [x] 448-04-probe-pod-and-pos-PLAN.md — Wave 2: probe-pod.sh (rc-sentry /exec, positional N 1..8) + probe-pos.sh (Tailscale SSH + :3300 kiosk health, partial-class WMI-denied) (PROBE-02, PROBE-03)
-- [ ] 448-05-probe-vps-and-relay-PLAN.md — Wave 3: probe-vps.sh (comms-link relay exec with COMMS_PSK) + probe-relay.sh (composite James+VPS manifest) (PROBE-05, PROBE-08)
-- [ ] 448-06-probe-cloud-admin-and-cloud-rc-PLAN.md — Wave 3: probe-cloud-admin.sh (HTTPS /api/health + Coming Soon gate detection) + probe-cloud-rc.sh (HTTPS /api/v1/health) (PROBE-06, PROBE-07)
+- [x] 448-05-probe-vps-and-relay-PLAN.md — Wave 3: probe-vps.sh (comms-link relay exec with COMMS_PSK) + probe-relay.sh (composite James+VPS manifest) (PROBE-05, PROBE-08)
+- [x] 448-06-probe-cloud-admin-and-cloud-rc-PLAN.md — Wave 3: probe-cloud-admin.sh (HTTPS /api/health + Coming Soon gate detection) + probe-cloud-rc.sh (HTTPS /api/v1/health) (PROBE-06, PROBE-07)
 - [ ] 448-07-orchestrator-full-wiring-and-meta-PLAN.md — Wave 4: probe-all.sh full wiring (sequential cluster + parallel pods) + build-meta-index.py + smoke-orchestrator.sh integration test (PROBE-09)
 - [ ] 448-08-access-gaps-doc-and-handoff-PLAN.md — Wave 5: docs/fleet-probe/access-gaps.md scaffold + docs/fleet-probe/README.md staff entry-point (PROBE-01 audit trail)
 
@@ -2656,7 +2656,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 447. Manifest Schema & Scope Lock | 3/3 | Complete    | 2026-04-24 |
-| 448. Per-Target Probe Scripts | 4/8 | In Progress|  |
+| 448. Per-Target Probe Scripts | 6/8 | In Progress|  |
 | 449. First Full-Fleet Probe Run (gate) | 0/TBD | Blocked on 448 | - |
 | 450. Build Graph | 0/TBD | Blocked on 447 | - |
 | 451. Deploy Graph | 0/TBD | Blocked on 449 | - |
