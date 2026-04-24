@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racingpoint.in/schemas/fleet-manifest.schema.json",
+  "title": "Fleet Manifest",
+  "description": "Per-target runtime state snapshot produced by Phase 448 probe scripts. See docs/fleet-drift/schema-versioning.md for forward-compat rules. schema_version '1.0' is the initial version; additionalProperties: true is set everywhere so future schema versions remain readable by old tools.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "target_id",
+    "host",
+    "ip",
+    "role",
+    "probed_at_ist",
+    "probe_status",
+    "binary_sha256",
+    "build_id",
+    "config_hash",
+    "running_procs",
+    "scheduled_tasks",
+    "autostart_entries",
+    "env_vars_hash",
+    "last_deploy_ts"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Semver-like schema version. Initial value '1.0'. Minor bumps = additive fields. Major bumps = breaking field changes (requires migration doc)."
+    },
+    "target_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable target identifier. Format for role+index targets: '{role}_{ip_suffix_or_index}' (e.g. server_23, pod_1..pod_8, pos_130, james_27). Role-only targets: bono_vps, cloud_admin, cloud_racecontrol. Composite: relay_james, relay_vps."
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Hostname or IP string -- whichever the probe used to reach the target."
+    },
+    "ip": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Primary IPv4 or IPv6 address. For cloud targets, resolved A/AAAA record."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "server",
+        "pod",
+        "pos",
+        "james",
+        "vps",
+        "cloud_admin",
+        "cloud_racecontrol",
+        "relay"
+      ],
+      "description": "Target class. Drives probe path selection in Phase 448 and severity mapping in Phase 452 DIFF-03."
+    },
+    "probed_at_ist": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "\\+05:30$",
+      "description": "ISO-8601 with explicit +05:30 offset. IST -- NOT UTC. Rust tracing logs are UTC; probes must convert before writing here."
+    },
+    "probe_status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "probe_failed",
+        "partial"
+      ],
+      "description": "ok = all sub-probes succeeded. probe_failed = target unreachable, no data collected. partial = target reachable but >=1 sub-probe failed; probe_errors[] populated."
+    },
+    "binary_sha256": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "description": "Map from binary filename (e.g. 'racecontrol.exe', 'rc-agent.exe') to lowercase hex sha256. Empty object '{}' when probe_status != ok."
+    },
+    "build_id": {
+      "type": ["string", "null"],
+      "description": "Short git hash from Rust env!(GIT_HASH) if the primary binary embeds it. null for targets that don't expose build_id (POS kiosk frontends, VPS services without GIT_HASH)."
+    },
+    "config_hash": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "description": "Map from config filename (e.g. 'racecontrol.toml', 'pod-1.toml') to lowercase hex sha256 of file contents."
+    },
+    "running_procs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "pid", "cmdline_hash"],
+        "properties": {
+          "name": { "type": "string" },
+          "pid": { "type": "integer", "minimum": 0 },
+          "cmdline_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": true
+      },
+      "description": "Process snapshot from tasklist /V (Windows) or ps (Linux). cmdline_hash = sha256 of full command line -- NEVER raw cmdline because env var values may leak."
+    },
+    "scheduled_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "state"],
+        "properties": {
+          "name": { "type": "string" },
+          "state": { "type": "string" },
+          "last_run": { "type": ["string", "null"] },
+          "next_run": { "type": ["string", "null"] }
+        },
+        "additionalProperties": true
+      },
+      "description": "Windows schtasks /Query /V /FO LIST output normalized. Linux targets emit cron entries with state='enabled'/'disabled'."
+    },
+    "autostart_entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "key", "value"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["HKLM_Run", "HKCU_Run", "startup_folder", "schtask"]
+          },
+          "key": { "type": "string" },
+          "value": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "description": "Windows autostart surfaces enumerated per CLAUDE.md 'Autostart Enumeration' rule. schtask entries duplicate scheduled_tasks rows that are registered as autostart."
+    },
+    "env_vars_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of sorted env variable NAMES only (newline-joined, LF not CRLF). SECURITY BOUNDARY: values NEVER hashed or stored -- even hashed secrets leak entropy. Empty-hash sentinel (sha256 of empty string 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') permitted when probe_status='probe_failed'."
+    },
+    "last_deploy_ts": {
+      "type": ["string", "null"],
+      "description": "ISO-8601 IST timestamp (+05:30 offset) of the most recent deploy affecting this target. Derived from SWAPLOG.md (Server .23) or state/deploy-ledger/<target_id>.jsonl (Phase 455 LIFECYCLE-02). null when no deploy history available."
+    },
+    "probe_errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sub_probe", "error"],
+        "properties": {
+          "sub_probe": { "type": "string" },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "description": "Populated when probe_status='partial' or 'probe_failed'. Each entry names the failed sub-probe (e.g. 'tasklist', 'schtasks_query', 'reg_query_hklm_run') and its error string. Consumed by Phase 452 diff tool to distinguish 'target down' from 'ran but incomplete data'."
+    }
+  }
+}
