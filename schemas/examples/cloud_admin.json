@@ -1,0 +1,22 @@
+{
+  "_example_note": "Reference example for role=cloud_admin target (admin.racingpoint.cloud). build_id = Next.js build hash.",
+  "schema_version": "1.0",
+  "target_id": "cloud_admin",
+  "host": "admin.racingpoint.cloud",
+  "ip": "45.11.110.250",
+  "role": "cloud_admin",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {},
+  "build_id": "cDyHRUgW",
+  "config_hash": {},
+  "running_procs": [
+    {"name": "node",  "pid": 2001, "cmdline_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+  ],
+  "scheduled_tasks": [],
+  "autostart_entries": [
+    {"source": "startup_folder", "key": "pm2-resurrect", "value": "/root/.pm2/dump.pm2"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-22T15:15:00+05:30"
+}

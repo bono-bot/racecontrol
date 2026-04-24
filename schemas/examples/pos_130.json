@@ -1,0 +1,27 @@
+{
+  "_example_note": "Reference example for role=pos target. Demonstrates probe_status=partial with probe_errors[] populated — tasklist sub-probe failed but HTTP + reg_query succeeded.",
+  "schema_version": "1.0",
+  "target_id": "pos_130",
+  "host": "POS1",
+  "ip": "192.168.31.130",
+  "role": "pos",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "partial",
+  "probe_errors": [
+    {"sub_probe": "tasklist", "error": "WMI access denied from remote SSH context; retry via rp-bono-exec relay"}
+  ],
+  "binary_sha256": {},
+  "build_id": null,
+  "config_hash": {},
+  "running_procs": [],
+  "scheduled_tasks": [
+    {"name": "POS-Watchdog", "state": "Ready", "last_run": "2026-04-24T11:30:00+05:30", "next_run": "2026-04-24T12:30:00+05:30"}
+  ],
+  "autostart_entries": [
+    {"source": "HKLM_Run", "key": "BillingDashboard", "value": "C:\\POS\\start-billing-dashboard.bat"},
+    {"source": "HKLM_Run", "key": "ChromeKiosk",     "value": "C:\\POS\\launch-chrome-kiosk.bat"},
+    {"source": "schtask",  "key": "POS-Watchdog",    "value": "C:\\POS\\watchdog-pos.ps1"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-20T15:00:00+05:30"
+}

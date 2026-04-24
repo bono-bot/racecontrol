@@ -1,0 +1,27 @@
+{
+  "_example_note": "Reference example for role=vps target (Bono VPS = srv1422716.hstgr.cloud). IP is illustrative.",
+  "schema_version": "1.0",
+  "target_id": "bono_vps",
+  "host": "srv1422716.hstgr.cloud",
+  "ip": "45.11.110.250",
+  "role": "vps",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {
+    "racecontrol": "f1b2c3d4e5f67890f1b2c3d4e5f67890f1b2c3d4e5f67890f1b2c3d4e5f67890"
+  },
+  "build_id": "129a24f2",
+  "config_hash": {
+    "racecontrol.toml": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "running_procs": [
+    {"name": "racecontrol",   "pid": 1234, "cmdline_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+    {"name": "comms-link",    "pid": 1235, "cmdline_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+  ],
+  "scheduled_tasks": [],
+  "autostart_entries": [
+    {"source": "startup_folder", "key": "pm2-resurrect", "value": "/root/.pm2/dump.pm2"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-22T15:15:00+05:30"
+}

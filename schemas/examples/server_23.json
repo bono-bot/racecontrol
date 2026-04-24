@@ -1,0 +1,31 @@
+{
+  "_example_note": "Reference example for role=server target. Values illustrative. Generated 2026-04-24 as part of Phase 447 Plan 02 (SCHEMA-01 demonstration). Tests against schemas/fleet-manifest.schema.json.",
+  "schema_version": "1.0",
+  "target_id": "server_23",
+  "host": "Racing-Point-Server",
+  "ip": "192.168.31.23",
+  "role": "server",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {
+    "racecontrol.exe": "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890"
+  },
+  "build_id": "3c2a1b48",
+  "config_hash": {
+    "racecontrol.toml": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "running_procs": [
+    {"name": "racecontrol.exe", "pid": 4567, "cmdline_hash": "2222222222222222222222222222222222222222222222222222222222222222"},
+    {"name": "powershell.exe",  "pid": 4568, "cmdline_hash": "3333333333333333333333333333333333333333333333333333333333333333"}
+  ],
+  "scheduled_tasks": [
+    {"name": "StartRCDirect", "state": "Ready",   "last_run": "2026-04-23T18:15:00+05:30", "next_run": null},
+    {"name": "StartRCOnBoot", "state": "Ready",   "last_run": "2026-04-21T10:00:00+05:30", "next_run": null}
+  ],
+  "autostart_entries": [
+    {"source": "HKLM_Run", "key": "RaceControl", "value": "C:\\RacingPoint\\start-racecontrol.bat"},
+    {"source": "schtask",  "key": "StartRCDirect", "value": "C:\\RacingPoint\\start-racecontrol-direct.bat"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": "2026-04-23T18:15:00+05:30"
+}

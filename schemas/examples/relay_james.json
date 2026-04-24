@@ -1,0 +1,24 @@
+{
+  "_example_note": "Reference example for role=relay target (comms-link relay on James .27:8766). No deploy pipeline so last_deploy_ts=null.",
+  "schema_version": "1.0",
+  "target_id": "relay_james",
+  "host": "JAMES-PC",
+  "ip": "192.168.31.27",
+  "role": "relay",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {},
+  "build_id": null,
+  "config_hash": {},
+  "running_procs": [
+    {"name": "node.exe", "pid": 5001, "cmdline_hash": "1010101010101010101010101010101010101010101010101010101010101010"}
+  ],
+  "scheduled_tasks": [
+    {"name": "CommsLink-DaemonWatchdog", "state": "Ready", "last_run": "2026-04-24T11:58:00+05:30", "next_run": "2026-04-24T12:00:00+05:30"}
+  ],
+  "autostart_entries": [
+    {"source": "HKCU_Run", "key": "CommsLink", "value": "C:\\Users\\bono\\racingpoint\\comms-link\\start-comms-link.bat"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": null
+}

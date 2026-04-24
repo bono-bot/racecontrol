@@ -1,0 +1,30 @@
+{
+  "_example_note": "Reference example for role=james target. No formal deploy pipeline yet so last_deploy_ts=null. Demonstrates null-handling for that field.",
+  "schema_version": "1.0",
+  "target_id": "james_27",
+  "host": "JAMES-PC",
+  "ip": "192.168.31.27",
+  "role": "james",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_status": "ok",
+  "binary_sha256": {
+    "rc-watchdog.exe":   "d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890d1b2c3d4e5f67890",
+    "rc-sentry-ai.exe":  "e1b2c3d4e5f67890e1b2c3d4e5f67890e1b2c3d4e5f67890e1b2c3d4e5f67890"
+  },
+  "build_id": null,
+  "config_hash": {},
+  "running_procs": [
+    {"name": "node.exe",     "pid": 5001, "cmdline_hash": "8888888888888888888888888888888888888888888888888888888888888888"},
+    {"name": "go2rtc.exe",   "pid": 5002, "cmdline_hash": "9999999999999999999999999999999999999999999999999999999999999999"},
+    {"name": "ollama.exe",   "pid": 5003, "cmdline_hash": "a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9"}
+  ],
+  "scheduled_tasks": [
+    {"name": "CommsLink-DaemonWatchdog", "state": "Ready",   "last_run": "2026-04-24T11:58:00+05:30", "next_run": "2026-04-24T12:00:00+05:30"},
+    {"name": "AutoDetect-Daily",         "state": "Ready",   "last_run": "2026-04-24T02:00:00+05:30", "next_run": "2026-04-25T02:00:00+05:30"}
+  ],
+  "autostart_entries": [
+    {"source": "HKCU_Run", "key": "CommsLink", "value": "C:\\Users\\bono\\racingpoint\\comms-link\\start-comms-link.bat"}
+  ],
+  "env_vars_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "last_deploy_ts": null
+}
