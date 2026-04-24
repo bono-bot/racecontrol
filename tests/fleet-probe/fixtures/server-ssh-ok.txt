@@ -1,0 +1,40 @@
+===MARK:hostname===
+Racing-Point-Server
+===MARK:certutil_exe===
+SHA256 hash of C:\RacingPoint\racecontrol.exe:
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+CertUtil: -hashfile command completed successfully.
+===MARK:certutil_toml===
+SHA256 hash of C:\RacingPoint\racecontrol.toml:
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+CertUtil: -hashfile command completed successfully.
+===MARK:tasklist===
+"Image Name","PID","Session Name","Session#","Mem Usage","Status","User Name","CPU Time","Window Title"
+"racecontrol.exe","4567","Services","0","123,456 K","Running","NT AUTHORITY\SYSTEM","0:00:12","N/A"
+"powershell.exe","4568","Console","1","45,678 K","Running","ADMIN","0:00:05","RaceControl Watchdog"
+===MARK:schtasks===
+HostName:                             Racing-Point-Server
+TaskName:                             \StartRCDirect
+Status:                               Ready
+Logon Mode:                           Interactive/Background
+
+TaskName:                             \StartRCOnBoot
+Status:                               Ready
+Logon Mode:                           Interactive/Background
+
+===MARK:reg_hklm===
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+    RaceControl    REG_SZ    C:\RacingPoint\start-racecontrol.bat
+
+===MARK:reg_hkcu===
+HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+
+===MARK:env===
+ALLUSERSPROFILE=C:\ProgramData
+APPDATA=C:\Users\ADMIN\AppData\Roaming
+COMPUTERNAME=RACING-POINT-SERVER
+PATH=C:\Windows;C:\Windows\System32
+USERNAME=ADMIN
+===MARK:end===
+---EXIT---
+0
