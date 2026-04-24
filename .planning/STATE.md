@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v40.0
 milestone_name: Game Launch Reliability
+current_plan: 3
 status: executing
-last_updated: "2026-04-24T09:30:00.000Z"
+last_updated: "2026-04-24T09:40:26.925Z"
 last_activity: 2026-04-24
 progress:
-  total_phases: 147
-  completed_phases: 46
-  total_plans: 143
-  completed_plans: 127
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
 ---
 
 # Project State
@@ -25,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 ## Current Position
 
 Phase: 447 (Manifest Schema & Scope Lock) — EXECUTING
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 3
-**Phase:** 447 (in progress — Plan 01 SHIPPED)
-**Plan:** 02 next (examples) / 01 SHIPPED via commits 1c34f640 + 0dfec421 + 136e058e
-**Status:** Executing Phase 447 — Plan 01/3 done, Plans 02 + 03 remaining
-**Last activity:** 2026-04-24 — 447-01 schema + versioning + state scaffold shipped
+**Phase:** 447 (in progress — Plans 01+02 SHIPPED)
+**Plan:** 03 next (validator test) / 01 SHIPPED via `1c34f640` + `0dfec421` + `136e058e`; 02 SHIPPED via `9087db3b` + `2f677dc5`
+**Status:** Ready to execute
+**Last activity:** 2026-04-24
 
 ### Plan 01 Completion (2026-04-24)
 
@@ -39,6 +40,14 @@ Total Plans in Phase: 3
 - Requirements closed: SCHEMA-01, SCHEMA-02, SCHEMA-03
 - Duration: ~15 min
 - See: `.planning/phases/447-manifest-schema-scope-lock/447-01-SUMMARY.md`
+
+### Plan 02 Completion (2026-04-24)
+
+- Files: 9 JSON files under `schemas/examples/` — `server_23.json`, `pod_1.json`, `pos_130.json` (partial-probe showcase), `james_27.json` (null last_deploy_ts showcase), `bono_vps.json`, `cloud_admin.json`, `cloud_racecontrol.json`, `relay_james.json`, `_meta.json` (summary index)
+- Commits: `9087db3b` (8 per-target manifests), `2f677dc5` (_meta.json summary index)
+- Requirements partially closed (structural demonstration side): SCHEMA-01, SCHEMA-03; full validation proof deferred to Plan 03
+- Duration: ~5 min
+- See: `.planning/phases/447-manifest-schema-scope-lock/447-02-SUMMARY.md`
 
 ## Previous Current Phase (archived for continuity)
 
@@ -51,7 +60,7 @@ Total Plans in Phase: 3
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
-| 447 | Manifest Schema & Scope Lock | ◐ Plan 01 SHIPPED (schema + versioning + scaffold) | 33% (1/3 plans) |
+| 447 | Manifest Schema & Scope Lock | ◐ Plans 01+02 SHIPPED (schema + examples) | 67% (2/3 plans) |
 | 448 | Per-Target Probe Scripts | ○ Not started (blocked on 447) | 0% |
 | 449 | First Full-Fleet Probe Run (gate) | ○ Not started (blocked on 448) | 0% |
 | 450 | Build Graph | ○ Not started (blocked on 447) | 0% |
