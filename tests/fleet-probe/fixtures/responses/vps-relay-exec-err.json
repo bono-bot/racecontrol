@@ -1,0 +1,5 @@
+{
+  "stdout": "",
+  "stderr": "bash: /root/foo.sh: not found",
+  "exitCode": 127
+}

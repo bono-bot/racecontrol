@@ -1,0 +1,5 @@
+{
+  "stdout": "===MARK:uname===\nLinux srv1422716 5.15.0-101-generic #111-Ubuntu SMP Tue Mar 5 20:16:58 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux\n===MARK:ps===\nnode        1234  /usr/bin/node /root/racecontrol/dist/index.js\nnode        5678  pm2 Fork mode app_name=racecontrol\nnginx       9012  nginx: worker process\n===MARK:systemctl===\nnginx.service                              enabled\nssh.service                                enabled\ncomms-link.service                         enabled\n===MARK:pm2===\n[{\"name\":\"racecontrol\",\"pm_id\":0,\"pm2_env\":{\"status\":\"online\",\"pm_uptime\":1714000000000}},{\"name\":\"comms-link\",\"pm_id\":1,\"pm2_env\":{\"status\":\"online\",\"pm_uptime\":1714000000000}}]\n===MARK:config_hash===\nabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789  /root/racecontrol.toml\n===MARK:env===\nHOME\nPATH\nUSER\n===MARK:end===\n",
+  "stderr": "",
+  "exitCode": 0
+}
