@@ -136,3 +136,9 @@ web/public/git-commit.txt
 web/public/build-info.json
 pwa/public/git-commit.txt
 pwa/public/build-info.json
+
+# Fleet drift manifests (v53.0 Phase 447 SCHEMA-03)
+# Runtime manifest output lives under state/fleet-manifest/<iso-ts>/ -- ephemeral, not committed.
+# The .gitkeep file IS committed so the directory structure survives fresh clones.
+state/fleet-manifest/*/
+!state/fleet-manifest/.gitkeep
