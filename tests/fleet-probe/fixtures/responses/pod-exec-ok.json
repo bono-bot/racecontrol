@@ -1,0 +1,5 @@
+{
+  "stdout": "\"Image Name\",\"PID\",\"Session Name\",\"Session#\",\"Mem Usage\",\"Status\",\"User Name\",\"CPU Time\",\"Window Title\"\n\"rc-agent.exe\",\"1234\",\"Console\",\"1\",\"45,678 K\",\"Running\",\"user\",\"0:00:03\",\"N/A\"\n\"rc-sentry.exe\",\"1235\",\"Console\",\"1\",\"12,345 K\",\"Running\",\"user\",\"0:00:01\",\"N/A\"",
+  "stderr": "",
+  "exitCode": 0
+}
