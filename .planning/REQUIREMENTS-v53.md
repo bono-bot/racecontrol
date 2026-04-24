@@ -4,7 +4,7 @@
 **Started:** 2026-04-24
 **Owner:** James (primary) + Bono (cloud-side probes, INBOX reporting)
 **Scope:** cross-repo infrastructure (racecontrol + racingpoint-admin + comms-link + bono-bot + 11 fleet targets)
-**Phase range:** 447–454 (8 phases proposed)
+**Phase range:** 447–455 (9 phases; scope locked 2026-04-24 after gap + MI + synergy analysis)
 
 ## Goal
 
@@ -67,6 +67,8 @@ These items exist in memory as confirmed code-complete-not-deployed. The diff to
 - [ ] **DIFF-01**: Staff can diff build-graph against deploy-graph → drift report with three categories: `built_not_deployed` (in git, absent on ≥1 target), `deployed_not_in_build` (on target, not in git), `shape_mismatch` (build_id/sha256 divergence)
 - [ ] **DIFF-02**: Diff tool produces both human-readable Markdown (`DRIFT-REPORT.md`) and machine-readable JSON (`drift.json`)
 - [ ] **DIFF-03**: Diff tool categorizes each drift entry by severity (P0/P1/P2) based on target type + file class — e.g. racecontrol binary mismatch on Server .23 = P0; hook drift on James = P2
+- [ ] **DIFF-04**: Drift severity incorporates a canary window — drift on a canary target within N hours of its last deploy timestamp is reported at reduced severity (P3/info) with explicit `canary_grace` tag. N configurable per target class; default 4h. Prevents false-positive on intentional Pod 8 canary pattern.
+- [ ] **DIFF-05**: `shape_mismatch` entries include sha→commit mapping via `SWAPLOG.md` (Server .23 binary) or `state/deploy-ledger/<target_id>.jsonl` (Pods, POS, cloud) — operator sees "target has commit X, git HEAD has commit Y" not just "sha mismatch." Load-bearing for Phase 453 validation: without this, drift entries have no actionable fix pointer.
 
 ### Ground-Truth Validation (VALIDATE)
 
@@ -80,6 +82,23 @@ These items exist in memory as confirmed code-complete-not-deployed. The diff to
 - [ ] **REPORT-01**: Staff can run drift audit on-demand via `bash scripts/fleet-drift/run.sh`
 - [ ] **REPORT-02**: Staff can schedule daily drift audit (cron on James + schtasks on Server .23 as backup)
 - [ ] **REPORT-03**: Drift report auto-posts to `comms-link/INBOX.md` + optional WhatsApp alert on P0 drift via existing comms-link relay
+
+### Lifecycle Integration (LIFECYCLE)
+
+- [ ] **LIFECYCLE-01**: Post-deploy re-probe hook — every `deploy-*.sh` success emits a `{commit, targets, timestamp}` event that triggers `probe-target.sh` on the affected targets and refreshes both graphs within 90s. Probe failure does not block deploy success; logs to `deploy-events.log` for retry. Solves the "deploy lands, map stale until tomorrow's cron" class.
+- [ ] **LIFECYCLE-02**: Non-server deploy-ledger — `state/deploy-ledger/<target_id>.jsonl` appended on every pod/POS/cloud deploy with `{timestamp, commit, sha256, deploy_script, triggered_by, reason}`. Mirrors `SWAPLOG.md`'s pattern for Server .23. Consumed by DIFF-05.
+
+### Mesh Intelligence Integration (MI)
+
+- [ ] **MI-01**: Diff tool emits `drift-seeds.json` and auto-POSTs every entry to `/api/v1/mesh/audit-seed` with schema `{problem_key, severity, symptom_patterns[], root_cause, fix_action, fix_status, affects[]}`. MI Tier 0 short-circuits known drift instead of running expensive Ollama diagnosis cycles.
+- [ ] **MI-02**: MI context-builder includes `state/fleet-manifest/<latest>/<target_id>.json` and the relevant drift fragment when diagnosing symptoms on a specific target. Richer Tier 3 prompts; no new MI infrastructure required.
+- [ ] **MI-03**: MI resolution feedback loop — when MI marks an `audit_known_issues` entry as `fix_applied_at`, the next drift probe either confirms resolution (state now matches git → entry auto-closes) or flags the fix as ineffective. MI becomes accountable to the drift detector.
+
+### Ecosystem Synergy (SYN)
+
+- [ ] **SYN-01**: `backlog-enforce.js` hook replaced (or rewritten) to read `audit_known_issues` table instead of text-scanning memory prose. Eliminates false-positives and duplicate entries (current hook emits duplicates like `project_freedom_mode_focus_contract_20260423.md: NOT YET DEPLOYED, NOT DEPLOYED` — two matches on one item).
+- [ ] **SYN-02**: Content Drift Detector (Phase 366, polls pod `GET /debug/content-dirs` every 60min, writes `content_drift_events`) subsumed or composed into unified schema — v53.0 drift report includes `delta_type` field covering game_added/removed, car_added/removed, track_added/removed. No parallel drift systems.
+- [ ] **SYN-03**: Drift penalty contributes to Phase 366 Fleet Intelligence composite health score — pods with P0/P1/P2 drift subtract up to 20pts from `METRIC_POD_HEALTH_SCORE`. Existing Uday dashboards reflect drift without new UI work.
 
 ## Out of Scope
 
@@ -112,7 +131,47 @@ Filled by roadmap — each requirement maps to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(populated by gsd-roadmapper)_ | | |
+| SCHEMA-01 | Phase 447 | Pending |
+| SCHEMA-02 | Phase 447 | Pending |
+| SCHEMA-03 | Phase 447 | Pending |
+| PROBE-01 | Phase 448 | Pending |
+| PROBE-02 | Phase 448 | Pending |
+| PROBE-03 | Phase 448 | Pending |
+| PROBE-04 | Phase 448 | Pending |
+| PROBE-05 | Phase 448 | Pending |
+| PROBE-06 | Phase 448 | Pending |
+| PROBE-07 | Phase 448 | Pending |
+| PROBE-08 | Phase 448 | Pending |
+| PROBE-09 | Phase 448 | Pending |
+| GRAPH-B-01 | Phase 450 | Pending |
+| GRAPH-B-02 | Phase 450 | Pending |
+| GRAPH-B-03 | Phase 450 | Pending |
+| GRAPH-D-01 | Phase 451 | Pending |
+| GRAPH-D-02 | Phase 451 | Pending |
+| DIFF-01 | Phase 452 | Pending |
+| DIFF-02 | Phase 452 | Pending |
+| DIFF-03 | Phase 452 | Pending |
+| DIFF-04 | Phase 452 | Pending |
+| DIFF-05 | Phase 452 | Pending |
+| VALIDATE-01 | Phase 453 | Pending |
+| VALIDATE-02 | Phase 453 | Pending |
+| VALIDATE-03 | Phase 453 | Pending |
+| VALIDATE-04 | Phase 453 | Pending |
+| REPORT-01 | Phase 454 | Pending |
+| REPORT-02 | Phase 454 | Pending |
+| REPORT-03 | Phase 454 | Pending |
+| LIFECYCLE-01 | Phase 455 | Pending |
+| LIFECYCLE-02 | Phase 455 | Pending |
+| MI-01 | Phase 455 | Pending |
+| MI-02 | Phase 455 | Pending |
+| MI-03 | Phase 455 | Pending |
+| SYN-01 | Phase 455 | Pending |
+| SYN-02 | Phase 455 | Pending |
+| SYN-03 | Phase 455 | Pending |
+
+**Coverage:** 37 / 37 requirements mapped to phases (100%) — 27 original + 2 added to Phase 452 (DIFF-04/05, gap-fix from lifecycle review) + 8 added via Phase 455 (Lifecycle+MI+Synergy omnibus, scope locked 2026-04-24).
+**Phase 449** (First Full-Fleet Probe Run) is an execution gate that exercises PROBE-01..09 against the live fleet; it carries no new REQ mappings but produces the evidence that PROBE-01..09 are complete in practice, not just in code.
+**Phase 455** (Lifecycle & Ecosystem Integration) wires v53.0 into the deploy lifecycle, MI diagnostic pipeline, and ecosystem surfaces (backlog gate, content drift detector, fleet health score) so the tool stays truthful after every deploy AND force-multiplies existing systems instead of running parallel to them.
 
 ---
 

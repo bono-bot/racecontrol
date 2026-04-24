@@ -2489,3 +2489,165 @@ Plans:
 | 444. E2E Drills + ToS Playbook | 0/TBD | Blocked on 437,438,439,441 | - |
 
 *v50.0 defined: 2026-04-18. Greenfield Kotlin/Android project; shared JSON protocol with Rust rc-agent, no shared code. Runs parallel to v48/v49/v52 (not blocking).*
+
+---
+
+## v53.0 — Fleet Drift Graphs — Phases 447–454
+
+**Started:** 2026-04-24
+**Status:** Defining. Requirements locked in `.planning/REQUIREMENTS-v53.md`; roadmap drafted today.
+**Requirements:** `.planning/REQUIREMENTS-v53.md` (27 requirements across 7 categories: SCHEMA, PROBE, GRAPH-B, GRAPH-D, DIFF, VALIDATE, REPORT)
+**Source spec:** `.planning/PROJECT.md` top section (v53.0 Current Milestone + locked decisions 2026-04-24)
+**Scope:** cross-repo infrastructure — racecontrol + racingpoint-admin + comms-link + bono-bot + 11 fleet targets (Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay)
+
+**Goal:** Detect drift between "what's in git" and "what's actually running" by building two knowledge graphs — a **build graph** (source repos + docs + memory) and a **deploy graph** (fleet-wide runtime manifest probed from every deployable surface) — and diffing them. v53.0 detects and reports only; no automated remediation.
+
+**Core non-negotiable success criterion:** on first run after this milestone ships, the diff tool must correctly flag all four known-drift items from memory as drift, **without being tuned to them after the fact**:
+1. HUD v1 / AC ephemeral SHM (PR #38, Pod 8 only, Pods 1-7 + POS NOT deployed)
+2. Freedom mode focus contract (PR #33 MMA-approved 3/3, NOT deployed fleet-wide)
+3. FH5 phantom haptic XInput skip (commit `0f3cb05e`, NOT deployed)
+4. Q5 `D:/racecontrol.toml` drift (5 categories diverging between `D:/` proxy and git-tracked config)
+
+This is the binary gate between "milestone done" and "milestone not done." Phase 453 (W7) is the ground-truth validation phase that executes this check.
+
+**Fixed constraints:** probes must not require installing new agents on targets (SSH + rp-bono-exec relay + HTTP/JWT + Tailscale only); manifest format must be human-readable JSON; must work when venue is offline (graceful "probe_failed" row, not missing row); v53.0 detects and reports only.
+
+### Phases
+
+- [ ] **Phase 447: Manifest schema & scope lock** — Define the normalized per-target manifest schema + on-disk layout + forward-compat versioning that every downstream probe, graph, and diff tool will read and write.
+- [ ] **Phase 448: Per-target probe scripts** — Ship probe scripts for every deployable surface (Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay) plus an orchestrator that runs them all.
+- [ ] **Phase 449: First full-fleet probe run (execution gate)** — Execute all W2 probes against the live fleet, validate manifest shape end-to-end, resolve any probe gaps surfaced.
+- [ ] **Phase 450: Build graph** — Generate a graphify build-graph from source repos + memory + planning docs with incremental refresh under 60s.
+- [ ] **Phase 451: Deploy graph** — Generate a graphify deploy-graph from the fleet manifest with target-device metadata carried as node attributes.
+- [ ] **Phase 452: Diff tool** — Diff build-graph vs deploy-graph into a three-category drift report (`built_not_deployed`, `deployed_not_in_build`, `shape_mismatch`) with P0/P1/P2 severity.
+- [ ] **Phase 453: Ground-truth validation (non-negotiable gate)** — Execute W1-W6 artefacts against the live fleet and verify all four known-drift items are flagged. No new code; if this fails, earlier waves must be fixed.
+- [ ] **Phase 454: Schedule + report + alerting** — On-demand + daily scheduled drift audit with auto-post to comms-link INBOX.md + WhatsApp alert on P0 drift.
+
+### Phase Details
+
+### Phase 447: Manifest Schema & Scope Lock
+**Goal:** Every downstream phase (probes, graphs, diff tool) reads and writes a single, forward-compat manifest schema.
+**Depends on:** Nothing (first phase)
+**Requirements:** SCHEMA-01, SCHEMA-02, SCHEMA-03
+**Success Criteria** (what must be TRUE):
+  1. A documented JSON schema exists at `schemas/fleet-manifest.schema.json` covering every field listed in SCHEMA-01 (`target_id`, `host`, `ip`, `role`, `probed_at_ist`, `probe_status`, `binary_sha256`, `build_id`, `config_hash`, `running_procs`, `scheduled_tasks`, `autostart_entries`, `env_vars_hash`, `last_deploy_ts`)
+  2. A synthetic manifest produced from the schema round-trips through a validator without error and is valid JSON when pretty-printed
+  3. Staff can open a sample manifest under `state/fleet-manifest/<iso-ts>/<target_id>.json` and read every field without a decoder
+  4. A manifest written with `schema_version: 1` is still readable by a parser expecting `schema_version: 2` (unknown-field-tolerant) — proven with a fixture
+  5. The `_meta.json` summary index lists every target, its probe_status, and its manifest filename for a given probe run
+**Plans:** TBD
+
+### Phase 448: Per-Target Probe Scripts
+**Goal:** Every deployable surface in the fleet has a probe that emits a valid manifest, and a single orchestrator runs them all in one invocation.
+**Depends on:** Phase 447 (schema)
+**Requirements:** PROBE-01, PROBE-02, PROBE-03, PROBE-04, PROBE-05, PROBE-06, PROBE-07, PROBE-08, PROBE-09
+**Success Criteria** (what must be TRUE):
+  1. Staff can run `bash scripts/fleet-probe/probe-<target>.sh` for each of the 8 probe types (server, pod, pos, james, vps, cloud-admin, cloud-rc, relay) and get a schema-valid manifest for that target
+  2. `bash scripts/fleet-probe/probe-all.sh` orchestrates all 8 probes in one invocation and emits a single `state/fleet-manifest/<iso-ts>/` directory containing one manifest per target plus `_meta.json`
+  3. When a target is unreachable, the probe writes a `probe_status: probe_failed` row with reason (not a missing file), so the manifest set is always complete across all 11 targets
+  4. Probes use only existing access paths (SSH, rp-bono-exec relay, HTTP/JWT, Tailscale) — no new agent install required on any target
+  5. Any Server .23 SSH access gaps surfaced during PROBE-01 execution are either fixed in-phase or explicitly documented in `docs/fleet-probe/access-gaps.md`
+**Plans:** TBD
+
+### Phase 449: First Full-Fleet Probe Run (Execution Gate)
+**Goal:** W2 probes execute end-to-end against the live fleet, manifest shape is validated in practice, and any real-world probe gaps are surfaced and resolved before graph phases start.
+**Depends on:** Phase 448
+**Requirements:** _(execution phase — exercises PROBE-01..09 against live fleet; no new REQ mappings)_
+**Success Criteria** (what must be TRUE):
+  1. `bash scripts/fleet-probe/probe-all.sh` completes end-to-end against the current live fleet and produces a `state/fleet-manifest/<iso-ts>/` directory with exactly 11 per-target manifests + `_meta.json`
+  2. Every produced manifest passes `jsonschema` validation against `schemas/fleet-manifest.schema.json` from Phase 447
+  3. `_meta.json` shows probe_status for every target — any `probe_failed` rows have a root-cause entry in `docs/fleet-probe/access-gaps.md`
+  4. The per-target manifests contain realistic, non-empty values for at minimum `binary_sha256` (server+pods+pos), `build_id` (all HTTP targets), and `last_deploy_ts` (where derivable) — not placeholder strings
+  5. Probe run time is captured in `_meta.json` and staff can reproduce the run within 15 minutes without hand-editing any script
+**Plans:** TBD
+
+### Phase 450: Build Graph
+**Goal:** Staff can generate a graphify build-graph covering source repos + docs + memory, with incremental refresh.
+**Depends on:** Phase 447 (for planning doc nodes aligning with manifest target_ids)
+**Requirements:** GRAPH-B-01, GRAPH-B-02, GRAPH-B-03
+**Success Criteria** (what must be TRUE):
+  1. Staff can run `bash scripts/fleet-drift/build-graph.sh` and get `graphify-out/graph_build.html` + `graph_build.json` covering racecontrol + racingpoint-admin + comms-link source trees
+  2. The graph includes memory (`~/.claude/projects/C--Users-bono/memory/`) and planning docs (`.planning/`) as first-class nodes — cross-repo communities from the existing memory graph survive the merge
+  3. `bash scripts/fleet-drift/build-graph.sh --update` completes in under 60 seconds on an unchanged working tree (incremental mode)
+  4. A human opening `graph_build.html` can navigate from a racecontrol crate to its documented memory entry to its planning phase via graph edges
+  5. The graph_build.json node IDs are stable across runs (same input => same IDs) so downstream diff can cross-reference nodes by ID
+**Plans:** TBD
+
+### Phase 451: Deploy Graph
+**Goal:** Staff can generate a graphify deploy-graph from the fleet manifest with device metadata carried as node attributes.
+**Depends on:** Phase 449 (real manifest available)
+**Requirements:** GRAPH-D-01, GRAPH-D-02
+**Success Criteria** (what must be TRUE):
+  1. Staff can run `bash scripts/fleet-drift/deploy-graph.sh <manifest-dir>` and get `graphify-out/graph_deploy.html` + `graph_deploy.json` built from the named manifest directory
+  2. Every node in the deploy graph carries `host`, `ip`, and `role` attributes inherited from the manifest — visible in the HTML hover card
+  3. Deploy-graph node IDs share a naming convention with build-graph node IDs where the underlying entity is the same (e.g. a racecontrol binary node) so Phase 452 can diff them
+  4. A human opening `graph_deploy.html` can see all 11 fleet targets as distinct node clusters and visually identify which targets share the same `binary_sha256`
+**Plans:** TBD
+**UI hint**: yes
+
+### Phase 452: Diff Tool
+**Goal:** Staff can diff the build-graph against the deploy-graph and get a three-category, severity-ranked drift report with canary-grace + sha→commit mapping, in both human-readable and machine-readable formats.
+**Depends on:** Phase 450 (build graph) + Phase 451 (deploy graph)
+**Requirements:** DIFF-01, DIFF-02, DIFF-03, DIFF-04, DIFF-05
+**Success Criteria** (what must be TRUE):
+  1. Staff can run `bash scripts/fleet-drift/diff.sh` and get both `DRIFT-REPORT.md` (human-readable) and `drift.json` (machine-readable) in the same output directory
+  2. Every drift entry in the report is categorized as exactly one of `built_not_deployed`, `deployed_not_in_build`, or `shape_mismatch`
+  3. Every drift entry carries a P0/P1/P2/P3 severity derived from target type + file class + canary-grace window (e.g. racecontrol binary mismatch on Server .23 = P0; hook drift on James = P2; drift on canary Pod 8 within 4h of its deploy = P3 with `canary_grace` tag) — severity rules documented in `docs/fleet-drift/severity-rubric.md`
+  4. The machine-readable `drift.json` conforms to a published schema at `schemas/drift-report.schema.json`
+  5. Running the diff twice on the same graph inputs produces byte-identical outputs (determinism)
+  6. Every `shape_mismatch` entry resolves `sha256 → commit` via `SWAPLOG.md` (Server .23) or `state/deploy-ledger/<target_id>.jsonl` (other targets) and renders as "target commit X, git HEAD commit Y" — no bare sha diffs visible to operators
+**Plans:** TBD
+
+### Phase 453: Ground-Truth Validation (Non-Negotiable Gate)
+**Goal:** The diff tool, exercised against the live fleet via W1-W6 artefacts, correctly flags all four known-drift items from memory — without the tool being tuned to them after the fact.
+**Depends on:** Phase 452 (diff tool working end-to-end)
+**Requirements:** VALIDATE-01, VALIDATE-02, VALIDATE-03, VALIDATE-04
+**Success Criteria** (what must be TRUE):
+  1. End-to-end run (`probe-all.sh` then `build-graph.sh` then `deploy-graph.sh` then `diff.sh`) against the live fleet produces a `DRIFT-REPORT.md` that contains an entry flagging HUD v1 (PR #38) as `built_not_deployed` on Pods 1-7 + POS
+  2. The same report contains an entry flagging freedom mode (PR #33) as `built_not_deployed` fleet-wide
+  3. The same report contains an entry flagging the FH5 haptic fix (commit `0f3cb05e`) as `built_not_deployed` fleet-wide
+  4. The same report contains drift entries for the Q5 `D:/racecontrol.toml` divergence covering all 5 catalogued config categories
+  5. No ad-hoc rules or hardcoded target lists were added to the diff tool specifically to surface the four items — the validation run uses the same diff invocation as Phase 452 acceptance
+**Plans:** TBD
+
+### Phase 454: Schedule + Report + Alerting
+**Goal:** Drift audit is available on-demand and runs automatically daily, with machine-readable + human-readable output posted to comms-link INBOX and WhatsApp alerts on P0 drift.
+**Depends on:** Phase 453 (ground-truth validation proves the tool works before scheduling it)
+**Requirements:** REPORT-01, REPORT-02, REPORT-03
+**Success Criteria** (what must be TRUE):
+  1. Staff can run `bash scripts/fleet-drift/run.sh` on demand and a full drift audit completes end-to-end without hand-editing any file
+  2. A daily scheduled drift audit runs automatically on James .27 (cron) with a redundant schtasks job on Server .23 — staff can see the previous 7 daily run outputs under `state/fleet-drift/<iso-ts>/`
+  3. Every completed audit auto-appends a drift summary block to `comms-link/INBOX.md` via the existing comms-link relay
+  4. When the audit detects P0 drift, a WhatsApp alert fires via the existing comms-link relay within the same run
+  5. A dry-run mode (`--no-post`) produces the same reports locally without posting to INBOX or firing WhatsApp — used for gate-check.sh integration
+**Plans:** TBD
+
+### Phase 455: Lifecycle & Ecosystem Integration
+**Goal:** Wire the v53.0 drift detector into the deploy lifecycle + MI diagnostic pipeline + existing ecosystem surfaces (backlog gate, Phase 366 content-drift detector, fleet health score) so the tool stays truthful after every deploy AND force-multiplies existing systems instead of running parallel to them.
+**Depends on:** Phase 447 (schema) + 448 (probes) + 450 (build graph) + 451 (deploy graph) + 452 (diff tool) + 453 (ground-truth gate) + 454 (scheduling)
+**Requirements:** LIFECYCLE-01, LIFECYCLE-02, MI-01, MI-02, MI-03, SYN-01, SYN-02, SYN-03
+**Success Criteria** (what must be TRUE):
+  1. After a successful `deploy-pod.sh pod3` (or equivalent deploy-*.sh on any target), `state/fleet-manifest/<latest>/pod_3.json` reflects the post-deploy state within 90s without manual re-probe invocation (LIFECYCLE-01)
+  2. Every non-server deploy writes a row to `state/deploy-ledger/<target_id>.jsonl` with `{timestamp, commit, sha256, deploy_script, triggered_by, reason}`; at least one row per non-server target exists after the milestone's initial rollout (LIFECYCLE-02)
+  3. Every scheduled drift run POSTs one entry per drift item to `/api/v1/mesh/audit-seed`; `audit_known_issues` table contains matching rows and MI Tier 0 short-circuits diagnosis for those `problem_key`s instead of invoking Ollama (MI-01)
+  4. `backlog-enforce.js` hook output on session start surfaces drift entries with structured `severity`, `problem_key`, and `affects[]` fields (from `audit_known_issues` table read) instead of memory-prose text matches — duplicates like the current `NOT YET DEPLOYED, NOT DEPLOYED` on a single item are eliminated (SYN-01)
+  5. `DRIFT-REPORT.md` contains content-drift entries (game_added/removed, car_added/removed, track_added/removed) merged from Phase 366's `content_drift_events` table; no separate content-drift report generated in parallel (SYN-02)
+  6. `METRIC_POD_HEALTH_SCORE` for each pod reflects a drift penalty (up to -20pts) when that pod has outstanding P0/P1/P2 drift entries; existing fleet-health dashboards show the penalty without new UI code (SYN-03)
+  7. When MI marks an `audit_known_issues` entry as `fix_applied_at=<ts>`, the next drift probe either auto-closes the entry (state now matches git) or flags the MI-suggested fix as ineffective in the next `DRIFT-REPORT.md` (MI-03)
+**Plans:** TBD
+
+### v53.0 Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 447. Manifest Schema & Scope Lock | 0/TBD | Not started | - |
+| 448. Per-Target Probe Scripts | 0/TBD | Blocked on 447 | - |
+| 449. First Full-Fleet Probe Run (gate) | 0/TBD | Blocked on 448 | - |
+| 450. Build Graph | 0/TBD | Blocked on 447 | - |
+| 451. Deploy Graph | 0/TBD | Blocked on 449 | - |
+| 452. Diff Tool | 0/TBD | Blocked on 450,451 | - |
+| 453. Ground-Truth Validation (gate) | 0/TBD | Blocked on 452 | - |
+| 454. Schedule + Report + Alerting | 0/TBD | Blocked on 453 | - |
+| 455. Lifecycle & Ecosystem Integration | 0/TBD | Blocked on 454 | - |
+
+*v53.0 defined: 2026-04-24. Scope locked same day (+Phase 455 lifecycle/MI/synergy omnibus, +DIFF-04/05 to Phase 452). Cross-repo scope (racecontrol + racingpoint-admin + comms-link + bono-bot + 11 fleet targets). Phase 446 taken by OPENROUTER_KEY canonicalization; v53.0 starts at 447. Phase 453 is the non-negotiable ground-truth gate — if it fails, earlier waves must be fixed. Phase 455 is explicitly the wire-into-ecosystem phase — without it, v53.0 is a tool-in-a-box; with it, v53.0 becomes the system-wide source of drift truth that MI, backlog gate, and fleet health all consume. Source commits primarily in racecontrol/ under `scripts/fleet-probe/` + `scripts/fleet-drift/` + `schemas/`; Phase 455 also touches `~/.claude/hooks/backlog-enforce.js`.*

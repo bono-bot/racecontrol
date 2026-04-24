@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v53.0
 milestone_name: Fleet Drift Graphs
-status: defining_requirements
-last_updated: "2026-04-24T07:30:00.000Z"
+status: roadmap_drafted
+last_updated: "2026-04-24T09:00:00.000Z"
 last_activity: 2026-04-24
 scope: cross-repo
 progress:
-  total_phases: 0
+  total_phases: 9
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
 
-**Current focus:** v53.0 Fleet Drift Graphs — defining requirements (2026-04-24). Build graph + deploy graph + drift diff across 11 fleet targets, cross-repo scope (racecontrol + racingpoint-admin + comms-link + bono-bot).
+**Current focus:** v53.0 Fleet Drift Graphs — roadmap drafted + scope locked (2026-04-24). 9 phases (447-455), 37 requirements mapped, ground-truth validation gate at Phase 453, lifecycle+MI+synergy omnibus at Phase 455. Build graph + deploy graph + drift diff + lifecycle wiring across 11 fleet targets, cross-repo scope (racecontrol + racingpoint-admin + comms-link + bono-bot).
 
 ## Current Position
 
-**Phase:** Not started (defining requirements)
-**Plan:** —
-**Status:** Defining requirements for v53.0 Fleet Drift Graphs milestone (starting phase 447).
-**Last activity:** 2026-04-24 — Milestone v53.0 started; PROJECT.md Current Milestone section added; graphify-informed location/scope decisions locked.
+**Phase:** 447 (not started)
+**Plan:** TBD
+**Status:** v53.0 roadmap drafted + scope locked 2026-04-24. 9 phases identified (447-455), 37 requirements from REQUIREMENTS-v53.md mapped 1:1 to phases (plus Phase 449 as execution gate with no new REQ mappings). Ground-truth validation gate at Phase 453 must flag all 4 known-drift items (HUD v1 PR #38, freedom mode PR #33, FH5 haptic 0f3cb05e, Q5 TOML drift) without being tuned after the fact. Phase 455 wires v53 into the deploy lifecycle, MI diagnostic pipeline, and ecosystem surfaces (backlog gate, content-drift detector, fleet health score). Awaiting `/gsd:plan-phase 447`.
+**Last activity:** 2026-04-24 — scope locked post-gap-analysis: Phase 452 absorbed DIFF-04 (canary grace) + DIFF-05 (sha→commit mapping); new Phase 455 added with 8 REQs (LIFECYCLE-01/02, MI-01/02/03, SYN-01/02/03). ROADMAP.md + REQUIREMENTS-v53.md + STATE.md updated.
 
 ## Previous Current Phase (archived for continuity)
 
@@ -36,6 +36,22 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 **Status:** Phase 445 SHIPPED 2026-04-21 22:07 IST. PR #9 merged at `d52a8a72`. Cloud admin rebuilt (build_id `cDyHRUgWTiqZTchmlEPgz`, git_commit `dfaabe6`). 9/9 TYP-XX requirements traced. See [445-PHASE-SUMMARY.md](phases/445-typed-api-contract-rust-ts-codegen/445-PHASE-SUMMARY.md) + [445-05-DEPLOY-EVIDENCE.md](phases/445-typed-api-contract-rust-ts-codegen/445-05-DEPLOY-EVIDENCE.md).
 
 ## Progress
+
+**v53.0 Fleet Drift Graphs (current milestone)**
+
+| Phase | Name | Status | Progress |
+|-------|------|--------|----------|
+| 447 | Manifest Schema & Scope Lock | ○ Not started | 0% |
+| 448 | Per-Target Probe Scripts | ○ Not started (blocked on 447) | 0% |
+| 449 | First Full-Fleet Probe Run (gate) | ○ Not started (blocked on 448) | 0% |
+| 450 | Build Graph | ○ Not started (blocked on 447) | 0% |
+| 451 | Deploy Graph | ○ Not started (blocked on 449) | 0% |
+| 452 | Diff Tool | ○ Not started (blocked on 450,451) | 0% |
+| 453 | Ground-Truth Validation (gate) | ○ Not started (blocked on 452) | 0% |
+| 454 | Schedule + Report + Alerting | ○ Not started (blocked on 453) | 0% |
+| 455 | Lifecycle & Ecosystem Integration | ○ Not started (blocked on 454) | 0% |
+
+**v49.0 carryover (not current focus; see ROADMAP.md for authoritative status)**
 
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
