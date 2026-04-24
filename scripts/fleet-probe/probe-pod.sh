@@ -263,13 +263,23 @@ except Exception:
   fi
 fi
 
+# --- Parse sections to JSON (temp-file pattern from 448-02: no heredoc+pipe combination) ---
+# Save raw data to temp files, pass file paths as sys.argv to avoid heredoc-stdin conflict.
+TASKLIST_RAW_FILE="$WORK_DIR/tasklist.txt"
+SCHTASKS_RAW_FILE="$WORK_DIR/schtasks.txt"
+REG_COMBINED_FILE="$WORK_DIR/reg-combined.txt"
+printf '%s' "$TASKLIST_OUT" > "$TASKLIST_RAW_FILE"
+printf '%s' "$SCHTASKS_OUT" > "$SCHTASKS_RAW_FILE"
+printf '%s\n---HKCU---\n%s' "$REG_HKLM_OUT" "$REG_HKCU_OUT" > "$REG_COMBINED_FILE"
+
 # --- Parse tasklist to running_procs ---
 RUNNING_PROCS_FILE="$WORK_DIR/running_procs.json"
-printf '%s' "$TASKLIST_OUT" | python3 - "$RUNNING_PROCS_FILE" <<'PYEOF'
+python3 - "$TASKLIST_RAW_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
 import csv, hashlib, json, sys, io
-out_file = sys.argv[1]
-text = sys.stdin.read()
+in_file, out_file = sys.argv[1], sys.argv[2]
 rows = []
+with open(in_file, encoding="utf-8", errors="replace") as f:
+    text = f.read()
 if text.strip():
     reader = csv.reader(io.StringIO(text))
     first = True
@@ -291,26 +301,27 @@ PYEOF
 
 # --- Parse schtasks to scheduled_tasks ---
 SCHTASKS_FILE="$WORK_DIR/schtasks.json"
-printf '%s' "$SCHTASKS_OUT" | python3 - "$SCHTASKS_FILE" <<'PYEOF'
+python3 - "$SCHTASKS_RAW_FILE" "$SCHTASKS_FILE" <<'PYEOF'
 import json, sys
-out_file = sys.argv[1]
+in_file, out_file = sys.argv[1], sys.argv[2]
 entries = []
 cur = {}
-for line in sys.stdin:
-    line = line.rstrip("\r\n")
-    if not line.strip():
-        if cur.get("name") and cur.get("state"):
-            entries.append({"name": cur["name"], "state": cur["state"]})
-        cur = {}
-        continue
-    if ":" in line:
-        k, _, v = line.partition(":")
-        k = k.strip()
-        v = v.strip()
-        if k == "TaskName":
-            cur["name"] = v.lstrip("\\")
-        elif k == "Status":
-            cur["state"] = v
+with open(in_file, encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.rstrip("\r\n")
+        if not line.strip():
+            if cur.get("name") and cur.get("state"):
+                entries.append({"name": cur["name"], "state": cur["state"]})
+            cur = {}
+            continue
+        if ":" in line:
+            k, _, v = line.partition(":")
+            k = k.strip()
+            v = v.strip()
+            if k == "TaskName":
+                cur["name"] = v.lstrip("\\")
+            elif k == "Status":
+                cur["state"] = v
 if cur.get("name") and cur.get("state"):
     entries.append({"name": cur["name"], "state": cur["state"]})
 with open(out_file, "w") as f:
@@ -319,12 +330,11 @@ PYEOF
 
 # --- Parse reg to autostart_entries ---
 AUTOSTART_FILE="$WORK_DIR/autostart.json"
-HKLM_DATA="$REG_HKLM_OUT"
-HKCU_DATA="$REG_HKCU_OUT"
-printf '%s\n---HKCU---\n%s' "$HKLM_DATA" "$HKCU_DATA" | python3 - "$AUTOSTART_FILE" <<'PYEOF'
+python3 - "$REG_COMBINED_FILE" "$AUTOSTART_FILE" <<'PYEOF'
 import json, sys
-out_file = sys.argv[1]
-text = sys.stdin.read()
+in_file, out_file = sys.argv[1], sys.argv[2]
+with open(in_file, encoding="utf-8", errors="replace") as f:
+    text = f.read()
 parts = text.split("\n---HKCU---\n", 1)
 hklm = parts[0]
 hkcu = parts[1] if len(parts) > 1 else ""

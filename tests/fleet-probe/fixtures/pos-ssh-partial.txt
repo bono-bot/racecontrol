@@ -1,0 +1,27 @@
+===MARK:hostname===
+POS1
+===MARK:certutil_pos_cfg===
+SHA256 hash of C:\POS\config.json:
+dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+CertUtil: -hashfile command completed successfully.
+===MARK:tasklist===
+ERROR: Unable to connect to the target system. (WMI: 0x80041003)
+===MARK:schtasks===
+HostName:                             POS1
+TaskName:                             \POS-Watchdog
+Status:                               Ready
+Logon Mode:                           Interactive/Background
+
+===MARK:reg_hklm===
+HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+    BillingDashboard    REG_SZ    C:\POS\start-billing-dashboard.bat
+    ChromeKiosk         REG_SZ    C:\POS\launch-chrome-kiosk.bat
+
+===MARK:reg_hkcu===
+
+===MARK:env===
+USERNAME=User
+COMPUTERNAME=POS1
+===MARK:end===
+---EXIT---
+0
