@@ -12,6 +12,7 @@
     "test:kiosk": "npx playwright test --project=kiosk",
     "test:pos": "npx playwright test --project=pos-dashboard",
     "test:report": "npx playwright show-report tests/e2e/report",
+    "test:fleet-drift": "node --test tests/fleet-drift/validate-manifest.test.mjs",
     "vr:baseline": "npx playwright test --config tests/visual-regression/playwright.config.ts --update-snapshots",
     "vr:compare": "npx playwright test --config tests/visual-regression/playwright.config.ts",
     "vr:before-after": "bash scripts/visual-regression.sh before-after"
@@ -35,6 +36,8 @@
     "@axe-core/playwright": "4.11.1",
     "@playwright/test": "^1.58.2",
     "@types/node": "25.5.2",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "typescript": "6.0.2"
   }
 }
