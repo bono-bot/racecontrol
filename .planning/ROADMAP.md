@@ -2515,7 +2515,7 @@ This is the binary gate between "milestone done" and "milestone not done." Phase
 ### Phases
 
 - [x] **Phase 447: Manifest schema & scope lock** — Define the normalized per-target manifest schema + on-disk layout + forward-compat versioning that every downstream probe, graph, and diff tool will read and write. (completed 2026-04-24)
-- [ ] **Phase 448: Per-target probe scripts** — Ship probe scripts for every deployable surface (Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay) plus an orchestrator that runs them all.
+- [x] **Phase 448: Per-target probe scripts** — Ship probe scripts for every deployable surface (Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay) plus an orchestrator that runs them all. (completed 2026-04-24)
 - [ ] **Phase 449: First full-fleet probe run (execution gate)** — Execute all W2 probes against the live fleet, validate manifest shape end-to-end, resolve any probe gaps surfaced.
 - [ ] **Phase 450: Build graph** — Generate a graphify build-graph from source repos + memory + planning docs with incremental refresh under 60s.
 - [ ] **Phase 451: Deploy graph** — Generate a graphify deploy-graph from the fleet manifest with target-device metadata carried as node attributes.
@@ -2552,7 +2552,7 @@ Plans:
   3. When a target is unreachable, the probe writes a `probe_status: probe_failed` row with reason (not a missing file), so the manifest set is always complete across all 11 targets
   4. Probes use only existing access paths (SSH, rp-bono-exec relay, HTTP/JWT, Tailscale) — no new agent install required on any target
   5. Any Server .23 SSH access gaps surfaced during PROBE-01 execution are either fixed in-phase or explicitly documented in `docs/fleet-probe/access-gaps.md`
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 - [x] 448-01-wave0-scaffolding-PLAN.md — Wave 0: shared lib + ajv CLI validator + mock helpers + 3 schema-valid fixtures + package.json test script (PROBE-09 scaffold)
@@ -2562,7 +2562,7 @@ Plans:
 - [x] 448-05-probe-vps-and-relay-PLAN.md — Wave 3: probe-vps.sh (comms-link relay exec with COMMS_PSK) + probe-relay.sh (composite James+VPS manifest) (PROBE-05, PROBE-08)
 - [x] 448-06-probe-cloud-admin-and-cloud-rc-PLAN.md — Wave 3: probe-cloud-admin.sh (HTTPS /api/health + Coming Soon gate detection) + probe-cloud-rc.sh (HTTPS /api/v1/health) (PROBE-06, PROBE-07)
 - [x] 448-07-orchestrator-full-wiring-and-meta-PLAN.md — Wave 4: probe-all.sh full wiring (sequential cluster + parallel pods) + build-meta-index.py + smoke-orchestrator.sh integration test (PROBE-09)
-- [ ] 448-08-access-gaps-doc-and-handoff-PLAN.md — Wave 5: docs/fleet-probe/access-gaps.md scaffold + docs/fleet-probe/README.md staff entry-point (PROBE-01 audit trail)
+- [x] 448-08-access-gaps-doc-and-handoff-PLAN.md — Wave 5: docs/fleet-probe/access-gaps.md scaffold + docs/fleet-probe/README.md staff entry-point (PROBE-01 audit trail)
 
 ### Phase 449: First Full-Fleet Probe Run (Execution Gate)
 **Goal:** W2 probes execute end-to-end against the live fleet, manifest shape is validated in practice, and any real-world probe gaps are surfaced and resolved before graph phases start.
@@ -2656,7 +2656,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 447. Manifest Schema & Scope Lock | 3/3 | Complete    | 2026-04-24 |
-| 448. Per-Target Probe Scripts | 7/8 | In Progress|  |
+| 448. Per-Target Probe Scripts | 8/8 | Complete   | 2026-04-24 |
 | 449. First Full-Fleet Probe Run (gate) | 0/TBD | Blocked on 448 | - |
 | 450. Build Graph | 0/TBD | Blocked on 447 | - |
 | 451. Deploy Graph | 0/TBD | Blocked on 449 | - |
