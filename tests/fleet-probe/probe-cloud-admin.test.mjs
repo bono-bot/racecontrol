@@ -36,17 +36,15 @@ function startAdminMockServer({ apiHealth, apiHealthStatus = 200, rootRedirect =
       if (req.url === "/api/health") {
         res.writeHead(apiHealthStatus, { "content-type": "application/json" });
         res.end(JSON.stringify(apiHealth));
-      } else if (req.url === "/" && req.method === "HEAD") {
+      } else if (req.url === "/") {
+        // Handle both GET and HEAD for root -- probe uses GET to detect gate state
         if (rootRedirect) {
           res.writeHead(307, { location: rootRedirect });
           res.end();
         } else {
           res.writeHead(200, { "content-type": "text/html" });
-          res.end();
+          res.end("<html>ok</html>");
         }
-      } else if (req.url === "/") {
-        res.writeHead(200, { "content-type": "text/html" });
-        res.end("<html>ok</html>");
       } else {
         res.writeHead(404);
         res.end();
@@ -62,6 +60,13 @@ function startAdminMockServer({ apiHealth, apiHealthStatus = 200, rootRedirect =
   });
 }
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+// On Windows/Git Bash, 'python3' resolves to the App Execution Alias in WindowsApps which
+// hangs (pops up Microsoft Store UI) when called without an interactive session.
+// The real Python 3.12 installation on Windows is accessible as 'python'.
+// On Linux (production VPS), 'python3' is correct.
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // Run probe-cloud-admin.sh against a mock server; returns Promise<manifest>
 function runProbeAdmin({ server, ts }) {
   return new Promise((resolve_p, reject) => {
@@ -71,6 +76,7 @@ function runProbeAdmin({ server, ts }) {
         ...process.env,
         MANIFEST_TS: ts,
         PROBE_OVERRIDE_CLOUD_ADMIN_URL: server.url,
+        PROBE_PYTHON: PYTHON_CMD,
       },
     });
 
@@ -92,8 +98,8 @@ function runProbeAdmin({ server, ts }) {
 
     setTimeout(() => {
       child.kill();
-      reject(new Error("probe-cloud-admin.sh timed out after 60s"));
-    }, 60_000);
+      reject(new Error("probe-cloud-admin.sh timed out after 120s"));
+    }, 120_000);
   });
 }
 

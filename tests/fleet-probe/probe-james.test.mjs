@@ -7,9 +7,16 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateAgainstSchema } from "./helpers.mjs";
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+// On Windows/Git Bash, 'python3' resolves to the App Execution Alias in WindowsApps which
+// hangs (pops up Microsoft Store UI) when called without an interactive session.
+// The real Python 3.12 installation on Windows is accessible as 'python'.
+// On Linux (production VPS), 'python3' is correct.
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 test("probe-james.sh writes schema-valid manifest and exits 0", () => {
   const ts = "test-" + Date.now();
-  const env = { ...process.env, MANIFEST_TS: ts };
+  const env = { ...process.env, MANIFEST_TS: ts, PROBE_PYTHON: PYTHON_CMD };
   const res = spawnSync("bash", ["scripts/fleet-probe/probe-james.sh"], {
     env,
     encoding: "utf8",
@@ -95,7 +102,7 @@ test("probe-james.sh writes schema-valid manifest and exits 0", () => {
 });
 
 test("probe-james.sh exits 2 when MANIFEST_TS is unset", () => {
-  const env = { ...process.env };
+  const env = { ...process.env, PROBE_PYTHON: PYTHON_CMD };
   delete env.MANIFEST_TS;
   const res = spawnSync("bash", ["scripts/fleet-probe/probe-james.sh"], {
     env,

@@ -20,6 +20,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+// On Windows/Git Bash, 'python3' resolves to the App Execution Alias in WindowsApps which
+// hangs (pops up Microsoft Store UI) when called without an interactive session.
+// The real Python 3.12 installation on Windows is accessible as 'python'.
+// On Linux (production VPS), 'python3' is correct.
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // Load fixture files (rc-sentry response bodies for mock HTTP server)
 const EXEC_OK = readFileSync(join(REPO_ROOT, "tests/fleet-probe/fixtures/responses/pod-exec-ok.json"), "utf8");
 const EXEC_401 = readFileSync(join(REPO_ROOT, "tests/fleet-probe/fixtures/responses/pod-exec-401.json"), "utf8");
@@ -46,6 +53,7 @@ async function runProbeWithMock({ podN, execBody, execStatus = 200, healthBody =
         PROBE_OVERRIDE_URL: server.url,
         PROBE_OVERRIDE_PORT_SENTRY: port,
         PROBE_OVERRIDE_PORT_AGENT: port,
+        PROBE_PYTHON: PYTHON_CMD,
       },
     });
 
@@ -128,7 +136,7 @@ test("probe-pod.sh exits 2 when MANIFEST_TS is not set", () => {
 
 test("probe-pod.sh with missing SENTRY_KEY -> probe_failed + auth_gap no_sentry_key", () => {
   const ts = "test-pod-nokey-" + Date.now();
-  const env = { ...process.env, MANIFEST_TS: ts };
+  const env = { ...process.env, MANIFEST_TS: ts, PROBE_PYTHON: PYTHON_CMD };
   delete env.SENTRY_KEY;
   delete env.RCAGENT_SERVICE_KEY;
   // Use a port that won't respond -- probe should fail before trying network (auth pre-check)
@@ -171,6 +179,7 @@ test("pod_1 manifest has correct host RCPOD-1 and ip 192.168.31.89", () => {
     PROBE_OVERRIDE_URL: "http://127.0.0.1:1",
     PROBE_OVERRIDE_PORT_SENTRY: "1",
     PROBE_OVERRIDE_PORT_AGENT: "1",
+    PROBE_PYTHON: PYTHON_CMD,
   };
   spawnSync("bash", ["scripts/fleet-probe/probe-pod.sh", "1"], {
     cwd: REPO_ROOT, env, encoding: "utf8", timeout: 30_000,
@@ -192,6 +201,7 @@ test("pod_8 manifest has correct host RCPOD-8 and ip 192.168.31.91", () => {
     PROBE_OVERRIDE_URL: "http://127.0.0.1:1",
     PROBE_OVERRIDE_PORT_SENTRY: "1",
     PROBE_OVERRIDE_PORT_AGENT: "1",
+    PROBE_PYTHON: PYTHON_CMD,
   };
   spawnSync("bash", ["scripts/fleet-probe/probe-pod.sh", "8"], {
     cwd: REPO_ROOT, env, encoding: "utf8", timeout: 30_000,

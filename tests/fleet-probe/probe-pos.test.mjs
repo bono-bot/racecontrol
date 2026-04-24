@@ -20,6 +20,9 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 
 const MOCK_SSH = resolve(REPO_ROOT, "tests/fleet-probe/mock-ssh-responder.sh");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // ---- Partial path: tasklist WMI denied -> probe_status=partial ----
 
 test("probe-pos.sh partial path: tasklist WMI denied -> partial + sub_probe tasklist", () => {
@@ -32,6 +35,7 @@ test("probe-pos.sh partial path: tasklist WMI denied -> partial + sub_probe task
       PROBE_SSH: MOCK_SSH,
       PROBE_SSH_SCENARIO: resolve(REPO_ROOT, "tests/fleet-probe/fixtures/pos-ssh-partial.txt"),
       PROBE_SKIP_HTTP: "1",
+      PROBE_PYTHON: PYTHON_CMD,
     },
     encoding: "utf8",
     timeout: 30_000,
@@ -98,6 +102,7 @@ test("probe-pos.sh SSH timeout -> probe_failed + access_gap POS_SSH_DOWN", () =>
       PROBE_SSH: MOCK_SSH,
       PROBE_SSH_SCENARIO: resolve(REPO_ROOT, "tests/fleet-probe/fixtures/server-ssh-timeout.txt"),
       PROBE_SKIP_HTTP: "1",
+      PROBE_PYTHON: PYTHON_CMD,
     },
     encoding: "utf8",
     timeout: 30_000,

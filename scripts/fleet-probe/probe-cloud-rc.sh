@@ -4,22 +4,33 @@
 # Usage: MANIFEST_TS=<iso> bash scripts/fleet-probe/probe-cloud-rc.sh
 # Optional env:
 #   PROBE_OVERRIDE_CLOUD_RC_URL  -- overrides https://racingpoint.cloud (tests: http://127.0.0.1:PORT)
+#   PROBE_PYTHON                 -- override python3 interpreter (tests pass 'python' on Windows)
 # Stdout: {"target_id":"cloud_racecontrol","probe_status":"ok|probe_failed|partial","duration_ms":N,"errors_count":N}
 # Side effect: state/fleet-manifest/$MANIFEST_TS/cloud_racecontrol.json
+#
+# NOTE ON PYTHON INVOCATION:
+# All python3 JSON helpers delegate to lib/cloud_rc_helpers.py via sys.argv.
+# This avoids heredoc-stdin conflicts on Windows/Git Bash where any heredoc ('<<PYEOF')
+# hangs when bash's stdin is a pipe (e.g. under Node.js spawn in unit tests).
+# Default target: https://racingpoint.cloud/api/v1/health
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/probe-common.sh
 source "$SCRIPT_DIR/lib/probe-common.sh"
 
+PY_HELPERS="$SCRIPT_DIR/lib/cloud_rc_helpers.py"
+
 if [ -z "${MANIFEST_TS:-}" ]; then
   echo "probe-cloud-rc: MANIFEST_TS not set" >&2
   exit 2
 fi
 
+# PROBE_PYTHON: allows tests on Windows to override 'python3' with real interpreter path
+PYTHON="${PROBE_PYTHON:-python3}"
 # Default target: https://racingpoint.cloud/api/v1/health
 CLOUD_URL="${PROBE_OVERRIDE_CLOUD_RC_URL:-https://racingpoint.cloud}"
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$PYTHON" -c "import time; print(int(time.time()*1000))")
 
 TARGET_ID="cloud_racecontrol"
 HOST_VAL="racingpoint.cloud"
@@ -29,7 +40,7 @@ PROBE_ERRORS_JSON="[]"
 CONNECT_ERR=0
 SUBPROBE_ERR=0
 
-# Work dir for temp files (avoids heredoc-stdin conflicts per 448-02 pattern)
+# Work dir for temp files
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -37,7 +48,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 # append_error SUB_PROBE ERROR_MSG
 append_error() {
   local sp="$1" err="$2"
-  PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err" PE="$PROBE_ERRORS_JSON" python3 -c '
+  PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err" PE="$PROBE_ERRORS_JSON" "$PYTHON" -c '
 import os, json
 a = json.loads(os.environ["PE"])
 a.append({"sub_probe": os.environ["SP"], "error": os.environ["ERR"]})
@@ -51,7 +62,6 @@ HEALTH_CODE=$(curl -s --max-time 10 \
   -o "$HEALTH_RESP_FILE" \
   -w "%{http_code}" \
   "$CLOUD_URL/api/v1/health" 2>/dev/null) || HEALTH_CODE="000"
-HEALTH_BODY=$(cat "$HEALTH_RESP_FILE" 2>/dev/null || echo "")
 
 BUILD_ID="null"
 
@@ -62,24 +72,16 @@ elif [ "$HEALTH_CODE" != "200" ]; then
   CONNECT_ERR=1
   append_error "health" "HTTP $HEALTH_CODE from $CLOUD_URL/api/v1/health"
 else
-  # Validate JSON
-  if ! python3 -c 'import json,sys; json.load(sys.stdin)' < "$HEALTH_RESP_FILE" 2>/dev/null; then
+  # Validate JSON -- reads file path via sys.argv, no stdin
+  if ! "$PYTHON" "$PY_HELPERS" validate_json "$HEALTH_RESP_FILE" 2>/dev/null; then
     SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
     append_error "health_parse" "cloud_racecontrol /api/v1/health returned non-JSON"
   else
-    # Extract build_id
-    BID=$(python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    v = d.get("build_id")
-    if v: print(v)
-except Exception:
-    pass
-' < "$HEALTH_RESP_FILE" 2>/dev/null || true)
+    # Extract build_id -- reads file path via sys.argv, no stdin
+    BID=$("$PYTHON" "$PY_HELPERS" extract_bid "$HEALTH_RESP_FILE" 2>/dev/null || true)
 
     if [ -n "$BID" ]; then
-      BUILD_ID=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
+      BUILD_ID=$("$PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
     else
       SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
       append_error "build_id" "/api/v1/health response missing build_id field"
@@ -89,7 +91,7 @@ fi
 
 # --- Timing and status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -101,46 +103,14 @@ if [ "$PROBE_STATUS" = "probe_failed" ]; then
   BUILD_ID="null"
 fi
 
-# --- Assemble manifest ---
+# --- Assemble manifest -- no stdin/heredoc, all args via sys.argv ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$PYTHON" "$PY_HELPERS" build_manifest \
   "$TARGET_ID" "$HOST_VAL" "$IP_VAL" \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$BUILD_ID" "$ENV_HASH" \
   "$PROBE_ERRORS_JSON" \
-  "$MANIFEST_FILE" <<'PYEOF'
-import json, sys
-
-(target_id, host, ip,
- probed_at, probe_status,
- build_id_json, env_hash,
- probe_errors_json,
- out_file) = sys.argv[1:10]
-
-m = {
-    "schema_version":    "1.0",
-    "target_id":         target_id,
-    "host":              host,
-    "ip":                ip,
-    "role":              "cloud_racecontrol",
-    "probed_at_ist":     probed_at,
-    "probe_status":      probe_status,
-    "binary_sha256":     {},
-    "build_id":          json.loads(build_id_json),
-    "config_hash":       {},
-    "running_procs":     [],
-    "scheduled_tasks":   [],
-    "autostart_entries": [],
-    "env_vars_hash":     env_hash,
-    "last_deploy_ts":    None,
-}
-errors = json.loads(probe_errors_json)
-if errors:
-    m["probe_errors"] = errors
-
-with open(out_file, "w") as f:
-    json.dump(m, f)
-PYEOF
+  "$MANIFEST_FILE"
 
 MANIFEST_JSON=$(cat "$MANIFEST_FILE")
 write_manifest "$TARGET_ID" "$MANIFEST_JSON"

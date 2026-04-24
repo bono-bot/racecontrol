@@ -8,6 +8,9 @@ import { validateAgainstSchema } from "./helpers.mjs";
 
 const MOCK_SSH = resolve("tests/fleet-probe/mock-ssh-responder.sh");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 function runProbe(scenarioPath, extra = {}) {
   const ts = "test-server-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
   const env = {
@@ -16,6 +19,7 @@ function runProbe(scenarioPath, extra = {}) {
     PROBE_SSH: MOCK_SSH,
     PROBE_SSH_SCENARIO: resolve(scenarioPath),
     PROBE_SKIP_HTTP: "1",
+    PROBE_PYTHON: PYTHON_CMD,
     ...extra,
   };
   const res = spawnSync("bash", ["scripts/fleet-probe/probe-server.sh"], {

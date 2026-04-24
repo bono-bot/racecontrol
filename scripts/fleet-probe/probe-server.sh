@@ -22,7 +22,7 @@ fi
 
 SSH_CMD="${PROBE_SSH:-ssh}"
 SSH_TARGET="${PROBE_SSH_TARGET:-ADMIN@100.125.108.37}"
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 
 TARGET_ID="server_23"
 HOSTNAME_VAL="Racing-Point-Server"
@@ -43,7 +43,7 @@ printf '[]' > "$PROBE_ERRORS_FILE"
 # Appends a JSON error object to PROBE_ERRORS_FILE.
 append_error() {
   local sp="$1" msg="$2" gap="${3:-}"
-  python3 - "$PROBE_ERRORS_FILE" "$sp" "$msg" "$gap" <<'PYEOF'
+  "$_PROBE_PYTHON" - "$PROBE_ERRORS_FILE" "$sp" "$msg" "$gap" <<'PYEOF'
 import json, sys
 fname, sp, msg, gap = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 with open(fname) as f:
@@ -150,7 +150,7 @@ fi
 
 # --- Assemble config_hash JSON from three Q5 keys ---
 CONFIG_HASH_FILE="$WORK_DIR/config_hash.json"
-python3 - "$CONFIG_HASH_FILE" "$CFG_SERVER_SHA" "$CFG_JAMES_SHA" "$CFG_GIT_SHA" <<'PYEOF'
+"$_PROBE_PYTHON" - "$CONFIG_HASH_FILE" "$CFG_SERVER_SHA" "$CFG_JAMES_SHA" "$CFG_GIT_SHA" <<'PYEOF'
 import json, sys
 fname = sys.argv[1]
 server_sha = sys.argv[2]
@@ -169,9 +169,9 @@ BUILD_ID_VAL="null"
 if [ "${PROBE_SKIP_HTTP:-0}" != "1" ] && [ "$CONNECT_ERR" -eq 0 ]; then
   HEALTH=$(curl -s --max-time 5 "http://$IP_VAL:8080/api/v1/health" 2>/dev/null || true)
   if [ -n "$HEALTH" ]; then
-    BID=$(printf '%s' "$HEALTH" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('build_id',''))" 2>/dev/null || true)
+    BID=$(printf '%s' "$HEALTH" | "$_PROBE_PYTHON" -c "import json,sys; d=json.load(sys.stdin); print(d.get('build_id',''))" 2>/dev/null || true)
     if [ -n "$BID" ]; then
-      BUILD_ID_VAL=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$BID")
+      BUILD_ID_VAL=$("$_PROBE_PYTHON" -c "import json,sys; print(json.dumps(sys.argv[1]))" "$BID")
     else
       BUILD_ID_VAL="null"
       SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
@@ -191,7 +191,7 @@ if [ -f "$SWAPLOG_PATH" ]; then
   if [ -n "$LAST_ROW" ]; then
     # Column 2 format: "YYYY-MM-DD HH:MM IST" or "YYYY-MM-DD HH:MM:SS IST"
     TS=$(printf '%s' "$LAST_ROW" | awk -F'|' '{gsub(/^ +| +$/, "", $2); print $2}')
-    ISO=$(printf '%s' "$TS" | python3 -c "
+    ISO=$(printf '%s' "$TS" | "$_PROBE_PYTHON" -c "
 import sys, re
 s = sys.stdin.read().strip()
 m = re.match(r'(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?', s)
@@ -216,7 +216,7 @@ fi
 
 # --- Parse tasklist CSV into running_procs ---
 RUNNING_PROCS_FILE="$WORK_DIR/running_procs.json"
-python3 - "$TASKLIST_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$TASKLIST_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
 import csv, hashlib, json, sys, os
 rows = []
 fname = sys.argv[1]
@@ -245,7 +245,7 @@ PYEOF
 
 # --- Parse schtasks LIST output into scheduled_tasks ---
 SCHTASKS_JSON_FILE="$WORK_DIR/scheduled_tasks.json"
-python3 - "$SCHTASKS_FILE" "$SCHTASKS_JSON_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$SCHTASKS_FILE" "$SCHTASKS_JSON_FILE" <<'PYEOF'
 import json, sys, os
 entries = []
 fname = sys.argv[1]
@@ -274,7 +274,7 @@ PYEOF
 
 # --- Parse reg HKLM/HKCU Run into autostart_entries ---
 AUTOSTART_FILE="$WORK_DIR/autostart.json"
-python3 - "$REG_HKLM_FILE" "$REG_HKCU_FILE" "$AUTOSTART_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$REG_HKLM_FILE" "$REG_HKCU_FILE" "$AUTOSTART_FILE" <<'PYEOF'
 import json, sys, os
 entries = []
 for source, fname in (("HKLM_Run", sys.argv[1]), ("HKCU_Run", sys.argv[2])):
@@ -304,7 +304,7 @@ fi
 
 # --- Determine probe status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -320,14 +320,14 @@ if [ "$PROBE_STATUS" = "probe_failed" ]; then
 fi
 
 if [ -n "$BIN_SHA" ]; then
-  python3 -c "import json,sys; print(json.dumps({'racecontrol.exe': sys.argv[1]}))" "$BIN_SHA" > "$BINARY_SHA_FILE"
+  "$_PROBE_PYTHON" -c "import json,sys; print(json.dumps({'racecontrol.exe': sys.argv[1]}))" "$BIN_SHA" > "$BINARY_SHA_FILE"
 else
   printf '{}' > "$BINARY_SHA_FILE"
 fi
 
 # --- Assemble final manifest JSON ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$_PROBE_PYTHON" - \
   "$TARGET_ID" "$HOSTNAME_VAL" "$IP_VAL" "$ROLE_VAL" \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$BINARY_SHA_FILE" "$BUILD_ID_VAL" "$CONFIG_HASH_FILE" \

@@ -9,12 +9,17 @@
 #   iso_ist_now, probe_status_from_errors, env_names_hash, env_names_hash_remote, cmdline_hash
 set -eo pipefail
 
+# PROBE_PYTHON: override python interpreter (default: python3).
+# On Windows/Git Bash, 'python3' may resolve to the Windows Store App Execution Alias which
+# hangs without an interactive session. Tests pass PROBE_PYTHON=python (real Python 3.12).
+_PROBE_PYTHON="${PROBE_PYTHON:-python3}"
+
 # json_escape STRING
 # Escapes backslash, double-quote, and control characters.
 # stdout: JSON-escaped string (no surrounding quotes).
 # Uses python3 for correctness across all edge cases.
 json_escape() {
-  python3 -c 'import json,sys; print(json.dumps(sys.argv[1])[1:-1])' "$1"
+  "$_PROBE_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1])[1:-1])' "$1"
 }
 
 # iso_ist_now
@@ -26,7 +31,7 @@ iso_ist_now() {
   utc_epoch=$(date -u +%s)
   ist_epoch=$((utc_epoch + 19800))
   date -u -d "@$ist_epoch" '+%Y-%m-%dT%H:%M:%S+05:30' 2>/dev/null || \
-    python3 -c "from datetime import datetime; print(datetime.utcfromtimestamp($ist_epoch).strftime('%Y-%m-%dT%H:%M:%S+05:30'))"
+    "$_PROBE_PYTHON" -c "from datetime import datetime; print(datetime.utcfromtimestamp($ist_epoch).strftime('%Y-%m-%dT%H:%M:%S+05:30'))"
 }
 
 # sha256_of FILEPATH
@@ -108,7 +113,7 @@ write_manifest() {
   local out_file="$out_dir/$target_id.json"
   local tmp_file="$out_file.tmp"
 
-  if ! echo "$manifest_json" | python3 -m json.tool > "$tmp_file" 2>/dev/null; then
+  if ! echo "$manifest_json" | "$_PROBE_PYTHON" -m json.tool > "$tmp_file" 2>/dev/null; then
     echo "write_manifest: $target_id manifest is not valid JSON" >&2
     rm -f "$tmp_file"
     return 1

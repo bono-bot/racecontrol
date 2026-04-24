@@ -1,17 +1,25 @@
 #!/bin/bash
 # scripts/fleet-probe/probe-cloud-admin.sh -- Phase 448 Plan 06
-# Probes admin.racingpoint.cloud via HTTPS /api/health + HEAD / gate detection.
+# Probes admin.racingpoint.cloud via HTTPS /api/health + GET / gate detection.
 # Usage: MANIFEST_TS=<iso> bash scripts/fleet-probe/probe-cloud-admin.sh
 # Optional env:
 #   PROBE_OVERRIDE_CLOUD_ADMIN_URL  -- overrides https://admin.racingpoint.cloud (tests: http://127.0.0.1:PORT)
 #   STAFF_JWT                        -- optional; enables gated-page probe
 # Stdout: {"target_id":"cloud_admin","probe_status":"ok|probe_failed|partial","duration_ms":N,"errors_count":N}
 # Side effect: state/fleet-manifest/$MANIFEST_TS/cloud_admin.json
+#
+# NOTE ON PYTHON INVOCATION:
+# All python3 JSON helpers delegate to lib/cloud_admin_helpers.py via sys.argv.
+# This avoids heredoc-stdin conflicts on Windows/Git Bash where ANY heredoc ('<<PYEOF')
+# hangs when bash's stdin is a pipe (e.g. under Node.js spawn in unit tests).
+# Default target: https://admin.racingpoint.cloud/api/health
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/probe-common.sh
 source "$SCRIPT_DIR/lib/probe-common.sh"
+
+PY_HELPERS="$SCRIPT_DIR/lib/cloud_admin_helpers.py"
 
 if [ -z "${MANIFEST_TS:-}" ]; then
   echo "probe-cloud-admin: MANIFEST_TS not set" >&2
@@ -19,7 +27,9 @@ if [ -z "${MANIFEST_TS:-}" ]; then
 fi
 
 CLOUD_URL="${PROBE_OVERRIDE_CLOUD_ADMIN_URL:-https://admin.racingpoint.cloud}"
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+# PROBE_PYTHON: allows tests on Windows to override 'python3' with real interpreter path
+PYTHON="${PROBE_PYTHON:-python3}"
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$PYTHON" -c "import time; print(int(time.time()*1000))")
 
 TARGET_ID="cloud_admin"
 HOST_VAL="admin.racingpoint.cloud"
@@ -29,7 +39,7 @@ PROBE_ERRORS_JSON="[]"
 CONNECT_ERR=0
 SUBPROBE_ERR=0
 
-# Work dir for temp files (avoids ARG_MAX and heredoc-stdin conflicts per 448-02 pattern)
+# Work dir for temp files
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -37,7 +47,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 # append_error SUB_PROBE ERROR_MSG [EXTRA_KEY EXTRA_VAL]
 append_error() {
   local sp="$1" err="$2" xk="${3:-}" xv="${4:-}"
-  PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err" XK="$xk" XV="$xv" PE="$PROBE_ERRORS_JSON" python3 -c '
+  PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err" XK="$xk" XV="$xv" PE="$PROBE_ERRORS_JSON" "$PYTHON" -c '
 import os, json
 a = json.loads(os.environ["PE"])
 e = {"sub_probe": os.environ["SP"], "error": os.environ["ERR"]}
@@ -53,7 +63,6 @@ HEALTH_CODE=$(curl -s --max-time 10 \
   -o "$HEALTH_RESP_FILE" \
   -w "%{http_code}" \
   "$CLOUD_URL/api/health" 2>/dev/null) || HEALTH_CODE="000"
-HEALTH_BODY=$(cat "$HEALTH_RESP_FILE" 2>/dev/null || echo "")
 
 BUILD_ID="null"
 GIT_COMMIT=""
@@ -66,67 +75,47 @@ elif [ "$HEALTH_CODE" != "200" ]; then
   CONNECT_ERR=1
   append_error "health" "HTTP $HEALTH_CODE from $CLOUD_URL/api/health"
 else
-  # Validate JSON
-  if ! python3 -c 'import json,sys; json.load(sys.stdin)' < "$HEALTH_RESP_FILE" 2>/dev/null; then
+  # Validate JSON -- no stdin/heredoc, reads file path via sys.argv
+  if ! "$PYTHON" "$PY_HELPERS" validate_json "$HEALTH_RESP_FILE" 2>/dev/null; then
     SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
     append_error "health_parse" "cloud admin /api/health returned non-JSON"
   else
-    # Extract build_id
-    BID=$(python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    v = d.get("build_id")
-    if v: print(v)
-except Exception:
-    pass
-' < "$HEALTH_RESP_FILE" 2>/dev/null || true)
+    # Extract build_id -- no stdin/heredoc, reads file path via sys.argv
+    BID=$("$PYTHON" "$PY_HELPERS" extract_field "$HEALTH_RESP_FILE" "build_id" 2>/dev/null || true)
     if [ -n "$BID" ]; then
-      BUILD_ID=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
+      BUILD_ID=$("$PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
     fi
 
-    # Extract git_commit
-    GIT_COMMIT=$(python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    v = d.get("git_commit", "")
-    if v: print(v)
-except Exception:
-    pass
-' < "$HEALTH_RESP_FILE" 2>/dev/null || true)
+    # Extract git_commit -- no stdin/heredoc, reads file path via sys.argv
+    GIT_COMMIT=$("$PYTHON" "$PY_HELPERS" extract_field "$HEALTH_RESP_FILE" "git_commit" 2>/dev/null || true)
 
-    # Extract pages_missing and check if non-empty
-    PAGES_MISSING_JSON=$(python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-    pm = d.get("pages_missing", [])
-    print(json.dumps(pm))
-except Exception:
-    print("[]")
-' < "$HEALTH_RESP_FILE" 2>/dev/null || echo "[]")
+    # Extract pages_missing -- no stdin/heredoc, reads file path via sys.argv
+    PAGES_MISSING_JSON=$("$PYTHON" "$PY_HELPERS" extract_pages "$HEALTH_RESP_FILE" 2>/dev/null || echo "[]")
 
     # pages_missing non-empty -> partial + pages_probe error
-    PM_COUNT=$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$PAGES_MISSING_JSON" 2>/dev/null || echo "0")
+    PM_COUNT=$("$PYTHON" -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$PAGES_MISSING_JSON" 2>/dev/null || echo "0")
     if [ "$PM_COUNT" != "0" ] && [ -n "$PM_COUNT" ]; then
       SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
-      PM_LIST=$(python3 -c 'import json,sys; print(", ".join(json.loads(sys.argv[1])))' "$PAGES_MISSING_JSON" 2>/dev/null || echo "unknown")
+      PM_LIST=$("$PYTHON" -c 'import json,sys; print(", ".join(json.loads(sys.argv[1])))' "$PAGES_MISSING_JSON" 2>/dev/null || echo "unknown")
       append_error "pages_probe" "pages_missing: $PM_LIST"
     fi
   fi
 fi
 
-# --- Gate detection via HEAD / ---
-# Detect ADMIN_COMING_SOON_GATE: HEAD / returns 307 -> /coming-soon means gate is active.
-# We make two calls: one to get the status code, one to get the Location header.
+# --- Gate detection via GET / (no redirect follow) ---
+# Detect ADMIN_COMING_SOON_GATE: GET / returns 307 -> /coming-soon means gate is active.
+# Use -w format to capture http_code and redirect_url (Location header) in one call.
+# -o /dev/null discards the response body; no redirect follow (no -L).
 # Done only when connectivity succeeded (no CONNECT_ERR).
 GATE_ACTIVE=0
 if [ "$CONNECT_ERR" -eq 0 ]; then
-  HEAD_STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" -I "$CLOUD_URL/" 2>/dev/null || echo "000")
-  HEAD_HEADERS_FILE="$WORK_DIR/head-headers.txt"
-  curl -s --max-time 10 -I "$CLOUD_URL/" > "$HEAD_HEADERS_FILE" 2>/dev/null || true
-  HEAD_LOC=$(tr -d '\r' < "$HEAD_HEADERS_FILE" | awk -F': ' 'tolower($1)=="location" {print $2; exit}' | tr -d ' ' | tr -d '\n')
+  GATE_STATUS_FILE="$WORK_DIR/gate-status.txt"
+  curl -s --max-time 10 \
+    -o /dev/null \
+    -w "%{http_code}\n%{redirect_url}" \
+    "$CLOUD_URL/" > "$GATE_STATUS_FILE" 2>/dev/null || printf "000\n" > "$GATE_STATUS_FILE"
+  HEAD_STATUS=$(sed -n '1p' "$GATE_STATUS_FILE" | tr -d '\r\n')
+  HEAD_LOC=$(sed -n '2p' "$GATE_STATUS_FILE" | tr -d '\r\n')
   if [ "$HEAD_STATUS" = "307" ] || echo "$HEAD_LOC" | grep -qi "coming-soon"; then
     GATE_ACTIVE=1
   fi
@@ -146,7 +135,7 @@ fi
 CONFIG_HASH_JSON="{}"
 if [ -n "$GIT_COMMIT" ]; then
   CMT_HASH=$(printf '%s' "$GIT_COMMIT" | sha256sum | awk '{print $1}')
-  CONFIG_HASH_JSON=$(python3 -c 'import json,sys; print(json.dumps({"admin.git_commit": sys.argv[1]}))' "$CMT_HASH")
+  CONFIG_HASH_JSON=$("$PYTHON" -c 'import json,sys; print(json.dumps({"admin.git_commit": sys.argv[1]}))' "$CMT_HASH")
 fi
 
 # Stable empty SHA256 (no binary to hash for cloud admin -- Next.js build)
@@ -154,7 +143,7 @@ ENV_HASH="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 # --- Timing and status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -165,48 +154,15 @@ if [ "$PROBE_STATUS" = "probe_failed" ]; then
   BUILD_ID="null"
 fi
 
-# --- Assemble manifest ---
+# --- Assemble manifest -- no stdin/heredoc, all args via sys.argv ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$PYTHON" "$PY_HELPERS" build_manifest \
   "$TARGET_ID" "$HOST_VAL" "$IP_VAL" \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$BUILD_ID" "$CONFIG_HASH_JSON" \
   "$SCHTASKS_JSON" "$ENV_HASH" \
   "$PROBE_ERRORS_JSON" \
-  "$MANIFEST_FILE" <<'PYEOF'
-import json, sys
-
-(target_id, host, ip,
- probed_at, probe_status,
- build_id_json, config_hash_json,
- schtasks_json, env_hash,
- probe_errors_json,
- out_file) = sys.argv[1:12]
-
-m = {
-    "schema_version":    "1.0",
-    "target_id":         target_id,
-    "host":              host,
-    "ip":                ip,
-    "role":              "cloud_admin",
-    "probed_at_ist":     probed_at,
-    "probe_status":      probe_status,
-    "binary_sha256":     {},
-    "build_id":          json.loads(build_id_json),
-    "config_hash":       json.loads(config_hash_json),
-    "running_procs":     [],
-    "scheduled_tasks":   json.loads(schtasks_json),
-    "autostart_entries": [],
-    "env_vars_hash":     env_hash,
-    "last_deploy_ts":    None,
-}
-errors = json.loads(probe_errors_json)
-if errors:
-    m["probe_errors"] = errors
-
-with open(out_file, "w") as f:
-    json.dump(m, f)
-PYEOF
+  "$MANIFEST_FILE"
 
 MANIFEST_JSON=$(cat "$MANIFEST_FILE")
 write_manifest "$TARGET_ID" "$MANIFEST_JSON"

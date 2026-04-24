@@ -18,6 +18,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+// On Windows/Git Bash, 'python3' resolves to the App Execution Alias in WindowsApps which
+// hangs (pops up Microsoft Store UI) when called without an interactive session.
+// The real Python 3.12 installation on Windows is accessible as 'python'.
+// On Linux (production VPS), 'python3' is correct.
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // Load response fixtures from responses/ subdir (not top-level fixtures/ to avoid
 // schema-compat.test.mjs validating non-manifest JSON -- same pattern as 448-04).
 function loadResponseFixture(name) {
@@ -44,6 +51,7 @@ async function runProbeRC({ body, status = 200 }) {
         ...process.env,
         MANIFEST_TS: ts,
         PROBE_OVERRIDE_CLOUD_RC_URL: server.url,
+        PROBE_PYTHON: PYTHON_CMD,
       },
     });
 

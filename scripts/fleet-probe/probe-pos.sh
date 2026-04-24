@@ -32,7 +32,7 @@ SSH_CMD="${PROBE_SSH:-ssh}"
 SSH_TARGET="${PROBE_SSH_TARGET:-User@100.95.211.1}"
 POS_URL="${PROBE_OVERRIDE_POS_URL:-http://192.168.31.130:3300}"
 
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 
 PROBE_ERRORS_JSON="[]"
 CONNECT_ERR=0
@@ -47,7 +47,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 append_error() {
   local sp="$1" err_msg="$2" xk="${3:-}" xv="${4:-}"
   PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err_msg" XK="$xk" XV="$xv" PE="$PROBE_ERRORS_JSON" \
-    python3 -c '
+    "$_PROBE_PYTHON" -c '
 import os, json
 a = json.loads(os.environ["PE"])
 e = {"sub_probe": os.environ["SP"], "error": os.environ["ERR"]}
@@ -143,7 +143,7 @@ BUILD_ID="null"
 if [ "${PROBE_SKIP_HTTP:-0}" != "1" ] && [ "$CONNECT_ERR" -eq 0 ]; then
   HEALTH=$(curl -s --connect-timeout 5 --max-time 10 "${POS_URL}/api/health" 2>/dev/null || true)
   if [ -n "$HEALTH" ]; then
-    BID=$(printf '%s' "$HEALTH" | python3 -c '
+    BID=$(printf '%s' "$HEALTH" | "$_PROBE_PYTHON" -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -153,7 +153,7 @@ except Exception:
     pass
 ' 2>/dev/null || true)
     if [ -n "$BID" ]; then
-      BUILD_ID=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
+      BUILD_ID=$("$_PROBE_PYTHON" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$BID")
     fi
   else
     SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
@@ -163,7 +163,7 @@ fi
 
 # --- Parse sections to JSON (temp-file pattern from 448-02 to avoid heredoc-stdin conflict) ---
 # Write section data to temp files first, then pass file paths to Python via sys.argv.
-# (Using 'python3 - <<PYEOF' redirects Python's stdin to the heredoc, breaking any pipe input.)
+# (Using '"$_PROBE_PYTHON" - <<PYEOF' redirects Python's stdin to the heredoc, breaking any pipe input.)
 TASKLIST_RAW_FILE="$WORK_DIR/tasklist.txt"
 SCHTASKS_RAW_FILE="$WORK_DIR/schtasks.txt"
 REG_COMBINED_FILE="$WORK_DIR/reg-combined.txt"
@@ -173,7 +173,7 @@ printf '%s\n---HKCU---\n%s' "$REG_HKLM_OUT" "$REG_HKCU_OUT" > "$REG_COMBINED_FIL
 
 # --- Parse tasklist to running_procs ---
 RUNNING_PROCS_FILE="$WORK_DIR/running_procs.json"
-python3 - "$TASKLIST_RAW_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$TASKLIST_RAW_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
 import csv, hashlib, json, sys
 in_file, out_file = sys.argv[1], sys.argv[2]
 rows = []
@@ -201,7 +201,7 @@ PYEOF
 
 # --- Parse schtasks to scheduled_tasks ---
 SCHTASKS_FILE="$WORK_DIR/schtasks.json"
-python3 - "$SCHTASKS_RAW_FILE" "$SCHTASKS_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$SCHTASKS_RAW_FILE" "$SCHTASKS_FILE" <<'PYEOF'
 import json, sys
 in_file, out_file = sys.argv[1], sys.argv[2]
 entries = []
@@ -230,7 +230,7 @@ PYEOF
 
 # --- Parse reg to autostart_entries ---
 AUTOSTART_FILE="$WORK_DIR/autostart.json"
-python3 - "$REG_COMBINED_FILE" "$AUTOSTART_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$REG_COMBINED_FILE" "$AUTOSTART_FILE" <<'PYEOF'
 import json, sys
 in_file, out_file = sys.argv[1], sys.argv[2]
 with open(in_file, encoding="utf-8", errors="replace") as f:
@@ -260,12 +260,12 @@ fi
 # --- config_hash ---
 CONFIG_HASH_JSON="{}"
 if [ -n "$CFG_SHA" ]; then
-  CONFIG_HASH_JSON=$(python3 -c 'import json,sys; print(json.dumps({"C:\\\\POS\\\\config.json": sys.argv[1]}))' "$CFG_SHA")
+  CONFIG_HASH_JSON=$("$_PROBE_PYTHON" -c 'import json,sys; print(json.dumps({"C:\\\\POS\\\\config.json": sys.argv[1]}))' "$CFG_SHA")
 fi
 
 # --- Timing and status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -279,9 +279,9 @@ if [ "$PROBE_STATUS" = "probe_failed" ]; then
   ENV_HASH="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 fi
 
-# --- Assemble manifest via python3 (file-arg pattern to avoid ARG_MAX) ---
+# --- Assemble manifest via "$_PROBE_PYTHON" (file-arg pattern to avoid ARG_MAX) ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$_PROBE_PYTHON" - \
   "$TARGET_ID" "$HOST_VAL" "$IP_VAL" \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$RUNNING_PROCS_FILE" "$SCHTASKS_FILE" "$AUTOSTART_FILE" \
