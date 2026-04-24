@@ -33,3 +33,47 @@ ts_files = [
 ]
 severity = "required"
 catches = "2026-03-26 ai_difficulty/ai_count silent-drop class — kiosk-side type drift vs rc-agent AC launch boundary"
+
+# --- D8 Phase 2 pairs ---
+# Inventory types — Phase 361-01 cross-boundary, kiosk wizard + admin content drift
+# page depend on exact field-name parity with rc-common (see rc-common docstring).
+
+[[pair]]
+id = "pod_inventory_kiosk"
+rust_file = "crates/rc-common/src/inventory_types.rs"
+rust_struct = "PodInventory"
+ts_files = [
+    "kiosk/src/lib/types.ts",
+]
+severity = "required"
+catches = "Phase 361-01 PodInventory schema drift between /api/v1/pods/{id}/inventory and kiosk wizard filtering"
+
+[[pair]]
+id = "game_inventory_kiosk"
+rust_file = "crates/rc-common/src/inventory_types.rs"
+rust_struct = "GameInventory"
+ts_files = [
+    "kiosk/src/lib/types.ts",
+]
+severity = "required"
+catches = "Phase 361-01 GameInventory — per-game installed content (cars/tracks) drift between rc-common and kiosk consumer"
+
+[[pair]]
+id = "ai_count_range_kiosk"
+rust_file = "crates/rc-common/src/inventory_types.rs"
+rust_struct = "AiCountRange"
+ts_files = [
+    "kiosk/src/lib/types.ts",
+]
+severity = "required"
+catches = "AI grid size range — shared between rc-common (serde default: 0-23) and kiosk wizard UI bounds"
+
+[[pair]]
+id = "validity_error_kiosk"
+rust_file = "crates/rc-common/src/inventory_types.rs"
+rust_struct = "ValidityError"
+ts_files = [
+    "kiosk/src/lib/types.ts",
+]
+severity = "required"
+catches = "Phase 361-01 HTTP 422 validity-error body shape — kiosk toasts depend on reason/suggestion/code triple"

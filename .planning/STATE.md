@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v53.0
-milestone_name: Fleet Drift Graphs
-current_plan: 448-per-target-probe-scripts
-status: in_progress
-last_updated: "2026-04-24T13:30:00Z"
+milestone: v40.0
+milestone_name: Game Launch Reliability
+current_plan: 2
+status: executing
+last_updated: "2026-04-24T14:48:56.991Z"
 last_activity: 2026-04-24
 progress:
-  total_phases: 9
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
 ---
 
 # Project State
@@ -21,16 +21,17 @@ See: .planning/PROJECT.md (updated 2026-04-24 — v53.0 Fleet Drift Graphs secti
 
 **Core value:** Customers can seamlessly book a sim racing session — single or multiplayer — and start racing with minimal friction, while all lap times, telemetry, and payments are tracked automatically.
 
-**Current focus:** Phase 447 — Manifest Schema & Scope Lock
+**Current focus:** Phase 448 — per-target-probe-scripts
 
 ## Current Position
 
-Phase: 447 (Manifest Schema & Scope Lock) — EXECUTING
-Current Plan: Not started
-Total Plans in Phase: 3
+Phase: 448 (per-target-probe-scripts) — EXECUTING
+Plan: 2 of 8
+Current Plan: 2
+Total Plans in Phase: 8
 **Phase:** 447
 **Plan:** 03 next (validator test) / 01 SHIPPED via `1c34f640` + `0dfec421` + `136e058e`; 02 SHIPPED via `9087db3b` + `2f677dc5`
-**Status:** Milestone complete
+**Status:** Ready to execute
 **Last activity:** 2026-04-24
 
 ### Plan 01 Completion (2026-04-24)
@@ -61,7 +62,7 @@ Total Plans in Phase: 3
 | Phase | Name | Status | Progress |
 |-------|------|--------|----------|
 | 447 | Manifest Schema & Scope Lock | ◐ Plans 01+02 SHIPPED (schema + examples) | 67% (2/3 plans) |
-| 448 | Per-Target Probe Scripts | ○ Not started (blocked on 447) | 0% |
+| 448 | Per-Target Probe Scripts | ◐ Plan 01 SHIPPED (Wave 0 scaffolding) | 13% (1/8 plans) |
 | 449 | First Full-Fleet Probe Run (gate) | ○ Not started (blocked on 448) | 0% |
 | 450 | Build Graph | ○ Not started (blocked on 447) | 0% |
 | 451 | Deploy Graph | ○ Not started (blocked on 449) | 0% |
