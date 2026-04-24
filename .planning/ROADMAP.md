@@ -2514,7 +2514,7 @@ This is the binary gate between "milestone done" and "milestone not done." Phase
 
 ### Phases
 
-- [ ] **Phase 447: Manifest schema & scope lock** — Define the normalized per-target manifest schema + on-disk layout + forward-compat versioning that every downstream probe, graph, and diff tool will read and write.
+- [x] **Phase 447: Manifest schema & scope lock** — Define the normalized per-target manifest schema + on-disk layout + forward-compat versioning that every downstream probe, graph, and diff tool will read and write. (completed 2026-04-24)
 - [ ] **Phase 448: Per-target probe scripts** — Ship probe scripts for every deployable surface (Server .23, Pods 1-8, POS .130, James .27, Bono VPS, cloud admin, cloud racecontrol, comms-link relay) plus an orchestrator that runs them all.
 - [ ] **Phase 449: First full-fleet probe run (execution gate)** — Execute all W2 probes against the live fleet, validate manifest shape end-to-end, resolve any probe gaps surfaced.
 - [ ] **Phase 450: Build graph** — Generate a graphify build-graph from source repos + memory + planning docs with incremental refresh under 60s.
@@ -2535,12 +2535,12 @@ This is the binary gate between "milestone done" and "milestone not done." Phase
   3. Staff can open a sample manifest under `state/fleet-manifest/<iso-ts>/<target_id>.json` and read every field without a decoder
   4. A manifest written with `schema_version: 1` is still readable by a parser expecting `schema_version: 2` (unknown-field-tolerant) — proven with a fixture
   5. The `_meta.json` summary index lists every target, its probe_status, and its manifest filename for a given probe run
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 447-01-PLAN.md — Schema file + versioning doc + state/ scaffold + .gitignore (SCHEMA-01, SCHEMA-02, SCHEMA-03) — SHIPPED 2026-04-24 via 1c34f640 + 0dfec421 + 136e058e, SUMMARY at .planning/phases/447-manifest-schema-scope-lock/447-01-SUMMARY.md
 - [x] 447-02-PLAN.md — 8 per-target example manifests + _meta.json summary index (SCHEMA-01, SCHEMA-03)
-- [ ] 447-03-PLAN.md — Node ajv validator test + 4 fixtures + npm script wiring (SCHEMA-01, SCHEMA-02, SCHEMA-03)
+- [x] 447-03-PLAN.md — Node ajv validator test + 4 fixtures + npm script wiring (SCHEMA-01, SCHEMA-02, SCHEMA-03)
 
 ### Phase 448: Per-Target Probe Scripts
 **Goal:** Every deployable surface in the fleet has a probe that emits a valid manifest, and a single orchestrator runs them all in one invocation.
@@ -2645,7 +2645,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 447. Manifest Schema & Scope Lock | 2/3 | In Progress|  |
+| 447. Manifest Schema & Scope Lock | 3/3 | Complete   | 2026-04-24 |
 | 448. Per-Target Probe Scripts | 0/TBD | Blocked on 447 | - |
 | 449. First Full-Fleet Probe Run (gate) | 0/TBD | Blocked on 448 | - |
 | 450. Build Graph | 0/TBD | Blocked on 447 | - |
