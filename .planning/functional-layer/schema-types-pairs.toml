@@ -1,0 +1,35 @@
+# schema-types-check — cross-boundary type parity pairs
+#
+# Each [[pair]] entry declares one Rust struct whose fields the kiosk/web TS
+# must reference before the value reaches rc-agent. The checker enumerates
+# the Rust struct's required fields (fields without #[serde(default*)]) and
+# verifies that each required field name appears literally (word-boundary
+# match) in at least one of the listed TS files. Optional fields are skipped
+# — they are allowed to be absent from TS if the caller trusts the Rust
+# default. Unknown TS fields are NOT flagged; runtime serde
+# #[deny_unknown_fields] catches those.
+#
+# Motivating incident: 2026-03-26 silent-drop of `ai_level`/`ai_cars` in
+# kiosk's launch payload. Kiosk sent `ai_difficulty`, `ai_count` (raw) —
+# neither matched `AcLaunchParams` field names. Game launched successfully
+# because serde tolerated defaults and deny_unknown_fields was not yet
+# enabled. Zero AI opponents / always Semi-Pro for unknown duration.
+#
+# Schema:
+#   id            — pair identifier (logging / RED message target)
+#   rust_file     — path relative to repo root, UTF-8
+#   rust_struct   — exact name after "pub struct"
+#   ts_files      — list of paths relative to repo root (any match counts)
+#   severity      — "required" (any missing field = RED) | "informational"
+#   catches       — one-line summary of historical bug this pair catches
+
+[[pair]]
+id = "ac_launch_params_kiosk"
+rust_file = "crates/rc-agent/src/ac_launcher.rs"
+rust_struct = "AcLaunchParams"
+ts_files = [
+    "kiosk/src/hooks/useSetupWizard.ts",
+    "kiosk/src/lib/types.ts",
+]
+severity = "required"
+catches = "2026-03-26 ai_difficulty/ai_count silent-drop class — kiosk-side type drift vs rc-agent AC launch boundary"

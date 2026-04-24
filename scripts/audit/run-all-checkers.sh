@@ -41,6 +41,7 @@ declare -a CHECKS=(
   "workflow-centrality|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-graph-generate.py|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/workflow-centrality-check.py"
   "instant-arithmetic|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/instant-arithmetic-check.py"
   "process-ownership|true|bash $SCRIPT_DIR/process-ownership.sh"
+  "schema-types|true|PYTHONIOENCODING=utf-8 python3 $SCRIPT_DIR/schema-types-check.py"
 )
 # NOTE: data-content-check.py is shipped to origin/main (commit f0d0ffb1) but its
 # rules YAML (.planning/functional-layer/data-content-rules.yaml, commit 8810ca6c)
