@@ -34,10 +34,13 @@ TARGET_ORDER = [
 
 
 def iso_ist_now():
-    """Return ISO-8601 timestamp in IST (+05:30). Avoids TZ env (silently fails on Git Bash)."""
+    """Return ISO-8601 timestamp in IST (+05:30). Avoids TZ env (silently fails on Git Bash).
+    Uses UTC epoch arithmetic (not TZ override) per CLAUDE.md timezone rule."""
     utc_epoch = time.time()
     ist_epoch = utc_epoch + 19800
-    return datetime.datetime.utcfromtimestamp(ist_epoch).strftime("%Y-%m-%dT%H:%M:%S+05:30")
+    # Use timedelta arithmetic to avoid deprecated utcfromtimestamp() warning in Python 3.12+
+    base = datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=ist_epoch)
+    return base.strftime("%Y-%m-%dT%H:%M:%S+05:30")
 
 
 def main():
