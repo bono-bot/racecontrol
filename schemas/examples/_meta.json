@@ -1,0 +1,25 @@
+{
+  "_example_note": "Reference example for SCHEMA-03 summary index. In a real probe run this file lives at state/fleet-manifest/<iso-ts>/_meta.json alongside the per-target manifest JSON files. 2026-04-24.",
+  "schema_version": "1.0",
+  "probe_run_id": "2026-04-24T12:00:00+05:30",
+  "probed_at_ist": "2026-04-24T12:00:00+05:30",
+  "probe_duration_sec": 87.3,
+  "orchestrator": "scripts/fleet-probe/probe-all.sh",
+  "orchestrator_version": "phase-448-placeholder",
+  "target_count": 8,
+  "targets": [
+    {"target_id": "server_23",         "role": "server",            "probe_status": "ok",      "manifest_file": "server_23.json"},
+    {"target_id": "pod_1",             "role": "pod",               "probe_status": "ok",      "manifest_file": "pod_1.json"},
+    {"target_id": "pos_130",           "role": "pos",               "probe_status": "partial", "manifest_file": "pos_130.json"},
+    {"target_id": "james_27",          "role": "james",             "probe_status": "ok",      "manifest_file": "james_27.json"},
+    {"target_id": "bono_vps",          "role": "vps",               "probe_status": "ok",      "manifest_file": "bono_vps.json"},
+    {"target_id": "cloud_admin",       "role": "cloud_admin",       "probe_status": "ok",      "manifest_file": "cloud_admin.json"},
+    {"target_id": "cloud_racecontrol", "role": "cloud_racecontrol", "probe_status": "ok",      "manifest_file": "cloud_racecontrol.json"},
+    {"target_id": "relay_james",       "role": "relay",             "probe_status": "ok",      "manifest_file": "relay_james.json"}
+  ],
+  "status_summary": {
+    "ok": 7,
+    "partial": 1,
+    "probe_failed": 0
+  }
+}
