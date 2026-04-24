@@ -17,6 +17,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // Helper: run probe-relay.sh with an in-process HTTP mock server.
 // healthFixtureName: fixture name for /relay/health body, or null to return healthStatus error
 // healthStatus: HTTP status code for /relay/health (default 200)
@@ -34,7 +37,7 @@ async function runProbeRelay({ healthFixtureName, healthStatus = 200 }) {
   return new Promise((res_p, rej) => {
     const child = spawn("bash", ["scripts/fleet-probe/probe-relay.sh"], {
       cwd: REPO_ROOT,
-      env: { ...process.env, MANIFEST_TS: ts, PROBE_OVERRIDE_RELAY_URL: server.url },
+      env: { ...process.env, MANIFEST_TS: ts, PROBE_OVERRIDE_RELAY_URL: server.url, PROBE_PYTHON: PYTHON_CMD },
     });
 
     let stdout = "";

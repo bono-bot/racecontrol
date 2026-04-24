@@ -18,6 +18,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..", "..");
 
+// Resolve real Python interpreter path (avoids Windows Store python3 stub that hangs).
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 // Helper: run probe-vps.sh with an in-process HTTP mock server.
 // healthResponse: object to JSON-encode for /relay/health, or null to return 500
 // execFixtureName: fixture name for /relay/exec/run body (null = 500)
@@ -37,7 +40,7 @@ async function runProbeVps({ healthResponse, execFixtureName, psk = "mock-psk" }
   const ts = "test-vps-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
 
   return new Promise((res_p, rej) => {
-    const env = { ...process.env, MANIFEST_TS: ts, PROBE_OVERRIDE_RELAY_URL: server.url };
+    const env = { ...process.env, MANIFEST_TS: ts, PROBE_OVERRIDE_RELAY_URL: server.url, PROBE_PYTHON: PYTHON_CMD };
     if (psk) {
       env.COMMS_PSK = psk;
     } else {

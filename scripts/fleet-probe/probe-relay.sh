@@ -21,7 +21,7 @@ if [ -z "${MANIFEST_TS:-}" ]; then
 fi
 
 RELAY_URL="${PROBE_OVERRIDE_RELAY_URL:-http://localhost:8766}"
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 
 TARGET_ID="relay_james"
 HOSTNAME_VAL="JAMES-PC"
@@ -39,7 +39,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 append_error() {
   local sp="$1" err_msg="$2" xk="${3:-}" xv="${4:-}"
   PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err_msg" XK="$xk" XV="$xv" PE="$PROBE_ERRORS_JSON" \
-    python3 -c '
+    "$_PROBE_PYTHON" -c '
 import os, json
 a = json.loads(os.environ["PE"])
 e = {"sub_probe": os.environ["SP"], "error": os.environ["ERR"]}
@@ -61,7 +61,7 @@ if [ "$HTTP_CODE" != "200" ]; then
   CONNECT_ERR=1
   append_error "local_relay" "James relay /relay/health HTTP ${HTTP_CODE} on ${RELAY_URL}" "access_gap" "RELAY_LOCAL_DOWN"
 else
-  VPS_CONNECTED=$(printf '%s' "$LOCAL_BODY" | python3 -c '
+  VPS_CONNECTED=$(printf '%s' "$LOCAL_BODY" | "$_PROBE_PYTHON" -c '
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
@@ -81,7 +81,7 @@ RUNNING_PROCS_FILE="$WORK_DIR/running_procs.json"
 printf '[]' > "$RUNNING_PROCS_FILE"
 TASKLIST_FILE="$WORK_DIR/tasklist.csv"
 if cmd //c "tasklist /FI \"IMAGENAME eq node.exe\" /V /FO CSV" > "$TASKLIST_FILE" 2>/dev/null; then
-  python3 - "$TASKLIST_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
+  "$_PROBE_PYTHON" - "$TASKLIST_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
 import csv, hashlib, json, sys, io
 in_file, out_file = sys.argv[1], sys.argv[2]
 rows = []
@@ -110,7 +110,7 @@ SCHTASKS_FILE="$WORK_DIR/schtasks.json"
 printf '[]' > "$SCHTASKS_FILE"
 SCHTASKS_RAW="$WORK_DIR/schtasks.txt"
 if cmd //c "schtasks /Query /TN \"CommsLink-DaemonWatchdog\" /V /FO LIST" > "$SCHTASKS_RAW" 2>/dev/null; then
-  python3 - "$SCHTASKS_RAW" "$SCHTASKS_FILE" <<'PYEOF'
+  "$_PROBE_PYTHON" - "$SCHTASKS_RAW" "$SCHTASKS_FILE" <<'PYEOF'
 import json, sys
 in_file, out_file = sys.argv[1], sys.argv[2]
 entries = []
@@ -143,7 +143,7 @@ AUTOSTART_FILE="$WORK_DIR/autostart.json"
 printf '[]' > "$AUTOSTART_FILE"
 REG_FILE="$WORK_DIR/reg-hkcu.txt"
 if cmd //c "reg query \"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\"" > "$REG_FILE" 2>/dev/null; then
-  python3 - "$REG_FILE" "$AUTOSTART_FILE" <<'PYEOF'
+  "$_PROBE_PYTHON" - "$REG_FILE" "$AUTOSTART_FILE" <<'PYEOF'
 import json, sys
 in_file, out_file = sys.argv[1], sys.argv[2]
 es = []
@@ -165,7 +165,7 @@ ENV_HASH=$(env_names_hash)
 
 # --- Timing and status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -178,7 +178,7 @@ fi
 
 # --- Assemble manifest ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$_PROBE_PYTHON" - \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$RUNNING_PROCS_FILE" "$SCHTASKS_FILE" "$AUTOSTART_FILE" \
   "$ENV_HASH" "$PROBE_ERRORS_JSON" \

@@ -20,7 +20,7 @@ if [ -z "${MANIFEST_TS:-}" ]; then
 fi
 
 RELAY_URL="${PROBE_OVERRIDE_RELAY_URL:-http://localhost:8766}"
-START_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+START_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 
 TARGET_ID="bono_vps"
 HOSTNAME_VAL="srv1422716.hstgr.cloud"
@@ -38,7 +38,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 append_error() {
   local sp="$1" err_msg="$2" xk="${3:-}" xv="${4:-}"
   PROBE_ERRORS_JSON=$(SP="$sp" ERR="$err_msg" XK="$xk" XV="$xv" PE="$PROBE_ERRORS_JSON" \
-    python3 -c '
+    "$_PROBE_PYTHON" -c '
 import os, json
 a = json.loads(os.environ["PE"])
 e = {"sub_probe": os.environ["SP"], "error": os.environ["ERR"]}
@@ -62,7 +62,7 @@ if [ "$CONNECT_ERR" -eq 0 ]; then
     CONNECT_ERR=1
     append_error "local_relay" "connection refused on $RELAY_URL/relay/health" "access_gap" "RELAY_LOCAL_DOWN"
   else
-    CONNECTED=$(printf '%s' "$HEALTH" | python3 -c '
+    CONNECTED=$(printf '%s' "$HEALTH" | "$_PROBE_PYTHON" -c '
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
@@ -102,7 +102,7 @@ echo "===MARK:end==="
 
   # Write JSON payload to temp file (Git Bash JSON rule: never inline JSON in curl -d)
   PAYLOAD_FILE="$WORK_DIR/exec-payload.json"
-  python3 - "$PROBE_SCRIPT" "$PAYLOAD_FILE" <<'PYEOF'
+  "$_PROBE_PYTHON" - "$PROBE_SCRIPT" "$PAYLOAD_FILE" <<'PYEOF'
 import json, sys
 script_text, out_file = sys.argv[1], sys.argv[2]
 payload = {"command": "bash_script", "script": script_text, "reason": "probe-vps-448"}
@@ -124,7 +124,7 @@ PYEOF
     SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
     append_error "relay_exec" "no response from /relay/exec/run (http_code=${HTTP_CODE})"
   else
-    EXIT_CODE=$(printf '%s' "$RESP" | python3 -c '
+    EXIT_CODE=$(printf '%s' "$RESP" | "$_PROBE_PYTHON" -c '
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
@@ -139,7 +139,7 @@ except Exception:
       SUBPROBE_ERR=$((SUBPROBE_ERR + 1))
       append_error "relay_exec" "exec exitCode=${EXIT_CODE}"
     fi
-    EXEC_OUT=$(printf '%s' "$RESP" | python3 -c '
+    EXEC_OUT=$(printf '%s' "$RESP" | "$_PROBE_PYTHON" -c '
 import json, sys
 try:
     d = json.loads(sys.stdin.read())
@@ -161,7 +161,7 @@ PM2_FILE="$WORK_DIR/pm2.txt"
 CFG_FILE="$WORK_DIR/config_hash.txt"
 ENV_FILE="$WORK_DIR/env.txt"
 
-python3 - "$EXEC_FILE" "$UNAME_FILE" "$PS_FILE" "$SYSTEMCTL_FILE" "$PM2_FILE" "$CFG_FILE" "$ENV_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$EXEC_FILE" "$UNAME_FILE" "$PS_FILE" "$SYSTEMCTL_FILE" "$PM2_FILE" "$CFG_FILE" "$ENV_FILE" <<'PYEOF'
 import sys
 
 def extract(lines, start_marker, end_marker):
@@ -212,7 +212,7 @@ PYEOF
 
 # --- Parse ps -> running_procs ---
 RUNNING_PROCS_FILE="$WORK_DIR/running_procs.json"
-python3 - "$PS_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$PS_FILE" "$RUNNING_PROCS_FILE" <<'PYEOF'
 import sys, hashlib, json
 in_file, out_file = sys.argv[1], sys.argv[2]
 rows = []
@@ -237,7 +237,7 @@ PYEOF
 
 # --- Parse systemctl + pm2 -> scheduled_tasks ---
 SCHTASKS_FILE="$WORK_DIR/schtasks.json"
-python3 - "$SYSTEMCTL_FILE" "$PM2_FILE" "$SCHTASKS_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$SYSTEMCTL_FILE" "$PM2_FILE" "$SCHTASKS_FILE" <<'PYEOF'
 import sys, json
 svc_file, pm2_file, out_file = sys.argv[1], sys.argv[2], sys.argv[3]
 entries = []
@@ -265,7 +265,7 @@ PYEOF
 
 # --- Parse systemctl -> autostart_entries ---
 AUTOSTART_FILE="$WORK_DIR/autostart.json"
-python3 - "$SYSTEMCTL_FILE" "$AUTOSTART_FILE" <<'PYEOF'
+"$_PROBE_PYTHON" - "$SYSTEMCTL_FILE" "$AUTOSTART_FILE" <<'PYEOF'
 import sys, json
 in_file, out_file = sys.argv[1], sys.argv[2]
 es = []
@@ -287,7 +287,7 @@ CFG_LINE=$(head -1 "$CFG_FILE" 2>/dev/null || echo "")
 if [ -n "$CFG_LINE" ] && [ "$CFG_LINE" != "NO_FILE" ]; then
   CFG_HASH=$(printf '%s' "$CFG_LINE" | awk '{print $1}')
   if echo "$CFG_HASH" | grep -qE '^[0-9a-f]{64}$'; then
-    CONFIG_HASH_JSON=$(python3 -c 'import json,sys; print(json.dumps({"/root/racecontrol.toml": sys.argv[1]}))' "$CFG_HASH")
+    CONFIG_HASH_JSON=$("$_PROBE_PYTHON" -c 'import json,sys; print(json.dumps({"/root/racecontrol.toml": sys.argv[1]}))' "$CFG_HASH")
   fi
 fi
 
@@ -300,7 +300,7 @@ fi
 
 # --- Timing and status ---
 PROBED_AT=$(iso_ist_now)
-END_EPOCH_MS=$(date +%s%3N 2>/dev/null || python3 -c "import time; print(int(time.time()*1000))")
+END_EPOCH_MS=$(date +%s%3N 2>/dev/null || "$_PROBE_PYTHON" -c "import time; print(int(time.time()*1000))")
 DURATION_MS=$((END_EPOCH_MS - START_EPOCH_MS))
 PROBE_STATUS=$(probe_status_from_errors "$CONNECT_ERR" "$SUBPROBE_ERR")
 
@@ -315,7 +315,7 @@ fi
 
 # --- Assemble manifest (file-arg pattern: no inline JSON in python -c to avoid ARG_MAX) ---
 MANIFEST_FILE="$WORK_DIR/manifest.json"
-python3 - \
+"$_PROBE_PYTHON" - \
   "$TARGET_ID" "$HOSTNAME_VAL" "$IP_VAL" \
   "$PROBED_AT" "$PROBE_STATUS" \
   "$RUNNING_PROCS_FILE" "$SCHTASKS_FILE" "$AUTOSTART_FILE" \
