@@ -2645,7 +2645,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 447. Manifest Schema & Scope Lock | 3/3 | Complete   | 2026-04-24 |
+| 447. Manifest Schema & Scope Lock | 3/3 | Complete    | 2026-04-24 |
 | 448. Per-Target Probe Scripts | 0/TBD | Blocked on 447 | - |
 | 449. First Full-Fleet Probe Run (gate) | 0/TBD | Blocked on 448 | - |
 | 450. Build Graph | 0/TBD | Blocked on 447 | - |
