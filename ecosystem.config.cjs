@@ -4,13 +4,19 @@
 // pipeline subprocess, not the racecontrol binary, so pm2 SIGKILL leaves orphan binaries
 // holding 8080/8090/8099. PACT-018 (-dirty cleanup) was the planned wrapper removal —
 // pulled forward here as part of PACT-016 completion (Uday G33 grant 2026-04-25 ~18:30 IST).
-// pm2 captures stdout/stderr in /root/.pm2/logs/racecontrol-{out,error}.log;
-// /var/log/racecontrol/exit-trace-*.log will not be appended until wrapper is restored.
+//
+// PACT-036 (2026-04-25 23:42 IST): re-introduce a THIN exit-trace wrapper to
+// capture exit code + signal + stderr tail per cycle. 60+ silent restarts in
+// this session leave no forensic trail; wrapper restores it. Avoids PACT-016
+// R2 orphan bug by using direct stderr redirection (no pipeline — `wait
+// $CHILD` waits on racecontrol PID directly). Diagnostic-only; revert to
+// direct-binary path once root cause identified.
+// Trace per cycle: /var/log/racecontrol/exit-trace-lite-*.log
 module.exports = {
   apps: [
     {
       name: 'racecontrol',
-      script: '/root/racecontrol/target/release/racecontrol',
+      script: '/root/racecontrol/scripts/exit-trace-lite.sh',
       cwd: '/root/racecontrol',
       min_uptime: '60s',
       max_restarts: 10,
