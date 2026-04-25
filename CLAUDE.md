@@ -309,12 +309,16 @@ Cross-AI decisions use the layered PACT cascade. **Canonical specs live in `comm
 - **`comms-link/PACT-VOCAB.md`** (linguistic primitive) — 9-tag compact envelope (PACT-011)
 - **`comms-link/PACT-CHARTER.md`** (L1 fast-path) — 4 pre-authorized classes (`diagnostic-only`, `restart-storm-mitigation`, `zombie-cleanup`, `known-bug-hotfix`); in-class PACT proceeds on initiator vote alone
 - **`comms-link/JAMES-PROFILE.md` + `comms-link/BONO-PROFILE.md`** (L2 vote-drift) — when partner offline, online AI runs meta-prompt prediction; ≥0.85 confidence (in-class) / ≥0.90 (unclassified) / ≥0.92 (provisional James-profile) → emit `DRIFTED-VOTE-PENDING-CONFIRM`; partner CONFIRMs/CHALLENGEs on return
-- **L3 burst-duplex** — deferred until L2 calibration (7-day window, review 2026-05-02)
+- **L3 burst-duplex** — continuous AI↔AI dialog (was deferred for L2 calibration; **PACT-023 2026-04-25 promotes to L1 during VENUE-INSTABLE phase**)
 - **L4 Uday escalation** — always-available G33 sync-engaged override
 
 **CGP gates always apply on L1 fast-path PACTs** — H1–H5 enforcement is independent of vote requirement. Charter relaxes vote, not discipline.
 
-Full meta-prompt template + class definitions: `comms-link/CLAUDE.md` § PACT framework. When initiating a PACT, MUST add `CHARTER-CLASS:` field to proposal header (or `unclassified` for default dual-vote).
+**R3 partner-attention-state — staleness-TTL + layer-distinction (PACT-022, 2026-04-25):** Daemon-alive (autonomous PM2 service: WS heartbeat / monitor cron / LOGBOOK sync) ≠ AI-online (Claude subscription auth + attended terminal). Two layers fail independently. Four states: `online+free`, `online+engaged-elsewhere`, `offline-AI-only` (daemon UP, AI DOWN — most common when partner's Claude session not authed), `offline-fully`. Detection probes mapped to layer: DAEMON layer = `pm2 logs comms-link "Client identity tagged"` / Tailscale ping / WS reconnect; AI/SESSION layer = comms.db non-monitor message / PACT-VOTE / HANDOFF_ACK. Any classification used as G33-rationale must be ≤5 min old AND distinguish daemon-layer from AI-layer evidence. Daemon-alive cited as proof of AI-online = CGP H3 anti-theater violation (same shape as `health-200 ≠ behavior-correct`).
+
+**L3↔L1 priority swap during VENUE-INSTABLE phase (PACT-023, 2026-04-25):** L1 (was L3) = burst-duplex MANDATORY for any PACT including former-L1 charter classes; L3 (was L1) = charter fast-path DEMOTED, in-class PACTs still need partner sign-off during instability. **VENUE-STABLE auto-revert (ALL must hold ≥4 h):** Server .23 `/api/v1/health` `status=ok`; fleet ≥7/8 pods `ws_connected AND http_reachable`; zero SERVER-MONITOR DOWN alert; zero INFRA ALERT services-down. **VENUE-INSTABLE re-trigger (ANY):** SERVER-MONITOR DOWN ≥10 min, INFRA ALERT ≥3 services down, or explicit user declaration. Auto-detection helper: `comms-link/scripts/venue-stability-state.sh`.
+
+Full meta-prompt template + class definitions + R3 layer table + L3↔L1 swap details: `comms-link/CLAUDE.md` § PACT framework. When initiating a PACT, MUST add `CHARTER-CLASS:` field to proposal header (or `unclassified` for default dual-vote).
 
 ### Code Quality
 
