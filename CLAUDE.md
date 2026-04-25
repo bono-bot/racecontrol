@@ -301,6 +301,21 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
 - **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools), NOT OpenRouter API / direct HTTP. Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
   _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono uses Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality._
 
+### PACT framework (L0/L1/L2 cascade — ratified 2026-04-25 PACT-20260425-004)
+
+Cross-AI decisions use the layered PACT cascade. **Canonical specs live in `comms-link/`** — this is a pointer, not a copy:
+
+- **`comms-link/PACTS.md`** (L0 audit floor) — every decision row, append-only
+- **`comms-link/PACT-VOCAB.md`** (linguistic primitive) — 9-tag compact envelope (PACT-011)
+- **`comms-link/PACT-CHARTER.md`** (L1 fast-path) — 4 pre-authorized classes (`diagnostic-only`, `restart-storm-mitigation`, `zombie-cleanup`, `known-bug-hotfix`); in-class PACT proceeds on initiator vote alone
+- **`comms-link/JAMES-PROFILE.md` + `comms-link/BONO-PROFILE.md`** (L2 vote-drift) — when partner offline, online AI runs meta-prompt prediction; ≥0.85 confidence (in-class) / ≥0.90 (unclassified) / ≥0.92 (provisional James-profile) → emit `DRIFTED-VOTE-PENDING-CONFIRM`; partner CONFIRMs/CHALLENGEs on return
+- **L3 burst-duplex** — deferred until L2 calibration (7-day window, review 2026-05-02)
+- **L4 Uday escalation** — always-available G33 sync-engaged override
+
+**CGP gates always apply on L1 fast-path PACTs** — H1–H5 enforcement is independent of vote requirement. Charter relaxes vote, not discipline.
+
+Full meta-prompt template + class definitions: `comms-link/CLAUDE.md` § PACT framework. When initiating a PACT, MUST add `CHARTER-CLASS:` field to proposal header (or `unclassified` for default dual-vote).
+
 ### Code Quality
 
 - **Next.js middleware redirects: use `"/"` not `"/basePath"`.** When a Next.js app has `basePath` configured (e.g., `/kiosk`), `url.pathname` in middleware is auto-prefixed with basePath. Setting `url.pathname = "/kiosk"` doubles it to `/kiosk/kiosk` → 404. Always use `url.pathname = "/"` for root redirects. After any middleware change, test the actual browser URL — not just curl.
