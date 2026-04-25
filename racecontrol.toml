@@ -141,7 +141,7 @@ enabled = true
 
 webhook_url = "http://100.70.177.44/webhooks/racecontrol"  # Bono's VPS Tailscale IP
 
-tailscale_bind_ip = "100.71.226.83"  # Venue server Tailscale IP (confirmed via ipconfig)
+tailscale_bind_ip = "100.70.177.44"  # Bono VPS Tailscale (corrected 2026-04-25 from stale bono@ node IP per PACT-002 diagnostic / PACT-016)
 
 relay_port = 8099
 
