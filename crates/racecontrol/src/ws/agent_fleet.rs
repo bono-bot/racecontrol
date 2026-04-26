@@ -223,6 +223,13 @@ pub(crate) async fn handle_disconnect(
         tracing::warn!("Failed to sync pod {} graceful disconnect to DB: {}", pod_id, e);
     }
     {
+        // PACT-086 ghost-end diagnostic: log graceful WS disconnect timing per-pod.
+        if std::env::var("RC_GHOST_END_DIAG").as_deref() == Ok("1") {
+            eprintln!(
+                "[GHOST-END-DIAG] WS-disconnect-graceful pod={} ts={}",
+                pod_id, chrono::Utc::now().to_rfc3339()
+            );
+        }
         let mut fleet = state.pod_fleet_health.write().await;
         if let Some(store) = fleet.get_mut(pod_id) {
             crate::fleet_health::clear_on_disconnect(store);

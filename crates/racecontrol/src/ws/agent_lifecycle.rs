@@ -31,6 +31,13 @@ pub(crate) async fn cleanup_on_disconnect(
 
     // Clear fleet health version/uptime on ungraceful disconnect.
     {
+        // PACT-086 ghost-end diagnostic: log ungraceful WS disconnect timing per-pod.
+        if std::env::var("RC_GHOST_END_DIAG").as_deref() == Ok("1") {
+            eprintln!(
+                "[GHOST-END-DIAG] WS-disconnect-ungraceful pod={} conn_id={} ts={}",
+                pod_id, conn_id, chrono::Utc::now().to_rfc3339()
+            );
+        }
         let mut fleet = state.pod_fleet_health.write().await;
         if let Some(store) = fleet.get_mut(pod_id.as_str()) {
             crate::fleet_health::clear_on_disconnect(store);

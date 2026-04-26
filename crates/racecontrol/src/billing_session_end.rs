@@ -38,6 +38,17 @@ pub(crate) async fn end_billing_session(
     session_id: &str,
     end_status: BillingSessionStatus,
 ) -> bool {
+    // PACT-086 ghost-end diagnostic: capture caller + state when env-gated.
+    if std::env::var("RC_GHOST_END_DIAG").as_deref() == Ok("1") {
+        eprintln!(
+            "[GHOST-END-DIAG] end_billing_session entry: session={} end_status={:?} ts={}\nbacktrace:\n{}",
+            session_id,
+            end_status,
+            chrono::Utc::now().to_rfc3339(),
+            std::backtrace::Backtrace::capture()
+        );
+    }
+
     let rate_tiers = state.billing.rate_tiers.read().await;
     let mut timers = state.billing.active_timers.write().await;
 

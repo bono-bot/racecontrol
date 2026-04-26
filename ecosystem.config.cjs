@@ -27,6 +27,10 @@ module.exports = {
       env: {
         RUST_BACKTRACE: 'full',
         RUST_LOG: 'info,racecontrol=debug,racecontrol_crate=debug,deploy_awareness=trace,deploy_awareness_fleet=trace',
+        // PACT-086 Phase 2 instrumentation (Uday G33 2026-04-26 22:00 IST)
+        // Captures end_billing_session entry backtrace + WS disconnect timing per pod.
+        // Cloud canary first; venue Server .23 deploy gated on canary clean.
+        RC_GHOST_END_DIAG: '1',
       },
     },
   ],
