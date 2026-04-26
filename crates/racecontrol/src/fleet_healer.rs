@@ -245,8 +245,11 @@ impl FleetHealerOrchestrator {
         for symptom in &symptoms {
             let problem_key = format!("{}:{}", symptom.category, symptom.detail);
 
-            // Query fleet KB for matching solutions
-            let kb_solution = crate::fleet_kb::get_solution_by_hash(
+            // PACT-101: query by problem_key — fleet_solutions stores both columns,
+            // and the previous get_solution_by_hash call queried `problem_hash`,
+            // which holds sender-computed hashes (often empty), never matching the
+            // healer-side key string. Result: 22 seeded rows / 0 ever applied.
+            let kb_solution = crate::fleet_kb::get_solution_by_key(
                 &state.db,
                 &problem_key,
             )

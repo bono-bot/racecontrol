@@ -71,6 +71,23 @@ pub async fn get_solution_by_hash(pool: &SqlitePool, hash: &str) -> anyhow::Resu
     Ok(row.map(|r| r.into()))
 }
 
+/// Get a solution by problem_key (the canonical "category:detail" string).
+///
+/// PACT-101: fleet_healer constructs problem_key from a classified symptom and
+/// must look up by that key. `get_solution_by_hash` queries the `problem_hash`
+/// column, which holds the sender-computed hash (often empty/stub) and never
+/// matches a healer-side key string. Use this instead at lookup paths where the
+/// caller has the canonical key, not a precomputed hash.
+pub async fn get_solution_by_key(pool: &SqlitePool, key: &str) -> anyhow::Result<Option<MeshSolution>> {
+    let row = sqlx::query_as::<_, SolutionRow>(
+        "SELECT * FROM fleet_solutions WHERE problem_key = ?1 ORDER BY confidence DESC LIMIT 1",
+    )
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.into()))
+}
+
 /// List solutions with optional status filter and pagination.
 pub async fn list_solutions(
     pool: &SqlitePool,
