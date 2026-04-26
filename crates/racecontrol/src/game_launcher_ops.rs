@@ -497,7 +497,7 @@ pub async fn launch_game(
             db_fallback: None,
             session_id: launch_session_id.clone(),
         };
-        metrics::record_launch_event(&state.db, &launch_event, &state.config.venue.venue_id).await;
+        metrics::record_launch_event(&state.db, &launch_event, &state.config.venue.venue_id, None).await;
     }
     Ok(())
 }
