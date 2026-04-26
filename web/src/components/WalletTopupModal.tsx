@@ -59,10 +59,15 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listDrivers().then((res) => setDrivers(res.drivers || [])).catch(() => {});
+    // Surface driver-list failures: empty dropdown without an error message hides
+    // staff JWT expiry / 401 / network failure as "no drivers exist". The modal's
+    // existing error banner is the only signal staff have that lookup is broken.
+    api.listDrivers()
+      .then((res) => setDrivers(res.drivers || []))
+      .catch((e) => setError(`Driver lookup failed: ${(e as Error).message}`));
     fetchApi<{ tiers?: BonusTier[] }>("/wallet/bonus-tiers")
       .then((res) => { if (res.tiers) setBonusTiers(res.tiers); })
-      .catch(() => {});
+      .catch(() => {}); // fallback bonus tiers acceptable; do not mask driver error
     // v47.0 Phase 360: fetch unified topup presets (shared with PWA)
     fetchApi<{ presets?: { paise: number; rupees: number; label: string }[] }>("/wallet/topup-presets")
       .then((res) => {
@@ -70,7 +75,7 @@ export default function WalletTopupModal({ onClose, onSuccess }: WalletTopupModa
           setQuickAmounts(res.presets.map((p) => ({ label: p.label, paise: p.paise })));
         }
       })
-      .catch(() => {});
+      .catch(() => {}); // FALLBACK_QUICK_AMOUNTS already set; silent acceptable
   }, []);
 
   const filteredDrivers = useMemo(() => {
