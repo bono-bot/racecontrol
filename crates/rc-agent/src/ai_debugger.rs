@@ -1359,14 +1359,13 @@ fn fix_kill_error_dialogs() -> AutoFixResult {
 
     let _ = spawn_safe("taskkill").args(["/IM", "WerFault.exe", "/F"]).output();
     let _ = spawn_safe("taskkill").args(["/IM", "WerFaultSecure.exe", "/F"]).output();
-    // msedge.exe crash reporter dialogs that appear when Edge itself crashes (not AC game crash)
-    // Only kill if it's a crash reporter instance — process name is the same so we kill all msedge.
-    // This is acceptable because Edge is relaunched by the kiosk overlay manager on next session.
-    let _ = spawn_safe("taskkill").args(["/IM", "msedge.exe", "/F"]).output();
+    // PACT-104: msedge.exe taskkill removed — kiosk Edge overlay collateral. The previous
+    // rationale ("Edge is relaunched on next session") interrupts an active customer
+    // session. Kiosk overlay manager owns Edge lifecycle; ai_debugger does not.
 
     AutoFixResult {
         fix_type: "kill_error_dialogs".to_string(),
-        detail: "Suppressed WerFault.exe, WerFaultSecure.exe, msedge.exe".to_string(),
+        detail: "Suppressed WerFault.exe, WerFaultSecure.exe".to_string(),
         success: true,
     }
 }
