@@ -51,7 +51,7 @@ use rc_common::pod_id::normalize_pod_id;
 use rc_common::types::*;
 use rc_common::protocol::{CloudAction, CoreMessage, CoreToAgentMessage, DashboardEvent};
 
-pub(crate) async fn health(State(_state): State<Arc<AppState>>) -> Json<Value> {
+pub(crate) async fn health(State(state): State<Arc<AppState>>) -> Json<Value> {
     // Phase 352: Per-subsystem probes (cached, zero latency — reads from background task)
     let subsystems = crate::subsystem_health::get_current_status();
 
@@ -68,15 +68,70 @@ pub(crate) async fn health(State(_state): State<Arc<AppState>>) -> Json<Value> {
         .map(|s| if s.ok { "ok" } else { "unreachable" })
         .unwrap_or("not_configured");
 
+    // PACT-064 (F2 of PACT-062): workflow-monitor overall_exit + freshness for Bono Duty 4.
+    // -1 sentinel = unset → JSON null. 0/1/2 = orchestrator overall_exit value.
+    let w_exit = state.workflow_overall_exit.load(std::sync::atomic::Ordering::Acquire);
+    let w_updated = state.workflow_status_updated_unix.load(std::sync::atomic::Ordering::Acquire);
+    let workflow_overall_exit = if w_exit == -1 { Value::Null } else { Value::from(w_exit) };
+    let workflow_status_updated_unix = if w_updated == 0 { Value::Null } else { Value::from(w_updated) };
+
     Json(json!({
         "status": overall_status,
         "service": "racecontrol",
         "version": env!("CARGO_PKG_VERSION"),
         "build_id": BUILD_ID,
         "whatsapp": whatsapp_status,
+        "workflow_overall_exit": workflow_overall_exit,
+        "workflow_status_updated_unix": workflow_status_updated_unix,
         "deploy_context": "v34-v39 merged: metrics TSDB, config management, data durability, security hardening, meshed intelligence v2, session trace ID. Skip-once pod offline detection. Audit hash chain. 44-table venue_id migration.",
         "subsystems": subsystems,
     }))
+}
+
+// ─── PACT-064 (F2 of PACT-062): workflow-monitor overall_exit push ─────────
+/// POST body for `/api/v1/admin/workflow-status`.
+/// Bono pm2 workflow-monitor (docs/BONO-WORKFLOW-MONITOR.md Duty 1) pushes
+/// the overall_exit from `scripts/audit/run-all-checkers.sh` after each run.
+#[derive(Deserialize)]
+pub(crate) struct WorkflowStatusPush {
+    pub overall_exit: i32,
+}
+
+/// PACT-064 (F2 of PACT-062): workflow-monitor push handler.
+///
+/// Auth: registered behind require_service_key in routes.rs (same pattern
+/// as other Bono → server admin pushes that don't need staff JWT).
+/// Body: `{"overall_exit": 0|1|2}` from run-all-checkers.sh.
+/// Server stamps `updated_unix` from system clock at request time.
+/// Read by /api/v1/health for Bono Duty 4 admin dashboard tile.
+pub(crate) async fn workflow_status_push(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<WorkflowStatusPush>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !(0..=2).contains(&body.overall_exit) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "overall_exit out of range; must be 0|1|2",
+                "received": body.overall_exit,
+            })),
+        ));
+    }
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    state
+        .workflow_overall_exit
+        .store(body.overall_exit, std::sync::atomic::Ordering::Release);
+    state
+        .workflow_status_updated_unix
+        .store(now_unix, std::sync::atomic::Ordering::Release);
+    Ok(Json(json!({
+        "ok": true,
+        "overall_exit": body.overall_exit,
+        "updated_unix": now_unix,
+    })))
 }
 
 // ─── Client error telemetry (MI integration) ────────────────────────────────

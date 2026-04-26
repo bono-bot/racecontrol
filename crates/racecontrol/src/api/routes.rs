@@ -895,6 +895,11 @@ fn service_routes() -> Router<Arc<AppState>> {
             post(telemetry_fallback_handler)
                 .layer(axum::extract::DefaultBodyLimit::max(50 * 1024 * 1024)),
         )
+        // PACT-064 (F2 of PACT-062): workflow-monitor overall_exit push from Bono pm2.
+        // Auth: X-Service-Key (sentry_service_key — same key Bono already uses for
+        // mesh/audit-seed-service). Body: {"overall_exit": 0|1|2}. Stamped by server
+        // clock. Surfaced via /api/v1/health for Bono Duty 4 admin dashboard tile.
+        .route("/admin/workflow-status", post(workflow_status_push))
 }
 
 pub(crate) const BUILD_ID: &str = env!("GIT_HASH");

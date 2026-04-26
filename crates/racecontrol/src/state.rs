@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64};
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -201,6 +201,15 @@ pub struct AppState {
     /// State machine transitions emit DashboardEvent::LaunchStatusChanged to kiosk subscribers.
     /// No DB persistence for active state — durable history is in launch_timeline_spans.events_json.
     pub launch_state_machine: std::sync::Arc<crate::launch_state::LaunchStateMachine>,
+    /// PACT-064 (F2 of PACT-062): workflow-monitor overall_exit cache.
+    /// Sentinel: -1 = unset (not yet pushed by workflow-monitor / no data).
+    /// Valid range: 0/1/2 from `scripts/audit/run-all-checkers.sh` overall_exit.
+    /// Unblocks Bono Duty 4 admin dashboard tile (docs/BONO-WORKFLOW-MONITOR.md).
+    /// Updated via POST /api/v1/admin/workflow-status; read by /api/v1/health.
+    pub workflow_overall_exit: AtomicI32,
+    /// PACT-064 (F2 of PACT-062): unix-seconds when workflow_overall_exit was last set.
+    /// 0 = unset. Allows Duty 4 dashboard to show staleness ("last update Nm ago").
+    pub workflow_status_updated_unix: AtomicI64,
 }
 
 impl AppState {
@@ -297,6 +306,9 @@ impl AppState {
                 std::path::PathBuf::from("data/track_outlines")
             ),
             launch_state_machine: std::sync::Arc::new(crate::launch_state::LaunchStateMachine::new()),
+            // PACT-064 (F2 of PACT-062): -1 sentinel = unset, awaits first POST from workflow-monitor.
+            workflow_overall_exit: AtomicI32::new(-1),
+            workflow_status_updated_unix: AtomicI64::new(0),
         }
     }
 
