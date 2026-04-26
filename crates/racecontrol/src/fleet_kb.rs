@@ -233,6 +233,11 @@ pub async fn match_audit_known_issue_structured(
 }
 
 /// Insert or update an audit known issue.
+///
+/// PACT-091: every successful upsert leaves an L4 audit_log MI-EDIT row
+/// attributing the write to `MiSubsystem::MeshIntelligence` (this is the
+/// canonical MI seed path — `mesh_audit_seed{,_service}` are the only callers).
+/// Attribution failure is logged but does not fail the upsert.
 pub async fn upsert_audit_known_issue(
     pool: &SqlitePool,
     id: &str,
@@ -268,5 +273,20 @@ pub async fn upsert_audit_known_issue(
     .bind(escalation_message)
     .execute(pool)
     .await?;
+
+    // PACT-091 L4 watermark.
+    let ctx = crate::mi_watermark::MiEditCtx {
+        sub: crate::mi_watermark::MiSubsystem::MeshIntelligence,
+        tier: 0,
+        solution_id: id.to_string(),
+        confidence: 1.0,
+        src_node: "server".to_string(),
+        model: "deterministic".to_string(),
+        incident_id: None,
+    };
+    if let Err(e) = crate::mi_watermark::audit_log_mi_edit(pool, "audit_known_issues", id, &ctx).await {
+        tracing::warn!(target: "fleet_kb", "MI watermark write failed: {e}");
+    }
+
     Ok(())
 }

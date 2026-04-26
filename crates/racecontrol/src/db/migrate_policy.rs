@@ -50,6 +50,16 @@ pub(crate) async fn migrate_policy(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // PACT-091: action_type sibling column carries the MI marker class
+    // ("mi-edit:<sub>") since action TEXT CHECK rejects non-CRUD verbs.
+    // Forensic queries: WHERE action_type LIKE 'mi-edit:%'.
+    let _ = sqlx::query("ALTER TABLE audit_log ADD COLUMN action_type TEXT")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_log_action_type ON audit_log(action_type)")
+        .execute(pool)
+        .await;
+
 
     // ─── audit_log: add action_type column (Phase 80 migration) ─────────────
     {
