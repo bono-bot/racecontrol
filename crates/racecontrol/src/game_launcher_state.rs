@@ -177,7 +177,7 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             db_fallback: None,
             session_id: None,
         };
-        metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id).await;
+        metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id, None).await;
     }
 
     // Broadcast to dashboards
@@ -410,7 +410,31 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             recovery_duration_ms: Some(recovery_duration_ms),
                             error_details: Some(format!("exit_code: {:?}", current_exit_code)),
                         };
-                        metrics::record_recovery_event(&state_clone.db, &recovery_event, &state_clone.config.venue.venue_id).await;
+                        // PACT-091 Phase 2: Race Engineer is the autonomous actor here.
+                        metrics::record_recovery_event(&state_clone.db, &recovery_event, &state_clone.config.venue.venue_id, Some("re")).await;
+
+                        // PACT-091 Phase 2: also record the RE-attributed launch attempt itself.
+                        // The eventual GameState transitions are recorded as crash/state events
+                        // (mi_actor=None); this row is the visible "RE relaunched" launch_events
+                        // marker that downstream queries (`WHERE created_by_agent = 're'`) rely on.
+                        let re_launch_event = metrics::LaunchEvent {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            pod_id: pod_id_owned.clone(),
+                            sim_type: sim_name.clone(),
+                            car: None,
+                            track: None,
+                            session_type: None,
+                            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                            outcome: metrics::LaunchOutcome::Success,
+                            error_taxonomy: None,
+                            duration_to_playable_ms: None,
+                            error_details: Some(format!("Race Engineer auto-relaunch attempt {attempt}/{max_cap}")),
+                            launch_args_hash: None,
+                            attempt_number: attempt as i32,
+                            db_fallback: None,
+                            session_id: None,
+                        };
+                        metrics::record_launch_event(&state_clone.db, &re_launch_event, &state_clone.config.venue.venue_id, Some("re")).await;
                     }
                 });
             } else {
@@ -492,7 +516,8 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             current_exit_code
                         )),
                     };
-                    metrics::record_recovery_event(&state.db, &recovery_event, &state.config.venue.venue_id).await;
+                    // PACT-091 Phase 2: RE-attributed exhausted-recovery row.
+                    metrics::record_recovery_event(&state.db, &recovery_event, &state.config.venue.venue_id, Some("re")).await;
                 }
             }
         }

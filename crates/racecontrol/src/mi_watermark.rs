@@ -60,6 +60,22 @@ impl MiSubsystem {
             Self::AiDebugger => "ad",
         }
     }
+
+    /// Inverse of [`code`] — parse a 2-letter sub code back to the enum.
+    /// Returns `None` for unknown codes (including `"human"`, which is the
+    /// non-MI default for `created_by_agent` columns).
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "me" => Some(Self::MeshIntelligence),
+            "re" => Some(Self::RaceEngineer),
+            "pa" => Some(Self::PodAgent),
+            "rc" => Some(Self::Recovery),
+            "fi" => Some(Self::FleetIntelligence),
+            "pe" => Some(Self::PolicyEngine),
+            "ad" => Some(Self::AiDebugger),
+            _ => None,
+        }
+    }
 }
 
 /// Context for a single MI edit. Pass to [`mi_edit_marker`], [`log_mi_edit`],
@@ -219,5 +235,19 @@ mod tests {
         ] {
             assert_eq!(s.code().len(), 2, "{s:?} code is not 2 letters");
         }
+    }
+
+    #[test]
+    fn from_code_roundtrip_and_human_is_none() {
+        for s in [
+            MiSubsystem::MeshIntelligence,
+            MiSubsystem::RaceEngineer,
+            MiSubsystem::AiDebugger,
+        ] {
+            assert_eq!(MiSubsystem::from_code(s.code()), Some(s));
+        }
+        assert_eq!(MiSubsystem::from_code("human"), None);
+        assert_eq!(MiSubsystem::from_code(""), None);
+        assert_eq!(MiSubsystem::from_code("xx"), None);
     }
 }

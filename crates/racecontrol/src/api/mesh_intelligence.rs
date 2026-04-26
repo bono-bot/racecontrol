@@ -128,7 +128,21 @@ pub(crate) async fn pipeline_config_set(Json(body): Json<serde_json::Value>) -> 
         }
     }
     match tokio::fs::write(config_path, serde_json::to_string_pretty(&config).unwrap_or_default()).await {
-        Ok(_) => Json(serde_json::json!({"ok": true, "config": config})),
+        Ok(_) => {
+            // PACT-091 Phase 2: L3-only watermark — file write, no DB row to attribute.
+            // Sub=me (mesh_intelligence pipeline config), tier=0 (deterministic config-set).
+            let ctx = crate::mi_watermark::MiEditCtx {
+                sub: crate::mi_watermark::MiSubsystem::MeshIntelligence,
+                tier: 0,
+                solution_id: "config-set".to_string(),
+                confidence: 1.0,
+                src_node: "server".to_string(),
+                model: "deterministic".to_string(),
+                incident_id: None,
+            };
+            crate::mi_watermark::log_mi_edit(&ctx, "config_set", "audit/results/auto-detect-config.json");
+            Json(serde_json::json!({"ok": true, "config": config}))
+        }
         Err(e) => Json(serde_json::json!({"ok": false, "error": e.to_string()})),
     }
 }
