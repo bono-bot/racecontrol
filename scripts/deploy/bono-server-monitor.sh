@@ -196,3 +196,18 @@ else
 fi
 
 save_state
+
+# --- Proactive stale binary detection (Weakness 3 fix) ---
+# Bono-VPS-side: detect when local racecontrol process build_id diverges from
+# git HEAD and includes Rust changes. Writes /tmp/rc-binary-stale sentinel for
+# downstream tooling to auto-rebuild. Note: probes localhost:8080 (bono VPS
+# cloud racecontrol), NOT server .23.
+RUNNING_BUILD=$(curl -s --max-time 3 http://localhost:8080/api/v1/health 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('build_id',''))" 2>/dev/null)
+HEAD_BUILD=$(cd /root/racecontrol && git rev-parse --short HEAD 2>/dev/null)
+if [ -n "$RUNNING_BUILD" ] && [ -n "$HEAD_BUILD" ] && [ "$RUNNING_BUILD" != "$HEAD_BUILD" ]; then
+    RUST_DIFF=$(cd /root/racecontrol && git log --oneline "$RUNNING_BUILD".."$HEAD_BUILD" -- crates/ 2>/dev/null | head -1)
+    if [ -n "$RUST_DIFF" ]; then
+        echo "$HEAD_BUILD" > /tmp/rc-binary-stale
+        echo "$(date -Iseconds) PROACTIVE: binary stale ($RUNNING_BUILD vs $HEAD_BUILD) — flagged for auto-rebuild" >> /root/bono-server-monitor.log
+    fi
+fi
