@@ -177,7 +177,45 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
             db_fallback: None,
             session_id: None,
         };
-        metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id).await;
+        metrics::record_launch_event(&state.db, &state_event, &state.config.venue.venue_id, None).await;
+
+        // PACT-20260427-005: Persist a launch_timeline_spans row for the crashed launch.
+        // R.4 root cause: rc-agent has 11 GameState::Error emission sites in
+        // ws_handler.rs, but build_launch_timeline is only called from the
+        // success (L322 BillingStarted) and timeout (L2067 LaunchTimedOut) paths.
+        // Crash path was excluded ("Launch failures are reported separately via
+        // GameStateUpdate(Error).") and the corresponding span insert was never
+        // added. Server now writes a minimal stub span here, mirroring the
+        // pattern at game_launcher_ops_stop.rs:172. Uses INSERT OR IGNORE so any
+        // subsequent agent-authored LaunchTimelineReport with full event detail
+        // (agent_sync_misc.rs:84 uses INSERT OR REPLACE) overrides this stub.
+        // Lock-and-drop snapshot pattern: read tracker fields, drop guard, then
+        // async write in spawned task — never hold lock across .await.
+        let crash_snapshot = {
+            let games = state.game_launcher.active_games.read().await;
+            games.get(pod_id).map(|t| (
+                t.launch_id.clone(),
+                t.billing_session_id.clone(),
+                t.launched_at,
+            ))
+        };
+        if let Some((launch_id, billing_session_id, launched_at)) = crash_snapshot {
+            let db = state.db.clone();
+            let pod_id_owned = pod_id.to_string();
+            let sim_type_str = info.sim_type.to_string();
+            let error_msg = info.error_message.clone();
+            tokio::spawn(async move {
+                let _ = persist_crash_timeline_span(
+                    &db,
+                    &launch_id,
+                    &pod_id_owned,
+                    &sim_type_str,
+                    billing_session_id.as_deref(),
+                    launched_at,
+                    error_msg.as_deref(),
+                ).await;
+            });
+        }
     }
 
     // Broadcast to dashboards
@@ -410,7 +448,31 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             recovery_duration_ms: Some(recovery_duration_ms),
                             error_details: Some(format!("exit_code: {:?}", current_exit_code)),
                         };
-                        metrics::record_recovery_event(&state_clone.db, &recovery_event, &state_clone.config.venue.venue_id).await;
+                        // PACT-091 Phase 2: Race Engineer is the autonomous actor here.
+                        metrics::record_recovery_event(&state_clone.db, &recovery_event, &state_clone.config.venue.venue_id, Some("re")).await;
+
+                        // PACT-091 Phase 2: also record the RE-attributed launch attempt itself.
+                        // The eventual GameState transitions are recorded as crash/state events
+                        // (mi_actor=None); this row is the visible "RE relaunched" launch_events
+                        // marker that downstream queries (`WHERE created_by_agent = 're'`) rely on.
+                        let re_launch_event = metrics::LaunchEvent {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            pod_id: pod_id_owned.clone(),
+                            sim_type: sim_name.clone(),
+                            car: None,
+                            track: None,
+                            session_type: None,
+                            timestamp: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                            outcome: metrics::LaunchOutcome::Success,
+                            error_taxonomy: None,
+                            duration_to_playable_ms: None,
+                            error_details: Some(format!("Race Engineer auto-relaunch attempt {attempt}/{max_cap}")),
+                            launch_args_hash: None,
+                            attempt_number: attempt as i32,
+                            db_fallback: None,
+                            session_id: None,
+                        };
+                        metrics::record_launch_event(&state_clone.db, &re_launch_event, &state_clone.config.venue.venue_id, Some("re")).await;
                     }
                 });
             } else {
@@ -492,9 +554,239 @@ pub async fn handle_game_state_update(state: &Arc<AppState>, info: GameLaunchInf
                             current_exit_code
                         )),
                     };
-                    metrics::record_recovery_event(&state.db, &recovery_event, &state.config.venue.venue_id).await;
+                    // PACT-091 Phase 2: RE-attributed exhausted-recovery row.
+                    metrics::record_recovery_event(&state.db, &recovery_event, &state.config.venue.venue_id, Some("re")).await;
                 }
             }
         }
+    }
+}
+
+/// PACT-20260427-005: persist a minimal "crashed" span to launch_timeline_spans.
+///
+/// Returns Ok(true) if a new row was inserted, Ok(false) if the row already
+/// existed (INSERT OR IGNORE skipped). Tested in #[cfg(test)] mod tests below
+/// so handle_game_state_update can rely on this helper without exercising the
+/// full AppState. Mirrors game_launcher_ops_stop.rs:172 layout.
+async fn persist_crash_timeline_span(
+    db: &sqlx::SqlitePool,
+    launch_id: &str,
+    pod_id: &str,
+    sim_type: &str,
+    billing_session_id: Option<&str>,
+    launched_at: Option<chrono::DateTime<Utc>>,
+    error_message: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let started_at_str = launched_at
+        .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+        .unwrap_or_else(|| Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+    let total_duration_ms: i64 = launched_at
+        .map(|start| Utc::now().signed_duration_since(start).num_milliseconds())
+        .unwrap_or(0)
+        .max(0);
+    let crash_detail: String = error_message
+        .map(|s| s.replace('"', "'").chars().take(200).collect())
+        .unwrap_or_else(|| "unknown".to_string());
+    let now_iso = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    let events_json = format!(
+        r#"[{{"kind":"crashed","elapsed_ms":{},"detail":"{}","timestamp":"{}"}}]"#,
+        total_duration_ms, crash_detail, now_iso
+    );
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO launch_timeline_spans
+         (launch_id, pod_id, sim_type, preset_id, billing_session_id,
+          outcome, total_duration_ms, started_at, events_json, created_at)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(launch_id)
+    .bind(pod_id)
+    .bind(sim_type)
+    .bind(billing_session_id)
+    .bind("crashed")
+    .bind(total_duration_ms)
+    .bind(&started_at_str)
+    .bind(&events_json)
+    .bind(&now_iso)
+    .execute(db)
+    .await?;
+    let inserted = result.rows_affected() > 0;
+    if inserted {
+        tracing::info!(
+            "PACT-005: Persisted crash span for {} (pod={}, duration={}ms)",
+            launch_id, pod_id, total_duration_ms
+        );
+    } else {
+        tracing::debug!(
+            "PACT-005: crash span for {} already recorded (INSERT OR IGNORE skipped — agent-authored row wins)",
+            launch_id
+        );
+    }
+    Ok(inserted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration as ChronoDuration;
+
+    async fn setup_test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("in-memory sqlite");
+        sqlx::query(
+            "CREATE TABLE launch_timeline_spans (
+                launch_id   TEXT PRIMARY KEY,
+                pod_id      TEXT NOT NULL,
+                sim_type    TEXT NOT NULL,
+                preset_id   TEXT,
+                billing_session_id TEXT,
+                outcome     TEXT NOT NULL,
+                total_duration_ms INTEGER NOT NULL,
+                started_at  TEXT NOT NULL,
+                events_json TEXT NOT NULL,
+                created_at  TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create launch_timeline_spans");
+        pool
+    }
+
+    /// PACT-005 Test 1: handle_game_state_update Error path writes a span row.
+    ///
+    /// Asserts the helper:
+    ///   (a) inserts exactly one launch_timeline_spans row,
+    ///   (b) outcome="crashed",
+    ///   (c) total_duration_ms reflects time since launched_at,
+    ///   (d) events_json contains the crash detail.
+    #[tokio::test]
+    async fn test_persist_crash_timeline_span_inserts_new_row() {
+        let pool = setup_test_pool().await;
+        let launched_at = Utc::now() - ChronoDuration::seconds(30);
+        let inserted = persist_crash_timeline_span(
+            &pool,
+            "test-launch-001",
+            "pod_1",
+            "ac",
+            Some("bsess_xyz"),
+            Some(launched_at),
+            Some("ntdll access violation"),
+        )
+        .await
+        .expect("insert ok");
+        assert!(inserted, "first insert should report rows_affected > 0");
+        let row: (String, String, String, Option<String>, i64, String) = sqlx::query_as(
+            "SELECT launch_id, pod_id, outcome, billing_session_id, total_duration_ms, events_json
+             FROM launch_timeline_spans WHERE launch_id = ?",
+        )
+        .bind("test-launch-001")
+        .fetch_one(&pool)
+        .await
+        .expect("row exists");
+        assert_eq!(row.0, "test-launch-001");
+        assert_eq!(row.1, "pod_1");
+        assert_eq!(row.2, "crashed");
+        assert_eq!(row.3, Some("bsess_xyz".to_string()));
+        assert!(
+            row.4 >= 29_000 && row.4 <= 35_000,
+            "duration should be ~30s, got {}ms",
+            row.4
+        );
+        assert!(
+            row.5.contains("ntdll access violation"),
+            "events_json should contain the crash detail, got: {}",
+            row.5
+        );
+        assert!(row.5.contains("\"kind\":\"crashed\""));
+    }
+
+    /// PACT-005 Test 2: idempotency. Two calls with the same launch_id produce
+    /// exactly one row (INSERT OR IGNORE behavior). Second call returns false.
+    #[tokio::test]
+    async fn test_persist_crash_timeline_span_idempotent() {
+        let pool = setup_test_pool().await;
+        let lid = "test-launch-002";
+        let first = persist_crash_timeline_span(
+            &pool, lid, "pod_2", "f1_25", None, Some(Utc::now()), Some("err"),
+        )
+        .await
+        .expect("first insert ok");
+        let second = persist_crash_timeline_span(
+            &pool, lid, "pod_2", "f1_25", None, Some(Utc::now()), Some("err"),
+        )
+        .await
+        .expect("second insert ok");
+        assert!(first, "first insert should report inserted=true");
+        assert!(!second, "second insert should report inserted=false (skipped)");
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM launch_timeline_spans WHERE launch_id = ?")
+                .bind(lid)
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(count.0, 1, "exactly one row");
+    }
+
+    /// PACT-005 Test 3: existing agent-authored rows are not clobbered.
+    ///
+    /// Pre-insert a "success" outcome row (simulating the agent-side
+    /// LaunchTimelineReport arriving FIRST), then call the crash-span helper
+    /// for the same launch_id. INSERT OR IGNORE must skip and the original
+    /// "success" row must be preserved.
+    #[tokio::test]
+    async fn test_persist_crash_timeline_span_does_not_clobber_existing() {
+        let pool = setup_test_pool().await;
+        let lid = "test-launch-003";
+        // Simulate agent-side row that arrived first.
+        sqlx::query(
+            "INSERT INTO launch_timeline_spans
+             (launch_id, pod_id, sim_type, preset_id, billing_session_id,
+              outcome, total_duration_ms, started_at, events_json, created_at)
+             VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)",
+        )
+        .bind(lid)
+        .bind("pod_3")
+        .bind("ac")
+        .bind("success")
+        .bind(45_000_i64)
+        .bind("2026-04-27T10:00:00.000Z")
+        .bind(r#"[{"kind":"launched"},{"kind":"playable"}]"#)
+        .bind("2026-04-27T10:00:45.000Z")
+        .execute(&pool)
+        .await
+        .expect("seed agent-authored row");
+
+        let inserted = persist_crash_timeline_span(
+            &pool,
+            lid,
+            "pod_3",
+            "ac",
+            None,
+            Some(Utc::now()),
+            Some("late crash report"),
+        )
+        .await
+        .expect("call ok");
+        assert!(!inserted, "should be skipped (row exists)");
+
+        let row: (String, String) = sqlx::query_as(
+            "SELECT outcome, events_json FROM launch_timeline_spans WHERE launch_id = ?",
+        )
+        .bind(lid)
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        assert_eq!(row.0, "success", "agent-authored outcome preserved");
+        assert!(
+            row.1.contains("\"kind\":\"launched\""),
+            "agent events_json preserved, got: {}",
+            row.1
+        );
+        assert!(
+            !row.1.contains("crashed"),
+            "no crash detail leaked into preserved row, got: {}",
+            row.1
+        );
     }
 }

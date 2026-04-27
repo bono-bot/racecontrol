@@ -213,7 +213,7 @@ pub async fn check_game_health(state: &Arc<AppState>) {
                 db_fallback: None,
                 session_id: None,
             };
-            metrics::record_launch_event(&state.db, &timeout_event, &state.config.venue.venue_id).await;
+            metrics::record_launch_event(&state.db, &timeout_event, &state.config.venue.venue_id, None).await;
         }
 
         // LAUNCH-18: Route timeout through handle_game_state_update so Race Engineer

@@ -239,7 +239,13 @@ async fn test_alternatives_pod_fallback() {
 #[tokio::test]
 async fn test_launch_matrix_flagged() {
     let db = make_test_db().await;
-    let now = "2026-03-26T00:00:00Z";
+    // PACT-071 (fix(test) launch_matrix time-rot): use Utc::now() instead of
+    // hardcoded "2026-03-26T00:00:00Z". query_launch_matrix has a 30-day window
+    // (datetime('now', '-30 days') in metrics_intel.rs:211); hardcoded date drifts
+    // out of window after 30 days, leaving 0 rows + breaking assertions. Fixed
+    // 2026-04-26 to use a recent dynamic timestamp (1 hour ago for stability).
+    let now_owned = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let now = now_owned.as_str();
 
     // pod-1: 9 success / 10 total = 90% → not flagged
     for _ in 0..9 {
@@ -281,7 +287,9 @@ async fn test_launch_matrix_flagged() {
 #[tokio::test]
 async fn test_launch_matrix_failure_modes() {
     let db = make_test_db().await;
-    let now = "2026-03-26T00:00:00Z";
+    // PACT-071 (fix(test) launch_matrix time-rot): see test_launch_matrix_flagged.
+    let now_owned = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let now = now_owned.as_str();
 
     // pod-3: failures with different taxonomies
     seed_launch_event(&db, "pod-3", "assetto_corsa", "\"Crash\"", None, Some("ProcessCrash"), now).await;
