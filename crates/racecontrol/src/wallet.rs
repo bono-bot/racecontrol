@@ -316,7 +316,13 @@ pub async fn credit_wallet(
     let is_bonus = txn_type == "bonus" || txn_type == "adjustment"
         || txn_type == "bonus_registration" || txn_type == "bonus_review" || txn_type == "bonus_follow";
 
-    // Credit wallet
+    // PACT-20260427-003: wrap UPDATE + INSERT in a transaction so balance update +
+    // wallet_transactions journal row commit atomically (or both roll back). Pre-fix,
+    // the INSERT failure path only logged an error, leaving balance updated without
+    // an audit-trail row.
+    let mut tx = db.begin().await.map_err(|e| format!("DB tx start error: {}", e))?;
+
+    // Credit wallet (within tx)
     let result = sqlx::query_as::<_, (i64,)>(
         "UPDATE wallets SET balance_paise = balance_paise + ?, total_credited_paise = total_credited_paise + ?, \
          bonus_credited_paise = bonus_credited_paise + ?, \
@@ -326,16 +332,16 @@ pub async fn credit_wallet(
     .bind(amount_paise)
     .bind(if is_bonus { amount_paise } else { 0 })
     .bind(driver_id)
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| format!("DB error: {}", e))?;
 
     let new_balance = result.map(|(b,)| b).unwrap_or(0);
 
-    // Log transaction (include balance_after_paise for audit trail)
+    // Log transaction (within same tx — INSERT failure rolls back the UPDATE)
     let txn_id = uuid::Uuid::new_v4().to_string();
     let ct = currency_type_for(txn_type);
-    if let Err(e) = sqlx::query(
+    sqlx::query(
         "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, venue_id, currency_type) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
@@ -348,10 +354,11 @@ pub async fn credit_wallet(
     .bind(notes)
     .bind(venue_id)
     .bind(ct)
-    .execute(db)
-    .await {
-        tracing::error!("Failed to log wallet transaction for {}: {}", driver_id, e);
-    }
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("DB error recording transaction: {}", e))?;
+
+    tx.commit().await.map_err(|e| format!("DB commit error: {}", e))?;
 
     Ok(new_balance)
 }

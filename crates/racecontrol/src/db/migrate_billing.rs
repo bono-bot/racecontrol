@@ -216,6 +216,12 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // PACT-091: actor attribution column. Default 'human' so legacy rows are
+    // attributable; autonomous writers set this to the MI sub-code (e.g. 'ad').
+    let _ = sqlx::query("ALTER TABLE recovery_events ADD COLUMN created_by_agent TEXT DEFAULT 'human'")
+        .execute(pool)
+        .await;
+
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_recovery_events_created ON recovery_events(created_at)")
         .execute(pool)
         .await?;

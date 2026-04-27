@@ -65,7 +65,18 @@ pub struct LaunchEvent {
 /// Record a launch event to both SQLite and JSONL.
 /// If the DB insert fails, logs the error and writes to JSONL with `db_fallback = true`.
 /// Errors are never swallowed silently (METRICS-07).
-pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id: &str) {
+///
+/// PACT-091 Phase 2: `mi_actor` is the 2-letter sub code (see [`crate::mi_watermark::MiSubsystem`])
+/// of the autonomous writer. Pass `None` for human-initiated launches (kiosk, staff API,
+/// manual relaunch) — the `created_by_agent` column defaults to `'human'`. When `Some`, the
+/// row is attributed in `launch_events.created_by_agent` AND a paired `audit_log` MI-EDIT row
+/// is written so cross-table forensic queries (`WHERE action_type LIKE 'mi-edit:%'`) include it.
+pub async fn record_launch_event(
+    db: &SqlitePool,
+    event: &LaunchEvent,
+    venue_id: &str,
+    mi_actor: Option<&str>,
+) {
     let outcome_str = serde_json::to_string(&event.outcome).unwrap_or_default();
     let taxonomy_str = event
         .error_taxonomy
@@ -74,10 +85,11 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id:
     let now = chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
+    let actor_for_db = mi_actor.unwrap_or("human");
 
     let db_result = sqlx::query(
-        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at, venue_id, session_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO launch_events (id, pod_id, sim_type, car, track, session_type, timestamp, outcome, error_taxonomy, duration_to_playable_ms, error_details, launch_args_hash, attempt_number, created_at, venue_id, session_id, created_by_agent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pod_id)
@@ -95,6 +107,7 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id:
     .bind(&now)
     .bind(venue_id)
     .bind(&event.session_id)
+    .bind(actor_for_db)
     .execute(db)
     .await;
 
@@ -106,6 +119,26 @@ pub async fn record_launch_event(db: &SqlitePool, event: &LaunchEvent, venue_id:
 
     // Always write to JSONL (dual storage, METRICS-02)
     append_launch_jsonl(&jsonl_event).await;
+
+    // PACT-091 Phase 2: paired audit_log MI-EDIT row for autonomous writers.
+    // Skipped on DB failure (no point writing audit_log if launch_events failed).
+    if db_result.is_ok()
+        && let Some(actor) = mi_actor
+        && let Some(sub) = crate::mi_watermark::MiSubsystem::from_code(actor)
+    {
+        let ctx = crate::mi_watermark::MiEditCtx {
+            sub,
+            tier: 0,
+            solution_id: format!("launch:{}", event.id),
+            confidence: 1.0,
+            src_node: event.pod_id.clone(),
+            model: "deterministic".to_string(),
+            incident_id: None,
+        };
+        if let Err(e) = crate::mi_watermark::audit_log_mi_edit(db, "launch_events", &event.id, &ctx).await {
+            tracing::warn!(target: "metrics", "MI watermark write failed for launch_event {}: {e}", event.id);
+        }
+    }
 
     // INTEL-01: Update combo_reliability after every launch event (including crash recovery relaunches).
     // Called after both SQLite insert and JSONL write so all code paths update reliability scores.
@@ -243,15 +276,26 @@ pub struct RecoveryEvent {
 
 /// Record a crash recovery event to SQLite.
 /// Errors are logged but never swallowed (METRICS-07).
-pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent, venue_id: &str) {
+///
+/// PACT-091 Phase 2: `mi_actor` is the 2-letter sub code of the autonomous writer (typically
+/// `"re"` for Race Engineer auto-relaunch). Pass `None` for human-triggered recovery (e.g.
+/// staff manually clears a crash) — `created_by_agent` defaults to `'human'` per migration.
+/// When `Some`, the row is attributed AND a paired `audit_log` MI-EDIT row is written.
+pub async fn record_recovery_event(
+    db: &SqlitePool,
+    event: &RecoveryEvent,
+    venue_id: &str,
+    mi_actor: Option<&str>,
+) {
     let now = chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
         .to_string();
     let outcome_str = serde_json::to_string(&event.recovery_outcome).unwrap_or_default();
+    let actor_for_db = mi_actor.unwrap_or("human");
 
     let result = sqlx::query(
-        "INSERT INTO recovery_events (id, pod_id, sim_type, car, track, failure_mode, recovery_action_tried, recovery_outcome, recovery_duration_ms, error_details, created_at, venue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO recovery_events (id, pod_id, sim_type, car, track, failure_mode, recovery_action_tried, recovery_outcome, recovery_duration_ms, error_details, created_at, venue_id, created_by_agent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pod_id)
@@ -265,14 +309,34 @@ pub async fn record_recovery_event(db: &SqlitePool, event: &RecoveryEvent, venue
     .bind(&event.error_details)
     .bind(&now)
     .bind(venue_id)
+    .bind(actor_for_db)
     .execute(db)
     .await;
 
-    if let Err(e) = result {
+    if let Err(e) = &result {
         tracing::error!(
             "recovery_event insert failed for pod {}: {e}",
             event.pod_id
         );
+    }
+
+    // PACT-091 Phase 2: paired audit_log MI-EDIT row for autonomous writers.
+    if result.is_ok()
+        && let Some(actor) = mi_actor
+        && let Some(sub) = crate::mi_watermark::MiSubsystem::from_code(actor)
+    {
+        let ctx = crate::mi_watermark::MiEditCtx {
+            sub,
+            tier: 0,
+            solution_id: format!("recovery:{}", event.id),
+            confidence: 1.0,
+            src_node: event.pod_id.clone(),
+            model: "deterministic".to_string(),
+            incident_id: None,
+        };
+        if let Err(e) = crate::mi_watermark::audit_log_mi_edit(db, "recovery_events", &event.id, &ctx).await {
+            tracing::warn!(target: "metrics", "MI watermark write failed for recovery_event {}: {e}", event.id);
+        }
     }
 }
 
