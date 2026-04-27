@@ -100,7 +100,7 @@ pub async fn relaunch_game(
             db_fallback: None,
             session_id: None,
         };
-        metrics::record_launch_event(&state.db, &relaunch_event, &state.config.venue.venue_id).await;
+        metrics::record_launch_event(&state.db, &relaunch_event, &state.config.venue.venue_id, None).await;
     }
     let info = {
         let games = state.game_launcher.active_games.read().await;

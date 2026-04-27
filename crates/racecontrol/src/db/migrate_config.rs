@@ -30,6 +30,11 @@ pub(crate) async fn migrate_config(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // PACT-091: actor attribution column.
+    let _ = sqlx::query("ALTER TABLE ai_suggestions ADD COLUMN created_by_agent TEXT DEFAULT 'human'")
+        .execute(pool)
+        .await;
+
 
     // ─── AI training pairs (Ollama learning from Claude CLI) ─────────────────
     sqlx::query(

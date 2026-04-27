@@ -79,6 +79,7 @@ pub mod fleet_violation_store;
 pub mod fleet_intelligence;
 pub mod fleet_kb;
 pub mod mesh_handler;
+pub mod mi_watermark;
 pub mod promotion;
 pub mod server_diagnostics;
 pub mod friends;

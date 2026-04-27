@@ -119,7 +119,7 @@ pub(crate) fn is_process_alive(pid: u32) -> bool {
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn is_process_alive(pid: u32) -> bool {
-    Path::new(&format!("/proc/{}", pid)).exists()
+    std::path::Path::new(&format!("/proc/{}", pid)).exists()
 }
 
 /// Platform-specific process kill

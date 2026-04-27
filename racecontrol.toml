@@ -32,6 +32,10 @@ terminal_pin = "261121"
 
 comms_link_url = "http://localhost:8765"
 
+# Identity for sync origin tagging. "cloud" on this VPS, "local" on venue server (default).
+# Required: without this, cloud rejects venue sync_push as "same origin: local" (V.11).
+origin_id = "cloud"
+
 [watchdog]
 
 enabled = true

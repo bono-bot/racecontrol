@@ -249,7 +249,7 @@ pub async fn stop_game(state: &Arc<AppState>, pod_id: &str) {
                 db_fallback: None,
                 session_id: None,
             };
-            metrics::record_launch_event(&state.db, &stop_event, &state.config.venue.venue_id).await;
+            metrics::record_launch_event(&state.db, &stop_event, &state.config.venue.venue_id, None).await;
         }
 
         // STATE-01: Spawn 30s Stopping timeout — auto-transitions to Error if game doesn't stop

@@ -314,6 +314,16 @@ pub(crate) async fn migrate_game(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await?;
 
+    // PACT-091 Phase 2: actor attribution on launch_events. Default 'human' so
+    // existing rows + every kiosk/staff-initiated launch are attributable;
+    // autonomous writers (Race Engineer, ai_debugger) override to their MI sub-code.
+    let _ = sqlx::query("ALTER TABLE launch_events ADD COLUMN created_by_agent TEXT DEFAULT 'human'")
+        .execute(pool)
+        .await;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_launch_events_actor ON launch_events(created_by_agent)")
+        .execute(pool)
+        .await?;
+
 
     // ─── Dynamic port allocation columns on ac_sessions ──────────────────────
     let _ = sqlx::query("ALTER TABLE ac_sessions ADD COLUMN udp_port INTEGER")
