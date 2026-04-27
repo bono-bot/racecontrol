@@ -4,10 +4,14 @@
 # Layer 4 redundancy: cloud-based monitoring of server .23 via Tailscale.
 # If both James and server are down, Bono is the last line of defense.
 #
-# Install on Bono VPS:
+# Install on Bono VPS (first-time only):
 #   scp bono-server-monitor.sh root@100.70.177.44:/root/bono-server-monitor.sh
 #   ssh root@100.70.177.44 "chmod +x /root/bono-server-monitor.sh"
 #   ssh root@100.70.177.44 "crontab -l 2>/dev/null; echo '*/3 * * * * /root/bono-server-monitor.sh >> /root/bono-server-monitor.log 2>&1'" | ssh root@100.70.177.44 "crontab -"
+#
+# After first-time install, /root/racecontrol/.git/hooks/post-merge auto-syncs
+# this script into /root/bono-server-monitor.sh on every `git pull` (PACT-115
+# permanence fix). To bypass: BONO_MONITOR_SYNC_SKIP=1 git pull.
 
 # Config
 SERVER_TAILSCALE_IP="100.125.108.37"
