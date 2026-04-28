@@ -136,3 +136,7 @@ web/public/git-commit.txt
 web/public/build-info.json
 pwa/public/git-commit.txt
 pwa/public/build-info.json
+
+# Runtime-generated rc-sentry exec payload files (created during pod deploy sessions)
+scripts/deploy/pod4-*.json
+tmp/
