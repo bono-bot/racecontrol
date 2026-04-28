@@ -806,6 +806,18 @@ pub enum CoreToAgentMessage {
     /// Notify agent that billing session ended
     BillingStopped { billing_session_id: String },
 
+    /// PACT-20260428-008: Notify agent that billing session was manually paused (PausedManual).
+    /// Agent must set `billing_paused = true` to suppress orphan auto-end if customer closes
+    /// the game during the pause window (intended use: change games without losing the session).
+    /// Distinct from `ShowPauseOverlay` which is a disconnect-pause UI render — this variant
+    /// flips internal state used by `billing_guard` to gate `BILL-02 stuck session` and
+    /// `SESSION-01 orphan auto-end` anomaly emission.
+    BillingPaused { billing_session_id: String },
+
+    /// PACT-20260428-008: Notify agent that billing session resumed from PausedManual back to Active.
+    /// Agent clears `billing_paused = false`. Pairs with `BillingPaused` above.
+    BillingResumed { billing_session_id: String },
+
     /// Session ended — agent should stop game, show summary, then return to idle
     SessionEnded {
         billing_session_id: String,
@@ -3512,6 +3524,42 @@ mod process_guard_protocol_tests {
         let json = r#"{"type":"future_feature_xyz","data":null}"#;
         let parsed: AgentMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(parsed, AgentMessage::Unknown));
+    }
+
+    /// PACT-20260428-008: BillingPaused/BillingResumed are server→agent notifications
+    /// that the kiosk-side Pause Session button was hit (or its inverse). The agent uses
+    /// these to flip `billing_paused` so SESSION-01 orphan auto-end stays suppressed
+    /// while the customer closes the current game and launches a new one.
+    #[test]
+    fn test_billing_paused_resumed_roundtrip() {
+        let session_id = "bs_pact008_test".to_string();
+
+        // Pause
+        let msg = CoreToAgentMessage::BillingPaused {
+            billing_session_id: session_id.clone(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("billing_paused"), "expected snake_case tag in {json}");
+        assert!(json.contains(&session_id));
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::BillingPaused { billing_session_id } = parsed {
+            assert_eq!(billing_session_id, session_id);
+        } else {
+            panic!("expected BillingPaused after roundtrip");
+        }
+
+        // Resume
+        let msg = CoreToAgentMessage::BillingResumed {
+            billing_session_id: session_id.clone(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("billing_resumed"), "expected snake_case tag in {json}");
+        let parsed: CoreToAgentMessage = serde_json::from_str(&json).unwrap();
+        if let CoreToAgentMessage::BillingResumed { billing_session_id } = parsed {
+            assert_eq!(billing_session_id, session_id);
+        } else {
+            panic!("expected BillingResumed after roundtrip");
+        }
     }
 
     #[test]
