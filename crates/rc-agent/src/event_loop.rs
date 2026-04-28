@@ -186,6 +186,16 @@ pub(crate) struct ConnectionState {
     pub(crate) exit_grace_armed: bool,
     /// SimType of the game that exited (for correct sim_type on delayed Off signal)
     pub(crate) exit_grace_sim_type: Option<rc_common::types::SimType>,
+    /// KIOSK-BLANK-FIX-2 (2026-04-26): force-dismiss timer for the AC instant-Off
+    /// blank applied when customer closes AC post-Live (event_loop.rs:~905).
+    /// Without this, if the customer never relaunches, the blank persists indefinitely
+    /// and the kiosk's session-end UI ("Relaunch Now" button, "won't be charged" text)
+    /// is unreachable behind the Win32 topmost blank window. Armed when blank fires;
+    /// cancelled when launch_state transitions back to Live (close_browser clears blank).
+    /// Fires close_browser() after 120s if neither happens — generous past the ~30s
+    /// "customer came back" window described at lines 879-883.
+    pub(crate) ac_blank_dismiss_timer: std::pin::Pin<Box<tokio::time::Sleep>>,
+    pub(crate) ac_blank_dismiss_armed: bool,
     /// Track if we already emitted Loading state to server for current launch
     pub(crate) loading_emitted: bool,
     /// Track the current sim_type for the active game (set on LaunchGame, cleared on Idle)
@@ -296,6 +306,8 @@ impl ConnectionState {
             exit_grace_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
             exit_grace_armed: false,
             exit_grace_sim_type: None,
+            ac_blank_dismiss_timer: Box::pin(tokio::time::sleep(Duration::from_secs(86400))),
+            ac_blank_dismiss_armed: false,
             loading_emitted: false,
             current_sim_type: None,
             f1_udp_playable_received: false,
@@ -846,6 +858,12 @@ pub async fn run(
                                                 let _ = ws_tx.send(Message::Text(json.into())).await;
                                             }
                                             conn.launch_state = LaunchState::Live;
+                                            // KIOSK-BLANK-FIX-2 (2026-04-26): cancel AC blank dismiss timer
+                                            // — close_browser below clears the blank, no force-dismiss needed.
+                                            if conn.ac_blank_dismiss_armed {
+                                                conn.ac_blank_dismiss_armed = false;
+                                                conn.ac_blank_dismiss_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
+                                            }
                                             // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                             state.lock_screen.close_browser();
                                             tracing::info!(target: LOG_TARGET, "Splash dismissed — game is Live");
@@ -903,6 +921,12 @@ pub async fn run(
                                             // because the blank is intrinsic to this pause event, not a staff
                                             // action.
                                             state.lock_screen.show_blank_screen();
+                                            // KIOSK-BLANK-FIX-2 (2026-04-26): arm 120s force-dismiss in
+                                            // case customer never relaunches. The Live-emit close_browser()
+                                            // path is the happy-path dismiss (lines 850/1466/1486/1508).
+                                            // This timer covers the unhappy path where customer walks away.
+                                            conn.ac_blank_dismiss_timer = Box::pin(tokio::time::sleep(Duration::from_secs(120)));
+                                            conn.ac_blank_dismiss_armed = true;
                                             // Inline the cleanup that used to run at grace-timer expiry
                                             // (see event_loop.rs:2263-2266 in the exit_grace_timer arm).
                                             conn.exit_grace_sim_type = None;
@@ -1462,6 +1486,11 @@ pub async fn run(
                                     let _ = ws_tx.send(Message::Text(json.into())).await;
                                 }
                                 conn.launch_state = LaunchState::Live;
+                                // KIOSK-BLANK-FIX-2 (2026-04-26): cancel AC blank dismiss timer (parity).
+                                if conn.ac_blank_dismiss_armed {
+                                    conn.ac_blank_dismiss_armed = false;
+                                    conn.ac_blank_dismiss_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
+                                }
                                 // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                 state.lock_screen.close_browser();
                                 tracing::info!(target: LOG_TARGET, "Splash dismissed — F1 25 is Live");
@@ -1482,6 +1511,11 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Live;
+                                        // KIOSK-BLANK-FIX-2 (2026-04-26): cancel AC blank dismiss timer (parity).
+                                        if conn.ac_blank_dismiss_armed {
+                                            conn.ac_blank_dismiss_armed = false;
+                                            conn.ac_blank_dismiss_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
+                                        }
                                         // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                         state.lock_screen.close_browser();
                                         tracing::info!(target: LOG_TARGET, "Splash dismissed — iRacing is Live");
@@ -1504,6 +1538,11 @@ pub async fn run(
                                             let _ = ws_tx.send(Message::Text(json.into())).await;
                                         }
                                         conn.launch_state = LaunchState::Live;
+                                        // KIOSK-BLANK-FIX-2 (2026-04-26): cancel AC blank dismiss timer (parity).
+                                        if conn.ac_blank_dismiss_armed {
+                                            conn.ac_blank_dismiss_armed = false;
+                                            conn.ac_blank_dismiss_timer = Box::pin(tokio::time::sleep(Duration::from_secs(86400)));
+                                        }
                                         // LAUNCH-FIX-1: Dismiss splash overlay now that game is playable
                                         state.lock_screen.close_browser();
                                         tracing::info!(target: LOG_TARGET, "Splash dismissed — LMU is Live");
@@ -2308,6 +2347,26 @@ pub async fn run(
                 conn.current_sim_type = None;
                 conn.loading_emitted = false;
                 conn.f1_udp_playable_received = false;
+            }
+
+            // KIOSK-BLANK-FIX-2 (2026-04-26): force-dismiss the AC instant-Off blank if
+            // customer never relaunched within 120s. Without this arm, blank persists
+            // indefinitely after AC post-Live close, hiding the kiosk's session-end UI.
+            // Symmetric with exit_grace_timer arm above. Re-checks state to avoid racing
+            // with a Live-emit that fired between deadline-set and timer-firing.
+            _ = &mut conn.ac_blank_dismiss_timer, if conn.ac_blank_dismiss_armed => {
+                conn.ac_blank_dismiss_armed = false;
+                let blanked = state.lock_screen.is_blanked();
+                let in_live = matches!(conn.launch_state, LaunchState::Live);
+                if blanked && !in_live {
+                    tracing::info!(target: LOG_TARGET,
+                        "KIOSK-BLANK-FIX-2: AC post-Live blank timeout (120s) — customer did not relaunch, dismissing blank");
+                    state.lock_screen.close_browser();
+                } else {
+                    tracing::debug!(target: LOG_TARGET,
+                        "KIOSK-BLANK-FIX-2: timer fired but state changed — skipping dismiss (blanked={}, in_live={})",
+                        blanked, in_live);
+                }
             }
 
             _ = async {
