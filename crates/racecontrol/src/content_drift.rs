@@ -4,8 +4,8 @@
 //! every 60 minutes and compares against the expected TOML inventory.
 //! Fires ContentDriftDetected WS events and writes to content_drift_events table.
 
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use chrono::Utc;
 use tokio::time::{interval, Duration};
@@ -16,6 +16,18 @@ use rc_common::inventory_types::ContentDirsResponse;
 
 const LOG_TARGET: &str = "content-drift";
 const POLL_INTERVAL_SECS: u64 = 3600; // 60 minutes per D-07
+
+/// MMA P1 fix (commit 7a24faaa review): max-defer counter for drift checks.
+/// After this many consecutive customer-active skips (= ~3 hours at 60-min
+/// poll), force the check with a WARN so a long session doesn't leave drift
+/// undetected indefinitely. Trade-off: one extra /debug/content-dirs call
+/// during a customer session is preferred over silent monitoring blind spot.
+const DRIFT_MAX_DEFER_CYCLES: u32 = 3;
+
+/// Per-pod consecutive defer counter for drift check. Reset to 0 when the
+/// check actually fires.
+static DRIFT_DEFER_COUNTS: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Spawn the background content drift polling task.
 /// Called from main.rs after AppState is initialized.
@@ -61,15 +73,40 @@ async fn check_all_pods_drift(state: &Arc<AppState>) {
         // feedback_background_ops_respect_customer_state.md. Avoids adding
         // /debug/content-dirs traffic during game-switch transitions where
         // rc-agent is busy spawning processes.
+        //
+        // MMA P1 fix (commit 7a24faaa review): max-defer counter — after
+        // DRIFT_MAX_DEFER_CYCLES consecutive skips (~3h), force the check
+        // with WARN so a prolonged session doesn't leave drift undetected.
         if state.is_pod_customer_active(&pod_id).await {
-            tracing::debug!(
+            let mut counts = DRIFT_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+            let count = counts.entry(pod_id.clone()).or_insert(0);
+            *count += 1;
+            let current = *count;
+            drop(counts);
+            if current < DRIFT_MAX_DEFER_CYCLES {
+                tracing::debug!(
+                    target: LOG_TARGET,
+                    pod_id = %pod_id,
+                    pod_number = pod_number,
+                    defer_count = current,
+                    "Skipping drift check — customer active on pod ({}/{})",
+                    current, DRIFT_MAX_DEFER_CYCLES
+                );
+                continue;
+            }
+            tracing::warn!(
                 target: LOG_TARGET,
                 pod_id = %pod_id,
                 pod_number = pod_number,
-                "Skipping drift check — customer active on pod"
+                defer_count = current,
+                "Drift check max-defer exceeded ({}/{}) — forcing check despite customer-active state",
+                current, DRIFT_MAX_DEFER_CYCLES
             );
-            continue;
+            // fall through; reset counter after the attempt below
         }
+
+        // Reset defer counter — we're proceeding with the check this cycle.
+        DRIFT_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner()).remove(&pod_id);
 
         // Load expected inventory from TOML (ground truth)
         let expected_inventory =

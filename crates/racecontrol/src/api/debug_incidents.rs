@@ -136,11 +136,36 @@ pub(crate) async fn create_debug_incident(
     };
     drop(pods);
 
+    // MMA P2 fix (commit 7a24faaa review): cap client_context size.
+    // The frontend builds it from probe + telemetry + activity + WS state;
+    // legitimate payloads are <8KB. Reject anything over 64KB to prevent
+    // storage DoS / pathological context_snapshot rows. Oversized payloads
+    // are dropped (set to null) — incident still saved without that field.
+    const MAX_CLIENT_CONTEXT_BYTES: usize = 64 * 1024;
+    let client_context = match body.client_context.as_ref() {
+        Some(v) => {
+            let serialized_len = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0);
+            if serialized_len > MAX_CLIENT_CONTEXT_BYTES {
+                tracing::warn!(
+                    target: "debug",
+                    bytes = serialized_len,
+                    cap = MAX_CLIENT_CONTEXT_BYTES,
+                    "client_context oversized — dropping for incident {}",
+                    body.description.chars().take(40).collect::<String>()
+                );
+                Value::Null
+            } else {
+                v.clone()
+            }
+        }
+        None => Value::Null,
+    };
+
     let context = json!({
         "pod_state": pod_snapshot,
         "active_sessions": active_sessions,
         "timestamp": chrono::Utc::now().to_rfc3339(),
-        "client": body.client_context,
+        "client": client_context,
     });
 
     let id = uuid::Uuid::new_v4().to_string();
