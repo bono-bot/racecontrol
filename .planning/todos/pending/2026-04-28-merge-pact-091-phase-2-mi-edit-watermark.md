@@ -1,27 +1,30 @@
 ---
 created: 2026-04-28T10:49:55.878Z
-title: Merge PACT-091 Phase 2 — MI edit watermark — wire 3 remaining callsites
-area: api
+title: Retire stale pact-091-mi-watermark branch — Phase 2 content already in main via PR #43 squash
+area: tooling
 files:
   - crates/racecontrol/src/mi_watermark.rs
+  - crates/racecontrol/src/fleet_kb.rs
+  - crates/racecontrol/src/metrics.rs
   - crates/racecontrol/src/api/mesh_intelligence.rs
-  - crates/racecontrol/src/api/mesh_intelligence_cloud.rs
 ---
 
 ## Problem
 
-PACT-091 Phase 1 (`5ca4fe3c`, merged via PR #43) shipped the MI-edit watermark scaffolding to venue at `b74aadce-dirty`: new `mi_watermark.rs` module with `MiSubsystem` enum (me/re/pa/rc/fi/pe/ad), `MiEditCtx`, `mi_edit_marker()`, `log_mi_edit()`, `audit_log_mi_edit()`, plus 3 idempotent migrations (`recovery_events.created_by_agent`, `ai_suggestions.created_by_agent`, `audit_log.action_type`). Phase 1 only wired **1 of 5** target callsites.
+Initial framing of this todo was wrong. PR #43 (`5ca4fe3c`) was a **squash merge** that combined PACT-091 Phase 1 + Phase 2 into a single commit on `main`. The branch `origin/pact-091-mi-watermark` still carries the unsquashed `0a221e42` (Phase 1) + `158602b1` (Phase 2) + `4abdc42b` (PACT-071 test fix) commits, none of which are commit-hash ancestors of main — but **content is identical**.
 
-Phase 2 (`158602b1` "pact(091): MI edit watermark v1 — Phase 2 wires 3 remaining callsites") was committed to branch `origin/pact-091-mi-watermark` but is not an ancestor of `main` and not in the venue deploy. Verified 2026-04-28: `git merge-base --is-ancestor 158602b1 HEAD → exit 1`, `--is-ancestor 158602b1 b74aadce → exit 1`, `git branch -a --contains 158602b1 → remotes/origin/pact-091-mi-watermark`.
+Verified 2026-04-28 ~16:30 IST:
+- `git diff origin/main origin/pact-091-mi-watermark -- crates/racecontrol/src/mi_watermark.rs crates/racecontrol/src/api/mesh_intelligence.rs crates/racecontrol/src/fleet_kb.rs crates/racecontrol/src/metrics.rs` → empty
+- `git log -L "287,287:crates/racecontrol/src/fleet_kb.rs"` → `5ca4fe3c` (the merged commit)
+- Same for `metrics.rs:138` (launch_events) and `metrics.rs:337` (recovery_events)
+- All 4 production watermark callsites are wired in HEAD AND in venue `b74aadce`: `mesh_intelligence.rs:134` (config_set), `fleet_kb.rs:278` (audit_known_issues), `metrics.rs:129` (launch_events), `metrics.rs:328` (recovery_events).
 
-Until Phase 2 lands, autonomous Mesh Intelligence writes from those 3 callsites lack the 4-layer attribution (sub / tier / solution_id / confidence / src_node / model / incident_id), so forensic queries on MI edits remain a multi-file source archeology instead of the single grep / single SQL query Phase 1 promised. Source: 2026-04-28 freshness probe of MI service.
+The lesson: `git merge-base --is-ancestor` checks commit-hash ancestry, which always fails for squash-merged content even when the diff is null. **Use content-equivalence (`git diff branch main -- <files>`) when the question is "did the work land," not ancestry.**
 
 ## Solution
 
-1. Check out `origin/pact-091-mi-watermark`; rebase on `main` if needed (PACT-091 Phase 1 is already in main, so the foundation should be a no-conflict ancestor).
-2. Identify the 3 callsites Phase 2 wires (likely fleet_healer / pod_healer_ai / a recovery path — confirm from the commit diff).
-3. Verify each call passes a fully populated `MiEditCtx`; check `action_type` strings follow `mi-edit:<sub>` convention.
-4. Open / refresh the PR. If Phase 2 touches cross-system MI write paths, run MMA per CGP v4.3 (cross-system bridge deploy = MANDATORY MMA).
-5. Merge to main, push, then deploy to venue per Standing Rule #16 (commit ≠ shipped). Verify the 3 callsites emit `[MI-EDIT v1 sub=… t=… c=… s=… …]` markers in the venue tracing target `mi_edit`.
-6. Confirm `audit_log` rows from those callsites carry `action_type LIKE 'mi-edit:%'` and `created_by_agent != 'human'` where applicable.
-7. Update `feedback_query_mi_before_spec.md` if the watermark changes the recommended MI seeding format.
+1. Confirm with branch owner (likely Bono or whoever filed PR #43) that the squash absorbed Phase 2.
+2. Delete the stale remote branch: `git push origin --delete pact-091-mi-watermark` (only after confirmation; check no in-flight PR references it).
+3. Drop `4abdc42b` (PACT-071 test-rot fix) — verify it's also in main; if not, cherry-pick before deleting the branch.
+4. Add a feedback memory `feedback_squash_merge_ancestor_check.md` so the structural fix sticks: "for `did the work land` questions, use `git diff <branch> main -- <paths>`, not `merge-base --is-ancestor`."
+5. Optionally roll the watermark coverage forward to the missing 5th callsite (`fleet_kb.rs:258` INSERT OR REPLACE has the seed write; `mi_watermark::audit_log_mi_edit` is called immediately after — already wired). Re-confirm full coverage.
