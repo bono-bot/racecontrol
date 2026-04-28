@@ -382,6 +382,28 @@ pub async fn handle_ws_message(
             conn.current_driver_name = None;
         }
 
+        // PACT-20260428-008: Manual pause from staff/customer kiosk button.
+        // Server has set status=PausedManual (meter halted server-side); we flip the
+        // agent-local `billing_paused` flag so `billing_guard`'s SESSION-01 orphan
+        // auto-end + BILL-02 stuck-session anomalies stay suppressed while the
+        // customer closes the current game and launches a new one. Without this,
+        // closing the game during pause triggers auto-end at orphan_end_threshold_secs
+        // (default 300s), destroying the very session the pause was meant to preserve.
+        CoreToAgentMessage::BillingPaused { billing_session_id } => {
+            tracing::info!(target: LOG_TARGET, "Billing paused (manual): {}", billing_session_id);
+            state.failure_monitor_tx.send_modify(|s| {
+                s.billing_paused = true;
+            });
+        }
+
+        // PACT-20260428-008: Resume from manual pause back to Active.
+        CoreToAgentMessage::BillingResumed { billing_session_id } => {
+            tracing::info!(target: LOG_TARGET, "Billing resumed (manual): {}", billing_session_id);
+            state.failure_monitor_tx.send_modify(|s| {
+                s.billing_paused = false;
+            });
+        }
+
         CoreToAgentMessage::SessionEnded {
             billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
         } => {
