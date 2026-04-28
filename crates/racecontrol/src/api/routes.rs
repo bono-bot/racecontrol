@@ -89,7 +89,6 @@ use super::pod_mgmt::*;
 use super::pod_queue::*;
 use super::pricing_routes::*;
 use super::psychology_routes::*;
-use super::pwa_game_request::*;
 use super::staff_crud::*;
 use super::sync_actions::*;
 use super::sync_cloud::*;
@@ -360,10 +359,10 @@ fn customer_routes() -> Router<Arc<AppState>> {
         .route("/customer/membership/subscribe", post(customer_subscribe_membership))
         // Customer AI chat
         .route("/customer/ai/chat", post(customer_ai_chat))
-        // Game launch request (PWA -- customer requests staff-confirmed game launch)
-        .route("/customer/game-request", post(pwa_game_request))
-        // BILL-03: Game request status polling (TTL = 10 min, expires_at checked server-side)
-        .route("/customer/game-request/{id}", get(get_game_request_status))
+        // PACT-097: PWA game-request route removed (zero production traffic since 2026-04-02 seed;
+        // staff/POS launches go direct via /games/launch). game_launch_requests table retained for
+        // schema/migration compatibility (billing_tests:2071 BILL-03 cleanup expects table to exist).
+        // DashboardEvent::GameLaunchRequested variant retained — WS protocol stability.
         // DPDP Act data rights (Plan 79-03)
         .route("/customer/data-export", get(customer_data_export))
         .route("/customer/data-delete", axum::routing::delete(customer_data_delete))

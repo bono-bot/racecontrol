@@ -75,7 +75,6 @@ pub mod pod_mgmt;
 pub mod pod_queue;
 pub mod pricing_routes;
 pub mod psychology_routes;
-pub mod pwa_game_request;
 pub mod staff_crud;
 pub mod sync_actions;
 pub mod sync_cloud;
