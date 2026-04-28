@@ -211,6 +211,50 @@ export interface AcServerInfo {
   continuous_mode: boolean;
 }
 
+// ─── Debug Probes (read-only diagnostic checks) ─────────────────────────────
+
+export interface PodStateProbe {
+  pod_id: string;
+  pod_number: number;
+  pod_ip: string | null;
+  build_id: string | null;
+  uptime_secs: number | null;
+  lock_screen_state: string | null;
+  native_window_alive: boolean | null;
+  sentinels: {
+    maintenance_mode?: boolean | null;
+    ota_deploying?: boolean | null;
+    graceful_relaunch?: boolean | null;
+    deploy_in_progress?: boolean | null;
+    restart_sentinel?: boolean | null;
+  };
+  rc_agent_session: "Console" | "Services" | null;
+  conspitlink_count: number | null;
+  errors: string[];
+  probed_at: string;
+}
+
+export interface HaloProbe {
+  id: string;
+  name: string;
+  layer: string;
+  bug_class: string;
+  target: string;
+  invariant: string;
+  mechanism: string;
+  status: "PROPOSED" | "CALIBRATING" | "LIVE" | "RETIRED";
+  reference_incident: string;
+  escalation: string;
+  sub_pact: string;
+}
+
+export interface HaloCatalogResponse {
+  probes: HaloProbe[];
+  total: number;
+  by_status: Record<string, number>;
+  note: string;
+}
+
 // ─── Pod Inventory (Phase 320 — INV-03, COMBO-05) ────────────────────────────
 
 export interface PodInventoryResponse {

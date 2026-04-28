@@ -1,4 +1,4 @@
-import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory, LaunchStatusCard, LaunchNoteEvent, FeatureFlagRow } from "./types";
+import type { KioskExperience, KioskSettings, Driver, PricingTier, Pod, BillingSession, WalletInfo, WalletTransaction, AcCatalog, DebugActivityData, DebugPlaybook, DebugIncident, DebugDiagnosis, PodActivityEntry, FleetHealthResponse, CafeMenuResponse, CafeOrderItem, CafeOrderResponse, ActivePromo, RecentSession, VenueShutdownResponse, PodDiagnosticEvent, MeshSolution, MeshStats, MeshIncident, PodInventoryResponse, PodInventory, LaunchStatusCard, LaunchNoteEvent, FeatureFlagRow, PodStateProbe, HaloCatalogResponse } from "./types";
 import type { RedeemPinResponse, AlternativeCombo } from "@racingpoint/types";
 
 export type { ActivePromo, RedeemPinResponse };
@@ -358,10 +358,10 @@ export const api = {
   debugPlaybooks: () =>
     fetchApi<{ playbooks: DebugPlaybook[] }>("/debug/playbooks"),
 
-  createDebugIncident: (description: string, pod_id?: string) =>
+  createDebugIncident: (description: string, pod_id?: string, client_context?: unknown) =>
     fetchApi<{ incident: DebugIncident; playbook?: DebugPlaybook }>("/debug/incidents", {
       method: "POST",
-      body: JSON.stringify({ description, pod_id }),
+      body: JSON.stringify({ description, pod_id, client_context }),
     }),
 
   listDebugIncidents: (status?: string) =>
@@ -393,6 +393,13 @@ export const api = {
     fetchApi<{ events: PodDiagnosticEvent[] }>(
       `/debug/pod-events/${podId}${limit ? `?limit=${limit}` : ""}`
     ),
+
+  // Read-only diagnostic probes
+  podStateProbe: (podId: string) =>
+    fetchApi<PodStateProbe>(`/debug/probe/${podId}`),
+
+  haloCatalog: () =>
+    fetchApi<HaloCatalogResponse>("/debug/halo-catalog"),
 
   // Mesh Intelligence — Solution Browser
   meshSolutions: () =>

@@ -18,6 +18,8 @@ import type {
   Lap,
   TelemetryFrame,
   BillingSession,
+  PodStateProbe,
+  HaloProbe,
 } from "@/lib/types";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -80,6 +82,14 @@ export default function DebugPage() {
   // v27.0: Pod diagnostic events from tier engine
   const [podEvents, setPodEvents] = useState<PodDiagnosticEvent[]>([]);
   const [podEventsLoading, setPodEventsLoading] = useState(false);
+
+  // Probes (read-only diagnostics)
+  const [podProbe, setPodProbe] = useState<PodStateProbe | null>(null);
+  const [probeLoading, setProbeLoading] = useState(false);
+  const [postFixProbe, setPostFixProbe] = useState<PodStateProbe | null>(null);
+  const [haloCatalog, setHaloCatalog] = useState<HaloProbe[]>([]);
+  const [haloByStatus, setHaloByStatus] = useState<Record<string, number>>({});
+  const [fleetMiEvents, setFleetMiEvents] = useState<Map<string, PodDiagnosticEvent[]>>(new Map());
 
   // Quick fix
   const [applyingFix, setApplyingFix] = useState<string | null>(null);
@@ -168,9 +178,139 @@ export default function DebugPage() {
       }
     }
     loadPodEvents();
+    // Same customer-active gate as podProbe — pod-events proxies through
+    // rc-agent /events/recent on :8090 so it shares blast radius.
+    // (predicate inlined here because isPodCustomerActive is declared further
+    // down the component body; useEffect deps array hits TDZ otherwise)
+    const billing = billingTimers.get(selectedPodId);
+    const billingActive = !!billing && (
+      billing.status === "active" ||
+      billing.status === "waiting_for_game" ||
+      billing.status === "paused_manual" ||
+      billing.status === "paused_disconnect" ||
+      billing.status === "paused_game_pause" ||
+      billing.status === "paused_crash_recovery"
+    );
+    const pod = pods.get(selectedPodId);
+    const driving = pod?.driving_state === "active";
+    const gameActive = pod?.game_state && pod.game_state !== "idle" && pod.game_state !== "error";
+    const customerActive = Boolean(billingActive || driving || gameActive);
+    if (customerActive) return () => { cancelled = true; };
     const interval = setInterval(loadPodEvents, 15000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [selectedPodId]);
+  }, [selectedPodId, pods, billingTimers]);
+
+  // Customer-active predicate — single source of truth for "is this pod
+  // currently being used by a customer?" Used to gate background pod-probing
+  // operations (probe poll, pod-events poll, fleet-wide MI poll) so we don't
+  // add /exec or pod-proxy traffic during a session — especially during
+  // game-switch transitions (AC→F1 25) where rc-agent is busy spawning
+  // processes and managing windows.
+  const isPodCustomerActive = useCallback((podId: string): boolean => {
+    const pod = pods.get(podId);
+    const billing = billingTimers.get(podId);
+    // Any non-terminal billing state means a customer paid for this pod and
+    // is mid-session (or about to be). Terminal states: completed, ended_early,
+    // cancelled, cancelled_no_playable.
+    const billingActive = !!billing && (
+      billing.status === "active" ||
+      billing.status === "waiting_for_game" ||
+      billing.status === "paused_manual" ||
+      billing.status === "paused_disconnect" ||
+      billing.status === "paused_game_pause" ||
+      billing.status === "paused_crash_recovery"
+    );
+    const driving = pod?.driving_state === "active";
+    // Transitional game states are the highest-risk window — rc-agent is
+    // actively spawning/closing processes. Steady "running" is also customer-
+    // active but lower risk; we treat all non-idle game states as active.
+    const gameActive = pod?.game_state && pod.game_state !== "idle" && pod.game_state !== "error";
+    return Boolean(billingActive || driving || gameActive);
+  }, [pods, billingTimers]);
+
+  // Memo of the predicate's value for the currently selected pod (for badge).
+  const probeAutoPaused = useMemo(() => {
+    if (!selectedPodId) return false;
+    return isPodCustomerActive(selectedPodId);
+  }, [selectedPodId, isPodCustomerActive]);
+
+  useEffect(() => {
+    if (!selectedPodId) {
+      setPodProbe(null);
+      return;
+    }
+    let cancelled = false;
+    async function loadProbe() {
+      setProbeLoading(true);
+      try {
+        const res = await api.podStateProbe(selectedPodId!);
+        if (!cancelled) setPodProbe(res);
+      } catch (e) {
+        if (!cancelled) console.warn("[debug] pod probe failed", e);
+      } finally {
+        if (!cancelled) setProbeLoading(false);
+      }
+    }
+    // Always do an initial probe on pod-select — but only auto-refresh if the
+    // pod is not customer-active. This gives staff one snapshot at select time
+    // without poking the pod every 30s during a session.
+    loadProbe();
+    if (probeAutoPaused) return () => { cancelled = true; };
+    const iv = setInterval(loadProbe, 30000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [selectedPodId, probeAutoPaused]);
+
+  // HALO catalog — load once at mount
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCatalog() {
+      try {
+        const res = await api.haloCatalog();
+        if (!cancelled) {
+          setHaloCatalog(res.probes || []);
+          setHaloByStatus(res.by_status || {});
+        }
+      } catch (e) {
+        console.warn("[debug] halo catalog load failed", e);
+      }
+    }
+    loadCatalog();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fleet-wide MI events when no pod selected — fetch only the pods that are
+  // NOT in a customer-active state. Skipping customer-active pods avoids
+  // adding /exec or pod-proxy traffic during a session.
+  useEffect(() => {
+    if (selectedPodId) return; // pod-specific panel handles single-pod view
+    if (pods.size === 0) return;
+    let cancelled = false;
+    async function loadFleetEvents() {
+      const ids: string[] = [];
+      for (const id of pods.keys()) {
+        if (isPodCustomerActive(id)) continue;
+        ids.push(id);
+      }
+      if (ids.length === 0) {
+        setFleetMiEvents(new Map());
+        return;
+      }
+      const results = await Promise.allSettled(
+        ids.map((id) => api.podDiagnosticEvents(id, 5).then((r) => ({ id, events: r.events || [] })))
+      );
+      if (cancelled) return;
+      const map = new Map<string, PodDiagnosticEvent[]>();
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.events.length > 0) {
+          map.set(r.value.id, r.value.events);
+        }
+      }
+      setFleetMiEvents(map);
+    }
+    loadFleetEvents();
+    const iv = setInterval(loadFleetEvents, 30000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [selectedPodId, pods, isPodCustomerActive]);
 
   // Filtered activity
   const filteredActivity = useMemo(() => {
@@ -196,7 +336,32 @@ export default function DebugPage() {
     setSubmitting(true);
     setDiagnoseError(null);
     try {
-      const res = await api.createDebugIncident(issueText.trim(), selectedPodId || undefined) as {
+      // Auto-context-snapshot: capture probe + WS state at submit time so
+      // Race Engineer diagnoses with full context, not just the description.
+      let clientContext: Record<string, unknown> | undefined = undefined;
+      if (selectedPodId) {
+        // Best-effort live probe at submit (separate from the polled probe state).
+        let liveProbe: PodStateProbe | null = null;
+        try { liveProbe = await api.podStateProbe(selectedPodId); } catch { /* tolerate */ }
+        const tele = latestTelemetry.get(selectedPodId) || null;
+        const billing = billingTimers.get(selectedPodId) || null;
+        const recentActivity = activityLog
+          .filter((e) => e.pod_id === selectedPodId)
+          .slice(0, 10);
+        clientContext = {
+          probe: liveProbe || podProbe,
+          telemetry: tele,
+          billing_session: billing,
+          recent_activity: recentActivity,
+          recent_pod_events: podEvents.slice(0, 5),
+          ws_connected: connected,
+        };
+      }
+      const res = await api.createDebugIncident(
+        issueText.trim(),
+        selectedPodId || undefined,
+        clientContext,
+      ) as {
         incident: DebugIncident;
         playbook?: DebugPlaybook;
         suggested_actions?: string[];
@@ -259,11 +424,27 @@ export default function DebugPage() {
     if (!currentIncident) return;
     setApplyingFix(action);
     setFixResult(null);
+    setPostFixProbe(null);
     try {
       const res = await api.applyDebugFix(currentIncident.id, action, selectedPodId || undefined);
       setFixResult(res);
       if (res.ok) {
-        // Fix succeeded — incident was auto-resolved on the backend
+        // Post-fix verification probe: rc-agent ok:true means the action was
+        // dispatched, NOT that the symptom is gone. Wait briefly for the fix
+        // to take effect, then re-probe so staff sees the actual delta.
+        const probePodId = selectedPodId || currentIncident.pod_id || undefined;
+        if (probePodId) {
+          await new Promise((r) => setTimeout(r, 4000));
+          try {
+            const after = await api.podStateProbe(probePodId);
+            setPostFixProbe(after);
+            setPodProbe(after); // refresh the panel display too
+          } catch (e) {
+            console.warn("[debug] post-fix probe failed", e);
+          }
+        }
+        // Backend auto-resolves the incident on ok:true. Keep current behavior
+        // but leave fixResult+postFixProbe rendered so staff can sanity-check.
         setCurrentIncident(null);
         setCurrentPlaybook(null);
         setDiagnosis(null);
@@ -582,6 +763,58 @@ export default function DebugPage() {
             pods={pods}
           />
 
+          {/* ─── Pod State Probe (read-only diagnostics) ───────────── */}
+          {selectedPodId && (
+            <ProbePanel
+              probe={podProbe}
+              loading={probeLoading}
+              postFix={postFixProbe}
+              autoPaused={probeAutoPaused}
+              onRefresh={async () => {
+                if (!selectedPodId) return;
+                setProbeLoading(true);
+                try {
+                  const res = await api.podStateProbe(selectedPodId);
+                  setPodProbe(res);
+                } catch (e) {
+                  console.warn("[debug] manual probe refresh failed", e);
+                } finally {
+                  setProbeLoading(false);
+                }
+              }}
+            />
+          )}
+
+          {/* ─── Fleet-wide MI Events (when no pod selected) ───────── */}
+          {!selectedPodId && fleetMiEvents.size > 0 && (
+            <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl p-3 max-h-[30%] overflow-y-auto">
+              <h2 className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                Meshed Intelligence — Fleet Events ({fleetMiEvents.size} pods reporting)
+              </h2>
+              <div className="space-y-2">
+                {Array.from(fleetMiEvents.entries()).map(([podId, events]) => {
+                  const pod = pods.get(podId);
+                  return (
+                    <div key={podId} className="border-l-2 border-amber-500/40 pl-2">
+                      <button
+                        onClick={() => setSelectedPodId(podId)}
+                        className="text-xs font-semibold text-amber-400 hover:text-white"
+                      >
+                        Pod {pod?.number || "?"} — {events.length} event{events.length === 1 ? "" : "s"}
+                      </button>
+                      {events.slice(0, 3).map((evt, i) => (
+                        <div key={`${evt.timestamp}-${i}`} className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                          {formatTime(evt.timestamp)} · tier {evt.tier} · {evt.outcome} ·
+                          {" "}{evt.trigger.replace(/^Variant\d+/, "").replace(/[()]/g, "").slice(0, 60)}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ─── Pod Tier Engine Events (v27.0) ────────────────────── */}
           {selectedPodId && (
             <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl p-3 max-h-[30%] overflow-y-auto">
@@ -651,6 +884,11 @@ export default function DebugPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* ─── HALO Catalog (collapsible probe registry) ───────── */}
+          {haloCatalog.length > 0 && (
+            <HaloPanel probes={haloCatalog} byStatus={haloByStatus} />
           )}
 
           {/* ─── Diagnostics Section (collapsible) ───────────────── */}
@@ -1330,6 +1568,297 @@ function LapHealthPanel({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Probe Panel (read-only diagnostics) ────────────────────────────────────
+
+function sentinelBadge(label: string, value: boolean | null | undefined) {
+  let bg = "bg-zinc-700";
+  let txt = "text-zinc-400";
+  let dot = "bg-zinc-500";
+  if (value === true) {
+    bg = "bg-red-900/40 border-red-600/50";
+    txt = "text-red-300";
+    dot = "bg-red-500 animate-pulse";
+  } else if (value === false) {
+    bg = "bg-zinc-800/40 border-zinc-700/40";
+    txt = "text-zinc-400";
+    dot = "bg-zinc-600";
+  }
+  return (
+    <div key={label} className={`flex items-center gap-1.5 px-2 py-1 rounded border ${bg}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      <span className={`text-[10px] font-mono ${txt}`}>{label}</span>
+    </div>
+  );
+}
+
+function ProbePanel({
+  probe,
+  loading,
+  postFix,
+  autoPaused,
+  onRefresh,
+}: {
+  probe: PodStateProbe | null;
+  loading: boolean;
+  postFix: PodStateProbe | null;
+  autoPaused: boolean;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-3 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">
+            Pod State Probe
+          </h2>
+          {probe && probe.lock_screen_state && (
+            <span className="text-[10px] font-mono text-zinc-400">
+              {probe.lock_screen_state}
+            </span>
+          )}
+          {probe?.errors && probe.errors.length > 0 && (
+            <span className="bg-red-600/30 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded">
+              {probe.errors.length} err
+            </span>
+          )}
+          {autoPaused && (
+            <span className="bg-amber-600/30 text-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-600/40">
+              auto-paused — customer active
+            </span>
+          )}
+          {loading && <span className="text-[10px] text-zinc-500">probing...</span>}
+        </div>
+        <svg
+          className={`w-4 h-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && probe && (
+        <div className="px-3 pb-3 space-y-2">
+          {/* Top row: build_id + uptime + session + native window */}
+          <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+            <span className="px-2 py-1 rounded bg-zinc-800 text-zinc-300">
+              build {probe.build_id?.slice(0, 8) ?? "?"}
+            </span>
+            <span className="px-2 py-1 rounded bg-zinc-800 text-zinc-300">
+              uptime {probe.uptime_secs ?? "?"}s
+            </span>
+            {probe.rc_agent_session && (
+              <span className={`px-2 py-1 rounded ${
+                probe.rc_agent_session === "Console"
+                  ? "bg-green-900/40 text-green-300"
+                  : "bg-red-900/40 text-red-300"
+              }`}>
+                Session: {probe.rc_agent_session}
+                {probe.rc_agent_session === "Services" && " (Session 0 — GUI broken)"}
+              </span>
+            )}
+            <span className={`px-2 py-1 rounded ${
+              probe.native_window_alive
+                ? "bg-green-900/30 text-green-300"
+                : "bg-zinc-800 text-zinc-400"
+            }`}>
+              native window: {probe.native_window_alive === null ? "?" : probe.native_window_alive ? "alive" : "down"}
+            </span>
+            {typeof probe.conspitlink_count === "number" && (
+              <span className={`px-2 py-1 rounded ${
+                probe.conspitlink_count === 1
+                  ? "bg-green-900/30 text-green-300"
+                  : probe.conspitlink_count === 0
+                  ? "bg-red-900/40 text-red-300"
+                  : "bg-amber-900/40 text-amber-300"
+              }`}>
+                ConspitLink ×{probe.conspitlink_count}
+                {probe.conspitlink_count > 1 && " (multiplication)"}
+                {probe.conspitlink_count === 0 && " (down)"}
+              </span>
+            )}
+          </div>
+
+          {/* Sentinel grid */}
+          <div>
+            <div className="text-[10px] text-zinc-500 uppercase mb-1">Sentinel files</div>
+            <div className="flex flex-wrap gap-1.5">
+              {sentinelBadge("MAINTENANCE_MODE", probe.sentinels.maintenance_mode)}
+              {sentinelBadge("OTA_DEPLOYING", probe.sentinels.ota_deploying)}
+              {sentinelBadge("GRACEFUL_RELAUNCH", probe.sentinels.graceful_relaunch)}
+              {sentinelBadge("DEPLOY_IN_PROGRESS", probe.sentinels.deploy_in_progress)}
+              {sentinelBadge("restart-sentinel", probe.sentinels.restart_sentinel)}
+            </div>
+          </div>
+
+          {/* Post-fix probe (after apply-fix re-probe) */}
+          {postFix && (
+            <div className="border-t border-rp-border pt-2">
+              <div className="text-[10px] text-amber-400 uppercase mb-1">
+                Post-fix probe — observe before declaring resolved
+              </div>
+              <div className="text-[10px] font-mono text-zinc-300">
+                lock_screen_state: {postFix.lock_screen_state ?? "?"} ·
+                native_window_alive: {String(postFix.native_window_alive)} ·
+                build {postFix.build_id?.slice(0, 8) ?? "?"} · uptime {postFix.uptime_secs ?? "?"}s
+              </div>
+            </div>
+          )}
+
+          {/* Errors */}
+          {probe.errors.length > 0 && (
+            <div className="border-t border-rp-border pt-2">
+              <div className="text-[10px] text-red-400 uppercase mb-1">Sub-probe errors</div>
+              {probe.errors.map((e, i) => (
+                <div key={i} className="text-[10px] font-mono text-red-300">{e}</div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1">
+            <span>probed {probe.probed_at.slice(11, 19)} UTC</span>
+            <button
+              onClick={onRefresh}
+              className="text-cyan-400 hover:text-white border border-cyan-600/40 rounded px-2 py-0.5"
+              disabled={loading}
+            >
+              {loading ? "..." : "Re-probe now"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HALO Catalog Panel (registry view; no runners yet) ─────────────────────
+
+function HaloPanel({
+  probes,
+  byStatus,
+}: {
+  probes: HaloProbe[];
+  byStatus: Record<string, number>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<"ALL" | "PROPOSED" | "CALIBRATING" | "LIVE">("ALL");
+  const filtered = filter === "ALL" ? probes : probes.filter((p) => p.status === filter);
+
+  // Group by layer
+  const byLayer = new Map<string, HaloProbe[]>();
+  for (const p of filtered) {
+    const arr = byLayer.get(p.layer) || [];
+    arr.push(p);
+    byLayer.set(p.layer, arr);
+  }
+  const layerNames: Record<string, string> = {
+    V: "Venue (.23 + Pods + POS)",
+    R: "Racecontrol",
+    X: "Comms",
+    M: "Memory",
+    C: "Cloud",
+    B: "Bots",
+  };
+
+  return (
+    <div className="flex-shrink-0 bg-rp-card border border-rp-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between p-3 text-left"
+      >
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-purple-400 uppercase tracking-wider">
+            HALO Catalog
+          </h2>
+          <span className="text-[10px] text-zinc-500">
+            {probes.length} probes · {byStatus.LIVE || 0} LIVE · {byStatus.CALIBRATING || 0} CAL · {byStatus.PROPOSED || 0} PROP
+          </span>
+          <span className="text-[10px] text-amber-400/70 italic">
+            scaffolding until Mesh Intelligence ships
+          </span>
+        </div>
+        <svg
+          className={`w-4 h-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {/* Filter row */}
+          <div className="flex items-center gap-2">
+            {(["ALL", "PROPOSED", "CALIBRATING", "LIVE"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${
+                  filter === s
+                    ? "bg-purple-600/30 text-purple-300 border border-purple-600/50"
+                    : "text-zinc-500 border border-rp-border hover:text-white"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {/* Probes grouped by layer */}
+          {Array.from(byLayer.entries()).sort().map(([layer, items]) => (
+            <div key={layer}>
+              <h3 className="text-[10px] font-semibold text-zinc-500 uppercase mt-2 mb-1">
+                HALO-{layer} — {layerNames[layer] || layer} ({items.length})
+              </h3>
+              <div className="space-y-1">
+                {items.map((p) => (
+                  <div
+                    key={p.id}
+                    className="bg-rp-black border border-rp-border rounded p-2 text-[11px]"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-purple-400 font-bold">{p.id}</span>
+                      <span className="text-white flex-1 truncate">{p.name}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                        p.status === "LIVE" ? "bg-green-700 text-green-100" :
+                        p.status === "CALIBRATING" ? "bg-amber-700 text-amber-100" :
+                        p.status === "PROPOSED" ? "bg-zinc-700 text-zinc-300" :
+                        "bg-zinc-800 text-zinc-500"
+                      }`}>{p.status}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] bg-zinc-800 text-zinc-400">
+                        {p.bug_class}
+                      </span>
+                    </div>
+                    <div className="text-zinc-500 mt-0.5 text-[10px]">
+                      <span className="text-zinc-400">target:</span> {p.target}
+                    </div>
+                    <div className="text-zinc-500 mt-0.5 text-[10px]">
+                      <span className="text-zinc-400">invariant:</span> {p.invariant}
+                    </div>
+                    {p.sub_pact !== "TBD" && (
+                      <div className="text-zinc-600 text-[10px] mt-0.5">
+                        sub-PACT: {p.sub_pact}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="text-[10px] text-amber-400/60 italic pt-2 border-t border-rp-border">
+            HALO probes are catalogued read-only. Mesh Intelligence will execute them autonomously
+            once venue stabilizes — see HALO-CHARTER.md for lifecycle.
           </div>
         </div>
       )}

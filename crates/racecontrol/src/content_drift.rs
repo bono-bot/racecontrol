@@ -56,6 +56,21 @@ async fn check_all_pods_drift(state: &Arc<AppState>) {
     };
 
     for (pod_id, pod_ip, pod_number) in pod_targets {
+        // Customer-active gate: skip pods with a customer mid-session. Drift
+        // check waits for next 60-min cycle when the pod is idle. Reference:
+        // feedback_background_ops_respect_customer_state.md. Avoids adding
+        // /debug/content-dirs traffic during game-switch transitions where
+        // rc-agent is busy spawning processes.
+        if state.is_pod_customer_active(&pod_id).await {
+            tracing::debug!(
+                target: LOG_TARGET,
+                pod_id = %pod_id,
+                pod_number = pod_number,
+                "Skipping drift check — customer active on pod"
+            );
+            continue;
+        }
+
         // Load expected inventory from TOML (ground truth)
         let expected_inventory =
             match crate::api::pods::load_pod_inventory(pod_number, &config_dir) {
