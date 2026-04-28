@@ -4,10 +4,14 @@
 # Layer 4 redundancy: cloud-based monitoring of server .23 via Tailscale.
 # If both James and server are down, Bono is the last line of defense.
 #
-# Install on Bono VPS:
+# Install on Bono VPS (first-time only):
 #   scp bono-server-monitor.sh root@100.70.177.44:/root/bono-server-monitor.sh
 #   ssh root@100.70.177.44 "chmod +x /root/bono-server-monitor.sh"
 #   ssh root@100.70.177.44 "crontab -l 2>/dev/null; echo '*/3 * * * * /root/bono-server-monitor.sh >> /root/bono-server-monitor.log 2>&1'" | ssh root@100.70.177.44 "crontab -"
+#
+# After first-time install, /root/racecontrol/.git/hooks/post-merge auto-syncs
+# this script into /root/bono-server-monitor.sh on every `git pull` (PACT-115
+# permanence fix). To bypass: BONO_MONITOR_SYNC_SKIP=1 git pull.
 
 # Config
 SERVER_TAILSCALE_IP="100.125.108.37"
@@ -196,3 +200,18 @@ else
 fi
 
 save_state
+
+# --- Proactive stale binary detection (Weakness 3 fix) ---
+# Bono-VPS-side: detect when local racecontrol process build_id diverges from
+# git HEAD and includes Rust changes. Writes /tmp/rc-binary-stale sentinel for
+# downstream tooling to auto-rebuild. Note: probes localhost:8080 (bono VPS
+# cloud racecontrol), NOT server .23.
+RUNNING_BUILD=$(curl -s --max-time 3 http://localhost:8080/api/v1/health 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('build_id',''))" 2>/dev/null)
+HEAD_BUILD=$(cd /root/racecontrol && git rev-parse --short HEAD 2>/dev/null)
+if [ -n "$RUNNING_BUILD" ] && [ -n "$HEAD_BUILD" ] && [ "$RUNNING_BUILD" != "$HEAD_BUILD" ]; then
+    RUST_DIFF=$(cd /root/racecontrol && git log --oneline "$RUNNING_BUILD".."$HEAD_BUILD" -- crates/ 2>/dev/null | head -1)
+    if [ -n "$RUST_DIFF" ]; then
+        echo "$HEAD_BUILD" > /tmp/rc-binary-stale
+        echo "$(date -Iseconds) PROACTIVE: binary stale ($RUNNING_BUILD vs $HEAD_BUILD) — flagged for auto-rebuild" >> /root/bono-server-monitor.log
+    fi
+fi
