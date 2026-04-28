@@ -1802,6 +1802,87 @@
         );
     }
 
+    /// PACT-20260428-011 Phase 1 — documents the manual-pause MP desync.
+    ///
+    /// When staff hits the kiosk Pause button on a multiplayer session, the current
+    /// flow (api/billing_session.rs::pause_billing → handle_dashboard_command::PauseBilling
+    /// → set_billing_status) resolves a SINGLE timer by session_id and transitions only
+    /// that pod. PACT-008's new BillingPaused ack also fires to that one pod's agent.
+    /// Other group members keep meter running with billing_paused=false on their agents.
+    ///
+    /// Staff intent: "pause this multiplayer race" (group-wide).
+    /// Actual:        pauses one pod.
+    ///
+    /// Architectural finding from this test: `BillingTimer` has NO `group_session_id`
+    /// field. Group membership lives in the `group_session_members` DB table (and on
+    /// `WaitingForGameEntry` during pre-billing wait). So `set_billing_status` cannot
+    /// fan out to group peers without a DB query — exactly the path
+    /// `billing_multiplayer.rs::pause_multiplayer_group` already uses for the crash path.
+    ///
+    /// This test PASSES today — the desync IS the current behavior. Phase 2 (deferred,
+    /// pending bono AGREE-A under VENUE-INSTABLE) will:
+    ///   1. Parameterize billing_multiplayer.rs::pause_multiplayer_group to accept any
+    ///      BillingEvent (currently hardcoded BillingEvent::CrashPause at line 75)
+    ///   2. Call it from set_billing_status when the session's pod is in a group
+    ///      (resolved via group_session_members lookup)
+    ///   3. Invert this test to assert BOTH timers transition (rename
+    ///      `mp_manual_pause_fans_out_to_group`)
+    #[tokio::test]
+    async fn mp_manual_pause_pauses_only_one_pod_documents_desync() {
+        use crate::billing_fsm::{validate_transition, BillingEvent};
+
+        let mgr = BillingManager::new();
+
+        // Setup: 2 timers representing 2 pods that ARE in the same multiplayer group
+        // (group membership in production lives in the group_session_members DB table —
+        // not on BillingTimer itself, which is precisely the structural gap). Both Active.
+        {
+            let mut timers = mgr.active_timers.write().await;
+            timers.insert("pod-a".to_string(), make_test_timer("sess-a", "pod-a"));
+            timers.insert("pod-b".to_string(), make_test_timer("sess-b", "pod-b"));
+        }
+
+        // Pre-condition: both pods Active.
+        {
+            let timers = mgr.active_timers.read().await;
+            assert_eq!(timers.get("pod-a").unwrap().status, BillingSessionStatus::Active);
+            assert_eq!(timers.get("pod-b").unwrap().status, BillingSessionStatus::Active);
+        }
+
+        // Mirror set_billing_status's behavior: resolve a SINGLE timer by session_id
+        // (here: "sess-a") and apply the FSM transition ONLY to that timer. No fan-out.
+        // This is exactly what billing_session_lifecycle.rs:115-181 does today.
+        {
+            let mut timers = mgr.active_timers.write().await;
+            let pod_id = timers
+                .iter()
+                .find(|(_, t)| t.session_id == "sess-a")
+                .map(|(k, _)| k.clone())
+                .expect("sess-a timer must exist");
+            let timer = timers.get_mut(&pod_id).unwrap();
+            let next = validate_transition(timer.status, BillingEvent::PauseManual)
+                .expect("Active → PausedManual must be a valid FSM transition");
+            assert_eq!(next, BillingSessionStatus::PausedManual);
+            timer.status = next;
+        }
+
+        // Assertion (the desync): pod_a paused, pod_b still Active even though
+        // production has group_session_members linking them.
+        let timers = mgr.active_timers.read().await;
+        assert_eq!(
+            timers.get("pod-a").unwrap().status,
+            BillingSessionStatus::PausedManual,
+            "pod_a must be paused (the timer set_billing_status resolved)"
+        );
+        assert_eq!(
+            timers.get("pod-b").unwrap().status,
+            BillingSessionStatus::Active,
+            "DESYNC: pod_b stays Active even though it shares a multiplayer group with \
+             pod_a — this is the bug PACT-011 Phase 2 will fix by fanning out via \
+             group_session_members DB query (mirrors pause_multiplayer_group's pattern)"
+        );
+    }
+
     /// BILL-12: Configurable billing timeouts via timeout_secs parameter.
     /// check_launch_timeouts_from_manager uses the passed timeout_secs — not a hardcoded 180.
     #[tokio::test]
