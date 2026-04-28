@@ -300,6 +300,22 @@ impl AppState {
         }
     }
 
+    /// True when the named pod is currently being used by a customer.
+    /// Background pod-probing operations (content drift detector, kiosk debug
+    /// probe panel, future periodic /exec callers) MUST skip pods where this
+    /// returns true to avoid adding /exec or `:8090` traffic during a session
+    /// — especially during game-switch transitions (e.g., AC → F1 25) where
+    /// rc-agent is mid process-spawn.
+    ///
+    /// Returns false when the pod is unknown (not in registry), idle, or in
+    /// `error` game state — none of those have an active customer.
+    ///
+    /// Reference rule: `feedback_background_ops_respect_customer_state.md`.
+    pub async fn is_pod_customer_active(&self, pod_id: &str) -> bool {
+        let pods = self.pods.read().await;
+        pods.get(pod_id).map(|p| p.is_customer_active()).unwrap_or(false)
+    }
+
     /// Build an HTTP request to a rc-sentry protected endpoint, including the
     /// X-Service-Key header when `pods.sentry_service_key` is configured.
     pub fn sentry_post(&self, url: &str) -> reqwest::RequestBuilder {

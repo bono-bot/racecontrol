@@ -130,6 +130,36 @@ pub struct PodInfo {
     pub recent_lap_times: std::collections::VecDeque<u32>,
 }
 
+impl PodInfo {
+    /// True when a customer is actively using this pod and background pod-probing
+    /// operations should skip it. Driving (HID/telemetry-detected) OR a non-idle
+    /// game state (launching/loading/running/stopping/in_lobby) are treated as
+    /// active. The biggest risk window is game-switch transitions (AC → F1 25)
+    /// where rc-agent is mid process-spawn; any added /exec traffic during that
+    /// window risks launch failure or kiosk visual glitch.
+    ///
+    /// **Does NOT check billing-session state** — billing state lives in
+    /// `AppState.billing` and is not on this struct. Callers that need a full
+    /// customer-active check (billing + pod) should use the AppState helper
+    /// `is_pod_customer_active(pod_id)` (see racecontrol/src/state.rs).
+    ///
+    /// Reference rule: `feedback_background_ops_respect_customer_state.md`
+    /// (Uday 2026-04-28). Used by content_drift.rs, kiosk debug page, and any
+    /// future periodic pod-probing background task.
+    pub fn is_customer_active(&self) -> bool {
+        let driving = matches!(self.driving_state, Some(DrivingState::Active));
+        let game_active = matches!(
+            self.game_state,
+            Some(GameState::Launching)
+                | Some(GameState::Loading)
+                | Some(GameState::Running)
+                | Some(GameState::Stopping)
+                | Some(GameState::InLobby)
+        );
+        driving || game_active
+    }
+}
+
 // ─── Driver ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

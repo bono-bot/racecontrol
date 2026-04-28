@@ -51,6 +51,7 @@ pub mod customer_social;
 pub mod customer_wallet;
 pub mod debug_fixes;
 pub mod debug_incidents;
+pub mod debug_probe;
 pub mod debug_system;
 pub mod deploy_handlers;
 pub mod driver_profile;

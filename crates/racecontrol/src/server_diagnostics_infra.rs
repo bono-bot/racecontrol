@@ -171,7 +171,7 @@ pub(super) async fn check_internet_connectivity(_state: &AppState) {
 
 // ─── Check 9: rc-sentry on pods ──────────────────────────────────────────
 /// Server-side probe of rc-sentry :8091 on pods. If sentry dies, MI loses pod self-healing.
-pub(super) async fn check_sentry_reachable(_state: &AppState) {
+pub(super) async fn check_sentry_reachable(state: &AppState) {
     let pod_ips = [
         ("pod_1", "192.168.31.89"), ("pod_2", "192.168.31.33"),
         ("pod_3", "192.168.31.28"), ("pod_4", "192.168.31.88"),
@@ -202,9 +202,23 @@ pub(super) async fn check_sentry_reachable(_state: &AppState) {
             dead_sentries.join(", "), dead_sentries.len()
         );
 
-        // AUTO-FIX: restart rc-sentry via rc-agent :8090 exec endpoint
+        // AUTO-FIX: restart rc-sentry via rc-agent :8090 exec endpoint.
+        // Customer-active gate: defer sentry restart on pods with a customer
+        // mid-session — schtasks via rc-agent /exec spawns a process and adds
+        // /exec contention during the riskiest window (game-switch transitions
+        // like AC → F1 25). Sentry is rc-agent's failover, not a customer-path
+        // dependency; the restart can wait until the pod is idle.
+        // Reference: feedback_background_ops_respect_customer_state.md.
         for (name, ip) in &pod_ips {
             if !dead_sentries.contains(name) { continue; }
+            if state.is_pod_customer_active(name).await {
+                tracing::info!(
+                    target: LOG_TARGET,
+                    pod_id = name,
+                    "SENTRY AUTO-FIX deferred — customer active on pod; will retry next cycle"
+                );
+                continue;
+            }
             let exec_url = format!("http://{}:8090/exec", ip);
             let body = serde_json::json!({
                 "cmd": "schtasks /Run /TN StartRCSentry"

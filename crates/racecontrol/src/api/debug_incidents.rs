@@ -46,6 +46,11 @@ pub(crate) async fn debug_playbooks(
 pub(crate) struct CreateIncidentBody {
     description: String,
     pod_id: Option<String>,
+    /// Client-supplied context (probe result, recent activity, telemetry frame).
+    /// Merged into the saved context_snapshot under the `client` key. Optional —
+    /// older clients omit it without breaking compatibility.
+    #[serde(default)]
+    client_context: Option<Value>,
 }
 
 pub(crate) async fn create_debug_incident(
@@ -135,6 +140,7 @@ pub(crate) async fn create_debug_incident(
         "pod_state": pod_snapshot,
         "active_sessions": active_sessions,
         "timestamp": chrono::Utc::now().to_rfc3339(),
+        "client": body.client_context,
     });
 
     let id = uuid::Uuid::new_v4().to_string();
