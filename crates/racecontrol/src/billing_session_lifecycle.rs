@@ -196,6 +196,29 @@ async fn set_billing_status(
 
     drop(timers);
 
+    // PACT-20260428-008: notify the affected pod so the agent can flip its
+    // `billing_paused` flag. Without this, `billing_guard`'s SESSION-01 orphan
+    // auto-end will fire ~5 min after the customer closes their game during a
+    // manual pause — destroying the very session the pause was meant to preserve.
+    let agent_sender = {
+        let agent_senders = state.agent_senders.read().await;
+        agent_senders.get(&pod_id).cloned()
+    };
+    if let Some(sender) = agent_sender {
+        let agent_msg = match new_status {
+            BillingSessionStatus::PausedManual => Some(CoreToAgentMessage::BillingPaused {
+                billing_session_id: session_id.to_string(),
+            }),
+            BillingSessionStatus::Active => Some(CoreToAgentMessage::BillingResumed {
+                billing_session_id: session_id.to_string(),
+            }),
+            _ => None,
+        };
+        if let Some(msg) = agent_msg {
+            let _ = sender.send(CoreMessage::wrap(msg)).await;
+        }
+    }
+
     // Log event
     if let Err(e) = sqlx::query(
         "INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)
