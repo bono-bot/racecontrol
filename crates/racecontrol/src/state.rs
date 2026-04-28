@@ -307,13 +307,36 @@ impl AppState {
     /// — especially during game-switch transitions (e.g., AC → F1 25) where
     /// rc-agent is mid process-spawn.
     ///
-    /// Returns false when the pod is unknown (not in registry), idle, or in
-    /// `error` game state — none of those have an active customer.
+    /// Combines TWO signals (MMA P1 fix from commit 7a24faaa review):
+    /// 1. Pod runtime state (`PodInfo::is_customer_active`) — driving + non-idle
+    ///    game state; closer to the truth about whether rc-agent is busy.
+    /// 2. Billing session state — covers the between-games window where
+    ///    `game_state = Idle` but the customer is still on the pod (paid,
+    ///    pre-launch). The frontend mirror in kiosk includes paused_* billing;
+    ///    aligning here closes the divergence flagged by 5/5 MMA models.
+    ///
+    /// Returns false when both signals say idle, when the pod is unknown, or
+    /// when the pod is in `error` game state with no billing.
     ///
     /// Reference rule: `feedback_background_ops_respect_customer_state.md`.
     pub async fn is_pod_customer_active(&self, pod_id: &str) -> bool {
-        let pods = self.pods.read().await;
-        pods.get(pod_id).map(|p| p.is_customer_active()).unwrap_or(false)
+        // Pod-state check (no lock across await).
+        let pod_active = {
+            let pods = self.pods.read().await;
+            pods.get(pod_id).map(|p| p.is_customer_active()).unwrap_or(false)
+        };
+        if pod_active {
+            return true;
+        }
+        // Billing-state check: any in-memory timer (Active / paused_*) OR
+        // waiting_for_game entry means a customer paid and is mid-session.
+        // Both lookups are sync HashMap reads; release the guards immediately.
+        let billing_active = {
+            let active = self.billing.active_timers.read().await;
+            let waiting = self.billing.waiting_for_game.read().await;
+            active.contains_key(pod_id) || waiting.contains_key(pod_id)
+        };
+        billing_active
     }
 
     /// Build an HTTP request to a rc-sentry protected endpoint, including the

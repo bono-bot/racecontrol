@@ -97,19 +97,24 @@ pub(crate) async fn debug_probe_handler(
     }
 
     // 3. Native lock screen debug server (port 18924, no auth — internal).
-    //    Provides lock_screen_state + native_window_alive.
+    //    Provides lock_screen_state + native_window_alive. Best-effort: only
+    //    running in kiosk Session 1. MMA P2 fix: surface failure reason in
+    //    `errors[]` instead of silently swallowing — staff debugging needs to
+    //    distinguish "no kiosk session" from "network failure".
     let dbg_url = format!("http://{}:18924/", pod_ip);
     match state.http_client.get(&dbg_url).timeout(Duration::from_secs(2)).send().await {
         Ok(resp) if resp.status().is_success() => {
-            if let Ok(v) = resp.json::<Value>().await {
-                out.lock_screen_state = v.get("lock_screen_state").and_then(|x| x.as_str()).map(String::from);
-                out.native_window_alive = v.get("native_window_alive").and_then(|x| x.as_u64()).map(|n| n > 0);
+            match resp.json::<Value>().await {
+                Ok(v) => {
+                    out.lock_screen_state = v.get("lock_screen_state").and_then(|x| x.as_str()).map(String::from);
+                    out.native_window_alive = v.get("native_window_alive").and_then(|x| x.as_u64()).map(|n| n > 0);
+                }
+                Err(e) => out.errors.push(format!(":18924 JSON parse failed: {}", e)),
             }
         }
-        Ok(_) | Err(_) => {
-            // Native debug server is best-effort — only running in kiosk session.
-            // No error appended; missing fields communicate the gap.
-        }
+        Ok(resp) => out.errors.push(format!(":18924 returned {}", resp.status())),
+        Err(e) if e.is_timeout() => out.errors.push(":18924 timeout 2s (kiosk session may not be running)".to_string()),
+        Err(e) => out.errors.push(format!(":18924 unreachable: {}", e)),
     }
 
     // 4. Sentinel-file checks via rc-agent /exec.
@@ -136,6 +141,7 @@ pub(crate) async fn debug_probe_handler(
         Ok(resp) if resp.status().is_success() => {
             if let Ok(v) = resp.json::<Value>().await {
                 let stdout = v.get("stdout").and_then(|x| x.as_str()).unwrap_or("");
+                let mut unknown_keys = Vec::new();
                 for (token, key) in &[
                     ("M=", "maintenance_mode"),
                     ("O=", "ota_deploying"),
@@ -147,8 +153,21 @@ pub(crate) async fn debug_probe_handler(
                     let absent = stdout.contains(&format!("{}0", token));
                     let val = if present { Value::Bool(true) }
                               else if absent { Value::Bool(false) }
-                              else { Value::Null };
+                              else {
+                                  // MMA P1 fix: cmd.exe partial execution leaves
+                                  // neither token present — surface the unknown
+                                  // state explicitly instead of silent null.
+                                  unknown_keys.push(*key);
+                                  Value::Null
+                              };
                     sent_map.insert(key.to_string(), val);
+                }
+                if !unknown_keys.is_empty() {
+                    out.errors.push(format!(
+                        "sentinel parse: {} key(s) returned no token (cmd.exe partial exec or path error): {}",
+                        unknown_keys.len(),
+                        unknown_keys.join(", ")
+                    ));
                 }
             }
         }

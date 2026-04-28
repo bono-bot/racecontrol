@@ -3,11 +3,24 @@
 //! Split from server_diagnostics.rs: checks 5-10 (POS, WhatsApp, SSL, internet,
 //! rc-sentry, OpenRouter key).
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use tokio::time::Duration;
 
 use crate::state::AppState;
 
 pub(super) const LOG_TARGET: &str = "server-diagnostics";
+
+/// MMA P1 fix (commit 7a24faaa review): max-defer counter for sentry auto-fix.
+/// After this many consecutive customer-active skips, force the restart with a
+/// WARN log so prolonged customer sessions don't leave rc-sentry dead
+/// indefinitely (which would cost the pod its self-healing failover).
+const SENTRY_MAX_DEFER_CYCLES: u32 = 3;
+
+/// Per-pod consecutive defer counter for sentry restart. Reset to 0 when the
+/// restart actually fires OR when the sentry comes back alive on its own.
+static SENTRY_DEFER_COUNTS: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ─── Check 5: POS proactive health probe ─────────────────────────────────
 /// Server-side pull of POS health — if POS rc-agent is dead, MI was blind.
@@ -208,16 +221,39 @@ pub(super) async fn check_sentry_reachable(state: &AppState) {
         // /exec contention during the riskiest window (game-switch transitions
         // like AC → F1 25). Sentry is rc-agent's failover, not a customer-path
         // dependency; the restart can wait until the pod is idle.
+        //
+        // MMA P1 fix (commit 7a24faaa review): max-defer counter — after
+        // SENTRY_MAX_DEFER_CYCLES consecutive customer-active skips, FORCE
+        // the restart with a WARN so a prolonged session doesn't leave sentry
+        // dead indefinitely.
         // Reference: feedback_background_ops_respect_customer_state.md.
         for (name, ip) in &pod_ips {
             if !dead_sentries.contains(name) { continue; }
-            if state.is_pod_customer_active(name).await {
-                tracing::info!(
+            let customer_active = state.is_pod_customer_active(name).await;
+            if customer_active {
+                let mut counts = SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+                let count = counts.entry((*name).to_string()).or_insert(0);
+                *count += 1;
+                let current = *count;
+                drop(counts);
+                if current < SENTRY_MAX_DEFER_CYCLES {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        pod_id = name,
+                        defer_count = current,
+                        "SENTRY AUTO-FIX deferred ({}/{}) — customer active on pod; will retry next cycle",
+                        current, SENTRY_MAX_DEFER_CYCLES
+                    );
+                    continue;
+                }
+                tracing::warn!(
                     target: LOG_TARGET,
                     pod_id = name,
-                    "SENTRY AUTO-FIX deferred — customer active on pod; will retry next cycle"
+                    defer_count = current,
+                    "SENTRY AUTO-FIX max-defer exceeded ({}/{}) — forcing restart despite customer-active state; sentry dead too long",
+                    current, SENTRY_MAX_DEFER_CYCLES
                 );
-                continue;
+                // fall through to restart below; reset counter after the attempt
             }
             let exec_url = format!("http://{}:8090/exec", ip);
             let body = serde_json::json!({
@@ -235,9 +271,13 @@ pub(super) async fn check_sentry_reachable(state: &AppState) {
                     tracing::warn!(target: LOG_TARGET, "SENTRY AUTO-FIX FAILED on {} — rc-agent may also be down", name);
                 }
             }
+            // Reset defer counter regardless of restart success (we made the attempt)
+            SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner()).remove(*name);
         }
     } else {
         tracing::debug!(target: LOG_TARGET, "All 8 rc-sentry instances reachable");
+        // Sentry came back on its own — clear any pending defer counters.
+        SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }
 
