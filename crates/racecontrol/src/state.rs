@@ -331,12 +331,9 @@ impl AppState {
         // Billing-state check: any in-memory timer (Active / paused_*) OR
         // waiting_for_game entry means a customer paid and is mid-session.
         // Both lookups are sync HashMap reads; release the guards immediately.
-        let billing_active = {
-            let active = self.billing.active_timers.read().await;
-            let waiting = self.billing.waiting_for_game.read().await;
-            active.contains_key(pod_id) || waiting.contains_key(pod_id)
-        };
-        billing_active
+        let active = self.billing.active_timers.read().await;
+        let waiting = self.billing.waiting_for_game.read().await;
+        active.contains_key(pod_id) || waiting.contains_key(pod_id)
     }
 
     /// Build an HTTP request to a rc-sentry protected endpoint, including the
