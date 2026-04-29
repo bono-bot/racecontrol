@@ -33,6 +33,7 @@ mod kb_promotion_store;
 mod knowledge_base;
 mod model_eval_store;
 mod kiosk;
+mod launch_cover;
 mod lock_screen;
 mod native_lock;
 mod cognitive_gate;
