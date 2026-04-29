@@ -100,6 +100,25 @@ pub fn validate_config_push(
                     );
                 }
             }
+            "billing_paused" => {
+                // PACT-20260429-013: typed object { session_id, paused, set_by, set_at }
+                // — distinct from billing_rate (per-tier price config). Used by
+                // billing_session_lifecycle::set_billing_status to flip the
+                // agent-local failure_monitor.billing_paused flag.
+                let ok = value
+                    .as_object()
+                    .map(|obj| {
+                        obj.get("paused").and_then(|v| v.as_bool()).is_some()
+                            && obj.get("session_id").and_then(|v| v.as_str()).is_some()
+                    })
+                    .unwrap_or(false);
+                if !ok {
+                    errors.insert(
+                        key.clone(),
+                        "must be an object with bool paused + string session_id".to_string(),
+                    );
+                }
+            }
             _ => {
                 errors.insert(key.clone(), "unknown config field".to_string());
             }

@@ -1764,7 +1764,10 @@ pub async fn handle_ws_message(
         // Non-reloadable fields (port, ws_url, pod_number, pod_id) are logged and ignored.
         // ConfigAck is queued in pending_acks to be drained by the event loop after handling.
         CoreToAgentMessage::ConfigPush(payload) => {
-            const HOT_RELOAD_FIELDS: &[&str] = &["billing_rates", "game_limits", "process_guard_whitelist", "debug_verbosity"];
+            // PACT-20260429-013: billing_paused added — flips failure_monitor.billing_paused
+            // via the Phase 177 substrate (replaces the legacy BillingPaused/BillingResumed
+            // wire variants during the dual-emit migration window).
+            const HOT_RELOAD_FIELDS: &[&str] = &["billing_rates", "game_limits", "process_guard_whitelist", "debug_verbosity", "billing_paused"];
             const NON_RELOAD_FIELDS: &[&str] = &["port", "ws_url", "pod_number", "pod_id"];
 
             let mut accepted = true;
@@ -1783,6 +1786,34 @@ pub async fn handle_ws_message(
                         } else {
                             tracing::warn!(target: LOG_TARGET, "ConfigPush: invalid process_guard_whitelist value");
                             accepted = false;
+                        }
+                    } else if field == "billing_paused" {
+                        // PACT-20260429-013: typed object { session_id, paused: bool, set_by, set_at }.
+                        // Idempotent with the legacy BillingPaused/BillingResumed match arms;
+                        // both paths converge on the same failure_monitor flag.
+                        match value.get("paused").and_then(|v| v.as_bool()) {
+                            Some(paused) => {
+                                let session_id = value
+                                    .get("session_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("<missing>");
+                                tracing::info!(
+                                    target: LOG_TARGET,
+                                    "ConfigPush: billing_paused = {} (session={}) via Phase 177 substrate",
+                                    paused, session_id
+                                );
+                                state.failure_monitor_tx.send_modify(|s| {
+                                    s.billing_paused = paused;
+                                });
+                            }
+                            None => {
+                                tracing::warn!(
+                                    target: LOG_TARGET,
+                                    "ConfigPush: billing_paused missing/non-bool 'paused' field; ignoring (value={})",
+                                    value
+                                );
+                                accepted = false;
+                            }
                         }
                     } else {
                         // Future hot-reload fields (billing_rates, game_limits, debug_verbosity)
