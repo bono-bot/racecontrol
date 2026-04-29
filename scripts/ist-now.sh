@@ -9,7 +9,7 @@
 #   bash scripts/ist-now.sh epoch    → Unix epoch in IST
 #   bash scripts/ist-now.sh hour     → Just the hour (for deploy window check)
 #   bash scripts/ist-now.sh check    → Deploy window check (LOCKED/OPEN)
-#   bash scripts/ist-now.sh venue    → Venue-window check (OPEN/CLOSED) — gates venue-write ops
+#   bash scripts/ist-now.sh venue    → Venue-window status (OPEN/CLOSED) — informational only (venue-gate directive removed 2026-04-29)
 
 # Venue hours per `whatsapp-bot/src/services/istTimeService.js`: 12-24 IST daily.
 # Deploy-window != venue-window. Don't conflate.
@@ -53,7 +53,7 @@ case "${1:-}" in
       HOURS=$(( MINS_TO_CLOSE / 60 ))
       MINS=$(( MINS_TO_CLOSE % 60 ))
       echo "Venue window: OPEN (closes at midnight IST, ${HOURS}h ${MINS}m remaining)"
-      echo "  Customer-active. Venue-write ops (Steam Validate, manual game launch, pod restart) BLOCKED on off-hours coordination."
+      echo "  Customer-active. (Informational — venue-gate directive removed 2026-04-29; venue-state is NOT a default block on venue-write ops.)"
       exit 0
     else
       # Closed — compute minutes-until-open (12:00 IST)
@@ -61,7 +61,7 @@ case "${1:-}" in
       HOURS=$(( MINS_TO_OPEN / 60 ))
       MINS=$(( MINS_TO_OPEN % 60 ))
       echo "Venue window: CLOSED (opens at 12:00 PM IST, ${HOURS}h ${MINS}m remaining)"
-      echo "  Off-hours. Venue-write ops OK with off-hours-confirm; staff likely absent."
+      echo "  Off-hours; staff likely absent. (Informational — venue-gate directive removed 2026-04-29.)"
       exit 0
     fi
     ;;
