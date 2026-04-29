@@ -131,10 +131,12 @@ pub(crate) async fn launch_game(
     }
 
     // Act 2: Trial sessions are AC-only — reject game launches for other sims during trials
+    // PACT-20260428-008: include 'paused_manual' so a customer mid-pause keeps trial restriction
+    // when launching a new game (intended manual-pause use: change games without losing session).
     let is_trial_session = sqlx::query_as::<_, (bool,)>(
         "SELECT pt.is_trial FROM billing_sessions bs \
          JOIN pricing_tiers pt ON bs.pricing_tier_id = pt.id \
-         WHERE bs.pod_id = ? AND bs.status IN ('active', 'waiting_for_game') \
+         WHERE bs.pod_id = ? AND bs.status IN ('active', 'waiting_for_game', 'paused_manual') \
          ORDER BY bs.created_at DESC LIMIT 1",
     )
     .bind(pod_id)
@@ -153,8 +155,12 @@ pub(crate) async fn launch_game(
     // Uses REMAINING time (not allocated) so mid-session relaunches get correct duration.
     // Ceiling division ensures AC session >= billing time (no early AC expiry).
     let launch_args = if let Some(args) = launch_args_raw {
+        // PACT-20260428-008: include 'paused_manual' so a manual-pause + game-change
+        // relaunch picks up the real remaining time instead of falling through to the
+        // 60-min default (None branch below). Without this, switching games during a
+        // staff-triggered pause shipped a 60-minute session regardless of remaining credit.
         let session_info = sqlx::query_as::<_, (i64, i64, Option<i64>)>(
-            "SELECT allocated_seconds, driving_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+            "SELECT allocated_seconds, driving_seconds, split_duration_minutes FROM billing_sessions WHERE pod_id = ? AND status IN ('active', 'paused_manual') ORDER BY started_at DESC LIMIT 1",
         )
         .bind(pod_id)
         .fetch_optional(&state.db)

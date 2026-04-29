@@ -205,6 +205,25 @@ export function LiveSessionPanel({
         </div>
       )}
 
+      {/* PACT-20260428-008: Manual pause banner — customer-clear messaging that billing is held
+          and the intended workflow is "switch games without losing the session". Replaces the
+          previous bare "Paused" word with explicit no-charge confirmation + a hint that launching
+          a new game from the wizard will resume billing. The 5-min orphan-end window only starts
+          once the current game actually closes — kiosk does not yet receive that timestamp, so we
+          surface intent rather than a misleading live countdown. */}
+      {billing.status === "paused_manual" && (
+        <div className="bg-blue-900/40 border border-blue-600/50 rounded-xl px-4 py-4 text-center">
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-blue-400 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+            </svg>
+            <span className="text-blue-400 font-bold text-sm uppercase tracking-wider">Session Paused</span>
+          </div>
+          <p className="text-blue-400/80 text-xs">Billing is held — you won&apos;t be charged while paused.</p>
+          <p className="text-blue-400/60 text-[11px] mt-1">Launch a new game to resume, or hit Resume to continue with the current game.</p>
+        </div>
+      )}
+
       {/* Session Timer — expanded */}
       <div className="bg-rp-surface border border-rp-border rounded-xl p-4">
         <div className="flex justify-between items-baseline mb-2">
