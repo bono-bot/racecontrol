@@ -1,3 +1,4 @@
+mod ac_crash_report;
 mod ac_launcher;
 #[cfg(feature = "ai-debugger")]
 mod ai_debugger;

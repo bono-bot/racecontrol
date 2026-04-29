@@ -1256,10 +1256,25 @@ pub async fn run(
                             state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                             // INV-1: Include exit code when available (is_running() populates last_exit_code via try_wait)
                             let exit_code = game.last_exit_code;
-                            let err_msg = match exit_code {
+                            let mut err_msg = match exit_code {
                                 Some(code) => format!("Process exited unexpectedly (exit code: {})", code),
                                 None => "Game process exited unexpectedly".to_string(),
                             };
+                            // PACT-20260429-014 AMEND-1 Phase B: for AC variants, append the most-recent
+                            // crash_*.report\info.txt snippet (PII-redacted, ≤512 chars). CSP track-validation
+                            // failures (`require_track`, "main layout damaged") emit only via that file —
+                            // never the parent process's stderr — so without this enrichment the central
+                            // `game_launch_events.error_message` column stays empty for the very crash class
+                            // PACT-014 Phase D's L.2 probe is meant to detect (bono FP-rate backtest 0/808 7d).
+                            if matches!(
+                                game.sim_type,
+                                SimType::AssettoCorsa
+                                    | SimType::AssettoCorsaEvo
+                                    | SimType::AssettoCorsaRally
+                            ) && let Some(snippet) = crate::ac_crash_report::read_latest_ac_crash_report() {
+                                err_msg.push_str(" | crash_report info.txt: ");
+                                err_msg.push_str(&snippet);
+                            }
                             // Pattern H: compute clean-exit heuristic using seconds-since-Running
                             let seconds_since_launch = conn.game_running_since
                                 .map(|t| t.elapsed().as_secs())
