@@ -16,7 +16,8 @@
 // it to `game_launch_events.error_message`.
 
 use std::fs;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use tracing::{debug, warn};
@@ -33,12 +34,13 @@ pub const MAX_INFO_TXT_CHARS: usize = 512;
 /// - No `crash_*.report` entries are found
 /// - The most-recent entry is unreadable, has no info.txt, or info.txt is empty
 ///
-/// The crash_*.report path may be either a directory (Kunos-vanilla layout)
-/// or a zip file (CSP-era layout). v0 of this reader handles the directory
-/// case. If the most-recent entry is a regular file (zip), this returns
-/// None and emits a warn-level trace. Adding zip support requires the `zip`
-/// crate dependency — left for v1 once we observe the on-disk format on
-/// real Pod 6 crash artifacts.
+/// The crash_*.report path is a PK-ZIP archive (confirmed empirically on
+/// Pod 6 — see `feedback_pod6_ac_directx_capture_20260429.md` line 47:
+/// "PK-ZIP archives containing info.txt, log.txt, errors.txt, race.ini,
+/// video.ini, csp.ini, custom_shaders_patch.log, python.ini, py_log.txt,
+/// controls.ini, crash_*.dmp"). v1 reads zip archives via the `zip`
+/// crate. Earlier Kunos-vanilla layouts may have used directories; that
+/// branch remains supported as a fallback for older crash artifacts.
 pub fn read_latest_ac_crash_report() -> Option<String> {
     let docs = dirs_next::document_dir()?;
     let ac_dir = docs.join("Assetto Corsa");
@@ -49,26 +51,27 @@ pub fn read_latest_ac_crash_report() -> Option<String> {
 
     let latest = find_latest_crash_report(&ac_dir)?;
 
-    let info_path = if latest.is_dir() {
-        latest.join("info.txt")
-    } else {
-        warn!(
-            path = %latest.display(),
-            "AC crash report is a file (likely zip) — v0 reader handles directories only; \
-             zip support deferred to v1 (would require `zip` crate dep). Returning None."
-        );
-        return None;
-    };
-
-    let raw = match fs::read_to_string(&info_path) {
-        Ok(s) if s.is_empty() => {
-            debug!(path = %info_path.display(), "AC info.txt is empty");
-            return None;
+    let raw = if latest.is_dir() {
+        let info_path = latest.join("info.txt");
+        match fs::read_to_string(&info_path) {
+            Ok(s) if s.is_empty() => {
+                debug!(path = %info_path.display(), "AC info.txt (dir) is empty");
+                return None;
+            }
+            Ok(s) => s,
+            Err(e) => {
+                debug!(path = %info_path.display(), error = %e, "AC info.txt (dir) read failed");
+                return None;
+            }
         }
-        Ok(s) => s,
-        Err(e) => {
-            debug!(path = %info_path.display(), error = %e, "AC info.txt read failed");
-            return None;
+    } else {
+        match read_info_txt_from_zip(&latest) {
+            Some(s) if s.is_empty() => {
+                debug!(path = %latest.display(), "AC info.txt (zip) is empty");
+                return None;
+            }
+            Some(s) => s,
+            None => return None,
         }
     };
 
@@ -76,10 +79,67 @@ pub fn read_latest_ac_crash_report() -> Option<String> {
     Some(redact_user_paths(&truncated))
 }
 
+/// Open `crash_<ts>.report` as a PK-ZIP archive and read the contents of
+/// the `info.txt` entry. Returns the raw (un-truncated, un-redacted)
+/// string so the caller can apply the standard truncation and redaction
+/// pipeline used for both layouts.
+///
+/// All zip-crate errors are swallowed at debug level — Phase B's
+/// design-by-contract is "best-effort enrichment, never block the
+/// crash-detection path". Returning None means error_message stays at
+/// the existing exit-code-based default, which is the same behavior
+/// rc-agent has shipped for years; no regression.
+fn read_info_txt_from_zip(path: &Path) -> Option<String> {
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            debug!(path = %path.display(), error = %e, "AC crash report zip open failed");
+            return None;
+        }
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(e) => {
+            debug!(path = %path.display(), error = %e, "AC crash report not a valid zip");
+            return None;
+        }
+    };
+    let info_entry = match archive.by_name("info.txt") {
+        Ok(e) => e,
+        Err(e) => {
+            debug!(path = %path.display(), error = %e, "AC crash report has no info.txt entry");
+            return None;
+        }
+    };
+    // Bound the read at MAX_INFO_TXT_CHARS * 4 bytes (UTF-8 worst case
+    // 4 bytes/char) to avoid runaway memory if the entry header lies
+    // about size. Truncation to the char cap happens in the caller after
+    // string-conversion, so the byte cap here is a defensive lower bound.
+    let cap = MAX_INFO_TXT_CHARS.saturating_mul(4);
+    let mut buf = Vec::with_capacity(cap.min(2048));
+    if let Err(e) = info_entry.take(cap as u64).read_to_end(&mut buf) {
+        debug!(path = %path.display(), error = %e, "AC info.txt zip-entry read failed");
+        return None;
+    }
+    match String::from_utf8(buf) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            // Lossy fallback so we capture *something* on encoding-corrupt
+            // entries rather than dropping the whole snippet.
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "AC info.txt zip-entry contains invalid UTF-8 — using lossy decode"
+            );
+            Some(String::from_utf8_lossy(e.as_bytes()).into_owned())
+        }
+    }
+}
+
 /// Find the most-recently-modified entry whose name starts with `crash_`
 /// and ends with `.report` inside `ac_dir`. Returns the path or None if
 /// no match is found or the directory cannot be enumerated.
-fn find_latest_crash_report(ac_dir: &PathBuf) -> Option<PathBuf> {
+fn find_latest_crash_report(ac_dir: &Path) -> Option<PathBuf> {
     let entries = fs::read_dir(ac_dir).ok()?;
     let mut best: Option<(SystemTime, PathBuf)> = None;
     for entry in entries.flatten() {
@@ -172,5 +232,95 @@ mod tests {
     #[test]
     fn redact_empty_input() {
         assert_eq!(redact_user_paths(""), "");
+    }
+
+    /// Build a minimal `crash_<ts>.report` PK-ZIP archive in a temp
+    /// directory, then exercise read_info_txt_from_zip end-to-end. Mirrors
+    /// the on-disk layout documented at memory line 47 of
+    /// `feedback_pod6_ac_directx_capture_20260429.md` — info.txt as a
+    /// top-level entry alongside log.txt and dmp.
+    #[test]
+    fn zip_read_extracts_info_txt() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "rc-agent-ac-crash-test-{}.report",
+            std::process::id()
+        ));
+        // Defensive cleanup if a prior failed run left a file behind.
+        let _ = fs::remove_file(&tmp);
+
+        {
+            let f = fs::File::create(&tmp).expect("create temp zip");
+            let mut zw = zip::ZipWriter::new(f);
+            let opts: SimpleFileOptions = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zw.start_file("info.txt", opts).unwrap();
+            zw.write_all(
+                br"Can't launch the race: track main layout is damaged. (csp_utils.cpp::require_track:219) at C:\Users\sim6_user\Documents\Assetto Corsa\..."
+            ).unwrap();
+            zw.start_file("log.txt", opts).unwrap();
+            zw.write_all(b"unrelated game log content").unwrap();
+            zw.finish().unwrap();
+        }
+
+        let snippet = read_info_txt_from_zip(&tmp).expect("zip read returns Some");
+        assert!(
+            snippet.contains("track main layout is damaged"),
+            "expected info.txt content; got: {snippet}"
+        );
+        // Verify pipeline produces redacted+truncated output too (caller path).
+        let truncated: String = snippet.chars().take(MAX_INFO_TXT_CHARS).collect();
+        let redacted = redact_user_paths(&truncated);
+        assert!(
+            !redacted.contains(r"sim6_user"),
+            "username should be redacted; got: {redacted}"
+        );
+        assert!(
+            redacted.contains(r"\Users\REDACTED\"),
+            "redaction marker should appear; got: {redacted}"
+        );
+
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn zip_read_returns_none_for_non_zip_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "rc-agent-ac-crash-not-a-zip-{}.report",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&tmp);
+        fs::write(&tmp, b"this is not a zip archive, just plain text").unwrap();
+        let result = read_info_txt_from_zip(&tmp);
+        assert!(result.is_none(), "non-zip file should return None");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn zip_read_returns_none_when_no_info_txt() {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "rc-agent-ac-crash-no-info-{}.report",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&tmp);
+
+        {
+            let f = fs::File::create(&tmp).unwrap();
+            let mut zw = zip::ZipWriter::new(f);
+            let opts: SimpleFileOptions = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zw.start_file("log.txt", opts).unwrap();
+            zw.write_all(b"only log.txt, no info.txt").unwrap();
+            zw.finish().unwrap();
+        }
+
+        let result = read_info_txt_from_zip(&tmp);
+        assert!(result.is_none(), "zip without info.txt should return None");
+        let _ = fs::remove_file(&tmp);
     }
 }

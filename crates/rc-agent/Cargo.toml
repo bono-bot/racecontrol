@@ -67,6 +67,13 @@ qrcode = "0.13"
 # Cross-platform directory paths (Documents, etc.)
 dirs-next = "2"
 
+# PACT-20260429-014 AMEND-1 Phase B v1 — read AC crash report PK-ZIP archives
+# (Documents\Assetto Corsa\crash_*.report) to extract info.txt CSP error
+# strings and propagate them via WS to game_launch_events.error_message.
+# `default-features = false` + `deflate` keeps the dependency surface small
+# (no bzip2/zstd/lzma/aes — AC reports use stored or deflated entries only).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 # Random selection for AI driver name pool
 rand = "0.8"
 
