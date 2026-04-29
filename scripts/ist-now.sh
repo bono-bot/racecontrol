@@ -9,6 +9,12 @@
 #   bash scripts/ist-now.sh epoch    → Unix epoch in IST
 #   bash scripts/ist-now.sh hour     → Just the hour (for deploy window check)
 #   bash scripts/ist-now.sh check    → Deploy window check (LOCKED/OPEN)
+#   bash scripts/ist-now.sh venue    → Venue-window check (OPEN/CLOSED) — gates venue-write ops
+
+# Venue hours per `whatsapp-bot/src/services/istTimeService.js`: 12-24 IST daily.
+# Deploy-window != venue-window. Don't conflate.
+VENUE_OPEN_HOUR=12
+VENUE_CLOSE_HOUR=24
 
 UTC_EPOCH=$(date -u +%s)
 IST_EPOCH=$((UTC_EPOCH + 19800))  # 5*3600 + 30*60 = 19800
@@ -30,6 +36,33 @@ case "${1:-}" in
       echo "Deploy window: LOCKED (weekend peak 18:00-22:59 IST)"
     else
       echo "Deploy window: OPEN"
+    fi
+    ;;
+  venue)
+    # Strip any leading zero from HOUR ("09" → 9) so bash arithmetic doesn't
+    # interpret it as octal — `08` and `09` are not valid octal literals.
+    HOUR_RAW=$(date -u -d "@$IST_EPOCH" '+%H' 2>/dev/null || python3 -c "from datetime import datetime; print(datetime.utcfromtimestamp($IST_EPOCH).strftime('%H'))")
+    HOUR=$((10#$HOUR_RAW))
+    MIN_RAW=$(date -u -d "@$IST_EPOCH" '+%M' 2>/dev/null || python3 -c "from datetime import datetime; print(datetime.utcfromtimestamp($IST_EPOCH).strftime('%M'))")
+    MIN=$((10#$MIN_RAW))
+    IST_DISPLAY=$(date -u -d "@$IST_EPOCH" '+%Y-%m-%d %H:%M IST (%A)' 2>/dev/null || python3 -c "from datetime import datetime; d=datetime.utcfromtimestamp($IST_EPOCH); print(d.strftime('%Y-%m-%d %H:%M IST (%A)'))")
+    echo "Current: $IST_DISPLAY"
+    if [[ "$HOUR" -ge "$VENUE_OPEN_HOUR" ]]; then
+      # Open — compute minutes-until-close (midnight)
+      MINS_TO_CLOSE=$(( (24 - HOUR - 1) * 60 + (60 - MIN) ))
+      HOURS=$(( MINS_TO_CLOSE / 60 ))
+      MINS=$(( MINS_TO_CLOSE % 60 ))
+      echo "Venue window: OPEN (closes at midnight IST, ${HOURS}h ${MINS}m remaining)"
+      echo "  Customer-active. Venue-write ops (Steam Validate, manual game launch, pod restart) BLOCKED on off-hours coordination."
+      exit 0
+    else
+      # Closed — compute minutes-until-open (12:00 IST)
+      MINS_TO_OPEN=$(( (VENUE_OPEN_HOUR - HOUR - 1) * 60 + (60 - MIN) ))
+      HOURS=$(( MINS_TO_OPEN / 60 ))
+      MINS=$(( MINS_TO_OPEN % 60 ))
+      echo "Venue window: CLOSED (opens at 12:00 PM IST, ${HOURS}h ${MINS}m remaining)"
+      echo "  Off-hours. Venue-write ops OK with off-hours-confirm; staff likely absent."
+      exit 0
     fi
     ;;
   *)
