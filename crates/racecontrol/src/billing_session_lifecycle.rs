@@ -4,13 +4,15 @@
 //! Sub-modules handle start, end, extend/upgrade operations.
 //! Re-exports all public items so existing `use crate::billing_session_lifecycle::*` continues to work.
 
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
-use rc_common::types::{BillingSessionStatus, DrivingState};
+use rc_common::types::{BillingSessionStatus, ConfigPushPayload, DrivingState};
 
 use crate::activity_log::log_pod_activity;
 use crate::billing::{BillingTimer, PauseReason};
@@ -196,26 +198,92 @@ async fn set_billing_status(
 
     drop(timers);
 
-    // PACT-20260428-008: notify the affected pod so the agent can flip its
-    // `billing_paused` flag. Without this, `billing_guard`'s SESSION-01 orphan
-    // auto-end will fire ~5 min after the customer closes their game during a
-    // manual pause — destroying the very session the pause was meant to preserve.
-    let agent_sender = {
-        let agent_senders = state.agent_senders.read().await;
-        agent_senders.get(&pod_id).cloned()
+    // PACT-20260429-013 Phase 1: route billing_paused state to the agent via
+    // Phase 177 config_push_queue substrate (V2-P1-CONFIG-SERVICE), replacing
+    // the PR #49 BillingPaused/BillingResumed wire-protocol variants. Same
+    // behavior on the agent side (`failure_monitor.billing_paused = bool`),
+    // but with stronger delivery semantics: per-pod row + seq_num + ack
+    // tracking + audit_log + graceful version skew (old agents log+ignore
+    // unknowns instead of failing serde decode). On the agent side, the
+    // ConfigPush handler at ws_handler.rs routes `billing_paused` field to
+    // `failure_monitor_tx.send_modify` (see PACT-20260429-013 Phase 2).
+    let billing_paused_value: Option<bool> = match new_status {
+        BillingSessionStatus::PausedManual => Some(true),
+        BillingSessionStatus::Active => Some(false),
+        _ => None,
     };
-    if let Some(sender) = agent_sender {
-        let agent_msg = match new_status {
-            BillingSessionStatus::PausedManual => Some(CoreToAgentMessage::BillingPaused {
-                billing_session_id: session_id.to_string(),
-            }),
-            BillingSessionStatus::Active => Some(CoreToAgentMessage::BillingResumed {
-                billing_session_id: session_id.to_string(),
-            }),
-            _ => None,
-        };
-        if let Some(msg) = agent_msg {
-            let _ = sender.send(CoreMessage::wrap(msg)).await;
+
+    if let Some(paused) = billing_paused_value {
+        let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
+        fields.insert("billing_paused".to_string(), serde_json::json!(paused));
+
+        let seq_num = state.config_push_seq.fetch_add(1, Ordering::SeqCst);
+        let payload_json =
+            serde_json::to_string(&fields).unwrap_or_else(|_| "{}".to_string());
+
+        // Insert into config_push_queue (per-pod row, status='pending')
+        let insert_result = sqlx::query(
+            "INSERT INTO config_push_queue (pod_id, payload, seq_num, status) VALUES (?, ?, ?, 'pending')",
+        )
+        .bind(&pod_id)
+        .bind(&payload_json)
+        .bind(seq_num as i64)
+        .execute(&state.db)
+        .await;
+
+        if let Err(e) = insert_result {
+            tracing::error!(
+                "PACT-013: failed to insert config_push_queue billing_paused={} for pod {}: {}",
+                paused, pod_id, e
+            );
+        } else {
+            // Deliver via WS if pod is connected
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(tx) = sender {
+                let push_payload = ConfigPushPayload {
+                    fields: fields.clone(),
+                    schema_version: 1,
+                    sequence: seq_num,
+                };
+                match tx
+                    .send(CoreMessage::wrap(CoreToAgentMessage::ConfigPush(
+                        push_payload,
+                    )))
+                    .await
+                {
+                    Ok(_) => {
+                        let _ = sqlx::query(
+                            "UPDATE config_push_queue SET status = 'delivered' WHERE pod_id = ? AND seq_num = ?",
+                        )
+                        .bind(&pod_id)
+                        .bind(seq_num as i64)
+                        .execute(&state.db)
+                        .await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "PACT-013: failed to send ConfigPush billing_paused to pod {} (seq={}): {}",
+                            pod_id, seq_num, e
+                        );
+                    }
+                }
+            }
+            // If pod is offline, status stays 'pending' (CP-02) — pod will pick up
+            // on its next subscription/replay tick once it reconnects.
+
+            // Audit log entry (mirrors push_config handler pattern)
+            let _ = sqlx::query(
+                "INSERT INTO config_audit_log \
+                 (action, entity_type, entity_name, old_value, new_value, pushed_by, pods_acked, seq_num) \
+                 VALUES ('config_push', 'config', 'billing_paused', NULL, ?, 'set_billing_status', '[]', ?)",
+            )
+            .bind(serde_json::json!(paused).to_string())
+            .bind(seq_num as i64)
+            .execute(&state.db)
+            .await;
         }
     }
 

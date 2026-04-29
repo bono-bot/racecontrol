@@ -382,27 +382,13 @@ pub async fn handle_ws_message(
             conn.current_driver_name = None;
         }
 
-        // PACT-20260428-008: Manual pause from staff/customer kiosk button.
-        // Server has set status=PausedManual (meter halted server-side); we flip the
-        // agent-local `billing_paused` flag so `billing_guard`'s SESSION-01 orphan
-        // auto-end + BILL-02 stuck-session anomalies stay suppressed while the
-        // customer closes the current game and launches a new one. Without this,
-        // closing the game during pause triggers auto-end at orphan_end_threshold_secs
-        // (default 300s), destroying the very session the pause was meant to preserve.
-        CoreToAgentMessage::BillingPaused { billing_session_id } => {
-            tracing::info!(target: LOG_TARGET, "Billing paused (manual): {}", billing_session_id);
-            state.failure_monitor_tx.send_modify(|s| {
-                s.billing_paused = true;
-            });
-        }
-
-        // PACT-20260428-008: Resume from manual pause back to Active.
-        CoreToAgentMessage::BillingResumed { billing_session_id } => {
-            tracing::info!(target: LOG_TARGET, "Billing resumed (manual): {}", billing_session_id);
-            state.failure_monitor_tx.send_modify(|s| {
-                s.billing_paused = false;
-            });
-        }
+        // PACT-20260428-008 BillingPaused/BillingResumed wire variants (CoreToAgentMessage)
+        // were removed in PACT-20260429-013 Phase 1+2. Manual pause now routes via
+        // ConfigPush field `billing_paused` (see HOT_RELOAD_FIELDS handler below at
+        // CoreToAgentMessage::ConfigPush). Same behavior — `failure_monitor_tx.send_modify
+        // (s.billing_paused = bool)` — but per-pod queued + seq_num + ack-tracked + audited
+        // via config_push_queue/config_audit_log. Crash-path AgentMessage::BillingPaused
+        // (agent→server, event_loop.rs:1339) is unchanged.
 
         CoreToAgentMessage::SessionEnded {
             billing_session_id, driver_name, total_laps, best_lap_ms, driving_seconds,
@@ -1764,7 +1750,10 @@ pub async fn handle_ws_message(
         // Non-reloadable fields (port, ws_url, pod_number, pod_id) are logged and ignored.
         // ConfigAck is queued in pending_acks to be drained by the event loop after handling.
         CoreToAgentMessage::ConfigPush(payload) => {
-            const HOT_RELOAD_FIELDS: &[&str] = &["billing_rates", "game_limits", "process_guard_whitelist", "debug_verbosity"];
+            // PACT-20260429-013 Phase 2: `billing_paused` added to HOT_RELOAD_FIELDS.
+            // Replaces the PR #49 BillingPaused/BillingResumed wire variants — same
+            // failure_monitor.billing_paused state mutation, now via the substrate.
+            const HOT_RELOAD_FIELDS: &[&str] = &["billing_rates", "game_limits", "process_guard_whitelist", "debug_verbosity", "billing_paused"];
             const NON_RELOAD_FIELDS: &[&str] = &["port", "ws_url", "pod_number", "pod_id"];
 
             let mut accepted = true;
@@ -1782,6 +1771,19 @@ pub async fn handle_ws_message(
                             tracing::info!(target: LOG_TARGET, "ConfigPush: updated process_guard_whitelist");
                         } else {
                             tracing::warn!(target: LOG_TARGET, "ConfigPush: invalid process_guard_whitelist value");
+                            accepted = false;
+                        }
+                    } else if field.contains("billing_paused") {
+                        // PACT-20260429-013 Phase 2: replaces BillingPaused/Resumed wire variants.
+                        // Composes-with crash-path at event_loop.rs:1339 which sets billing_paused=true
+                        // on game crash; both paths converge on the same flag.
+                        if let Some(paused) = value.as_bool() {
+                            state.failure_monitor_tx.send_modify(|s| {
+                                s.billing_paused = paused;
+                            });
+                            tracing::info!(target: LOG_TARGET, "ConfigPush: billing_paused = {}", paused);
+                        } else {
+                            tracing::warn!(target: LOG_TARGET, "ConfigPush: invalid billing_paused value (expected bool): {}", value);
                             accepted = false;
                         }
                     } else {
