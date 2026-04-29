@@ -429,6 +429,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/debug/incidents/{id}/apply-fix", post(debug_apply_fix))
         .route("/debug/diagnose", post(debug_diagnose))
         .route("/debug/pod-events/{pod_id}", get(debug_pod_events))
+        // Read-only diagnostic probes (staff debug page)
+        .route("/debug/probe/{pod_id}", get(crate::api::debug_probe::debug_probe_handler))
+        .route("/debug/halo-catalog", get(crate::api::debug_probe::halo_catalog_handler))
         // Phase 368: Launch status cards REST API (staff-JWT-gated via .layer below)
         .route(
             "/debug/launches/active",

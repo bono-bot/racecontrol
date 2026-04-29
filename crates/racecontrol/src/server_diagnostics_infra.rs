@@ -3,11 +3,24 @@
 //! Split from server_diagnostics.rs: checks 5-10 (POS, WhatsApp, SSL, internet,
 //! rc-sentry, OpenRouter key).
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use tokio::time::Duration;
 
 use crate::state::AppState;
 
 pub(super) const LOG_TARGET: &str = "server-diagnostics";
+
+/// MMA P1 fix (commit 7a24faaa review): max-defer counter for sentry auto-fix.
+/// After this many consecutive customer-active skips, force the restart with a
+/// WARN log so prolonged customer sessions don't leave rc-sentry dead
+/// indefinitely (which would cost the pod its self-healing failover).
+const SENTRY_MAX_DEFER_CYCLES: u32 = 3;
+
+/// Per-pod consecutive defer counter for sentry restart. Reset to 0 when the
+/// restart actually fires OR when the sentry comes back alive on its own.
+static SENTRY_DEFER_COUNTS: LazyLock<Mutex<HashMap<String, u32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ─── Check 5: POS proactive health probe ─────────────────────────────────
 /// Server-side pull of POS health — if POS rc-agent is dead, MI was blind.
@@ -171,7 +184,7 @@ pub(super) async fn check_internet_connectivity(_state: &AppState) {
 
 // ─── Check 9: rc-sentry on pods ──────────────────────────────────────────
 /// Server-side probe of rc-sentry :8091 on pods. If sentry dies, MI loses pod self-healing.
-pub(super) async fn check_sentry_reachable(_state: &AppState) {
+pub(super) async fn check_sentry_reachable(state: &AppState) {
     let pod_ips = [
         ("pod_1", "192.168.31.89"), ("pod_2", "192.168.31.33"),
         ("pod_3", "192.168.31.28"), ("pod_4", "192.168.31.88"),
@@ -202,9 +215,46 @@ pub(super) async fn check_sentry_reachable(_state: &AppState) {
             dead_sentries.join(", "), dead_sentries.len()
         );
 
-        // AUTO-FIX: restart rc-sentry via rc-agent :8090 exec endpoint
+        // AUTO-FIX: restart rc-sentry via rc-agent :8090 exec endpoint.
+        // Customer-active gate: defer sentry restart on pods with a customer
+        // mid-session — schtasks via rc-agent /exec spawns a process and adds
+        // /exec contention during the riskiest window (game-switch transitions
+        // like AC → F1 25). Sentry is rc-agent's failover, not a customer-path
+        // dependency; the restart can wait until the pod is idle.
+        //
+        // MMA P1 fix (commit 7a24faaa review): max-defer counter — after
+        // SENTRY_MAX_DEFER_CYCLES consecutive customer-active skips, FORCE
+        // the restart with a WARN so a prolonged session doesn't leave sentry
+        // dead indefinitely.
+        // Reference: feedback_background_ops_respect_customer_state.md.
         for (name, ip) in &pod_ips {
             if !dead_sentries.contains(name) { continue; }
+            let customer_active = state.is_pod_customer_active(name).await;
+            if customer_active {
+                let mut counts = SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+                let count = counts.entry((*name).to_string()).or_insert(0);
+                *count += 1;
+                let current = *count;
+                drop(counts);
+                if current < SENTRY_MAX_DEFER_CYCLES {
+                    tracing::info!(
+                        target: LOG_TARGET,
+                        pod_id = name,
+                        defer_count = current,
+                        "SENTRY AUTO-FIX deferred ({}/{}) — customer active on pod; will retry next cycle",
+                        current, SENTRY_MAX_DEFER_CYCLES
+                    );
+                    continue;
+                }
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    pod_id = name,
+                    defer_count = current,
+                    "SENTRY AUTO-FIX max-defer exceeded ({}/{}) — forcing restart despite customer-active state; sentry dead too long",
+                    current, SENTRY_MAX_DEFER_CYCLES
+                );
+                // fall through to restart below; reset counter after the attempt
+            }
             let exec_url = format!("http://{}:8090/exec", ip);
             let body = serde_json::json!({
                 "cmd": "schtasks /Run /TN StartRCSentry"
@@ -221,9 +271,13 @@ pub(super) async fn check_sentry_reachable(_state: &AppState) {
                     tracing::warn!(target: LOG_TARGET, "SENTRY AUTO-FIX FAILED on {} — rc-agent may also be down", name);
                 }
             }
+            // Reset defer counter regardless of restart success (we made the attempt)
+            SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner()).remove(*name);
         }
     } else {
         tracing::debug!(target: LOG_TARGET, "All 8 rc-sentry instances reachable");
+        // Sentry came back on its own — clear any pending defer counters.
+        SENTRY_DEFER_COUNTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }
 

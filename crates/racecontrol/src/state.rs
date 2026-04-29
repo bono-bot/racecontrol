@@ -300,6 +300,42 @@ impl AppState {
         }
     }
 
+    /// True when the named pod is currently being used by a customer.
+    /// Background pod-probing operations (content drift detector, kiosk debug
+    /// probe panel, future periodic /exec callers) MUST skip pods where this
+    /// returns true to avoid adding /exec or `:8090` traffic during a session
+    /// — especially during game-switch transitions (e.g., AC → F1 25) where
+    /// rc-agent is mid process-spawn.
+    ///
+    /// Combines TWO signals (MMA P1 fix from commit 7a24faaa review):
+    /// 1. Pod runtime state (`PodInfo::is_customer_active`) — driving + non-idle
+    ///    game state; closer to the truth about whether rc-agent is busy.
+    /// 2. Billing session state — covers the between-games window where
+    ///    `game_state = Idle` but the customer is still on the pod (paid,
+    ///    pre-launch). The frontend mirror in kiosk includes paused_* billing;
+    ///    aligning here closes the divergence flagged by 5/5 MMA models.
+    ///
+    /// Returns false when both signals say idle, when the pod is unknown, or
+    /// when the pod is in `error` game state with no billing.
+    ///
+    /// Reference rule: `feedback_background_ops_respect_customer_state.md`.
+    pub async fn is_pod_customer_active(&self, pod_id: &str) -> bool {
+        // Pod-state check (no lock across await).
+        let pod_active = {
+            let pods = self.pods.read().await;
+            pods.get(pod_id).map(|p| p.is_customer_active()).unwrap_or(false)
+        };
+        if pod_active {
+            return true;
+        }
+        // Billing-state check: any in-memory timer (Active / paused_*) OR
+        // waiting_for_game entry means a customer paid and is mid-session.
+        // Both lookups are sync HashMap reads; release the guards immediately.
+        let active = self.billing.active_timers.read().await;
+        let waiting = self.billing.waiting_for_game.read().await;
+        active.contains_key(pod_id) || waiting.contains_key(pod_id)
+    }
+
     /// Build an HTTP request to a rc-sentry protected endpoint, including the
     /// X-Service-Key header when `pods.sentry_service_key` is configured.
     pub fn sentry_post(&self, url: &str) -> reqwest::RequestBuilder {

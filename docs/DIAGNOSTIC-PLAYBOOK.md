@@ -62,6 +62,7 @@ Which system layer is the problem in? This determines which section to read.
 | Staff can't login | **Auth** | Section H |
 | AI healing not working | **Meshed Intelligence** | Section I |
 | Process being killed | **Process Guard** | Section J |
+| Kiosk/admin/portal surface unreachable from browser | **Venue Surface Down** | Section K |
 
 ---
 
@@ -576,3 +577,44 @@ Incomplete GSD phases can **cause** bugs in the open issues list:
 4. **Update the Open Issues table** after every fix. If you fixed it, move it to Resolved.
 5. **Verify the exact behavior, not proxies.** Health 200 ≠ fixed. Build_id match ≠ fixed.
 6. **If the fix exists in git but isn't deployed, that's NOT fixed.** Deploy + verify = fixed.
+
+---
+
+## Section K — Venue Surface Down (kiosk / admin / portal unreachable)
+
+**Symptom shape:** user reports `http://192.168.31.23/<path>` is down. Could be admin (:3201), kiosk (:3300), web dashboard (:3200), or the port-80 frontend that proxies them.
+
+**Run this FIRST — do not hand-curl:**
+
+```bash
+bash scripts/diagnose/venue-down.sh
+```
+
+The script enforces the order missed in 2026-04-28 (see `feedback_g9_venue_down_diagnose_workflow_20260428.md`):
+
+1. Step 0 prior-art (memory / LOGBOOK / git / INBOX / ERROR-CATALOG / graphify)
+2. Read canonical port matrix from `D:\racecontrol.toml` + `reference_fleet_port_map.md`
+3. Host reachability (ping)
+4. Local probe matrix — full port + path sweep (NOT customer evidence; CGP H3)
+5. Redirect-chain trace for `/admin` `/kiosk/` (the redirect target is what's actually dead)
+6. Server-side enumeration via `ssh server` (alias from `~/.ssh/config`, ADMIN user) — listeners, processes, scheduled tasks, last 30 lines of `admin*.log` + `frontend-watchdog*.log`
+7. Reminder: customer-side evidence requires POS chrome :9222 / pod rc-watchdog UI — James-local curl is **not** kiosk customer evidence
+
+**Common findings:**
+
+| Observation | Likely cause | Reference |
+|---|---|---|
+| `/admin` 307 → :3201 timeout, no listener on :3201 | admin-panel Node process hung or not started | `feedback_watchdog_must_use_canonical_bat.md` |
+| `/kiosk/` hangs | port-80 reverse proxy forwarding to dead upstream | this section |
+| Stale `node` PID days old, not bound | zombie Node — kill, then watchdog respawn | rebooted via canonical `start-admin*.bat` |
+| `/api/v1/health` 200 but admin :3201 dead | RC backend healthy ≠ admin healthy. **Health 200 is NOT admin evidence (CGP H3)** | DIAGNOSTIC-PLAYBOOK rule 5 |
+
+**Recovery sequence (after diagnosis):**
+
+1. Confirm zombie PID and its start time via Step 5 output
+2. `ssh server` → `taskkill /F /PID <zombie>` (scope-limited, NOT `taskkill /F /IM node.exe` — would also kill rc-watchdog Node helpers)
+3. Verify `frontend-watchdog` respawns admin within 60s by re-running steps 4–5
+4. If watchdog does not respawn: check `start-admin*.bat` exists at canonical path and HKLM Run / scheduled task is registered
+5. **Permanence Gate:** if the fix was a manual `taskkill` only, that's TEMPORARY — add a HALO-INFRA action-reaction entry (open OQ to bono) so the next unbinding self-heals or pages
+
+**Why HALO did not catch this:** see `feedback_g9_venue_down_diagnose_workflow_20260428.md` § Why HALO did not catch this gap. Short version: HALO catalog is game-launch-centric, no observer continuously probes server services, and standing rules ≠ HALO action-reaction entries.
