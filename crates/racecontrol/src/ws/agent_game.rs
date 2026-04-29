@@ -283,13 +283,36 @@ pub(crate) async fn handle_game_status_update(
 }
 
 /// Handle AgentMessage::GameCrashed.
+///
+/// `crash_metadata` (PACT-014 AMEND-1 Phase B): optional first-512-chars of the
+/// AC `crash_*.report\info.txt` (PII-redacted). Logged here; persistence to
+/// `game_launch_events.error_message` happens via the parallel
+/// `GameStateUpdate(GameState::Error)` path emitted by rc-agent in the same
+/// crash-detection block, which already includes the same metadata appended
+/// to its `error_message` field. Single read on the agent side, two paths to
+/// the same persisted column.
 pub(crate) async fn handle_game_crashed(
     state: &Arc<AppState>,
     pod_id: &str,
     billing_active: bool,
+    crash_metadata: Option<&str>,
 ) {
-    tracing::warn!("Pod {} game crashed (billing_active={})", pod_id, billing_active);
-    log_pod_activity(state, pod_id, "game", "Game Crashed", &format!("billing_active={}", billing_active), "agent", None);
+    let meta_summary = crash_metadata
+        .map(|s| {
+            let chars = s.chars().count();
+            let preview: String = s.chars().take(80).collect();
+            format!("{} chars, preview={:?}", chars, preview)
+        })
+        .unwrap_or_else(|| "absent".into());
+    tracing::warn!(
+        "Pod {} game crashed (billing_active={}, crash_metadata: {})",
+        pod_id, billing_active, meta_summary
+    );
+    log_pod_activity(
+        state, pod_id, "game", "Game Crashed",
+        &format!("billing_active={}, crash_metadata={}", billing_active, meta_summary),
+        "agent", None,
+    );
     // CRASH-02: Auto-pause billing on game crash
     if billing_active {
         let mut timers = state.billing.active_timers.write().await;

@@ -75,6 +75,7 @@ mod mdns_discovery;
 mod off_track_blanking;
 mod off_track_detector;
 mod udp_heartbeat;
+mod ac_crash_report;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;

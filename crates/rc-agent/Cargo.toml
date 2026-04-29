@@ -73,6 +73,13 @@ rand = "0.8"
 # Phase 206: Sentinel file watching via ReadDirectoryChangesW (OBS-04)
 notify = "8.2.0"
 
+# PACT-014 AMEND-1 Phase B: AC crash report (.report = zip) extraction for info.txt
+# Read-only, default-features (deflate). 7.2.0 already in Cargo.lock transitively.
+zip = { version = "7.2", default-features = false, features = ["deflate"] }
+
+# PACT-014 AMEND-1 Phase B: PII redaction regex for crash_metadata
+regex = "1"
+
 # Startup folder scanning for process guard (optional — only needed when process-guard feature is enabled)
 walkdir = { version = "2", optional = true }
 

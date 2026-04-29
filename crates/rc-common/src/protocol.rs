@@ -191,8 +191,19 @@ pub enum AgentMessage {
     /// Agent reports FFB safety action completed (zeroed wheelbase torque)
     FfbZeroed { pod_id: String },
 
-    /// Agent reports game crash detected (process disappeared unexpectedly)
-    GameCrashed { pod_id: String, billing_active: bool },
+    /// Agent reports game crash detected (process disappeared unexpectedly).
+    ///
+    /// `crash_metadata`: optional, best-effort first-512-chars of the most recent
+    /// AC `crash_*.report\info.txt` content (PII-redacted), populated by rc-agent
+    /// when an AC crash is detected (PACT-014 AMEND-1 Phase B). None for non-AC
+    /// games or when the report file is missing/locked/malformed. Old agents
+    /// without this field deserialize fine via `#[serde(default)]`.
+    GameCrashed {
+        pod_id: String,
+        billing_active: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        crash_metadata: Option<String>,
+    },
 
     /// Tier 5 escalation — all automated AI tiers exhausted, needs human attention.
     /// Server receives this and sends WhatsApp via Bono relay (Plan 274-02).
@@ -2378,15 +2389,53 @@ mod tests {
 
     #[test]
     fn test_game_crashed_roundtrip() {
-        let msg = AgentMessage::GameCrashed { pod_id: "pod-1".into(), billing_active: true };
+        let msg = AgentMessage::GameCrashed {
+            pod_id: "pod-1".into(),
+            billing_active: true,
+            crash_metadata: None,
+        };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("game_crashed"), "Expected 'game_crashed' in: {}", json);
+        // None field elides via skip_serializing_if — old consumers still parse.
+        assert!(!json.contains("crash_metadata"), "None should be omitted: {}", json);
         let back: AgentMessage = serde_json::from_str(&json).unwrap();
-        if let AgentMessage::GameCrashed { pod_id, billing_active } = back {
+        if let AgentMessage::GameCrashed { pod_id, billing_active, crash_metadata } = back {
             assert_eq!(pod_id, "pod-1");
             assert!(billing_active);
+            assert!(crash_metadata.is_none());
         } else {
             panic!("Wrong variant after roundtrip: expected GameCrashed");
+        }
+    }
+
+    #[test]
+    fn test_game_crashed_with_metadata_roundtrip() {
+        let msg = AgentMessage::GameCrashed {
+            pod_id: "pod-6".into(),
+            billing_active: true,
+            crash_metadata: Some("csp_utils.cpp::require_track:219 main layout damaged".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("crash_metadata"), "Expected 'crash_metadata' in: {}", json);
+        let back: AgentMessage = serde_json::from_str(&json).unwrap();
+        if let AgentMessage::GameCrashed { crash_metadata, .. } = back {
+            assert!(crash_metadata.unwrap().contains("require_track"));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_game_crashed_old_agent_compat_no_metadata_field() {
+        // Old agent serializing without the field — new server must accept.
+        // AgentMessage uses tag="type" content="data" envelope.
+        let json = r#"{"type":"game_crashed","data":{"pod_id":"pod-3","billing_active":false}}"#;
+        let back: AgentMessage = serde_json::from_str(json).unwrap();
+        if let AgentMessage::GameCrashed { crash_metadata, billing_active, .. } = back {
+            assert!(crash_metadata.is_none(), "default to None for old agents");
+            assert!(!billing_active);
+        } else {
+            panic!("Wrong variant");
         }
     }
 

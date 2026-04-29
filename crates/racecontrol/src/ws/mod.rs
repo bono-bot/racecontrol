@@ -314,8 +314,8 @@ async fn dispatch_agent_message(
             tracing::info!("Pod {} FFB zeroed (safety action completed)", pod_id);
             crate::activity_log::log_pod_activity(state, pod_id, "safety", "FFB Zeroed", "Wheelbase torque set to 0", "agent", None);
         }
-        AgentMessage::GameCrashed { pod_id, billing_active } => {
-            agent_game::handle_game_crashed(state, pod_id, *billing_active).await;
+        AgentMessage::GameCrashed { pod_id, billing_active, crash_metadata } => {
+            agent_game::handle_game_crashed(state, pod_id, *billing_active, crash_metadata.as_deref()).await;
         }
         AgentMessage::AssistChanged { pod_id, assist_type, enabled, confirmed } => {
             agent_game::handle_assist_changed(state, pod_id, assist_type, *enabled, *confirmed).await;

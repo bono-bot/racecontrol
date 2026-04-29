@@ -1256,9 +1256,26 @@ pub async fn run(
                             state.heartbeat_status.game_id.store(0, std::sync::atomic::Ordering::Relaxed);
                             // INV-1: Include exit code when available (is_running() populates last_exit_code via try_wait)
                             let exit_code = game.last_exit_code;
-                            let err_msg = match exit_code {
+                            let base_err_msg = match exit_code {
                                 Some(code) => format!("Process exited unexpectedly (exit code: {})", code),
                                 None => "Game process exited unexpectedly".to_string(),
+                            };
+                            // PACT-014 AMEND-1 Phase B: extract AC crash report info.txt
+                            // best-effort, AC-only. Computed once and reused for both the
+                            // GameStateUpdate's error_message field (lands in
+                            // game_launch_events.error_message — what L.2 probe queries)
+                            // and the GameCrashed structured field below.
+                            let crash_metadata = if matches!(game.sim_type, rc_common::types::SimType::AssettoCorsa) {
+                                tokio::task::spawn_blocking(crate::ac_crash_report::read_latest_crash_metadata)
+                                    .await
+                                    .ok()
+                                    .flatten()
+                            } else {
+                                None
+                            };
+                            let err_msg = match &crash_metadata {
+                                Some(meta) => format!("{} | crash_metadata: {}", base_err_msg, meta),
+                                None => base_err_msg.clone(),
                             };
                             // Pattern H: compute clean-exit heuristic using seconds-since-Running
                             let seconds_since_launch = conn.game_running_since
@@ -1355,7 +1372,13 @@ pub async fn run(
                             if state.heartbeat_status.billing_active.load(std::sync::atomic::Ordering::Relaxed) {
                                 tracing::warn!(target: LOG_TARGET, "Game crashed during active billing — pausing billing, attempting relaunch");
                                 ffb_controller::safe_session_end(&state.ffb).await;
-                                let crash_msg = AgentMessage::GameCrashed { pod_id: state.pod_id.clone(), billing_active: true };
+                                // PACT-014 AMEND-1 Phase B: reuse crash_metadata computed above
+                                // for the GameStateUpdate (so we read .report once, not twice).
+                                let crash_msg = AgentMessage::GameCrashed {
+                                    pod_id: state.pod_id.clone(),
+                                    billing_active: true,
+                                    crash_metadata: crash_metadata.clone(),
+                                };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_msg).unwrap_or_default().into())).await;
                                 let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                                 let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;
@@ -1671,6 +1694,22 @@ pub async fn run(
                         let seconds_since_launch = monitor.started_at.elapsed().as_secs();
                         let clean_exit = compute_clean_exit_heuristic(exit_code, seconds_since_launch);
 
+                        // PACT-014 AMEND-1 Phase B: extract AC crash report info.txt once,
+                        // reuse for GameStateUpdate.error_message AND GameCrashed.crash_metadata.
+                        let crash_metadata = if matches!(sim, rc_common::types::SimType::AssettoCorsa) {
+                            tokio::task::spawn_blocking(crate::ac_crash_report::read_latest_crash_metadata)
+                                .await
+                                .ok()
+                                .flatten()
+                        } else {
+                            None
+                        };
+                        let base_err_msg = format!("Process exited unexpectedly (exit code: {})", exit_info);
+                        let err_msg = match &crash_metadata {
+                            Some(meta) => format!("{} | crash_metadata: {}", base_err_msg, meta),
+                            None => base_err_msg,
+                        };
+
                         // Send GameState::Crashed to server
                         let crash_info = GameLaunchInfo {
                             pod_id: state.pod_id.clone(),
@@ -1678,7 +1717,7 @@ pub async fn run(
                             game_state: GameState::Error,
                             pid: state.game_process.as_ref().and_then(|g| g.pid),
                             launched_at: None,
-                            error_message: Some(format!("Process exited unexpectedly (exit code: {})", exit_info)),
+                            error_message: Some(err_msg),
                             diagnostics: None,
                             exit_code,
                             playable_at: None,
@@ -1735,7 +1774,13 @@ pub async fn run(
 
                         if billing_on {
                             // Arm crash recovery
-                            let crash_agent_msg = AgentMessage::GameCrashed { pod_id: state.pod_id.clone(), billing_active: true };
+                            // PACT-014 AMEND-1 Phase B: reuse crash_metadata computed above
+                            // (single read of crash_*.report, two consumers).
+                            let crash_agent_msg = AgentMessage::GameCrashed {
+                                pod_id: state.pod_id.clone(),
+                                billing_active: true,
+                                crash_metadata: crash_metadata.clone(),
+                            };
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&crash_agent_msg).unwrap_or_default().into())).await;
                             let ffb_msg = AgentMessage::FfbZeroed { pod_id: state.pod_id.clone() };
                             let _ = ws_tx.send(Message::Text(serde_json::to_string(&ffb_msg).unwrap_or_default().into())).await;

@@ -3778,6 +3778,7 @@ dependencies = [
  "qrcode",
  "rand 0.8.5",
  "rc-common",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",
@@ -3801,6 +3802,7 @@ dependencies = [
  "winapi",
  "windows 0.58.0",
  "wiremock",
+ "zip",
 ]
 
 [[package]]
