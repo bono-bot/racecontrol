@@ -759,8 +759,8 @@ Before investigating from scratch, consult `docs/`:
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.6 — 10 gates + lifecycle phases + emergency/debug/audit + ecosystem-wide scope |
-| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
+| `COGNITIVE-GATE-PROTOCOL.md` | CGP v4.3 "Backlog Gate" — 5 hard gates (H1-H5, hook-enforced) + 5 soft gates + 15 Standing Rules + ecosystem-wide scope (consolidated from v3.6's 10 gates / 147 standing rules) |
+| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v4.0 — full spec: 4-step convergence engine (DIAGNOSE/PLAN/EXECUTE/VERIFY) ≥5 models per step / ≥3 vendor families / max 2 per vendor / $5/session cap; v4.0 adds machine-enforced step sequencing via shared/openrouter.js validateMmaStep() / validateStepSequence() |
 | `.cargo\config.toml` | Static CRT build config |
 
 ---
