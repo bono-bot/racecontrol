@@ -235,6 +235,25 @@ _Why: Same class as "check LOGBOOK/git/memory BEFORE investigating" (feedback_di
 
 ---
 
+## Standing Rule #19 — V2-only forward path (v4.3, 2026-05-01)
+
+**Captain directive 2026-05-01 IST: V2 is the only forward path for the RacingPoint ecosystem. V1 is closed. Every new session must be geared toward supporting and building V2.**
+
+**Pre-action V2-transport check** (mandatory for prod-touch — Server .23 / Pods 1-8 / POS .130 / Cloud apps / comms-link prod / Bono VPS prod):
+1. **Q1** — Is the target classified as production?
+2. **Q2** — Grep `reference_local_capabilities.md` for ratified V2 transport: bono comms-link relay `localhost:8766/relay/exec/run`, `/rp-bono-exec` skill, `/rp-james-exec` skill, `ssh server` alias, rc-sentry `:8091/exec` pod-side.
+3. **Q3** — Use it. If no V2 transport exists, halt and ask Captain — **never invent a V1 fallback.**
+
+**Why:** Direct host-shell from a pilot to prod bypasses ratified relay, skips substrate-immutability, ignores transport-channel doctrine. V1-shaped operations are not authorized even when faster.
+
+**Composes with:** Rule 0 (Enumerate Before Asserting) · H4 (target enumeration) · PACT-027 §10 (PACT-discipline hooks) · AMEND-1 bundle-of-8 (substrate-immutability when ratified). Charter doctrine: `comms-link/PACT-CHARTER.md` §V2.0. Master memory: `feedback_v2_only_forward_path.md`.
+
+**Empirical anchor:** james G9 #1 2026-05-01 IST — direct `ssh racing-point-server-1` for PACT-086 §5.2 evidence-pull denied by harness production-classifier; correct V2 path was bono-relay.
+
+**Sibling-PACT candidate:** `pre-prod-touch-transport-check.js` (PreToolUse Bash hook composing with PACT-027 §10 hook bundle).
+
+---
+
 ## Predecessor
 
 Replaces CGP v3.6 (756 lines, 147 rules, 169 gate items, 10 gates). Preserves: gates that had hard enforcement (G0→H1, Two-Phase→H2, G1→H3, G2→H4, G9→H5). Removes: gates that were declarative-only (G3, G6, G7 moved to soft; G8 consolidated into S3). Archives: all standing rules from CLAUDE.md into `docs/STANDING-RULES-ARCHIVE-v3.md` for reference.
