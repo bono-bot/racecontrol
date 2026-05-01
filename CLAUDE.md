@@ -61,7 +61,7 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 | **H2** | Completion claims | Fix and verify in SEPARATE messages |
 | **H3** | Before "done/fixed/PASS" | Exact behavior + raw output + WHERE (must match user-specified targets) + NOT TESTED list. Proxies NOT evidence. **Observations not verdicts:** report what you saw, not PASS/FAIL — contradictions are obvious without labels, labels hide them. |
 | **H4** | Before "all/everywhere" | Grep + per-target list BEFORE assertion |
-| **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0 |
+| **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0. **CANDIDATE-N1 (v4.6, 2026-05-01):** memory-rule fixes tag as CANDIDATE-N1, promote to active only after N=2 within 30d; code-enforced hooks exempt. |
 
 **Backlog Gate (v4.3):** `backlog-enforce.js` scans memory every prompt for undeployed/pending work. WIP >= 3 blocks new features. COMMITTED ≠ SHIPPED — must be deployed + verified. "Next session" banned as disposition.
 
