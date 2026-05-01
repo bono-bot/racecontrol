@@ -220,14 +220,15 @@ pub fn verify(
     max_skew_secs: i64,
     nonce_cache: &Mutex<NonceCache>,
 ) -> VerifyOutcome {
-    let missing = headers.missing();
-    if !missing.is_empty() {
-        return VerifyOutcome::MissingHeaders { missing };
-    }
-    let admin_id = headers.admin_id.unwrap();
-    let nonce = headers.nonce_b64.unwrap();
-    let ts_str = headers.timestamp_rfc3339.unwrap();
-    let sig_b64 = headers.signature_b64.unwrap();
+    let (admin_id, nonce, ts_str, sig_b64) = match (
+        headers.admin_id,
+        headers.nonce_b64,
+        headers.timestamp_rfc3339,
+        headers.signature_b64,
+    ) {
+        (Some(a), Some(n), Some(t), Some(s)) => (a, n, t, s),
+        _ => return VerifyOutcome::MissingHeaders { missing: headers.missing() },
+    };
 
     let secret = match secrets.get(admin_id) {
         Some(s) => s.as_bytes(),
