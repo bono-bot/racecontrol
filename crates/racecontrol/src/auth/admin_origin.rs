@@ -286,6 +286,178 @@ pub fn verify_with_global_cache(
 /// Default skew tolerance for Admin-origin timestamps.
 pub const DEFAULT_MAX_SKEW_SECS: i64 = 60;
 
+/// Body capture cap for admin_origin verification (4 MiB).
+/// Most admin writes are small JSON payloads (<10 KiB); 4 MiB is generous headroom
+/// without risking memory pressure on the Heart binary under request burst.
+pub const BODY_CAPTURE_LIMIT_BYTES: usize = 4 * 1024 * 1024;
+
+// ─── Phase 2: Axum middleware shim + audit-row sink ───────────────────────
+
+use axum::{
+    extract::State,
+    http::{HeaderMap, Request, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
+use std::sync::Arc;
+
+use crate::state::AppState;
+
+/// Pull the four required Admin-origin headers from a HeaderMap.
+fn extract_headers(h: &HeaderMap) -> AdminOriginHeaders<'_> {
+    fn h_str<'a>(h: &'a HeaderMap, name: &str) -> Option<&'a str> {
+        h.get(name).and_then(|v| v.to_str().ok())
+    }
+    AdminOriginHeaders {
+        admin_id: h_str(h, "x-origin-admin"),
+        nonce_b64: h_str(h, "x-origin-nonce"),
+        timestamp_rfc3339: h_str(h, "x-origin-timestamp"),
+        signature_b64: h_str(h, "x-origin-signature"),
+    }
+}
+
+/// Append a single audit row to data/admin_origin_audit.jsonl. Best-effort —
+/// if the write fails, log and proceed (do not block the request).
+///
+/// Phase 3 deliverable: migrate this sink to HALO findings format per AMEND-1 §1
+/// spec ("audit-row in HALO findings"). Current dedicated file simplifies
+/// observability during Phase 2 soak.
+fn write_audit_row(
+    mode: AdminOriginMode,
+    method: &str,
+    path: &str,
+    outcome: &VerifyOutcome,
+    body_len: usize,
+) {
+    use std::io::Write;
+    let now = chrono::Utc::now().to_rfc3339();
+    let row = serde_json::json!({
+        "ts_utc": now,
+        "mode": match mode {
+            AdminOriginMode::Disabled => "disabled",
+            AdminOriginMode::LogOnly => "log-only",
+            AdminOriginMode::Enforce => "enforce",
+        },
+        "method": method,
+        "path": path,
+        "outcome": outcome.fail_reason(),
+        "body_len": body_len,
+        "detail": match outcome {
+            VerifyOutcome::Valid { admin_id } => serde_json::json!({"admin_id": admin_id}),
+            VerifyOutcome::MissingHeaders { missing } => serde_json::json!({"missing": missing}),
+            VerifyOutcome::UnknownAdmin { admin_id } => serde_json::json!({"admin_id": admin_id}),
+            VerifyOutcome::TimestampSkew { skew_secs } => serde_json::json!({"skew_secs": skew_secs}),
+            VerifyOutcome::NonceReplay { admin_id } => serde_json::json!({"admin_id": admin_id}),
+            VerifyOutcome::SignatureMismatch { admin_id } => serde_json::json!({"admin_id": admin_id}),
+            VerifyOutcome::MalformedSignature => serde_json::json!({}),
+        },
+        "cite_pact": "AMEND-1-V2-SKELETON-bundle-of-8",
+    });
+    let line = format!("{}\n", row);
+    let path = "data/admin_origin_audit.jsonl";
+    if let Some(parent) = std::path::Path::new(path).parent()
+        && !parent.as_os_str().is_empty() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        Ok(mut f) => { let _ = f.write_all(line.as_bytes()); }
+        Err(e) => tracing::warn!(target: "admin_origin", error=%e, "audit-row write failed"),
+    }
+}
+
+/// Build the JSON 403 body emitted in enforce mode on non-Valid outcomes.
+fn enforce_403_response(outcome: &VerifyOutcome) -> Response {
+    let body = serde_json::json!({
+        "error": "origin-not-admin",
+        "reason": outcome.fail_reason(),
+        "cite_pact": "AMEND-1-V2-SKELETON-bundle-of-8",
+    });
+    (StatusCode::FORBIDDEN, axum::Json(body)).into_response()
+}
+
+/// Axum middleware: verify Admin-origin signature on incoming write requests.
+///
+/// Mode-driven via AppState.config.auth.admin_origin_mode (read per-request to
+/// allow runtime config reload without restart). Disabled mode = fast no-op
+/// (no body capture, no header lookup, no audit row). LogOnly = verify + warn +
+/// audit-row + allow through. Enforce = verify + 403 on non-Valid.
+///
+/// Bypass: BYPASS_ADMIN_ORIGIN=1 env var (logs WARN; for disaster recovery).
+///
+/// Phase 2 default: mode=disabled per AuthConfig default. Phase 2 wiring attaches
+/// this layer to staff_routes(); Admin-app signing rollout precedes mode flip.
+pub async fn admin_origin_middleware(
+    State(state): State<Arc<AppState>>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, Response> {
+    let mode = AdminOriginMode::from_config_str(&state.config.auth.admin_origin_mode);
+
+    // Disabled fast-path — no body capture, no work.
+    if mode == AdminOriginMode::Disabled {
+        return Ok(next.run(req).await);
+    }
+
+    // Bypass check (Disaster recovery).
+    if std::env::var("BYPASS_ADMIN_ORIGIN").as_deref() == Ok("1") {
+        tracing::warn!(target: "admin_origin", "BYPASS_ADMIN_ORIGIN=1 — skipping verification");
+        return Ok(next.run(req).await);
+    }
+
+    let (parts, body) = req.into_parts();
+    let method = parts.method.as_str().to_string();
+    let path = parts.uri.path().to_string();
+    let headers_extracted = extract_headers(&parts.headers);
+    let admin_id_opt = headers_extracted.admin_id.map(String::from);
+    let nonce_opt = headers_extracted.nonce_b64.map(String::from);
+    let ts_opt = headers_extracted.timestamp_rfc3339.map(String::from);
+    let sig_opt = headers_extracted.signature_b64.map(String::from);
+
+    let bytes = match axum::body::to_bytes(body, BODY_CAPTURE_LIMIT_BYTES).await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(target: "admin_origin", error=%e, "body capture failed (>limit?)");
+            return Err((StatusCode::PAYLOAD_TOO_LARGE, "body too large").into_response());
+        }
+    };
+    let body_len = bytes.len();
+
+    let headers = AdminOriginHeaders {
+        admin_id: admin_id_opt.as_deref(),
+        nonce_b64: nonce_opt.as_deref(),
+        timestamp_rfc3339: ts_opt.as_deref(),
+        signature_b64: sig_opt.as_deref(),
+    };
+
+    let outcome = verify_with_global_cache(
+        &headers,
+        &method,
+        &path,
+        &bytes,
+        &state.config.auth.admin_origin_secrets,
+        state.config.auth.admin_origin_max_skew_secs,
+    );
+
+    if !outcome.is_valid() {
+        tracing::warn!(
+            target: "admin_origin",
+            mode = ?mode,
+            method = %method,
+            path = %path,
+            outcome = %outcome.fail_reason(),
+            "Admin-origin verification failed"
+        );
+        write_audit_row(mode, &method, &path, &outcome, body_len);
+        if mode == AdminOriginMode::Enforce {
+            return Err(enforce_403_response(&outcome));
+        }
+    }
+
+    // Reconstruct request with captured body and pass through.
+    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
+    Ok(next.run(req).await)
+}
+
 #[cfg(test)]
 #[path = "admin_origin_tests.rs"]
 mod admin_origin_tests;

@@ -830,7 +830,12 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pricing/engine/recommendations", get(crate::pricing_engine::recommendations_handler))
         .route("/pricing/engine/apply", post(crate::pricing_engine::apply_recommendation_handler))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
+        // V2-skeleton AMEND-1 §1: admin_origin_middleware between non-pod-source
+        // and staff JWT. Default mode=disabled (fast no-op). Phase 2 = log-only flip
+        // after Admin-app signing rolls out; Phase 3 = enforce.
+        // @cite_pact AMEND-1-V2-SKELETON-bundle-of-8
         .layer(axum::middleware::from_fn(require_non_pod_source))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::admin_origin::admin_origin_middleware))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
 }
 

@@ -281,3 +281,139 @@ fn far_future_timestamp_rejected() {
     let outcome = verify(&headers, "POST", "/x", body, &fresh_secrets(), DEFAULT_MAX_SKEW_SECS, &cache);
     assert_eq!(outcome.fail_reason(), "timestamp-skew");
 }
+
+// ─── Phase 2 middleware integration tests ──────────────────────────────────
+mod middleware_integration {
+    use super::*;
+    use std::sync::Arc;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        middleware::from_fn_with_state,
+        routing::post,
+        Router,
+    };
+    use tower::ServiceExt;
+    use crate::state::AppState;
+
+    async fn test_state_with(mode: &str) -> Arc<AppState> {
+        let mut config = crate::config::Config::default_test();
+        config.auth.admin_origin_mode = mode.to_string();
+        config.auth.admin_origin_secrets.insert(
+            TEST_ADMIN.to_string(),
+            TEST_SECRET.to_string(),
+        );
+        config.auth.admin_origin_max_skew_secs = DEFAULT_MAX_SKEW_SECS;
+
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new(config, pool, field_cipher))
+    }
+
+    fn test_app(state: Arc<AppState>) -> Router {
+        Router::new()
+            .route("/echo", post(|body: String| async move { body }))
+            .layer(from_fn_with_state(state.clone(), super::super::admin_origin_middleware))
+            .with_state(state)
+    }
+
+    fn fresh_nonce() -> String {
+        // 16 random bytes per request; tests may call repeatedly so randomise
+        use std::time::SystemTime;
+        let n = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+        base64::engine::general_purpose::STANDARD.encode(n.to_be_bytes())
+    }
+
+    fn build_request(headers: Option<(String, String, String, String)>, path: &str, body: &str) -> Request<Body> {
+        let mut req = Request::builder().uri(path).method("POST");
+        if let Some((admin, nonce, ts, sig)) = headers {
+            req = req
+                .header("X-Origin-Admin", admin)
+                .header("X-Origin-Nonce", nonce)
+                .header("X-Origin-Timestamp", ts)
+                .header("X-Origin-Signature", sig);
+        }
+        req.body(Body::from(body.to_string())).unwrap()
+    }
+
+    #[tokio::test]
+    async fn disabled_mode_passes_through_without_signature() {
+        let state = test_state_with("disabled").await;
+        let app = test_app(state);
+        let resp = app.oneshot(build_request(None, "/echo", "hi")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn log_only_mode_passes_through_with_invalid_signature() {
+        let state = test_state_with("log-only").await;
+        let app = test_app(state);
+        let resp = app.oneshot(build_request(None, "/echo", "hi")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "log-only must allow through");
+    }
+
+    #[tokio::test]
+    async fn enforce_mode_rejects_missing_headers_with_403() {
+        let state = test_state_with("enforce").await;
+        let app = test_app(state);
+        let resp = app.oneshot(build_request(None, "/echo", "hi")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn enforce_mode_passes_valid_signature() {
+        let state = test_state_with("enforce").await;
+        let app = test_app(state);
+        let body = "hello-world";
+        let nonce = fresh_nonce();
+        let ts = chrono::Utc::now().to_rfc3339();
+        let canonical = canonical_string(TEST_ADMIN, "POST", "/echo", &nonce, &ts, body.as_bytes());
+        let sig = sign(TEST_SECRET.as_bytes(), &canonical);
+        let resp = app
+            .oneshot(build_request(
+                Some((TEST_ADMIN.to_string(), nonce, ts, sig)),
+                "/echo",
+                body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn enforce_mode_rejects_bad_signature_with_403() {
+        let state = test_state_with("enforce").await;
+        let app = test_app(state);
+        let body = "x";
+        let nonce = fresh_nonce();
+        let ts = chrono::Utc::now().to_rfc3339();
+        // Sign with WRONG secret
+        let canonical = canonical_string(TEST_ADMIN, "POST", "/echo", &nonce, &ts, body.as_bytes());
+        let sig = sign(b"wrong-secret", &canonical);
+        let resp = app
+            .oneshot(build_request(
+                Some((TEST_ADMIN.to_string(), nonce, ts, sig)),
+                "/echo",
+                body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn body_passed_through_unchanged_after_capture() {
+        let state = test_state_with("disabled").await;
+        let app = test_app(state);
+        let body = "the-body-must-survive-capture-and-replay";
+        let resp = app.oneshot(build_request(None, "/echo", body)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&bytes[..], body.as_bytes(), "echo handler must see original body");
+    }
+}
