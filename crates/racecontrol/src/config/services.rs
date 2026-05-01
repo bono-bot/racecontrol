@@ -127,7 +127,31 @@ pub struct AuthConfig {
     /// Set via RACECONTROL_BREAK_GLASS_SECRET env var or config file.
     #[serde(default)]
     pub break_glass_secret: Option<String>,
+
+    /// V2-skeleton AMEND-1 §1 connection_heart_admin: mode for Admin-origin
+    /// signature middleware. Values: "disabled" (default, Phase 1 substrate-only) |
+    /// "log-only" (verify + warn, allow through) | "enforce" (verify + 403 on fail).
+    /// Phase 1 ships substrate without router wiring; this field is read but has
+    /// no effect until Phase 2 wires the middleware into the router.
+    /// @cite_pact AMEND-1-V2-SKELETON-bundle-of-8
+    #[serde(default = "default_admin_origin_mode")]
+    pub admin_origin_mode: String,
+
+    /// V2-skeleton AMEND-1 §1: HMAC-SHA256 secrets per Admin instance (e.g.
+    /// "venue-admin", "cloud-admin"). Each Admin instance signs its outbound
+    /// requests with its secret; Heart middleware verifies via this map.
+    /// Empty map (default) means no Admin instances are configured to sign.
+    #[serde(default)]
+    pub admin_origin_secrets: std::collections::HashMap<String, String>,
+
+    /// V2-skeleton AMEND-1 §1: Absolute timestamp skew tolerance (seconds) for
+    /// Admin-origin signed requests. Default 60s. Replay defense window is 2× this.
+    #[serde(default = "default_admin_origin_skew")]
+    pub admin_origin_max_skew_secs: i64,
 }
+
+fn default_admin_origin_mode() -> String { "disabled".to_string() }
+fn default_admin_origin_skew() -> i64 { 60 }
 
 impl Default for AuthConfig {
     fn default() -> Self {
@@ -141,6 +165,9 @@ impl Default for AuthConfig {
             evolution_instance: None,
             admin_pin_hash: None,
             break_glass_secret: None,
+            admin_origin_mode: default_admin_origin_mode(),
+            admin_origin_secrets: std::collections::HashMap::new(),
+            admin_origin_max_skew_secs: default_admin_origin_skew(),
         }
     }
 }
