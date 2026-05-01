@@ -423,6 +423,10 @@ if (typeof document !== 'undefined' && !document.getElementById('rp-anim')) {
       20%, 60% { transform: translateX(-10px); }
       40%, 80% { transform: translateX(10px); }
     }
+    @keyframes rp-slide {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
   `;
   document.head.appendChild(s);
 }
