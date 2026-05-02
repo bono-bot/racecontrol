@@ -173,3 +173,68 @@ If we stop at any Pn, v2 stops clean — v1 keeps operating, no partial state.
 3. **P1 first key confirmation.** `mesh_service_key` is my pick (Gap 4 already scoped it). Override?
 4. **P7 artifact registry choice.** `ghcr.io` (free, public-private) vs self-hosted on Bono VPS vs Docker Hub?
 5. **Budget for MMA audits.** Each phase's design doc through MMA adds ~$0.10-0.50 per consensus run. Budget cap per phase?
+
+---
+
+## AMENDMENT 2026-05-02 — F7+F8+F9+F12 Resilience Foundation contracts + Step 2.5 insertion (PACT-COMPOSITE-RATIFY-EVENT-002)
+
+**Source:** Captain Uday G33-GUIDE-CONFIRM 2026-05-02 ~09:04 IST verbatim *"Ratify the 4-PACT cluster — PACT-008, PACT-009, PACT-010, PACT-20260502-001 — as a single-cycle composite-cluster ratify event. Confirm the quartet F7+F8+F9+F12, Step 2.5 sub-sequence F9→F8→F7→F12, CONSTRAINT-017/018/019/020, RATIFY-SPLIT envelope as procedural fallback."* Substrate-anchor: comms-link `7d86032`. PACT-CHARTER §V2.0 ledger rows 12-15.
+
+**Context:** This amendment composes with the original V1→V2 architectural plan above (P1-P7 phases targeting state-drift / event-ledger / contract-drift classes) but operates at a different layer — the **V2.0 surface rollout sequencing** for the 14-surface launch (Admin 5 + POS 4 + Kiosk 1 + PWA 4). Step numbering here is **surface-rollout sequencing**, not architectural-phase numbering.
+
+### Surface-rollout step sequence (V2.0 launch path)
+
+| Step | Scope | Status |
+|------|-------|--------|
+| Step 1 | Admin Operator Cockpit | shipped (per session_handoff_20260502_v2_design_bundle_full_port) |
+| Step 2 | Admin Settings / Feature Flag Hub (architecturally upstream — gate-master) | partial; UI shell shipped |
+| **Step 2.5** | **Resilience Foundation (F9 → F8 → F7 → F12)** — NEW per this amendment | **specs landing this commit; implementation pending** |
+| Step 3 | Admin Pods + Services + Customers | gated on F7+F12 |
+| Step 4 | POS surfaces (Walk-in / Cafe / TopUp / PodOcc) | post-Step-3 |
+| Step 5 | PWA surfaces (Reg / Profile / Cafe-menu / Wallet) | post-Step-4 |
+| Step 6 | Polish | pre-ship |
+| Step 7 | V2.0 ship gate | terminal |
+
+### F7+F8+F9+F12 contract registry (Resilience Foundation)
+
+The 4 contracts ratified at composite-ratify-event #2 form **Step 2.5 Resilience Foundation**. Sub-sequence ordering F9 → F8 → F7 → F12 is binding per Captain disposition + bono close-scope C2 absorbed caveat.
+
+| Contract | Title | Sub-sequence | CONSTRAINT | Spec |
+|----------|-------|--------------|-----------|------|
+| **F9** | Atomic Deploy | 1st (deploy infra precedes all surfaces) | CONSTRAINT-019 | `racecontrol/.planning/specs/v2-step-2.5-f9-atomic-deploy.md` |
+| **F8** | Kiosk Session Persistence | 2nd (closes acute Kiosk silent-state-loss) | CONSTRAINT-018 | `racecontrol/.planning/specs/v2-step-2.5-f8-kiosk-session-persistence.md` |
+| **F7** | Pod Resilience | 3rd (closes Pods truth source via heartbeat) | CONSTRAINT-017 | `racecontrol/.planning/specs/v2-step-2.5-f7-pod-resilience.md` |
+| **F12** | Idempotency Layer | 4th (gates Razorpay PR; financial-irreversibility class) | CONSTRAINT-020 | `racecontrol/.planning/specs/v2-step-2.5-f12-idempotency-layer.md` |
+
+### Sub-sequence rationale (F9 → F8 → F7 → F12)
+
+- **F9 first** (close-scope C2): atomic-deploy infrastructure must precede surface-coupling — ships F7+F8 cleanly without inheriting V1 fleet-drift plague.
+- **F8 second** (close-scope C2): closes acute Kiosk silent-state-loss-on-refresh failure mode (V1 antipattern empirically observed); customer-impact-class so prioritized over F7.
+- **F7 third** (close-scope C2): closes Pods truth source via heartbeat (Admin-Pods status authoritative-source flip).
+- **F12 last** (close-scope C2): builds on F9 atomic-deploy + needs F7/F8 stability primitives in place; financial-irreversibility class (Razorpay double-charge prevention) is critical-class but not pre-condition for F7/F8.
+
+### Composes-with original P1-P7 architectural plan
+
+- **P1 Config migration** (state-drift class) composes-with F9 Atomic Deploy (F9 deploy.sh consumes config service from P1 phases 446-452).
+- **P2 Event ledger** (no-event-ledger class) composes-with F8 Kiosk Session Persistence (F8 writes are first-class events in F1/P2 ledger).
+- **P3 Typed contracts** composes-with F7 Pod Resilience (F7 heartbeat schema is utoipa/ts-rs-generated end-to-end).
+- **P5 One supervisor** composes-with F9 (F9 deploy unit definitions consumed by P5 supervisor).
+- **F12 Idempotency** is orthogonal to P1-P7 (cross-cutting middleware layer; not a class-replacement).
+
+### Razorpay PR gate (CONSTRAINT-020)
+
+Razorpay integration PR is BLOCKED until F12 status=ACTIVE-ENFORCEMENT. Pre-F12-ship Razorpay PR-merge attempt = CONSTRAINT-020 violation. Rationale: financial-irreversibility class (gateway charges not idempotent at provider-layer; double-charge = customer-money loss without recourse). PR-merge gate ACTIVE immediately at this ratify event (CONSTRAINT-020 fires even pre-F12-ship — intentional class-aware-N threshold).
+
+### Step 2.5 deliverables (this commit)
+
+- 4 skeleton spec files at `racecontrol/.planning/specs/v2-step-2.5-{f9,f8,f7,f12}-*.md` (no implementation; contract-shape only).
+- This amendment block in V2-FOUNDATION-MILESTONE.md.
+- PACT-CHARTER.md §V2.0 ledger rows 12-15 + CONSTRAINT-017/018/019/020 promotions (`comms-link/PACT-CHARTER.md`).
+
+### Implementation gating
+
+- F9 implementation: gated on Captain explicit verb to start Step 2.5 implementation phase (this amendment lands spec-shape only; not implementation-execution).
+- F8/F7/F12 implementation: gated on F9 landing first per sub-sequence.
+- Each contract goes through its own GSD plan-phase cycle when authorized.
+
+**Stale-at:** durable until V2.0 ships OR scope shift (≥3 contracts re-scoped).
