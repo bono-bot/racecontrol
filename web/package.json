@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "prebuild": "node ../scripts/inject-git-commit.js && bash ../scripts/validate-frontend-env.sh",
     "build": "next build && node ../scripts/postbuild-standalone.js",
     "start": "next start",
