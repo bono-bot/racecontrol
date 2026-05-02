@@ -203,6 +203,8 @@ const ICON_PATHS: Record<string, string> = {
   gauge:    'M12 14l4-4 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4',
   card:     'M2 7h20v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z M2 11h20',
   alert:    'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01',
+  printer:  'M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z',
+  drawer:   'M2 7h20v10H2z M11 12h2 M2 11h20',
 };
 
 export function Icon({
