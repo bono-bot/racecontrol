@@ -68,4 +68,42 @@ mod tests {
             .expect("count customers");
         assert_eq!(count, 0);
     }
+
+    #[tokio::test]
+    async fn audit_trail_never_delete_triggers_block_topup_deletion() {
+        // Addresses MMA VERIFY P0 (Grok adversarial 2026-05-03):
+        // 8-year retention is structurally enforced by BEFORE DELETE triggers
+        // on wallet_topups + wallet_redemptions that RAISE(ABORT).
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        // Seed minimum FK chain: customer + wallet + topup row.
+        sqlx::query(
+            "INSERT INTO customers (id, phone) VALUES ('cust-1', '+919999999999')",
+        )
+        .execute(&pool).await.expect("seed customer");
+        sqlx::query(
+            "INSERT INTO wallets (id, customer_id, balance_credits) VALUES ('w-1', 'cust-1', 1000)",
+        )
+        .execute(&pool).await.expect("seed wallet");
+        sqlx::query(
+            "INSERT INTO wallet_topups (id, wallet_id, credits_purchased, gst_collected_paise, \
+             amount_paid_paise, payment_method, staff_id, pos_id, tax_invoice_no) \
+             VALUES ('t-1', 'w-1', 1000, 18000, 118000, 'cash', 's-1', 'pos-1', 'INV-001')",
+        )
+        .execute(&pool).await.expect("seed topup");
+
+        // Attempt deletion → trigger aborts.
+        let res = sqlx::query("DELETE FROM wallet_topups WHERE id = 't-1'")
+            .execute(&pool)
+            .await;
+        assert!(res.is_err(), "DELETE on wallet_topups must be blocked by trigger");
+
+        // Row still present.
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM wallet_topups")
+            .fetch_one(&pool).await.expect("count topups");
+        assert_eq!(n, 1);
+    }
 }
