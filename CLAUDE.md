@@ -34,6 +34,23 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 
 ---
 
+## V2-only forward path (Captain directive 2026-05-01 IST, refined post-G9 #2)
+
+**V2 is the only forward architectural path for the RacingPoint ecosystem. Every new session must be geared toward supporting and building V2.**
+
+**V2 incorporates V1 modules** per `comms-link/v2-skeleton/05-definition-of-done.md` keep/mold/discard filter. Carry-forwards include the currency unit (rupee=credit, DoD line 39) · top-up bonus-credit ladder (DoD line 64) · kiosk-staff launch first iteration (Skeleton line 71) · all V1 organs (racecontrol, comms-link, admin, whatsapp-bot, kiosk, pods, POS — V2 adds the skeleton layer atop).
+
+**What V2 closes is V1-shaped antipatterns** — organ silos without skeleton, point-to-point ad-hoc connections, manual operations that bypass ratified flows. NOT V1 components categorically.
+
+**Pre-action V2-transport check** (mandatory for prod-touch — Server .23 / Pods 1-8 / POS .130 / Cloud apps / comms-link prod / Bono VPS prod):
+1. **Q1** — Is the target classified as production?
+2. **Q2** — Grep `reference_local_capabilities.md` for the ratified V2 transport (bono comms-link relay `localhost:8766/relay/exec/run`, `/rp-bono-exec` skill, `/rp-james-exec` skill, `ssh server` alias, rc-sentry `:8091/exec` pod-side).
+3. **Q3** — Use it. If no V2 transport exists for the target, halt and ask Captain — **never invent a V1 fallback.**
+
+**Composes with:** Rule 0 · H4 · PACT-027 §10 · AMEND-1 bundle-of-8 (RATIFIED 2026-05-01 ~06:05 IST). Empirical anchors: G9 #1 direct-SSH-to-prod (correct path was bono-relay); G9 #2 over-broad "V1 closed" wording corrected via spec-grep. Master memory: `feedback_v2_only_forward_path.md`. Charter doctrine: `comms-link/PACT-CHARTER.md` §V2.0.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
