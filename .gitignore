@@ -140,3 +140,9 @@ pwa/public/build-info.json
 # Runtime-generated rc-sentry exec payload files (created during pod deploy sessions)
 scripts/deploy/pod4-*.json
 tmp/
+
+# Runtime audit / log / state artifacts (per-file specific — sibling files at same paths
+# are tracked: crates/racecontrol/data/launch-events.jsonl, logs/racecontrol-*.jsonl)
+crates/racecontrol/data/admin_origin_audit.jsonl
+logs/conspitlink-cull.jsonl
+state/fleet-manifest/
