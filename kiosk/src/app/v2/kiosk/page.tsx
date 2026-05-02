@@ -1,13 +1,16 @@
 'use client';
 
 // Racing Point V2 Kiosk — staff-operated, mouse+keyboard, 1280×800 landscape
-// 13-step state machine: PIN → ForgotPIN → Register → PickGame → AcMode → AcSpSetup
-//                       → AcMpLobby → Experience → Handoff → Live → Console → End → Results
-// Source: claude.ai/design handoff bundle (PyiT2ipTf0VdYL8V9vd7-A) — 2026-05-02
+// 12-step state machine. Three branches diverge at PickGame:
+//   AC SP    : pickGame → acMode → acSpSetup → experience → handoff → live → results
+//   AC MP    : pickGame → acMode → acMpLobby → acMpLobbyRoom → handoff → live → results  (Experience skipped — host config locked)
+//   non-AC   : pickGame → handoff → live → results                                       (Experience skipped — no session picker)
+// Source: claude.ai/design handoff bundle (hq8O1_qIHf27VSd3rvj51g) — 2026-05-02
 
 import * as React from 'react';
 import { RP } from '@/components/v2/tokens';
 import type { KioskGame } from '@/components/v2/kiosk/KioskShared';
+import type { AcLobbyInfo } from '@/components/v2/kiosk/KioskAcLobbyRoom';
 
 export type KioskStep =
   | 'pin'
@@ -17,11 +20,10 @@ export type KioskStep =
   | 'acMode'
   | 'acSpSetup'
   | 'acMpLobby'
+  | 'acMpLobbyRoom'
   | 'experience'
   | 'handoff'
   | 'live'
-  | 'console'
-  | 'end'
   | 'results';
 
 export interface KioskFlowState {
@@ -30,6 +32,7 @@ export interface KioskFlowState {
   driverClass?: 'Rookie' | 'Apex' | 'Podium' | 'Champion';
   game?: KioskGame;
   acMode?: 'sp' | 'mp';
+  lobby?: AcLobbyInfo;
 }
 
 const initialState: KioskFlowState = { step: 'pin', driverName: 'Uday Singh' };
@@ -39,13 +42,13 @@ const KioskPin       = React.lazy(() => import('@/components/v2/kiosk/KioskPin')
 const KioskForgotPin = React.lazy(() => import('@/components/v2/kiosk/KioskForgotPin').then(m => ({ default: m.KioskForgotPin })));
 const KioskRegister  = React.lazy(() => import('@/components/v2/kiosk/KioskRegister').then(m => ({ default: m.KioskRegister })));
 const KioskGamePick  = React.lazy(() => import('@/components/v2/kiosk/KioskGamePick').then(m => ({ default: m.KioskGamePick })));
-const KioskAcMode    = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcMode })));
-const KioskAcLobby   = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcLobby })));
-const KioskAcSetup   = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcSetup })));
+const KioskAcMode      = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcMode })));
+const KioskAcLobby     = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcLobby })));
+const KioskAcSetup     = React.lazy(() => import('@/components/v2/kiosk/KioskAc').then(m => ({ default: m.KioskAcSetup })));
+const KioskAcLobbyRoom = React.lazy(() => import('@/components/v2/kiosk/KioskAcLobbyRoom').then(m => ({ default: m.KioskAcLobbyRoom })));
 const KioskExperience= React.lazy(() => import('@/components/v2/kiosk/KioskExperience').then(m => ({ default: m.KioskExperience })));
 const KioskHandoff   = React.lazy(() => import('@/components/v2/kiosk/KioskHandoff').then(m => ({ default: m.KioskHandoff })));
 const KioskLive      = React.lazy(() => import('@/components/v2/kiosk/KioskLive').then(m => ({ default: m.KioskLive })));
-const KioskConsole   = React.lazy(() => import('@/components/v2/kiosk/KioskConsole').then(m => ({ default: m.KioskConsole })));
 const KioskResults   = React.lazy(() => import('@/components/v2/kiosk/KioskResults').then(m => ({ default: m.KioskResults })));
 
 export default function KioskV2Page() {
@@ -92,7 +95,7 @@ export default function KioskV2Page() {
         <KioskGamePick
           driverName={flow.driverName}
           onPickAc={(game) => goTo('acMode', { game })}
-          onPickSimple={(game) => goTo('experience', { game })}
+          onPickSimple={(game) => goTo('handoff', { game, acMode: undefined })}
           onBack={() => goTo('register')}
         />
       );
@@ -118,8 +121,19 @@ export default function KioskV2Page() {
     case 'acMpLobby':
       body = (
         <KioskAcLobby
-          onJoin={() => goTo('experience')}
+          onJoin={() => goTo('acMpLobbyRoom', {
+            lobby: { name: 'TUESDAY-LEAGUE', track: 'Spa-Francorchamps', car: 'GT3', format: 'Sprint · 8 laps', host: 'Staff (Aman)' },
+          })}
           onBack={() => goTo('acMode')}
+        />
+      );
+      break;
+    case 'acMpLobbyRoom':
+      body = (
+        <KioskAcLobbyRoom
+          lobby={flow.lobby}
+          onLaunch={() => goTo('handoff')}
+          onLeave={() => goTo('acMpLobby')}
         />
       );
       break;
@@ -150,27 +164,6 @@ export default function KioskV2Page() {
           game={flow.game}
           driverName={flow.driverName}
           onSwitchGame={() => goTo('pickGame')}
-          onEnd={() => goTo('end')}
-        />
-      );
-      break;
-    case 'console':
-      body = (
-        <KioskConsole
-          mode="live"
-          driverName={flow.driverName}
-          game={flow.game}
-          onPause={() => goTo('live')}
-          onAbort={() => goTo('end')}
-        />
-      );
-      break;
-    case 'end':
-      body = (
-        <KioskConsole
-          mode="finished"
-          driverName={flow.driverName}
-          game={flow.game}
           onEnd={() => goTo('results')}
         />
       );
