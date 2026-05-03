@@ -1,0 +1,26 @@
+{
+  "pact": "PACT-20260503-004",
+  "f9_version": "v1",
+  "surface": "racecontrol",
+  "git_sha": "9183900930fc1a36f1b3af71d241c17d9b200b47",
+  "git_branch": "pact-20260503-004-v2-deploy-atomic-foundation",
+  "git_author": "James Vowles <james@racingpoint.in>",
+  "git_committer": "bono",
+  "ts_utc": "2026-05-03T00:14:03Z",
+  "ts_ist": "2026-05-03 00:14 IST",
+  "binary_hash": "n/a-v1",
+  "caller": "f9-deploy-sh",
+  "pre_conditions": {
+    "git_clean": true,
+    "ci_green": false,
+    "constraint_019_binding": true
+  },
+  "delegate": {
+    "cmd": "bash /c/Users/bono/racingpoint/racecontrol/scripts/deploy/deploy.sh racecontrol",
+    "exit_code": 0,
+    "duration_s": 0
+  },
+  "swaplog_appended": true,
+  "canary_pod": "",
+  "dry_run": true
+}

@@ -1,0 +1,29 @@
+# F9 v1 HALO probe attribution-whitelist
+# Format: <surface> <git_sha_or_prefix> <reason>
+# Lines beginning with # are comments. One entry per line.
+#
+# Surfaces deployed BEFORE F9 v1 ship lack SWAPLOG attribution. Whitelist entries here
+# tell halo-probe-deploy-source-attribution.sh to treat the entry as PASS rather than ATTRIBUTION-GAP.
+#
+# Initial whitelist (PACT-20260503-004 substrate landing): all surfaces deployed prior to F9 v1
+# This file may be expanded by Captain or pilots as needed; entries should cite the reason.
+#
+# After F9 v1 7-day soak (Phase 3 promotion), the probe becomes fail-CLOSED — entries here
+# remain valid (whitelist always overrides STRICT mode) but new entries should be exceptional.
+
+# Pre-F9 racecontrol deploys (V1 era; deploy-server.sh path)
+# racecontrol <sha> pre-F9-v1-ship (V1 deploy-server.sh path)
+
+# Pre-F9 web/kiosk/admin deploys (V1 era; deploy-nextjs.sh path)
+# web <sha> pre-F9-v1-ship (V1 deploy-nextjs.sh path)
+# kiosk <sha> pre-F9-v1-ship (V1 deploy-nextjs.sh path)
+# admin <sha> pre-F9-v1-ship (V1 deploy-nextjs.sh path)
+
+# Pre-F9 PWA deploys (V1 era; cloud-side npm build)
+# pwa <sha> pre-F9-v1-ship (V1 cloud bundle path)
+
+# Pre-F9 comms-link deploys (Bono VPS pm2 path)
+# comms-link <sha> pre-F9-v1-ship (V1 pm2 restart path)
+
+# Pre-F9 rc-agent deploys (Pods 1-8)
+# rc-agent <sha> pre-F9-v1-ship (V1 deploy-pod.sh / rc-sentry path)

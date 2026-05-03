@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racingpoint.cloud/schemas/v2-deploy-manifest-v1.json",
+  "title": "F9 v1 Deploy Manifest",
+  "description": "Per-deploy manifest written by v2-deploy/deploy.sh under PACT-20260503-004. Captures the full provenance of a single surface deploy.",
+  "type": "object",
+  "required": ["pact", "f9_version", "surface", "git_sha", "ts_utc", "caller", "pre_conditions", "delegate"],
+  "properties": {
+    "pact": {
+      "type": "string",
+      "const": "PACT-20260503-004",
+      "description": "PACT slot for the manifest format authoring (this PACT)"
+    },
+    "f9_version": {
+      "type": "string",
+      "enum": ["v1"],
+      "description": "F9 substrate version. v1 = per-surface atomic; v2 = cross-surface transactional (deferred)."
+    },
+    "surface": {
+      "type": "string",
+      "enum": ["racecontrol", "rc-agent", "web", "kiosk", "admin", "comms-link", "pwa"],
+      "description": "Per F9 spec surface enumeration"
+    },
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full 40-char SHA of deploy-source commit"
+    },
+    "git_branch": {
+      "type": "string",
+      "description": "Branch at deploy time (often 'main' for production deploys)"
+    },
+    "git_author": {
+      "type": "string",
+      "description": "Commit author (Name <email>)"
+    },
+    "git_committer": {
+      "type": "string",
+      "description": "Actual deployer username (may differ from author for backports / cherry-picks)"
+    },
+    "ts_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 UTC timestamp"
+    },
+    "ts_ist": {
+      "type": "string",
+      "description": "Human-readable IST timestamp (Asia/Kolkata)"
+    },
+    "binary_hash": {
+      "type": "string",
+      "description": "SHA256 of deployed artifact, or 'n/a-v1' for source-deployed surfaces in F9 v1 (signing deferred to F9 v2)"
+    },
+    "caller": {
+      "type": "string",
+      "enum": ["f9-deploy-sh", "f9-deploy-yml", "other"],
+      "description": "F9 invocation source. 'other' = CONSTRAINT-019 violation candidate (HALO probe surfaces)."
+    },
+    "pre_conditions": {
+      "type": "object",
+      "required": ["git_clean", "ci_green", "constraint_019_binding"],
+      "properties": {
+        "git_clean": {
+          "type": "boolean",
+          "description": "Working tree clean at deploy invocation (excluding session-state board files + Cargo.lock)"
+        },
+        "ci_green": {
+          "type": "boolean",
+          "description": "CI passing on HEAD; set by F9_CI_GREEN env var or --allow-red-ci flag bypass"
+        },
+        "constraint_019_binding": {
+          "type": "boolean",
+          "description": "CONSTRAINT-019 binding-text present in comms-link/PACT-CHARTER.md"
+        }
+      }
+    },
+    "delegate": {
+      "type": "object",
+      "required": ["cmd", "exit_code", "duration_s"],
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "description": "Sub-script command F9 v1 wrapped"
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "Exit code from delegate command (0 = success)"
+        },
+        "duration_s": {
+          "type": "integer",
+          "description": "Wall-clock seconds for delegate execution"
+        }
+      }
+    },
+    "swaplog_appended": {
+      "type": "boolean",
+      "description": "Whether SWAPLOG.md row was appended (false only when --no-swaplog flag set; debug/E2E only)"
+    },
+    "canary_pod": {
+      "type": "string",
+      "description": "Pod identifier for rc-agent canary deploys (e.g. 'pod8'); empty string for non-canary"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "Whether the invocation was --dry-run (delegate skipped; manifest still written for plan capture)"
+    },
+    "hmac_signature": {
+      "type": "string",
+      "description": "[F9 v2] HMAC-SHA256 of canonicalized manifest body. Absent in F9 v1."
+    }
+  },
+  "additionalProperties": false
+}
