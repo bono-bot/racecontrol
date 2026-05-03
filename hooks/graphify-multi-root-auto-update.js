@@ -26,12 +26,32 @@ const LOG_FILE = path.join(STATE_DIR, "graphify-bg.log");
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_FRESH_MS = 2 * 60 * 1000;
 
-const DEFAULT_ROOTS = [
+// Pilot layout auto-detect (Q3 Option A absorption from bono AMPLIFIER msg=34809;
+// MMA D5 unanimous 3/3 vendor-disjoint convergence on cross-machine path resolution).
+// james-side has racingpoint/<repo> subdir; bono-side has repos directly under HOME
+// + 4th repo is racingpoint-api-gateway (not whatsapp-bot — bono has no whatsapp-bot).
+// GRAPHIFY_MULTI_ROOTS_OVERRIDE env-var (below) still wins if set.
+const _racingPointSubdir = path.join(HOME, "racingpoint");
+const _hasRacingPointSubdir = (() => {
+  try { return fs.statSync(_racingPointSubdir).isDirectory(); }
+  catch (_) { return false; }
+})();
+
+const DEFAULT_ROOTS_JAMES = [
   { id: "racecontrol",       path: path.join(HOME, "racingpoint/racecontrol") },
   { id: "comms-link",        path: path.join(HOME, "racingpoint/comms-link") },
   { id: "racingpoint-admin", path: path.join(HOME, "racingpoint/racingpoint-admin") },
   { id: "whatsapp-bot",      path: path.join(HOME, "racingpoint/whatsapp-bot") },
 ];
+
+const DEFAULT_ROOTS_BONO = [
+  { id: "racecontrol",             path: path.join(HOME, "racecontrol") },
+  { id: "comms-link",              path: path.join(HOME, "comms-link") },
+  { id: "racingpoint-admin",       path: path.join(HOME, "racingpoint-admin") },
+  { id: "racingpoint-api-gateway", path: path.join(HOME, "racingpoint-api-gateway") },
+];
+
+const DEFAULT_ROOTS = _hasRacingPointSubdir ? DEFAULT_ROOTS_JAMES : DEFAULT_ROOTS_BONO;
 
 let ROOTS = DEFAULT_ROOTS;
 if (process.env.GRAPHIFY_MULTI_ROOTS_OVERRIDE) {
