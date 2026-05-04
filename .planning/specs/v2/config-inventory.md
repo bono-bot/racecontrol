@@ -45,7 +45,8 @@ What Phase 177 does NOT cover and P1 must add:
 
 | Key | File:line | Notes |
 |---|---|---|
-| `RACECONTROL_JWT_SECRET` | [crates/racecontrol/src/config/mod.rs:165](racingpoint/racecontrol/crates/racecontrol/src/config/mod.rs#L165) | Signs customer + staff JWTs |
+| `RC_JWT_SECRET` | [crates/racecontrol/src/config/mod.rs:165](racingpoint/racecontrol/crates/racecontrol/src/config/mod.rs#L165) | **Canonical (Phase 0.5a, PACT-20260503-017 Q2 AGREE-B).** Signs customer + staff JWTs. Matches racingpoint-admin TS `RC_JWT_SECRET`. |
+| `RACECONTROL_JWT_SECRET` | (same call site) | **Legacy fallback** — deprecated; will be removed in V2.1. Emits deprecation warn if used. Migrate to `RC_JWT_SECRET`. |
 | `RACECONTROL_ADMIN_PIN_HASH` | [config/mod.rs:396](racingpoint/racecontrol/crates/racecontrol/src/config/mod.rs#L396) | Admin login hash |
 | `RACECONTROL_TERMINAL_SECRET` | [config/mod.rs:402](racingpoint/racecontrol/crates/racecontrol/src/config/mod.rs#L402) | Terminal/kiosk auth |
 | `RACECONTROL_RELAY_SECRET` | [config/mod.rs:407](racingpoint/racecontrol/crates/racecontrol/src/config/mod.rs#L407) | Comms-link relay auth |

@@ -13,19 +13,53 @@ macro_rules! with_env_lock {
     }};
 }
 
+// Phase 0.5a JWT env-var canonicalization (PACT-20260503-017 Q2 AGREE-B):
+// RC_JWT_SECRET is canonical; RACECONTROL_JWT_SECRET is legacy fallback.
+// All tests clear BOTH env vars to avoid cross-test leakage.
+fn clear_jwt_env_vars() {
+    unsafe {
+        std::env::remove_var("RC_JWT_SECRET");
+        std::env::remove_var("RACECONTROL_JWT_SECRET");
+    }
+}
+
 #[test]
-fn jwt_secret_from_env_var() {
+fn jwt_secret_from_legacy_env_var() {
     let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    clear_jwt_env_vars();
     unsafe { std::env::set_var("RACECONTROL_JWT_SECRET", "env-secret-123"); }
     let result = resolve_jwt_secret("config-value");
     assert_eq!(result, "env-secret-123");
-    unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    clear_jwt_env_vars();
+}
+
+#[test]
+fn jwt_secret_from_canonical_env_var() {
+    let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    clear_jwt_env_vars();
+    unsafe { std::env::set_var("RC_JWT_SECRET", "canonical-secret-456"); }
+    let result = resolve_jwt_secret("config-value");
+    assert_eq!(result, "canonical-secret-456");
+    clear_jwt_env_vars();
+}
+
+#[test]
+fn jwt_secret_canonical_takes_priority_over_legacy() {
+    let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    clear_jwt_env_vars();
+    unsafe {
+        std::env::set_var("RC_JWT_SECRET", "canonical-wins");
+        std::env::set_var("RACECONTROL_JWT_SECRET", "legacy-loses");
+    }
+    let result = resolve_jwt_secret("config-value");
+    assert_eq!(result, "canonical-wins");
+    clear_jwt_env_vars();
 }
 
 #[test]
 fn jwt_secret_from_config_when_no_env() {
     let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    clear_jwt_env_vars();
     let result = resolve_jwt_secret("my-custom-secret");
     assert_eq!(result, "my-custom-secret");
 }
@@ -33,7 +67,7 @@ fn jwt_secret_from_config_when_no_env() {
 #[test]
 fn jwt_secret_rejects_dangerous_default() {
     let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    clear_jwt_env_vars();
     let result = resolve_jwt_secret("racingpoint-jwt-change-me-in-production");
     assert_ne!(result, "racingpoint-jwt-change-me-in-production");
     assert_eq!(result.len(), 64); // 32 bytes * 2 hex chars
@@ -42,7 +76,7 @@ fn jwt_secret_rejects_dangerous_default() {
 #[test]
 fn jwt_secret_auto_generates_on_empty() {
     let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    clear_jwt_env_vars();
     let result = resolve_jwt_secret("");
     assert_eq!(result.len(), 64);
     // Verify it's valid hex
@@ -52,7 +86,7 @@ fn jwt_secret_auto_generates_on_empty() {
 #[test]
 fn jwt_secret_auto_generate_is_random() {
     let _g = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { std::env::remove_var("RACECONTROL_JWT_SECRET"); }
+    clear_jwt_env_vars();
     let key1 = resolve_jwt_secret("");
     let key2 = resolve_jwt_secret("");
     assert_ne!(key1, key2, "Two auto-generated keys must differ");
