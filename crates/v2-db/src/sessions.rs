@@ -17,7 +17,11 @@ pub struct Session {
     pub ended_at: Option<DateTime<Utc>>,
     pub billing_state: BillingState,
     pub credits_consumed: i64,
-    pub staff_id: Uuid,
+    // PACT-018 AMEND-1 NEW-FINDING-1 absorbed: staff_id is String not Uuid.
+    // staff(id) is TEXT PRIMARY KEY (not UUID) per PACT-018 §2.2 — admin UI
+    // assigns whatever string shape it currently uses. Cross-stack JSON-string
+    // consistency; FK target alignment with TEXT staff(id).
+    pub staff_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
