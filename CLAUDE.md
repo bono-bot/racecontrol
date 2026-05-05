@@ -326,12 +326,32 @@ Cross-AI decisions use the layered PACT cascade. **Canonical specs live in `comm
 - **`comms-link/PACT-VOCAB.md`** (linguistic primitive) — 9-tag compact envelope (PACT-011)
 - **`comms-link/PACT-CHARTER.md`** (L1 fast-path) — 4 pre-authorized classes (`diagnostic-only`, `restart-storm-mitigation`, `zombie-cleanup`, `known-bug-hotfix`); in-class PACT proceeds on initiator vote alone
 - **`comms-link/JAMES-PROFILE.md` + `comms-link/BONO-PROFILE.md`** (L2 vote-drift) — when partner offline, online AI runs meta-prompt prediction; ≥0.85 confidence (in-class) / ≥0.90 (unclassified) / ≥0.92 (provisional James-profile) → emit `DRIFTED-VOTE-PENDING-CONFIRM`; partner CONFIRMs/CHALLENGEs on return
+- **L2.5 MMA-Substitute-Pilot** (Captain G33-LEVEL-B 2026-05-05 ~07:55 IST) — when partner offline + bilateral class OR pilot stuck-after-first-attempt OR knowledge-gap, online pilot runs MMA per ratified Protocol v4.0 (≥5 models / ≥3 vendor families via OpenRouter); MMA consensus stands in for partner AMPLIFIER vote; substitute has FULL authority during substitution; partner returns → INFORMED via NOTIFY (Q-OP3 substitute-pilot model). Class boundary: applies to doctrine + customer-impact + cross-pilot-affecting; does NOT apply to bono-internal substrate hygiene (literal-reading 30d freeze carve-out). Decider vote guaranteed by odd-N config (Q-OP2). Standard 24h CHALLENGE-AMEND window applies forward.
 - **L3 burst-duplex** — deferred until L2 calibration (7-day window, review 2026-05-02)
 - **L4 Uday escalation** — always-available G33 sync-engaged override
 
-**CGP gates always apply on L1 fast-path PACTs** — H1–H5 enforcement is independent of vote requirement. Charter relaxes vote, not discipline.
+**CGP gates always apply on L1 fast-path AND L2.5 MMA-substitute PACTs** — H1–H5 enforcement is independent of vote requirement. Charter/MMA-substitute relaxes vote, not discipline.
+
+**Attribution discipline (L2.5)**: when MMA-substitute interprets Captain doctrine into specific PACT cascade dispositions, the ledger entries (`pact-slots.jsonl` / `PACTS.md`) MUST attribute to the substitute pilot (`ai:"james"` or `ai:"bono"`), NOT to Captain. Captain ratified the DOCTRINE, not each downstream PACT under the cascade. Anti-pattern: substituting "Captain ratified the doctrine (Q1)" → "Captain ratified each downstream PACT in the ledger" — captured as META-class C sub-class N=26 (Captain-attribution-substitution; bono PART 34 §S-48.10).
 
 Full meta-prompt template + class definitions: `comms-link/CLAUDE.md` § PACT framework. When initiating a PACT, MUST add `CHARTER-CLASS:` field to proposal header (or `unclassified` for default dual-vote).
+
+### Security Debt — Open-by-Default Flagged-to-Close (Captain Q2 2026-05-05)
+
+**Captain G33-LEVEL-B 2026-05-05 ~07:55 IST verbatim Q2**: "Open by default but flagged to close later even when venue is up and running"
+
+V2 ships with V1 trust intact. Every grandfathered open path (auth gap, credential storage, policy gap, audit gap) MUST be logged in `comms-link/data/security-debt-ledger.jsonl` (append-only, one JSON per line) with explicit closure-Phase commitment. Closures hot-swap (no venue downtime). Transforms HARD-BLOCKER security gaps into debt-track that resolves progressively in subsequent phases.
+
+**Schema parity** to `openrouter-spend-{bono,james}.jsonl` discipline: append-only / inline comment at surface / closure-PACT auto-marks `closed: true` with PACT ID reference. Companion README at `comms-link/data/security-debt-ledger.README.md`.
+
+**Initial seeds (3 entries, bono PART 34 §S-48.4)**:
+1. PACT-026 §A direct racecontrol M2M paths — class=auth-gap; closure_phase=Post-V2.0-AUTH-Sprint
+2. PACT-018 staff.pin raw V1 contract — class=credential-storage; closure_phase=Phase-0.5c-AUTH (sibling sub-PACT for bcrypt-hardening; PACT-018 AMEND-1 RATIFIED 2026-05-05 09:43 IST absorbs CAVEAT-3 inline schema comment for this debt)
+3. Q4-3 dynamic pricing discount ceiling — class=policy-gap; closure_phase=Post-V2.0-Pricing-Calibration
+
+**Bilateral writers**: both pilots append entries when encountering open-by-default paths during V2 work. Bono parity-trips entries on V2.0 milestone audit.
+
+**Composes-with**: PACT-026 §A NO-direct-heart-narrow-carve-out (CAVEAT-C3 transforms BLOCKER → debt-track); §S-48.6 Universal Sync rule; Captain "loophole-vs-saintly" calibration substrate (V2-MASTER-STATE §S-30.1).
 
 ### Code Quality
 
