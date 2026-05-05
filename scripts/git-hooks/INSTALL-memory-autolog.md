@@ -37,18 +37,18 @@ Total: 12 | PASS: 12 | FAIL: 0
 ```bash
 # from racecontrol repo root:
 git config --local core.hooksPath scripts/git-hooks
-chmod +x scripts/git-hooks/post-merge-memory-autolog.sh
-ln -sf post-merge-memory-autolog.sh scripts/git-hooks/post-merge
+chmod +x scripts/git-hooks/post-merge-memory-autolog.sh scripts/git-hooks/post-merge
 ```
 
-The third line is needed because git invokes hooks by their canonical name (`post-merge`), not the descriptive name. The symlink lets the executable have a meaningful filename in repo while still being picked up by git.
+The `post-merge` file is a small wrapper script (already committed) that `exec`s `post-merge-memory-autolog.sh`. Wrapper > symlink because `ln -sf` on Git Bash for Windows silently creates a COPY (verified 2026-05-05 — both files showed `-rwxr-xr-x` mode at identical 4497 bytes, not the `lrwxrwxrwx` mode a real symlink would show). A copy diverges from the canonical script across updates; a wrapper always exec's the current canonical implementation.
 
 ## Rollback (1 command, fully reversible)
 
 ```bash
 git config --local --unset core.hooksPath
-# or (if you want to delete entirely)
-rm -f scripts/git-hooks/post-merge scripts/git-hooks/post-merge-memory-autolog.sh
+# the wrapper + canonical scripts stay on disk but are no longer invoked
+# by git. To remove entirely:
+# (NOT typically necessary; leaving them dormant is fine)
 ```
 
 ## BYPASS for individual operations
