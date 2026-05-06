@@ -190,6 +190,120 @@ foreach ($s in $sentinels) {
 }
 
 # ----------------------------------------------------------------------------
+# Cleanup 4 -- Legacy / superseded scheduled tasks (REQUIRES ADMIN)
+# ----------------------------------------------------------------------------
+Log ""
+Log "--- Cleanup 4: legacy scheduled tasks (admin required) ---"
+
+$legacyTasks = @(
+  "RC-Agent Watchdog","RCAgentWatchdog","RacingPoint-PodAgent","RacingPoint-RcAgent",
+  "StartRCAgentNow","TempStartRCAgent","RCAgentNow","RC-Test","RC-Update"
+)
+# DEFERRED: StartRCAgentOnLogon (currently in Running state on pod1; defer to next reboot cycle)
+
+foreach ($name in $legacyTasks) {
+  $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if (-not $t) {
+    Log "task $name not present" "SKIP"
+    $totalSkipped++
+    continue
+  }
+  if ($Apply) {
+    try {
+      Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop
+      Log "REMOVED task $name (was state=$($t.State))" "ACTION"
+      $totalActions++
+    } catch {
+      Log "FAILED removing task $name : $($_.Exception.Message)" "ERROR"
+    }
+  } else {
+    Log "would remove task $name (state=$($t.State))" "ACTION"
+    $totalActions++
+  }
+}
+
+# ----------------------------------------------------------------------------
+# Cleanup 5 -- Forbidden HKLM Run keys (REQUIRES ADMIN)
+# ----------------------------------------------------------------------------
+Log ""
+Log "--- Cleanup 5: forbidden HKLM Run keys (admin required) ---"
+
+$hklmRun = "Registry::HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run"
+$forbiddenHKLM = @("RPMKickstart")  # GIGABYTE Smart Backup -- not part of canonical pod stack
+
+foreach ($k in $forbiddenHKLM) {
+  $val = Get-ItemProperty -Path $hklmRun -Name $k -ErrorAction SilentlyContinue
+  if (-not $val -or -not ($val.PSObject.Properties.Name -contains $k)) {
+    Log "HKLM\Run\$k not present" "SKIP"
+    $totalSkipped++
+    continue
+  }
+  $current = $val.$k
+  if ($Apply) {
+    try {
+      Remove-ItemProperty -Path $hklmRun -Name $k -ErrorAction Stop
+      Log "REMOVED HKLM\Run\$k (was: $current)" "ACTION"
+      $totalActions++
+    } catch {
+      Log "FAILED HKLM\Run\$k removal: $($_.Exception.Message)" "ERROR"
+    }
+  } else {
+    Log "would remove HKLM\Run\$k (was: $current)" "ACTION"
+    $totalActions++
+  }
+}
+
+# ----------------------------------------------------------------------------
+# Cleanup 6 -- Wintun ghost adapter cleanup (REQUIRES ADMIN)
+# Removes all Wintun device-instances except the active Tailscale one.
+# Each pod ideally has 1 Wintun adapter (Tailscale's). Anything extra is ghost.
+# ----------------------------------------------------------------------------
+Log ""
+Log "--- Cleanup 6: Wintun ghost adapters (admin required, pnputil) ---"
+
+$wintunDevices = Get-PnpDevice -Class Net -ErrorAction SilentlyContinue | Where-Object {
+  $_.FriendlyName -like "*Wintun*" -or $_.HardwareID -like "*Wintun*"
+}
+
+# Identify the ACTIVE Wintun: the NetAdapter whose IPv4 is in 100.x (Tailscale) range.
+# Get its PnPDeviceID and match against Get-PnpDevice InstanceId.
+$activeAdapter = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {
+  $_.InterfaceAlias -in (
+    (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+       Where-Object { $_.IPAddress -like "100.*" -and $_.AddressState -eq 'Preferred' }).InterfaceAlias
+  )
+} | Select-Object -First 1
+
+$activePnpId = if ($activeAdapter) { $activeAdapter.PnPDeviceID } else { $null }
+Log "Active Tailscale Wintun PnPDeviceID = $activePnpId" "INFO"
+
+# SAFETY CHECK: if we cannot positively identify the active Wintun, abort cleanup 6.
+# Better to leave drift than to delete the active Tailscale adapter and isolate the pod.
+if (-not $activePnpId) {
+  Log "ABORT Cleanup 6: cannot identify active Tailscale Wintun adapter -- skipping all Wintun removal to avoid risk of breaking Tailscale" "WARN"
+} else {
+  foreach ($d in $wintunDevices) {
+    if ($d.InstanceId -eq $activePnpId) {
+      Log "KEEP Wintun $($d.FriendlyName) (instId=$($d.InstanceId)) -- active Tailscale binding" "SKIP"
+      $totalSkipped++
+      continue
+    }
+    if ($Apply) {
+      try {
+        $rc = & pnputil.exe /remove-device $d.InstanceId 2>&1
+        Log "REMOVED Wintun $($d.FriendlyName) instId=$($d.InstanceId) -- pnputil: $rc" "ACTION"
+        $totalActions++
+      } catch {
+        Log "FAILED Wintun removal $($d.FriendlyName): $($_.Exception.Message)" "ERROR"
+      }
+    } else {
+      Log "would remove Wintun $($d.FriendlyName) (instId=$($d.InstanceId) status=$($d.Status))" "ACTION"
+      $totalActions++
+    }
+  }
+}
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 Log ""
