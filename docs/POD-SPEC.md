@@ -110,7 +110,7 @@ These sections appear **only when the game is on that pod**:
 | 7   | ✓  | ✓     | ✓       | ✓      | ✓        | ✓   | —        |
 | 8   | ✓  | ✓     | ✓       | ✓      | ✓        | —   | —        |
 
-**Future direction (Captain decision needed):** target = all pods have all games (uniform), OR per-pod game allocation is intentional. If uniform: needs ~6 game-install operations across 4 pods.
+**Captain decision (2026-05-06):** per-pod game allocation is INTENTIONAL. Pods do NOT all need all games. The game-install delta is NOT drift; it is by design. The table above is the current allocation, not a target for uniformity. Future game additions/removals are per-pod operations, not fleet-wide deploys.
 
 ---
 
