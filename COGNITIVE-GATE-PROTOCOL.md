@@ -58,10 +58,14 @@ _Why: 2026-04-16 — 5 fixes applied in overnight autonomous session. Completion
 ### H5: User Corrections Are Mandatory Retrospectives
 **What:** Every user correction ("good catch," "you missed," "that's wrong") triggers:
 1. **Why** the error happened (root cause, not excuse)
-2. **What structural change** prevents recurrence (not "I'll remember next time" — that's the bias talking)
+2. **What structural change** prevents recurrence (not "I'll remember next time" — that's the bias talking) — see CANDIDATE-N1 disposition below
 3. **Session G9 counter** — target: 0. Report in every gate summary.
 
 **Why it works:** Turns errors into protocol improvements. The counter creates accountability.
+
+**CANDIDATE-N1 doctrine (v4.6, 2026-05-01 IST — Captain G33-CONFIRM ratify):**
+Every G9 produces (a) WHY root cause + (b) **candidate** structural fix tagged `CANDIDATE-N1` + (c) defer-active condition (default: second independent firing of same root-class within 30 days). Promote to active rule only after N=2 confirmation. **Code-enforced hooks are exempt** — they ship at N=1 because their false-positive cost is bounded by an explicit BYPASS escape verb.
+_Why: 2026-05-01 — same session produced G9 #1 + G9 #2 within 30 minutes; G9 #1 over-broad rule (`recipient-already-monitoring`) was applied immediately and triggered the harness denial that produced G9 #2. Pattern: H5's "structural change" requirement, applied at N=1 evidence, manufactures over-broad rules from one ambiguous signal. Memory-resident rules from N=1 evidence add noise faster than they remove errors. Code-enforced hooks remain exempt because they have an explicit BYPASS escape verb (e.g. `BYPASS_AXIS_CLASSIFICATION=1`) that bounds their false-positive cost. Anchor: Captain Uday verbatim-quote of proposed amendment text mapped to G33-CONFIRM verb per autonomous-PACT-operation directive. Master memory: `feedback_g9_candidate_n1_doctrine_h5_amendment_20260501.md`._
 
 ---
 
