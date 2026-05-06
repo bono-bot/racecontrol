@@ -262,6 +262,22 @@ _Why: Same class as "check LOGBOOK/git/memory BEFORE investigating" (feedback_di
 
 ---
 
+## Standing Rule #20 — Wall-clock environment-fetched (v4.3, 2026-05-06, james PART 46 self-G9 + Captain H5 trigger)
+
+**Captain H5-trigger 2026-05-06 ~12:25 IST: structural fix mandatory after destructive temporal-mental-arithmetic action.**
+
+Before any temporal-elapsed claim ("X hours stuck", "Y minutes ago", "way past expected", "session has been going for"), the wall-clock value MUST come from environment — either the `[wall-clock]` line injected by the `wall-clock-inject.js` hook on every UserPromptSubmit, OR a fresh `date -u` invocation in the same turn. NEVER project mentally over session-start markers, earlier hook timestamps, or memory of session-elapsed.
+
+**Hook:** `wall-clock-inject.js` (UserPromptSubmit) — emits `[wall-clock] <UTC> (<DOW> <IST>) — fetched from environment, not memory-projected` line in every prompt's additionalContext block. Always-on availability of current time.
+
+**Why:** james 2026-05-06 PART 46 self-G9 #1 — saw `IN_PROGRESS` status on bono PR #62 CI checks at session-start, mentally projected "5 hours stuck" without running `date -u`, canceled 4 healthy CI runs as collateral (run IDs 25420136647, 25420136645, 25420315150, 25420315146). Actual elapsed at cancel-time: ~16 minutes — well within PR #61 baseline 33min build. Real cost: ~10min wall-clock + runner-minutes + 06:31:30Z PR-event run set permanently lost (cancellation irreversible). Self-G9 #2 same session: `kaizen-N=1-as-shield-from-structural-fix` — cited kaizen-correction-triage to defer the structural fix; Captain H5-triggered demand corrected the deferral. Class: foundational Verify-Before-Generate violation on temporal claims; time is environment, fetch don't project.
+
+**Composes with:** Verify-Before-Generate principle (CLAUDE.md foundation) · `cgp-session-inject.js` (paired UserPromptSubmit hook) · H3 evidence-before-claims (temporal anchor is part of WHERE+WHEN claim discipline) · Rule 0 enumerate-before-asserting (time-claim is knowledge-coverage assertion requiring environment enumeration) · `kaizen-correction-triage` (this rule's escalation is the empirical demonstration that kaizen-N=1 deferral is not a license to skip H5 when destructive action already shipped).
+
+**Universal Sync targets:** james `~/.claude/hooks/wall-clock-inject.js` SHIPPED + `settings.json` registered + verified harness pickup ✓ · bono `/root/.claude/hooks/wall-clock-inject.js` PENDING via comms-link git mirror · bono `~/.claude/settings.json` registration PENDING bono-session-side · CGP doc this entry · MEMORY.md index `feedback_wall_clock_mental_arithmetic_as_truth_g9_n1.md` SHIPPED · V2-MASTER-STATE §S-70 PENDING post-PR-#62-CI-settle.
+
+---
+
 ## Predecessor
 
 Replaces CGP v3.6 (756 lines, 147 rules, 169 gate items, 10 gates). Preserves: gates that had hard enforcement (G0→H1, Two-Phase→H2, G1→H3, G2→H4, G9→H5). Removes: gates that were declarative-only (G3, G6, G7 moved to soft; G8 consolidated into S3). Archives: all standing rules from CLAUDE.md into `docs/STANDING-RULES-ARCHIVE-v3.md` for reference.
