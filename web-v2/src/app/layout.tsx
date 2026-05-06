@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
-import { Chakra_Petch, Montserrat, JetBrains_Mono } from "next/font/google";
+import { Chakra_Petch, Montserrat, JetBrains_Mono, Geist } from "next/font/google";
 import "./globals.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+
 
 // Layer 1 Foundation — 3-font system per CAPTAIN-RATIFIED §3.2 (2026-05-06).
 // Display = Chakra Petch (Enthocentric stand-in, F1-broadcast face).
@@ -42,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="en" className={cn("dark", display.variable, body.variable, mono.variable, geist.variable)}>
       <body>{children}</body>
     </html>
   );
