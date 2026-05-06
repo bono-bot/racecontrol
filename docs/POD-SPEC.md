@@ -238,6 +238,53 @@ Run `scripts/fleet-uniformity-audit.ps1` (read-only, no admin) on each pod. Aggr
 
 `scripts/pod-uniformity-cleanup.ps1` brings a pod into spec compliance. Use `-DryRun` (default) to preview, `-Apply` to execute. Always test on one pod (pod 8 canary) before fleet-wide.
 
-## Future state — image-based pods
+## Future state — image-based pods (Phase 5)
 
 Once all 8 pods comply with this spec, capture a golden disk image. New pod = restore image + override Section 1 identity. Eliminates the entire class of imperative-state drift.
+
+### Phase 5 readiness checklist (as of 2026-05-06 ~11:35 IST)
+
+After Phase 1 cleanup applied + verified, fleet readiness for golden-image capture:
+
+| Item | Status | Note |
+|------|--------|------|
+| All 4 binaries UNIFORM across 8 pods | YES | sha256+size match (rc-agent / rc-sentry / start-rcagent.bat / start-rcsentry.bat) |
+| Wintun count = 1 on every pod | YES | ~75 ghosts removed; active Tailscale Wintun preserved |
+| 0 stale staged binaries on any pod | YES | |
+| 0 forbidden HKCU Run keys on any pod | YES | OneDrive/Teams/SGP/etc. removed |
+| 0 legacy schtasks on any pod | NO — 1 remaining | pod1 StartRCAgentOnLogon (Running state, defer to next reboot) |
+| 0 forbidden HKLM Run keys | YES | (RunOnce items separately tracked) |
+| 0 forbidden HKLM RunOnce keys | NO — 3 remaining | pods 3/5/6 RPMKickstart (GIGABYTE Smart Backup re-queues each boot; uninstall-app fix needed) |
+| All pods ws-connected to server | NO — 7/8 | pod 4 ws=False sustained pre-existing; rc-agent local OK; server-side stale WS state |
+| All pods running Session 1 | YES | rc-agent + rc-sentry verified |
+| All pods on canonical fleet build | YES | all 8 reporting `c5f94e31-dirty` |
+
+### Recommended imaging pod
+
+**Pod 8** is the recommended source for the golden image:
+- Zero remaining drift in this audit cycle
+- Most legacy state already cleaned up
+- Wintun cleanup completed
+- WS healthy
+
+### Pre-image protocol (to be executed by Captain or under explicit Captain auth)
+
+1. Pick the source pod (recommended: pod 8)
+2. Drain customer sessions on that pod (verify no active billing)
+3. Shut down rc-agent + rc-sentry cleanly: `taskkill /F /IM rc-agent.exe ; taskkill /F /IM rc-sentry.exe ; Stop-Service RCWatchdog`
+4. Power off pod
+5. Boot from imaging media (Macrium Reflect / Clonezilla / dd)
+6. Capture disk image to backup storage (NAS / USB-3 SSD)
+7. Verify image integrity (mount + spot-check / sha256)
+
+### Per-pod identity overrides applied at restore time
+
+After imaging a fresh pod from the golden image:
+- Set Ethernet static IP per Section 1 table
+- Update `rc-agent.toml` `[pod] number = N` and `name = "Pod N"`
+- Re-authenticate Tailscale (Tailscale auth keys are unique per node)
+- Verify rc-agent connects to server with new pod_number
+
+### Phase 5 status
+
+Captured-image: NOT YET. Captain action required for the imaging operation (physical access + boot media + storage).
