@@ -2,6 +2,7 @@ pub mod admin;
 mod game_helpers;
 pub mod middleware;
 pub mod otp;
+pub mod privileged_actions;
 pub mod rate_limit;
 mod token_consume;
 mod token_manage;
