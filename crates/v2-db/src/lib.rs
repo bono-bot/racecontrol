@@ -353,4 +353,42 @@ mod tests {
             "duplicate phone among active rows must be blocked by partial UNIQUE"
         );
     }
+
+    #[tokio::test]
+    async fn pact001_cirs_lookup_audit_customer_fk_blocks_orphan_insert() {
+        // NF-james-A coverage: §3.2 customer_id FK to customers(id) should
+        // reject inserts with a non-NULL bogus customer_id at FK-check time.
+        // Symmetric to pact001_cirs_lookup_audit_staff_fk_blocks_orphan_insert.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-cust-fk', 'CIRS Cust FK Test', '0000000077', '0077', 'cashier', 1)",
+        )
+        .execute(&pool).await.expect("seed staff");
+
+        let bad = sqlx::query(
+            "INSERT INTO cirs_lookup_audit (staff_id, customer_id, input_method, result) \
+             VALUES ('s-cust-fk', 'nonexistent-customer', 'phone', 'found')",
+        )
+        .execute(&pool).await;
+        assert!(bad.is_err(),
+            "INSERT into cirs_lookup_audit with nonexistent customer_id must fail FK constraint");
+
+        // Sanity: NULL customer_id still works (walk-in / miss path).
+        sqlx::query(
+            "INSERT INTO cirs_lookup_audit (staff_id, customer_id, input_method, result) \
+             VALUES ('s-cust-fk', NULL, 'phone', 'not_found')",
+        )
+        .execute(&pool).await.expect("NULL customer_id should be accepted");
+
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM cirs_lookup_audit WHERE customer_id IS NULL",
+        )
+        .fetch_one(&pool).await.expect("count");
+        assert_eq!(n, 1, "NULL customer_id row must persist alongside FK rejection");
+    }
 }
