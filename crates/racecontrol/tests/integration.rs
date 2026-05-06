@@ -3588,14 +3588,26 @@ async fn test_billing_rates_create_inserts_and_cache_updates() {
     let pool = create_test_db().await;
     let state = create_test_state(pool.clone());
 
-    // Perform the same INSERT the create_billing_rate handler does.
+    // F25a (§AMEND-3.II) — `validate_tier_set` enforces UnlimitedNotLast: the seed
+    // Marathon tier (tier_order=3, threshold=0=unlimited) must remain the highest-
+    // ordered universal tier. Mirror the realistic F28 admin-pricing-editor flow:
+    // bump Marathon's tier_order to vacate slot 3, then INSERT the new finite tier
+    // at the freed slot. Without this two-step pattern, refresh_rate_tiers refuses
+    // the load and the cache retains the previous 3-tier set.
+    sqlx::query("UPDATE billing_rates SET tier_order = 4 WHERE tier_name = 'Marathon'")
+        .execute(&pool)
+        .await
+        .expect("UPDATE Marathon tier_order should succeed");
+
+    // Perform the same INSERT the create_billing_rate handler does, slotting VIP
+    // between Extended (threshold=60) and Marathon (now at tier_order=4, unlimited).
     let new_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO billing_rates (id, tier_order, tier_name, threshold_minutes, rate_per_min_paise)
          VALUES (?, ?, ?, ?, ?)",
     )
     .bind(&new_id)
-    .bind(4_i64)
+    .bind(3_i64)
     .bind("VIP")
     .bind(90_i64)
     .bind(1200_i64)
