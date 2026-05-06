@@ -284,4 +284,46 @@ mod tests {
             "error"
         );
     }
+
+    // NF-james-B sibling coverage: spec §3.1 ASCII-digit-only scope.
+    // canonicalize_phone() must reject non-ASCII digit forms and intra-string
+    // whitespace variants (substrate stays permissive only for ASCII digits;
+    // Phase 1 POS .130 input gate adds Indian-mobile-prefix shape validation
+    // separately as a UI-surface kaizen — see james AMPLIFIER NF-B).
+
+    #[test]
+    fn canonicalize_arabic_indic_digits_rejects() {
+        let err = canonicalize_phone("\u{0669}\u{0668}\u{0667}\u{0666}\u{0665}\u{0664}\u{0663}\u{0662}\u{0661}\u{0660}").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    #[test]
+    fn canonicalize_fullwidth_digits_rejects() {
+        let err = canonicalize_phone("\u{FF19}\u{FF18}\u{FF17}\u{FF16}\u{FF15}\u{FF14}\u{FF13}\u{FF12}\u{FF11}\u{FF10}").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    #[test]
+    fn canonicalize_internal_whitespace_rejects() {
+        let err = canonicalize_phone("987 654 3210").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    #[test]
+    fn canonicalize_nbsp_internal_rejects() {
+        let err = canonicalize_phone("9876\u{00A0}543210").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    #[test]
+    fn canonicalize_rtl_mark_in_plus_rejects() {
+        let err = canonicalize_phone("+\u{200F}919876543210").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    #[test]
+    fn canonicalize_fullwidth_plus_rejects() {
+        let err = canonicalize_phone("\u{FF0B}919876543210").unwrap_err();
+        assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
 }
