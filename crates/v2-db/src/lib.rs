@@ -9,6 +9,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 use std::time::Duration;
 
+pub mod cirs;
 pub mod customers;
 pub mod lobbies;
 pub mod pods;
@@ -174,6 +175,135 @@ mod tests {
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM staff WHERE id = 's-fk'")
             .fetch_one(&pool).await.expect("count staff");
         assert_eq!(n, 1, "staff row must remain after blocked DELETE");
+    }
+
+    #[tokio::test]
+    async fn pact001_cirs_lookup_audit_table_smoke() {
+        // Phase 0 substrate landing: cirs_lookup_audit table exists and is
+        // empty after migration apply.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM cirs_lookup_audit")
+            .fetch_one(&pool)
+            .await
+            .expect("count cirs_lookup_audit");
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn pact001_cirs_lookup_audit_staff_fk_blocks_orphan_insert() {
+        // §3.2 staff_id FK to staff(id) — INSERT with bogus staff_id must fail.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        let bad = sqlx::query(
+            "INSERT INTO cirs_lookup_audit (staff_id, input_method, result) \
+             VALUES ('nonexistent-staff', 'phone', 'not_found')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad.is_err(),
+            "INSERT into cirs_lookup_audit with nonexistent staff_id must fail FK constraint"
+        );
+    }
+
+    #[tokio::test]
+    async fn pact001_cirs_record_lookup_helper_round_trip() {
+        // record_lookup() inserts a row with hashed input + correct enum values.
+        use crate::cirs::{record_lookup, LookupInput, LookupResult};
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-cirs', 'CIRS Test Staff', '0000000050', '0050', 'cashier', 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed staff");
+
+        let input = LookupInput::Phone { phone: "+919999999911".to_string() };
+        record_lookup(&pool, "s-cirs", None, &input, &LookupResult::NotFound)
+            .await
+            .expect("record miss");
+
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM cirs_lookup_audit \
+             WHERE staff_id = 's-cirs' AND input_method = 'phone' AND result = 'not_found'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(n, 1);
+
+        let hash: Option<String> = sqlx::query_scalar(
+            "SELECT input_hash FROM cirs_lookup_audit WHERE staff_id = 's-cirs' LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("hash row");
+        let h = hash.expect("hash present for phone input");
+        assert_eq!(h.len(), 64, "SHA256 hex is 64 chars");
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Walk-in input writes NULL hash + NULL customer_id (no PII to hash,
+        // no customer record yet — fallback-account binding lands Phase 1).
+        record_lookup(
+            &pool,
+            "s-cirs",
+            None,
+            &LookupInput::WalkInGuestId { guest_id: 1 },
+            &LookupResult::NotFound,
+        )
+        .await
+        .expect("walk-in audit row inserts with NULL hash + NULL customer_id");
+
+        let walkin_hash: Option<String> = sqlx::query_scalar(
+            "SELECT input_hash FROM cirs_lookup_audit \
+             WHERE input_method = 'walk_in_guest_id' LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("walk-in row");
+        assert!(walkin_hash.is_none(), "walk-in input has no PII to hash");
+    }
+
+    #[tokio::test]
+    async fn pact001_cirs_lookup_by_phone_finds_existing_customer() {
+        // M1 phone-lookup: canonical AND 10-digit auto-91 forms both hit
+        // idx_customers_phone; missing returns NotFound.
+        use crate::cirs::{lookup_by_phone, LookupResult};
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        sqlx::query("INSERT INTO customers (id, phone) VALUES ('c-1', '+919999999500')")
+            .execute(&pool)
+            .await
+            .expect("seed customer");
+
+        let r = lookup_by_phone(&pool, "+919999999500").await.expect("lookup");
+        match r {
+            LookupResult::Found { customer_id } => assert_eq!(customer_id, "c-1"),
+            other => panic!("expected Found, got {:?}", other),
+        }
+
+        let r2 = lookup_by_phone(&pool, "9999999500").await.expect("lookup-10d");
+        assert!(matches!(r2, LookupResult::Found { .. }));
+
+        let r3 = lookup_by_phone(&pool, "+919999999501").await.expect("lookup-miss");
+        assert_eq!(r3, LookupResult::NotFound);
     }
 
     #[tokio::test]
