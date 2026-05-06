@@ -93,57 +93,124 @@ Design implication: V2 surfaces must REINFORCE shared state visibility (staff an
 
 ## §3 — Design System Foundation (REUSED across ALL layers)
 
-### §3.1 Brand identity (LOCKED — racecontrol/CLAUDE.md)
+### §3.1 Brand identity (LOCKED — racecontrol/CLAUDE.md + Captain claude.ai/design bundle 2026-05-02 v2-design-h-V3XSuJJ)
+
+**Captain ratify 2026-05-06 ~17:00 IST**: align to canonical tokens at `C:/Users/bono/.tmp/v2-design-h-V3XSuJJ/racing-point-esports/project/tokens.jsx`. The 6-token palette in CLAUDE.md is brand-LOCKED for `rp-red` / `rp-grey` / `rp-dark` / `rp-card` / `rp-border` (unchanged); bundle expands to a full design-system palette below.
+
+**Brand (Racing Red family)**:
 
 | Token | Hex | Usage |
 |---|---|---|
-| `--color-rp-red` | `#E10600` | Racing Red — primary action, brand accent, active states |
-| `--color-rp-red-light` | `#FF1A1A` | Hover state for primary action |
-| `--color-rp-dark` | `#1A1A1A` | Asphalt Black — primary background (dark-mode-only) |
-| `--color-rp-card` | `#222222` | Card / surface elevated 1 |
-| `--color-rp-border` | `#333333` | Border, divider, scroll track |
-| `--color-rp-grey` | `#5A5A5A` | Gunmetal Grey — secondary text, disabled state |
+| `--color-rp-red` | `#E10600` | Racing Red — primary action, brand mark, destructive action, fault state. NEVER decorative. |
+| `--color-rp-red-deep` | `#B40500` | Pressed / hover-down state |
+| `--color-rp-red-glow` | `#FF1A0E` | Alert pulse, telemetry highlight (was rp-red-light `#FF1A1A` — bundle supersedes) |
 
-**Status colors** (extension — define in foundation, not invented per surface):
+**Surface stack (dark-first; deeper than original CLAUDE.md `#1A1A1A` flat dark)**:
 
 | Token | Hex | Usage |
 |---|---|---|
-| `--color-rp-success` | `#10B981` | Success state (payment recorded, CIRS lookup found) |
-| `--color-rp-warning` | `#F59E0B` | Warning (Indian-mobile-prefix gate, ambiguous phone) |
-| `--color-rp-danger` | `#DC2626` | Error (InvalidPhone, payment fail, audit fail) |
-| `--color-rp-info` | `#3B82F6` | Info (system status, tooltip neutral) |
+| `--color-rp-asphalt` | `#0D0D0D` | Base bg (darker than brief `#1A1A1A` — works better in dark room per bundle comment) |
+| `--color-rp-dark` | `#1A1A1A` | Panel bg (CLAUDE.md "Asphalt Black" — kept for brand parity) |
+| `--color-rp-card` | `#1C1C1C` | Elevated surface (CLAUDE.md said `#222222`; bundle `#1C1C1C`. Bundle wins for visual continuity with `--color-rp-cardHi`.) |
+| `--color-rp-card-hi` | `#262626` | Hover / focus / active surface |
+| `--color-rp-border` | `#2A2A2A` | Subtle separator (CLAUDE.md `#333333` was emphasized; bundle splits subtle/emphasized) |
+| `--color-rp-border-hi` | `#3A3A3A` | Emphasized separator |
 
-**DEPRECATED — DO NOT USE**: orange `#FF4400` (V1 brand orange) — explicitly removed per CLAUDE.md.
+**Ink stack**:
 
-### §3.2 Typography
+| Token | Hex | Usage |
+|---|---|---|
+| `--color-rp-ink` | `#F2F2F2` | Primary text |
+| `--color-rp-ink-dim` | `#A8A8A8` | Secondary text |
+| `--color-rp-grey` | `#5A5A5A` | Gunmetal Grey — dividers / tertiary (CLAUDE.md LOCKED) |
+| `--color-rp-ink-faint` | `#3F3F3F` | Disabled / muted text |
 
-- **Body**: Montserrat (Google Fonts) + system-ui fallback stack
-- **Headers**: Enthocentric (custom font — see §3.2.1 below) + Montserrat fallback
-- **Mono**: `font-mono` Tailwind default (for lap times, timestamps, monetary amounts)
-- **Weights**: 400 (regular) and 700 (bold) ONLY — NO 300/500/600/800/900 (Phase 91 convention)
+**Semantic colors** (bundle supersedes Layer 1's prior status set):
 
-#### §3.2.1 Enthocentric font sourcing
+| Token | Hex | Usage |
+|---|---|---|
+| `--color-rp-green` | `#00D26A` | Healthy / online / success (CIRS lookup found, payment recorded). Was `#10B981` — bundle wins. |
+| `--color-rp-green-deep` | `#00A352` | Pressed state of green |
+| `--color-rp-amber` | `#FFB000` | Warn / pending (Indian-mobile-prefix gate, ambiguous phone). Was `#F59E0B` — bundle wins. |
+| `--color-rp-amber-deep` | `#CC8C00` | Pressed state of amber |
+| `--color-rp-blue` | `#3B82F6` | Info / link / API-layer flag badge (unchanged) |
 
-Captain decision needed (Q-DECISION-1 — see §8). Options:
-- (a) Self-host woff2 in `web-v2/public/fonts/` if a license file exists at `racecontrol/assets/`
-- (b) Substitute Montserrat-bold for headers as Layer 1 default (smallest reversible — fonts can be retrofitted)
-- (c) Skip entirely, use Montserrat 700 everywhere
+**Telemetry channel colors** (Foundation reservation; primary use Layer 2 PWA + Layer 4 pod display):
 
-**Layer 1 lean default**: option (b) — use Montserrat 700 for headers; revisit when Enthocentric license confirmed. This is reversible at any time.
+| Token | Hex | Channel |
+|---|---|---|
+| `--color-tr-throttle` | `#00D26A` | Throttle |
+| `--color-tr-brake` | `#E10600` | Brake |
+| `--color-tr-speed` | `#FFB000` | Speed |
+| `--color-tr-ghost` | `#888888` | Ghost-driver overlay |
+| `--color-tr-self` | `#FFFFFF` | Your-driver overlay |
 
-#### §3.2.2 Type scale (inherited from Phase 91 + extended for POS)
+**Driver class palette** (Foundation reservation; primary use Layer 2 PWA + Layer 7 admin):
 
-| Role | Size | Weight | Line height | Tailwind | Usage |
-|---|---|---|---|---|---|
-| Caption | 11px | 400 | 1.4 | `text-[11px]` | Tooltips, audit trail meta, rate-card secondary text |
-| Label | 12px | 400 | 1.4 | `text-xs` | Field labels, badge text |
-| Body | 14px | 400 | 1.5 | `text-sm` | Default content text, table cells |
-| Body-bold | 14px | 700 | 1.5 | `text-sm font-bold` | Emphasis within body |
-| Subheading | 16px | 700 | 1.4 | `text-base font-bold` | Card headers, section titles |
-| Heading | 20px | 700 | 1.2 | `text-xl font-bold` | Page section headings |
-| Page-title | 24px | 700 | 1.2 | `text-2xl font-bold` | Page H1 |
-| Display | 36px | 700 | 1.0 | `text-4xl font-bold` | Hero amounts (wallet balance card-front, payment-success amount) |
-| Money | varies | 700 + `font-mono` | — | — | All monetary amounts always use `font-mono` (audit + reconciliation visual cue per CLAUDE.md "money in paise" doctrine) |
+| Token | Hex | Class |
+|---|---|---|
+| `--color-class-rookie` | `#5A5A5A` | Rookie |
+| `--color-class-apex` | `#FFB000` | Apex |
+| `--color-class-podium` | `#00D26A` | Podium |
+| `--color-class-champion` | `#E10600` | Champion |
+
+**Color rules** (from bundle HANDOFF.md §2):
+- Red is reserved for: brand mark, primary CTA, destructive action, fault state. Never decorative.
+- Amber = pending / warn / latency above target. Green = ON / healthy / live. Blue = info / API/endpoint flags.
+- All chrome stays on the `asphalt → dark → card → card-hi` surface stack. **NO gradients on backgrounds.**
+
+**DEPRECATED — DO NOT USE**: orange `#FF4400` (V1 brand orange) — explicitly removed per CLAUDE.md. Also DEPRECATED Layer 1's pre-bundle status palette: `#10B981` / `#F59E0B` / `#DC2626` (replaced by bundle's green/amber/red-as-brand).
+
+### §3.2 Typography (CAPTAIN-RATIFIED 2026-05-06 — 3-font system from bundle)
+
+**Captain directive 2026-05-06 ~17:00 IST**: use the bundle's 3-font system. Q-DECISION-1 CLOSED.
+
+| Slot | Font (with fallbacks) | Use |
+|---|---|---|
+| `font-display` | `"Chakra Petch", "Eurostile", "Bank Gothic", system-ui, sans-serif` | Headers, KPI values, splash, page titles. Chakra Petch is the F1-broadcast face, explicit "Enthocentric stand-in" per bundle tokens.jsx comment. Tracked tight, slightly extended. |
+| `font-body` | `"Montserrat", system-ui, -apple-system, sans-serif` | All UI prose, labels, paragraphs |
+| `font-mono` | `"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace` | All numbers (lap times, telemetry, IDs, code, flag keys, money in paise). **Tabular figures mandatory** for any value that ticks. |
+
+**Weights used**: 400 (body regular), 500 (mono medium), 600 (display medium / body emphasis), 700 (display bold / body bold). Bundle uses fuller weight ladder than Phase 91's 400/700-only — this is intentional per Captain ratify (display-tier benefits from 600/700 distinction).
+
+**Type rules** (from bundle HANDOFF.md §2):
+- `font-display` → titles, KPI values, splash. Tracked tight, slightly extended.
+- `font-body` → all UI prose, labels, paragraphs.
+- `font-mono` → all numbers (lap times, telemetry, IDs, money). **Tabular figures mandatory** for any value that ticks.
+- Caption style is **uppercase + 0.06em letter-spacing** for section eyebrows.
+
+#### §3.2.1 Font sourcing — CLOSED Captain ratify 2026-05-06
+
+Q-DECISION-1 (see §8) RESOLVED. Captain directive: use the canonical bundle tokens.jsx font selection.
+
+- Display: **Chakra Petch** (Google Fonts) — Enthocentric stand-in. Self-host woff2 in `web-v2/public/fonts/` OR use `next/font/google` import per Next.js 16 convention. Layer 1 default = `next/font/google` (zero-license-friction; Google Fonts CDN parity with Montserrat).
+- Body: **Montserrat** (Google Fonts) — same source.
+- Mono: **JetBrains Mono** (Google Fonts) — same source.
+
+Implementation: load via `next/font/google` in `web-v2/src/app/layout.tsx`; assign CSS vars `--font-display`, `--font-body`, `--font-mono`; consume in `@theme` block of `globals.css` (see §3.9).
+
+If Enthocentric license is confirmed later: hot-swap `--font-display` to Enthocentric without other changes — Chakra Petch is explicitly the stand-in.
+
+#### §3.2.2 Type scale (CAPTAIN-RATIFIED — bundle tokens.jsx TYPE map)
+
+Bundle's display tokens are bigger and uppercase-cased than Layer 1's prior Phase 91 inheritance. POS-fixed-1920×1080 affords the larger sizes (no responsive collapse).
+
+| Role | Size | Weight | Line height | Tracking | Case | Font slot | Usage |
+|---|---|---|---|---|---|---|---|
+| display-XL | 64px | 700 | 1.0 | -0.02em | normal | display | Hero amounts (payment-success), splash KPI |
+| display-L | 48px | 700 | 1.05 | -0.01em | normal | display | Wallet balance hero, large totals |
+| display-M | 32px | 600 | 1.1 | 0 | normal | display | Section hero numbers |
+| h1 | 28px | 700 | 1.15 | 0.01em | UPPER | display | Page title |
+| h2 | 20px | 600 | 1.2 | 0.04em | UPPER | display | Card / section header |
+| h3 | 14px | 600 | 1.2 | 0.08em | UPPER | display | Section eyebrow / sub-section |
+| body | 14px | 400 | 1.5 | 0 | normal | body | Default content text, table cells |
+| body-bold | 14px | 600 | 1.5 | 0 | normal | body | Emphasis within body |
+| body-sm | 12px | 400 | 1.4 | 0 | normal | body | Tooltips, secondary meta |
+| caption | 11px | 600 | 1.2 | 0.06em | UPPER | body | Section eyebrows, audit trail meta |
+| mono | 13px | 500 | 1.3 | 0 | normal | mono | Lap times, timestamps, IDs in tables |
+| mono-big | 24px | 600 | 1.0 | -0.02em | normal | mono | Featured numerics (lap-time hero, balance) |
+
+**Money rule (carried from prior Layer 1)**: all monetary amounts use `font-mono` (mono or mono-big depending on size context); right-aligned in tables; rendered via `<Money>` primitive per §3.7.
 
 ### §3.3 Spacing scale (inherited from Phase 91 — exact match)
 
@@ -209,14 +276,23 @@ Layer 1 icon inventory (author SVGs in `web-v2/src/components/icons/`):
 
 Standard icon size: `w-5 h-5` (20px) for inline; `w-6 h-6` (24px) for primary buttons; `w-12 h-12` (48px) for hero state (success badge).
 
-### §3.6 Motion
+### §3.6 Motion (CAPTAIN-RATIFIED — bundle tokens.jsx MOTION map)
 
-- Tailwind transitions only: `transition-colors`, `transition-transform`, `transition-opacity`
-- Default duration: 150ms (POS — fast staff feedback)
-- Easing: default Tailwind `ease-out`
-- **NO animations**: no `animate-spin`, no `animate-pulse`, no framer-motion. The only acceptable "spinner" on POS = simple text "Loading..." or a 3-dot CSS-only stable pulse for waits >500ms.
+Bundle adds medium and slow durations + explicit cubic-bezier curves. Layer 1 keeps the no-animation-library rule.
 
-Per Phase 91 + CR-3 customer-service-priority + POS staff-in-motion ergonomics — animations distract, slow down operation, and create false-positive "still loading" perception.
+| Token | Value | Curve | Use |
+|---|---|---|---|
+| `--motion-fast` | 150ms | `cubic-bezier(0.4, 0, 0.2, 1)` | Hover, focus, color change |
+| `--motion-std` | 250ms | `cubic-bezier(0.4, 0, 0.2, 1)` | Panel open, dropdown reveal |
+| `--motion-slow` | 400ms | `cubic-bezier(0.4, 0, 0.2, 1)` | Modal enter, page transition |
+| `--ease-enter` | — | `cubic-bezier(0, 0, 0.2, 1)` | Element entering view |
+| `--ease-exit` | — | `cubic-bezier(0.4, 0, 1, 1)` | Element leaving view |
+
+- Tailwind utility classes: `transition-colors`, `transition-transform`, `transition-opacity` (Tailwind transitions only — NO framer-motion / motion-one / GSAP).
+- Reduced-motion: respect `prefers-reduced-motion` — collapse all durations to 0ms.
+- **NO animations**: no `animate-spin`, no `animate-pulse`, no continuous loop animations. The only acceptable "spinner" on POS = simple text "Loading..." or a 3-dot CSS-only stable pulse for waits >500ms.
+
+Per Phase 91 + CR-3 customer-service-priority + POS staff-in-motion ergonomics — animations distract, slow down operation, and create false-positive "still loading" perception. Bundle's 250/400ms durations are reserved for panel/modal reveal where the longer duration is correctness signal (not decoration).
 
 ### §3.7 Component primitive inventory (Foundation — design these THOROUGHLY in Layer 1)
 
@@ -263,57 +339,137 @@ These are reused across Layers 2-7. Authoring them in Layer 1 establishes the pa
 
 POS-specific note: staff are NOT visually impaired by job requirement; aria-live is courtesy not necessity. Emphasis is on touch-target size and error-state contrast (4.5:1 minimum on error text).
 
-### §3.9 globals.css scaffolding (Layer 1 lean default — duplicate-not-import)
+### §3.9 globals.css scaffolding (CAPTAIN-RATIFIED 2026-05-06 — bundle tokens.jsx aligned)
 
-The Layer 1 `web-v2/src/app/globals.css` should look like this (SUBSET of pwa/src/app/globals.css, with Layer 1 extensions):
+The Layer 1 `web-v2/src/app/globals.css` SHOULD look like this. Companion `web-v2/src/app/layout.tsx` loads the 3-font system via `next/font/google` and exposes `--font-display` / `--font-body` / `--font-mono` CSS vars; `globals.css` consumes them in `@theme`.
+
+```tsx
+// web-v2/src/app/layout.tsx (snippet — full file Layer 1 implementation)
+import { Chakra_Petch, Montserrat, JetBrains_Mono } from "next/font/google";
+
+const display = Chakra_Petch({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+const body = Montserrat({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-body",
+  display: "swap",
+});
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
+// className={`${display.variable} ${body.variable} ${mono.variable}`} on <html>
+```
 
 ```css
+/* web-v2/src/app/globals.css */
 @import "tailwindcss";
 
 @theme {
-  /* Brand (locked — racecontrol/CLAUDE.md) */
+  /* Brand */
   --color-rp-red: #E10600;
-  --color-rp-red-light: #FF1A1A;
-  --color-rp-dark: #1A1A1A;
-  --color-rp-card: #222222;
-  --color-rp-border: #333333;
-  --color-rp-grey: #5A5A5A;
+  --color-rp-red-deep: #B40500;
+  --color-rp-red-glow: #FF1A0E;
 
-  /* Status (Layer 1 extension) */
-  --color-rp-success: #10B981;
-  --color-rp-warning: #F59E0B;
-  --color-rp-danger: #DC2626;
-  --color-rp-info: #3B82F6;
+  /* Surface stack */
+  --color-rp-asphalt: #0D0D0D;
+  --color-rp-dark: #1A1A1A;
+  --color-rp-card: #1C1C1C;
+  --color-rp-card-hi: #262626;
+  --color-rp-border: #2A2A2A;
+  --color-rp-border-hi: #3A3A3A;
+
+  /* Ink stack */
+  --color-rp-ink: #F2F2F2;
+  --color-rp-ink-dim: #A8A8A8;
+  --color-rp-grey: #5A5A5A;
+  --color-rp-ink-faint: #3F3F3F;
+
+  /* Semantic */
+  --color-rp-green: #00D26A;
+  --color-rp-green-deep: #00A352;
+  --color-rp-amber: #FFB000;
+  --color-rp-amber-deep: #CC8C00;
+  --color-rp-blue: #3B82F6;
+
+  /* Telemetry channels */
+  --color-tr-throttle: #00D26A;
+  --color-tr-brake: #E10600;
+  --color-tr-speed: #FFB000;
+  --color-tr-ghost: #888888;
+  --color-tr-self: #FFFFFF;
+
+  /* Driver class */
+  --color-class-rookie: #5A5A5A;
+  --color-class-apex: #FFB000;
+  --color-class-podium: #00D26A;
+  --color-class-champion: #E10600;
+
+  /* Type — fonts (consumed from next/font/google CSS vars) */
+  --font-display: var(--font-display, "Chakra Petch"), "Eurostile", "Bank Gothic", system-ui, sans-serif;
+  --font-body: var(--font-body, "Montserrat"), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Radius */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --motion-fast: 150ms;
+  --motion-std: 250ms;
+  --motion-slow: 400ms;
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Elevation */
+  --elev-flat: 0 1px 0 rgba(255,255,255,0.02) inset;
+  --elev-card: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 12px rgba(0,0,0,0.4);
+  --elev-dialog: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 60px rgba(0,0,0,0.6);
 }
 
 @layer base {
   * { -webkit-tap-highlight-color: transparent; }
   html { color-scheme: dark; }
   body {
-    background-color: #1A1A1A;
-    color: #FFFFFF;
-    font-family: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: var(--color-rp-asphalt);
+    color: var(--color-rp-ink);
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: contain;
   }
 
+  /* Numeric tabular figures wherever font-mono is used */
+  .font-mono, [class*="font-mono"] { font-variant-numeric: tabular-nums; }
+
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #5A5A5A; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-rp-grey); border-radius: var(--radius-sm); }
 }
 
 @layer components {
   .keypad-btn {
     display: flex; align-items: center; justify-content: center;
     width: 72px; height: 72px;
-    border-radius: 50%;
-    background: #333333;
-    color: #FFFFFF;
-    font-size: 24px; font-weight: 700;
-    transition: background 0.15s;
+    border-radius: var(--radius-pill);
+    background: var(--color-rp-border-hi);
+    color: var(--color-rp-ink);
+    font-family: var(--font-mono);
+    font-size: 24px; font-weight: 600;
+    transition: background var(--motion-fast) var(--ease-std);
     user-select: none; cursor: pointer;
   }
-  .keypad-btn:active { background: #E10600; }
+  .keypad-btn:active { background: var(--color-rp-red); }
   .keypad-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 
   /* POS focus ring */
@@ -943,19 +1099,21 @@ These are NOT in Layer 1 scope — they are signaled here so the design agent un
 
 Design agent: Captain must answer these before authoritative design output. Layer 1 default-leans noted; design agent may proceed on defaults if Captain pre-authorizes.
 
-| ID | Decision | Layer 1 lean | Why deferred to Captain |
+| ID | Decision | Layer 1 lean | Status |
 |---|---|---|---|
-| Q-DECISION-1 | Enthocentric font sourcing | (b) Montserrat 700 substitute | License unclear; smallest reversible |
-| Q-DECISION-2 | POS responsive: 1920×1080 fixed only OR also support staff laptop fallback (1280×800)? | Fixed 1920×1080 only | Hardware fixed in V2.0; kaizen smallest scope |
-| Q-DECISION-3 | Forms library: React Hook Form + Zod OR plain controlled components? | RHF + Zod | Industry standard; less custom code |
-| Q-DECISION-4 | Server state: TanStack Query v5 OR plain fetch + useEffect? | TanStack Query v5 | Polling, cache, mutations baked in |
-| Q-DECISION-5 | Staff PIN lockout policy: lockout after N fails? | Captain to define (likely 5 fails → 5min lockout); design accommodates either way | Security-debt-ledger consideration |
-| Q-DECISION-6 | Staff PIN re-entry per CIRS lookup OR session-cookie sufficient? | Session-cookie sufficient (PIN at session start; PIN re-entry only on privileged actions like manager-role apology credits) | Per PACT-20260506-001 §7 Q5 — bono AMPLIFIER input requested |
-| Q-DECISION-7 | POS-local cache layer for ProfilePreview? | Q2-C no-cache (per PACT-20260506-001 §7 Q2 default) | Substrate query <50ms; cache layer = Phase 2 |
-| Q-DECISION-8 | Customer registration capture: include Aadhaar / GST identifier? | NO for V2.0 (V2.1 scope) | DPDP-compliance + consent flow needed |
-| Q-DECISION-9 | Discount surface: happy-hour + iRacing 20% (Tier-2 missed scenarios H/I) | Captain to choose auto-apply vs staff-toggle | Memory says auto-apply; not yet locked |
-| Q-DECISION-10 | Receipt printing: browser print dialog OR thermal-printer protocol (Print Module sub-PACT) | Browser print for V2.0; Print Module = sub-PACT later | Q-PRINT-1/2/3 still open per §S-57 |
-| Q-DECISION-11 | Logo asset: provided SVG OR design agent drafts? | Captain provides if exists; otherwise design agent drafts based on brand identity | Asset inventory: no `web-v2/public/` yet |
+| ~~Q-DECISION-1~~ | ~~Enthocentric font sourcing~~ | **CLOSED 2026-05-06 ~17:00 IST**: Captain ratify use bundle's 3-font system. Display = Chakra Petch (Enthocentric stand-in); body = Montserrat; mono = JetBrains Mono. Loaded via `next/font/google`. See §3.2 + §3.9. | ✅ CLOSED-CAPTAIN-RATIFY |
+| Q-DECISION-2 | POS responsive: 1920×1080 fixed only OR also support staff laptop fallback (1280×800)? | Fixed 1920×1080 only | OPEN — hardware fixed in V2.0; kaizen smallest |
+| Q-DECISION-3 | Forms library: React Hook Form + Zod OR plain controlled components? | RHF + Zod | OPEN — industry standard |
+| Q-DECISION-4 | Server state: TanStack Query v5 OR plain fetch + useEffect? | TanStack Query v5 | OPEN — polling/cache/mutations baked in |
+| Q-DECISION-5 | Staff PIN lockout policy: lockout after N fails? | Captain to define (likely 5/5min) | OPEN — Captain reserve; security-debt-ledger consideration |
+| Q-DECISION-6 | Staff PIN re-entry per CIRS lookup OR session-cookie sufficient? | Session-cookie sufficient | OPEN — per PACT-20260506-001 §7 Q5; bono AMPLIFIER input requested |
+| Q-DECISION-7 | POS-local cache layer for ProfilePreview? | Q2-C no-cache | OPEN — substrate query <50ms; cache layer = Phase 2 |
+| Q-DECISION-8 | Customer registration capture: include Aadhaar / GST identifier? | NO for V2.0 (V2.1 scope) | OPEN — DPDP-compliance + consent flow needed |
+| Q-DECISION-9 | Discount surface: happy-hour + iRacing 20% | Captain to choose auto-apply vs staff-toggle | OPEN — Captain reserve |
+| Q-DECISION-10 | Receipt printing: browser print dialog OR thermal-printer protocol | Browser print for V2.0; Print Module = sub-PACT later | OPEN — Q-PRINT-1/2/3 in §S-57 |
+| Q-DECISION-11 | Logo asset: provided SVG OR design agent drafts? | Bundle includes `racing-point-logo.png` + `racing-point-logo-light.png` + `Racing Point eSport_LOGO G (2).png` at `C:/Users/bono/.tmp/v2-design-h-V3XSuJJ/racing-point-esports/project/assets/` and `.../uploads/` — Captain-provided via bundle. | ✅ CLOSED-BUNDLE-PROVIDES (verified disk-truth post-Captain-directive 2026-05-06) |
+| Q-DECISION-12 | **NEW** — Iconography: bundle uses `lucide-react` (HANDOFF.md §3); Layer 1 §3.5 + §9 anti-pattern #2 specified inline-SVG-only per Phase 91 quarantine. Captain-directive of "use the design from bundle" is ambiguous on icon library. | (a) Adopt `lucide-react` to match bundle exactly; OR (b) Keep inline-SVG and back-fit lucide naming as inline icon component names; OR (c) Hybrid — lucide via tree-shaking for large set, inline SVG for brand-specific marks (RacingPointLogo, sim-game logos). | OPEN — Captain disposition needed. Lean (a) since bundle ships components.jsx wired to lucide already. |
+| Q-DECISION-13 | **NEW** — Component library: bundle's HANDOFF.md §3 maps every primitive to shadcn-ui (Button → ActionButton, Card → Panel, Switch → FlagSwitch, etc.). Layer 1 §9 anti-pattern #1 + #16 banned shadcn. Same ambiguity as Q12. | (a) Adopt `shadcn-ui` to match bundle exactly; OR (b) Keep utility-Tailwind primitives, mirror bundle's `ActionButton` / `Panel` / `FlagSwitch` API surface in our own `components/`. | OPEN — Captain disposition needed. Lean (a) since bundle's components.jsx is already authored against shadcn. |
 
 **Captain shortcut**: ratify all defaults at once with "ratify Q-DECISION defaults" — design agent proceeds on the lean column.
 
@@ -967,14 +1125,14 @@ These are common failure modes for AI-generated frontend design. Each is a tripw
 
 ### Brand / visual
 
-1. **DO NOT use shadcn/ui or any component library** — project convention is utility-first Tailwind 4 + inline SVG. shadcn-look-alike (rounded-md cards on slate-900 bg with blue accents) is the SaaS-AI default and does NOT match Racing Point brand.
-2. **DO NOT use Lucide / react-icons / heroicons** — inline SVG only.
+1. ⚠️ **CONTESTED — see Q-DECISION-13**: shadcn/ui ban is contested by Captain claude.ai/design bundle (bundle's HANDOFF.md §3 explicitly maps to shadcn primitives). Until Q-DECISION-13 closes, the SAFE default is "match bundle's component API surface" (whether via shadcn directly or hand-authored mirrors). The anti-pattern this rule actually targets is the SaaS-AI default (rounded-md cards on slate-900 bg with blue accents) — **that** stays banned regardless of how Q13 closes.
+2. ⚠️ **CONTESTED — see Q-DECISION-12**: Lucide ban is contested by Captain claude.ai/design bundle (bundle's components.jsx imports from `lucide-react`). Until Q-DECISION-12 closes, the SAFE default is the bundle's icon naming. The anti-pattern this rule actually targets is **decorative icon overuse** — that stays banned regardless of how Q12 closes.
 3. **DO NOT use orange `#FF4400`** — explicitly deprecated V1 brand orange.
 4. **DO NOT default to dark-mode toggle** — Racing Point IS dark-mode. There is no light mode in V2.0.
-5. **DO NOT use generic "Material You" / "iOS-style" palettes** — brand is Racing Red on Asphalt Black with Gunmetal Grey neutrals. Period.
+5. **DO NOT use generic "Material You" / "iOS-style" palettes** — brand is Racing Red on the asphalt → dark → card → card-hi surface stack with the gunmetal/ink stack for text. Period. (See expanded §3.1.)
 6. **DO NOT add gradient backgrounds, glassmorphism, neumorphism, claymorphism** — flat design only. Single-tone backgrounds.
-7. **DO NOT add purple, teal, pastel** — anything not in §3.1 brand palette is wrong.
-8. **DO NOT use system fonts as primary** — Montserrat (body) + Enthocentric/Montserrat-700 (headers). System fonts are FALLBACK only.
+7. **DO NOT add purple, teal, pastel** — anything not in §3.1 brand palette is wrong. Bundle's blue `#3B82F6` is the ONLY non-brand-non-semantic accent allowed (info / link / API-layer flag).
+8. **DO NOT use system fonts as primary** — Chakra Petch (display) + Montserrat (body) + JetBrains Mono (mono numbers) per CAPTAIN-RATIFIED §3.2. System fonts are FALLBACK only.
 
 ### Motion / animation
 
@@ -1078,11 +1236,19 @@ See §5.3 for screen-by-screen acceptance lists. Each screen has a checklist; de
 
 ### Authoritative sources (READ BEFORE DESIGNING)
 
+- ⭐ **Captain claude.ai/design bundle (CANONICAL design source)**: `C:/Users/bono/.tmp/v2-design-h-V3XSuJJ/racing-point-esports/project/` — 67 files. Key files:
+  - `HANDOFF.md` — Captain's engineering handoff (228 lines): tokens-to-Tailwind config, components-to-shadcn mapping, feature-flag spine, ship-vs-held scope, routing map, build order, open questions
+  - `tokens.jsx` — color/type/spacing/motion/elevation source of truth (122 lines)
+  - `components.jsx` — shared primitives (ActionButton, Panel, Icon, FlagSwitch, PodCard)
+  - `page-cockpit.jsx` (Admin Cockpit), `page-pos.jsx` (POS detail), `page-pwa.jsx` (PWA Lap Compare), `page-pod-detail.jsx` (Pod drill-down), `page-flags.jsx` (Feature Flag Hub), `page-pwa-screens.jsx` (PWA mobile screens), `page-content-requests.jsx`, `page-race-control.jsx`, `kiosk-screens.jsx`, `kiosk-host-screens.jsx`, `admin-flow.jsx`, `ios-frame.jsx`, `tweaks-panel.jsx`
+  - `assets/racing-point-logo.png` + `assets/racing-point-logo-light.png` + `uploads/Racing Point eSport_LOGO G (2).png` — brand mark assets (Q-DECISION-11 closure)
+  - `screenshots/*.png` — 30+ reference screenshots from prototype work
+  - `Racing Point V2.html` + `Racing Point Prototype.html` — entry-point HTML wiring
 - `racecontrol/CLAUDE.md` — Brand Identity LOCKED; Standing Rules; Network Map
 - `~/.claude/projects/C--Users-bono/memory/project_v2_customer_workflows_consolidated_20260503.md` — 5 base + 6 missed scenarios; 30-feature V2.0 list
 - `~/.claude/projects/C--Users-bono/memory/session_handoff_20260506_v2_customer_billing_workflow_consolidated_PRIMARY.md` — §AMEND-1 → §AMEND-4.H locks (Way A pricing, MI deferral, F29 audio cue, etc.)
-- `racecontrol/.planning/phases/91-session-experience/91-UI-SPEC.md` — Phase 91 design system inheritance source (Tailwind 4, NO shadcn, inline SVG, Montserrat 400/700)
-- `racecontrol/pwa/src/app/globals.css` — existing PWA design tokens (rp-* @theme block) — duplicate-not-import in web-v2 per quarantine-discipline
+- `racecontrol/.planning/phases/91-session-experience/91-UI-SPEC.md` — Phase 91 design system inheritance source (Tailwind 4, predates bundle — bundle supersedes on tokens + fonts)
+- `racecontrol/pwa/src/app/globals.css` — existing PWA design tokens (rp-* @theme block) — duplicate-not-import in web-v2 per quarantine-discipline; ALSO update with bundle tokens for Layer 2 PWA parity (separate Phase)
 - `racecontrol/web-v2/` — Next.js 16.1.6 scaffold (current state; design adds to this)
 - `racecontrol/crates/v2-db/src/cirs.rs` — CIRS API canonical contract
 - `racecontrol/crates/v2-db/src/wallets.rs` — Wallet API canonical contract
