@@ -98,11 +98,16 @@ def is_racecontrol_row(row: dict) -> bool:
     # Exclude rows whose commit cell is a non-racecontrol binary flag
     # e.g. "a13942f2-dirty (rc-agent, Pod 6 catchup)" — commit cell is
     # annotated with "(rc-agent" clearly.
-    if "rc-agent" in commit.lower():
+    # Multi-binary rows that include BOTH racecontrol and rc-agent (e.g.
+    # 2026-04-29 c5f94e31-dirty "(racecontrol .23 + rc-agent fleet 1-8 + ...)")
+    # are still valid racecontrol rows — only exclude when racecontrol is
+    # absent from the commit annotation.
+    commit_lower = commit.lower()
+    if "rc-agent" in commit_lower and "racecontrol" not in commit_lower:
         return False
-    if "kiosk" in commit.lower():
+    if "kiosk" in commit_lower and "racecontrol" not in commit_lower:
         return False
-    if "web :3200" in commit.lower() or "web only" in commit.lower():
+    if ("web :3200" in commit_lower or "web only" in commit_lower) and "racecontrol" not in commit_lower:
         return False
 
     # Exclude frontend-only deploys that mention "racecontrol" only as the
@@ -112,7 +117,6 @@ def is_racecontrol_row(row: dict) -> bool:
     # These rows document a cloud admin/kiosk/web rebuild against a racecontrol
     # merge commit — server .23 racecontrol binary is UNCHANGED.
     size_lower = size_cell.lower()
-    commit_lower = commit.lower()
     if "frontend rebuild" in size_lower or "frontend rebuild" in reason:
         return False
     if size_lower.startswith("n/a") and (
