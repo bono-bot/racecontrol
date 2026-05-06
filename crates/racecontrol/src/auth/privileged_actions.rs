@@ -315,4 +315,22 @@ mod tests {
         // mode-state machine at this layer.
         assert!(PrivilegedAction::EnterManagerMode.requires_pin());
     }
+
+    #[test]
+    fn as_str_values_are_globally_unique() {
+        // NF-bono-1 absorption (PART 50 segment-B paste-ready 5-LOC suggestion):
+        // Test 4 (`as_str_matches_serde_snake_case_rendering`) asserts per-variant
+        // round-trip parity but not SET cardinality. A hand-edit copy-paste
+        // collision in audit identifiers (e.g., two variants returning the same
+        // snake_case string) would silently corrupt the cirs_lookup_audit FK
+        // identifier domain. Cardinality assertion catches it at build time.
+        use std::collections::HashSet;
+        let strs: HashSet<&'static str> =
+            PrivilegedAction::all().iter().map(|a| a.as_str()).collect();
+        assert_eq!(
+            strs.len(),
+            PrivilegedAction::all().len(),
+            "as_str collision detected — two variants share the same audit identifier"
+        );
+    }
 }
