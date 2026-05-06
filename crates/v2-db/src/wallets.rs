@@ -36,7 +36,9 @@ pub struct WalletTopup {
     pub gst_rate_bps: i32, // basis points; 1800 = 18%
     pub payment_method: PaymentMethod,
     pub payment_ref: Option<String>,
-    pub staff_id: Uuid,
+    // PACT-018 AMEND-1 NEW-FINDING-1 absorbed: staff_id is String not Uuid.
+    // staff(id) is TEXT PRIMARY KEY (not UUID) per PACT-018 §2.2.
+    pub staff_id: String,
     pub pos_id: String,
     pub tax_invoice_no: String,
     pub created_at: DateTime<Utc>,
