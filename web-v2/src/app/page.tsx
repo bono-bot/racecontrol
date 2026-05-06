@@ -127,6 +127,37 @@ export default function Home() {
         </div>
       </Panel>
 
+      <Panel title="Surfaces · scaffolded">
+        <div className="grid grid-cols-2 gap-3">
+          <a
+            href="/v2/pos"
+            className="flex items-start gap-3 px-4 py-4 rounded-md bg-rp-card border border-rp-border hover:border-rp-red hover:bg-rp-card-hi transition-colors duration-(--motion-fast)"
+          >
+            <div className="flex items-center justify-center size-10 rounded-md bg-rp-red/10 border border-rp-red/40">
+              <Activity className="size-5 text-rp-red" />
+            </div>
+            <div>
+              <p className="font-display font-bold uppercase text-sm tracking-wide text-rp-ink">POS · staff terminal</p>
+              <p className="font-body text-xs text-rp-ink-dim">Lookup · intake · sessions · quick issue · cafe order · cafe queue</p>
+              <p className="font-mono text-[10px] text-rp-ink-faint mt-1">/v2/pos</p>
+            </div>
+          </a>
+          <a
+            href="/v2/chef"
+            className="flex items-start gap-3 px-4 py-4 rounded-md bg-rp-card border border-rp-border hover:border-rp-amber hover:bg-rp-card-hi transition-colors duration-(--motion-fast)"
+          >
+            <div className="flex items-center justify-center size-10 rounded-md bg-rp-amber/10 border border-rp-amber/40">
+              <Activity className="size-5 text-rp-amber" />
+            </div>
+            <div>
+              <p className="font-display font-bold uppercase text-sm tracking-wide text-rp-ink">Chef · kitchen display</p>
+              <p className="font-body text-xs text-rp-ink-dim">Pending → preparing → ready · audio cue F29 V2.0 · staff-courier delivery</p>
+              <p className="font-mono text-[10px] text-rp-ink-faint mt-1">/v2/chef</p>
+            </div>
+          </a>
+        </div>
+      </Panel>
+
       <footer className="pt-6 border-t border-rp-border">
         <a
           className="inline-flex items-center gap-2 font-mono text-sm font-medium text-rp-red hover:text-rp-red-glow transition-colors"
