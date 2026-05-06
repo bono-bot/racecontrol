@@ -218,7 +218,7 @@ pub struct WayAAdditiveLadder;
 impl WayAAdditiveLadder {
     /// Return universal tiers (sim_type=None) sorted ASC by tier_order.
     /// Tiers with `threshold_minutes == 0` are placed at the end (unlimited tier).
-    fn universal_tiers_ordered<'a>(tiers: &'a [BillingRateTier]) -> Vec<&'a BillingRateTier> {
+    fn universal_tiers_ordered(tiers: &[BillingRateTier]) -> Vec<&BillingRateTier> {
         let mut v: Vec<&BillingRateTier> = tiers.iter().filter(|t| t.sim_type.is_none()).collect();
         // Sort by tier_order; threshold_minutes=0 (unlimited) sinks to the end as a tiebreaker
         v.sort_by(|a, b| a.tier_order.cmp(&b.tier_order));
