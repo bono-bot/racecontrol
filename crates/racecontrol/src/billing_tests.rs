@@ -2786,7 +2786,7 @@
         .expect("create pod_activity_log");
 
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, pool, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher))
     }
 
     /// Insert a billing session with a specific created_at offset (minutes ago).

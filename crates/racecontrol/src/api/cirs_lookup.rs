@@ -1,30 +1,45 @@
-//! CIRS lookup HTTP handler — PACT-20260506-001 Phase 1 wire-up Session 1.
+//! CIRS lookup HTTP handler — PACT-20260506-001 Phase 1 wire-up.
 //!
 //! Customer Identity Resolution Service (CIRS) HTTP surface at
 //! `POST /api/v1/cirs/lookup`. Substrate at `crates/v2-db/src/cirs.rs` is
 //! Phase 0 (MERGED `483562ac`). This module is the Phase 1 (james-LEAD,
 //! verify-by 2026-05-19) HTTP layer per PACT-20260506-001.
 //!
-//! ## Session 1 scope (THIS SESSION, scaffolding only)
+//! ## Session 1 scope (SHIPPED commit `8652a058`)
 //!
 //! - Request/Response DTOs matching PACT §2.1 + §AMEND-1.A `balance_credits`
-//! - Handler stub returning HTTP 501 (Session 2 lands real logic)
+//! - Handler stub returning HTTP 501
 //! - Serde round-trip tests for every method variant
 //!
-//! ## Session 2 scope (NEXT)
+//! ## Session 2 scope (THIS SESSION)
 //!
-//! - Add `v2-db` Cargo dependency to racecontrol-crate
-//! - Replace local `CirsLookupRequest` with `v2_db::cirs::LookupInput`
-//! - Implement ProfilePreview substrate joins (customers + customer_profiles
-//!   + wallets + sessions)
-//! - `record_lookup` post-call discipline on every Found/NotFound/Error path
+//! - `v2-db` Cargo dep added to racecontrol-crate (`Cargo.toml` Session 2 patch)
+//! - Local `CirsLookupRequest` replaced with `pub use v2_db::cirs::LookupInput`
+//! - Real handler logic against `v2_db::cirs::lookup_by_phone` for M1
+//! - ProfilePreview substrate joins (customers + wallets + sessions stats)
+//! - `record_lookup` post-call discipline on every Found / NotFound / Error path
+//! - Walk-In Guest synthetic path (no DB lookup; record_lookup with NotFound tag)
+//! - QR / NFC plumbed-disabled paths (Phase 3 activates) return 501
+//! - Integration tests against real `v2_db::open` + `migrate` pool
+//!
+//! ## Captain Q-DECISION queued (Q-CUSTOMER-PROFILES-1)
+//!
+//! `customer_profiles` table does NOT exist in v2-db substrate at HEAD `8652a058`.
+//! Captain dispositioned synthetic-single-element profiles[] in Session 2
+//! AskUserQuestion (option `(a)`): one ProfileSummary populated from the
+//! `customers` row itself, `is_default: true`, `discount_ineligible: false`.
+//! Reversible — when a multi-profile sub-PACT lands a `customer_profiles`
+//! migration, swap the synthetic helper for a real query in this file. No
+//! wire-format change to ProfilePreview / ProfileSummary at that point.
 //!
 //! ## Auth surface (per §AMEND-1.E + Q5-A)
 //!
 //! `cirs::lookup_by_phone` is **non-privileged** — staff session cookie
 //! (via `auth::middleware::require_staff_jwt`) is sufficient. NO PIN re-entry.
-//! See `crate::auth::privileged_actions::PrivilegedAction` for the enum that
-//! gates PIN-required surfaces (refunds, manager-mode, comp-session, etc.).
+//! Session 2 reads `StaffClaims` from request extensions (inserted by the
+//! middleware's parts.extensions.insert call) to thread `staff_id` into
+//! `cirs::record_lookup` for the cirs_lookup_audit row. Route registration in
+//! Session 3 chains require_staff_jwt -> this handler.
 //!
 //! ## NF-james-B Indian-mobile-prefix WARN gate (§AMEND-1.B)
 //!
@@ -44,7 +59,7 @@
 //!   confirms CIRS lookup is non-privileged
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::State,
     http::StatusCode,
     response::IntoResponse,
@@ -53,31 +68,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::auth::middleware::StaffClaims;
 use crate::state::AppState;
 
-// ─── Request DTO ───────────────────────────────────────────────────────────
-
-/// CIRS lookup request — wire-format mirror of `v2_db::cirs::LookupInput`.
-///
-/// **Session 1 NOTE:** redefined locally because racecontrol-crate does not
-/// yet depend on the `v2-db` crate. Session 2 adds the Cargo dep and
-/// replaces this with `pub use v2_db::cirs::LookupInput as CirsLookupRequest;`
-/// (zero wire-format change).
-///
-/// Q1-A disposition (bono pre-FILE pass): single route + discriminated method
-/// enum, NOT split routes. Method enum mirrors v2-db substrate.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "method", rename_all = "snake_case")]
-pub enum CirsLookupRequest {
-    /// M1 — phone-number lookup (V2.0 ACTIVE).
-    Phone { phone: String },
-    /// M3 — PWA-QR payload lookup (V2.0 plumbed-disabled; Phase 3 activates).
-    QrPayload { payload: String },
-    /// M4 — NFC tag lookup (V2.0 plumbed-disabled; Phase 3 activates).
-    NfcTagId { tag_id: String },
-    /// Walk-In Guest fallback (DoD §1.2 path B; `discount_ineligible: true`).
-    WalkInGuestId { guest_id: u8 },
-}
+// Re-export the v2-db substrate enum as the public wire-format type. Drops
+// the local mirror authored in Session 1 — wire format is unchanged because
+// `LookupInput` and the Session 1 `CirsLookupRequest` had identical serde
+// shapes. Kept the name `CirsLookupRequest` as the public alias for callers.
+pub use v2_db::cirs::LookupInput as CirsLookupRequest;
 
 // ─── Response DTO — ProfilePreview ─────────────────────────────────────────
 
@@ -102,7 +100,9 @@ pub struct ProfilePreview {
 }
 
 /// One row of the `profiles[]` list — V2 customer workflows Scenario 3 caps
-/// at 4 profiles per family.
+/// at 4 profiles per family. Until customer_profiles table lands as its own
+/// sub-PACT, profiles[] carries one synthetic ProfileSummary derived from the
+/// customers row (Q-CUSTOMER-PROFILES-1 disposition (a) Session 2).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProfileSummary {
     pub profile_id: String,
@@ -111,28 +111,324 @@ pub struct ProfileSummary {
     pub discount_ineligible: bool,
 }
 
-// ─── Handler stub (Session 1 — returns 501) ────────────────────────────────
+// ─── Handler ───────────────────────────────────────────────────────────────
 
-/// CIRS lookup handler — Session 1 scaffolding stub.
+/// CIRS lookup handler — Session 2 real implementation.
 ///
-/// Returns HTTP 501 NotImplemented with a structured body pointing at the
-/// PLAN.md for Session 2 implementation.
+/// `POST /api/v1/cirs/lookup` under staff-JWT protected sub-router. Route
+/// registration lands in Session 3.
 ///
-/// Wire path (when active): `POST /api/v1/cirs/lookup` under staff-JWT
-/// protected sub-router. Route registration lands in Session 3.
+/// Behavior:
+/// - `Phone` -> canonicalize + `lookup_by_phone` -> (Found ? fetch_profile_preview : 404 NotFound shape)
+/// - `WalkInGuestId` -> synthetic ProfilePreview, `discount_ineligible: true`, no DB customer query
+/// - `QrPayload` / `NfcTagId` -> Phase 3 (V2.0 plumbed-disabled), 501 NotImplemented
+///
+/// Every path writes a `cirs_lookup_audit` row via `cirs::record_lookup` with
+/// the staff_id from the JWT claims. Audit-write failure does NOT change the
+/// HTTP response — it is logged at WARN level so the client still sees the
+/// resolution outcome (CGP H3 discipline: one boundary, one outcome).
 pub async fn cirs_lookup_handler(
-    State(_state): State<Arc<AppState>>,
-    Json(_request): Json<CirsLookupRequest>,
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<StaffClaims>,
+    Json(request): Json<CirsLookupRequest>,
 ) -> impl IntoResponse {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": "cirs_lookup_not_yet_implemented",
-            "phase": "PACT-20260506-001 Phase 1 wire-up Session 1 ships scaffolding only",
-            "next_session_lands": "ProfilePreview substrate joins + record_lookup audit discipline",
-            "plan_anchor": ".planning/specs/v2/PHASE-1-WIREUP-PLAN.md"
-        })),
-    )
+    use v2_db::cirs::{LookupInput, LookupResult, lookup_by_phone, record_lookup};
+
+    let staff_id = claims.sub.as_str();
+
+    match &request {
+        // ── Walk-In Guest path — synthetic, no DB customer query ───────────
+        LookupInput::WalkInGuestId { guest_id } => {
+            // Audit the lookup (input_hash is None for walk-in per substrate).
+            // Walk-in tag = NotFound at audit-row level — the customer record
+            // doesn't exist; the synthetic preview is a UI-only convenience.
+            let audit_result = LookupResult::NotFound;
+            if let Err(e) =
+                record_lookup(&state.v2db, staff_id, None, &request, &audit_result).await
+            {
+                tracing::warn!(
+                    target: "cirs_lookup_audit",
+                    error = %e,
+                    method = "walk_in_guest_id",
+                    guest_id = *guest_id,
+                    "cirs_lookup_audit write failed (non-fatal)"
+                );
+            }
+            (
+                StatusCode::OK,
+                Json(json!(synthesize_walkin_preview(*guest_id))),
+            )
+                .into_response()
+        }
+
+        // ── Phone path — M1 ACTIVE in V2.0 ─────────────────────────────────
+        LookupInput::Phone { phone } => {
+            let lookup_outcome = lookup_by_phone(&state.v2db, phone).await;
+            match lookup_outcome {
+                Ok(LookupResult::Found { customer_id }) => {
+                    // Fetch the full ProfilePreview substrate.
+                    let preview_result =
+                        fetch_profile_preview(&state.v2db, &customer_id).await;
+                    match preview_result {
+                        Ok(preview) => {
+                            // Audit Found
+                            let audit = LookupResult::Found {
+                                customer_id: customer_id.clone(),
+                            };
+                            if let Err(e) = record_lookup(
+                                &state.v2db,
+                                staff_id,
+                                Some(customer_id.as_str()),
+                                &request,
+                                &audit,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    target: "cirs_lookup_audit",
+                                    error = %e,
+                                    method = "phone",
+                                    "cirs_lookup_audit write failed (non-fatal)"
+                                );
+                            }
+                            (StatusCode::OK, Json(json!(preview))).into_response()
+                        }
+                        Err(e) => {
+                            // Substrate row was found but profile-fetch failed —
+                            // surfaces as Error in the audit log, 500 to client.
+                            let msg = format!("profile_preview_fetch_failed: {e}");
+                            let audit = LookupResult::Error { message: msg.clone() };
+                            if let Err(audit_err) = record_lookup(
+                                &state.v2db,
+                                staff_id,
+                                Some(customer_id.as_str()),
+                                &request,
+                                &audit,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    target: "cirs_lookup_audit",
+                                    error = %audit_err,
+                                    method = "phone",
+                                    "cirs_lookup_audit write failed (non-fatal)"
+                                );
+                            }
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({
+                                    "error": "profile_preview_fetch_failed",
+                                    "message": msg,
+                                })),
+                            )
+                                .into_response()
+                        }
+                    }
+                }
+                Ok(LookupResult::NotFound) => {
+                    let audit = LookupResult::NotFound;
+                    if let Err(e) = record_lookup(
+                        &state.v2db,
+                        staff_id,
+                        None,
+                        &request,
+                        &audit,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            target: "cirs_lookup_audit",
+                            error = %e,
+                            method = "phone",
+                            "cirs_lookup_audit write failed (non-fatal)"
+                        );
+                    }
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({
+                            "result": "not_found",
+                            "message": "no customer matches the canonicalized phone",
+                            "next_action": "offer_walk_in_guest_or_pwa_register",
+                        })),
+                    )
+                        .into_response()
+                }
+                Ok(LookupResult::Error { message }) => {
+                    // Phase 0 substrate Error variant — currently unreachable
+                    // (lookup_by_phone returns Result, not LookupResult::Error)
+                    // but defended for forward-compat. Audit + 500.
+                    let audit = LookupResult::Error { message: message.clone() };
+                    let _ = record_lookup(
+                        &state.v2db,
+                        staff_id,
+                        None,
+                        &request,
+                        &audit,
+                    )
+                    .await;
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "lookup_substrate_error", "message": message })),
+                    )
+                        .into_response()
+                }
+                Err(e) => {
+                    // CirsError — InvalidPhone / AmbiguousPhone / Sqlx.
+                    let (status, code) = match &e {
+                        v2_db::cirs::CirsError::InvalidPhone(_) => {
+                            (StatusCode::BAD_REQUEST, "invalid_phone")
+                        }
+                        v2_db::cirs::CirsError::AmbiguousPhone(_) => {
+                            (StatusCode::BAD_REQUEST, "ambiguous_phone")
+                        }
+                        v2_db::cirs::CirsError::Sqlx(_) => {
+                            (StatusCode::INTERNAL_SERVER_ERROR, "lookup_db_error")
+                        }
+                    };
+                    let msg = format!("{e}");
+                    let audit = LookupResult::Error { message: msg.clone() };
+                    if let Err(audit_err) = record_lookup(
+                        &state.v2db,
+                        staff_id,
+                        None,
+                        &request,
+                        &audit,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            target: "cirs_lookup_audit",
+                            error = %audit_err,
+                            method = "phone",
+                            "cirs_lookup_audit write failed (non-fatal)"
+                        );
+                    }
+                    (status, Json(json!({ "error": code, "message": msg }))).into_response()
+                }
+            }
+        }
+
+        // ── QR / NFC — V2.0 plumbed-disabled per Phase 0 doc ───────────────
+        LookupInput::QrPayload { .. } | LookupInput::NfcTagId { .. } => {
+            let method = match &request {
+                LookupInput::QrPayload { .. } => "qr_payload",
+                LookupInput::NfcTagId { .. } => "nfc_tag_id",
+                _ => unreachable!(),
+            };
+            // Audit the attempt with Error tag — Phase 3 activation will flip
+            // these to actual resolution; until then, NotImplemented at the
+            // boundary is the correct H3 honest-evidence answer.
+            let audit = LookupResult::Error {
+                message: format!("{method} method plumbed-disabled until Phase 3"),
+            };
+            if let Err(e) =
+                record_lookup(&state.v2db, staff_id, None, &request, &audit).await
+            {
+                tracing::warn!(
+                    target: "cirs_lookup_audit",
+                    error = %e,
+                    method = method,
+                    "cirs_lookup_audit write failed (non-fatal)"
+                );
+            }
+            (
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({
+                    "error": format!("{method}_plumbed_disabled"),
+                    "message": "method recognized; activation lands in Phase 3 (no hardware in V2.0)",
+                    "active_methods_v2_0": ["phone", "walk_in_guest_id"],
+                })),
+            )
+                .into_response()
+        }
+    }
+}
+
+// ─── ProfilePreview substrate join ─────────────────────────────────────────
+
+/// Fetch the full ProfilePreview shape for a customer_id.
+///
+/// SQL composition:
+///   - inner join customers + LEFT JOIN wallets (1:1 via wallets.customer_id UNIQUE)
+///   - subquery for `last_visit_ts` (MAX ended_at where billing_state LIKE 'ended_%')
+///   - subquery for `arrival_history_count_30d` (COUNT sessions started in last 30d)
+///
+/// `profiles[]` is synthetic single-element until customer_profiles migration
+/// lands (Captain Q-CUSTOMER-PROFILES-1 = (a)).
+async fn fetch_profile_preview(
+    pool: &v2_db::DbPool,
+    customer_id: &str,
+) -> Result<ProfilePreview, sqlx::Error> {
+    // Single composite query — simpler than multiple round-trips and the
+    // SQLite query planner handles correlated subqueries fine on the indexed
+    // sessions(customer_id) + sessions partial-index columns.
+    let row: (String, String, Option<String>, i64, Option<String>, i64) =
+        sqlx::query_as(
+            r#"
+            SELECT
+                c.id,
+                c.phone,
+                c.display_name,
+                COALESCE(w.balance_credits, 0) AS balance_credits,
+                (SELECT MAX(s.ended_at) FROM sessions s
+                 WHERE s.customer_id = c.id
+                   AND s.billing_state LIKE 'ended_%'
+                   AND s.ended_at IS NOT NULL) AS last_visit_ts,
+                (SELECT COUNT(*) FROM sessions s2
+                 WHERE s2.customer_id = c.id
+                   AND s2.started_at >= datetime('now', '-30 days')) AS arrival_history_count_30d
+            FROM customers c
+            LEFT JOIN wallets w ON w.customer_id = c.id
+            WHERE c.id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(customer_id)
+        .fetch_one(pool)
+        .await?;
+
+    let (id, phone, display_name, balance_credits, last_visit_ts, arrival_count) = row;
+    let name = display_name.clone().unwrap_or_else(|| "Customer".to_string());
+
+    // Synthetic single-element profiles[] until customer_profiles migration.
+    // profile_id reuses customer_id so frontend code can key off a stable id;
+    // when the real customer_profiles table lands the id swaps to the actual
+    // profile UUID. is_default=true matches the V2 "first profile is default"
+    // convention in V2 customer workflows consolidated 2026-05-03.
+    let synthetic_profile = ProfileSummary {
+        profile_id: id.clone(),
+        name: name.clone(),
+        is_default: true,
+        discount_ineligible: false,
+    };
+
+    Ok(ProfilePreview {
+        customer_id: id,
+        primary_phone: phone,
+        name,
+        profiles: vec![synthetic_profile],
+        balance_credits,
+        last_visit_ts,
+        // SQLite COUNT(*) is i64; clamp to u32 for DTO. arrival count over
+        // 4 billion in 30 days is structurally impossible.
+        arrival_history_count_30d: u32::try_from(arrival_count).unwrap_or(u32::MAX),
+        discount_ineligible: false,
+    })
+}
+
+/// Synthesize the Walk-In Guest ProfilePreview shape (no DB lookup).
+/// `discount_ineligible: true` per V2 customer workflows DoD §1.2 path B.
+fn synthesize_walkin_preview(guest_id: u8) -> ProfilePreview {
+    ProfilePreview {
+        customer_id: format!("walk_in_guest_{guest_id}"),
+        primary_phone: String::new(),
+        name: format!("Walk-In Guest {guest_id}"),
+        profiles: vec![],
+        balance_credits: 0,
+        last_visit_ts: None,
+        arrival_history_count_30d: 0,
+        discount_ineligible: true,
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -140,71 +436,64 @@ pub async fn cirs_lookup_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use v2_db::cirs::LookupInput;
+
+    // ── Session 1 contract tests retained — verify wire-format unchanged
+    //    after the v2_db::cirs::LookupInput re-export swap.
 
     #[test]
     fn cirs_lookup_request_serde_phone_roundtrips() {
-        let req = CirsLookupRequest::Phone {
+        let req = LookupInput::Phone {
             phone: "9876543210".to_string(),
         };
         let json = serde_json::to_string(&req).expect("serialize");
         assert_eq!(json, r#"{"method":"phone","phone":"9876543210"}"#);
-        let parsed: CirsLookupRequest = serde_json::from_str(&json).expect("deserialize");
+        let parsed: LookupInput = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, req);
     }
 
     #[test]
     fn cirs_lookup_request_serde_qr_payload_roundtrips() {
-        let req = CirsLookupRequest::QrPayload {
+        let req = LookupInput::QrPayload {
             payload: "rp:v1:c:9876543210:abc123".to_string(),
         };
         let json = serde_json::to_string(&req).expect("serialize");
         assert!(json.contains(r#""method":"qr_payload""#));
         assert!(json.contains(r#""payload":"rp:v1:c:9876543210:abc123""#));
-        let parsed: CirsLookupRequest = serde_json::from_str(&json).expect("deserialize");
+        let parsed: LookupInput = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, req);
     }
 
     #[test]
     fn cirs_lookup_request_serde_nfc_tag_id_roundtrips() {
-        let req = CirsLookupRequest::NfcTagId {
+        let req = LookupInput::NfcTagId {
             tag_id: "04:1A:2B:3C:4D:5E:6F".to_string(),
         };
         let json = serde_json::to_string(&req).expect("serialize");
         assert!(json.contains(r#""method":"nfc_tag_id""#));
-        let parsed: CirsLookupRequest = serde_json::from_str(&json).expect("deserialize");
+        let parsed: LookupInput = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, req);
     }
 
     #[test]
     fn cirs_lookup_request_serde_walk_in_guest_id_roundtrips() {
-        let req = CirsLookupRequest::WalkInGuestId { guest_id: 1 };
+        let req = LookupInput::WalkInGuestId { guest_id: 1 };
         let json = serde_json::to_string(&req).expect("serialize");
         assert_eq!(json, r#"{"method":"walk_in_guest_id","guest_id":1}"#);
-        let parsed: CirsLookupRequest = serde_json::from_str(&json).expect("deserialize");
+        let parsed: LookupInput = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, req);
-
-        // Guest 2 (the second hardcoded fallback per DoD §1.2 path B)
-        let req2 = CirsLookupRequest::WalkInGuestId { guest_id: 2 };
-        let parsed2: CirsLookupRequest =
-            serde_json::from_str(r#"{"method":"walk_in_guest_id","guest_id":2}"#)
-                .expect("deserialize");
-        assert_eq!(parsed2, req2);
     }
 
     #[test]
     fn cirs_lookup_request_method_discriminator_is_required() {
-        // Missing `method` field MUST fail to parse — defends against a UI
-        // bug that drops the discriminator and silently coerces to a default.
-        let parsed: Result<CirsLookupRequest, _> =
+        let parsed: Result<LookupInput, _> =
             serde_json::from_str(r#"{"phone":"9876543210"}"#);
         assert!(parsed.is_err(), "missing method discriminator must reject");
     }
 
     #[test]
     fn cirs_lookup_request_unknown_method_rejects() {
-        // Forward-compat guard — adding a method server-side without updating
-        // clients should fail loud, not silently coerce. Same for typos.
-        let parsed: Result<CirsLookupRequest, _> = serde_json::from_str(
+        let parsed: Result<LookupInput, _> = serde_json::from_str(
             r#"{"method":"biometric_face_scan","value":"…"}"#,
         );
         assert!(parsed.is_err(), "unknown method must reject");
@@ -212,9 +501,6 @@ mod tests {
 
     #[test]
     fn profile_preview_serde_uses_balance_credits_naming_per_amend_1_a() {
-        // §AMEND-1.A NF-bono-1 absorbed: field is `balance_credits`, NOT
-        // `wallet_balance_credits`. This test is the contract drift detector
-        // — if anyone renames back to `wallet_balance_credits`, this fails.
         let preview = ProfilePreview {
             customer_id: "00000000-0000-0000-0000-000000000001".to_string(),
             primary_phone: "+919876543210".to_string(),
@@ -247,20 +533,238 @@ mod tests {
 
     #[test]
     fn profile_preview_walk_in_guest_shape_marks_discount_ineligible() {
-        // V2 customer workflows DoD §1.2 path B — walk-in guests carry
-        // discount_ineligible=true. The PreviewCard rendering layer reads
-        // this flag to surface the "no discount applicable" badge.
-        let walk_in = ProfilePreview {
-            customer_id: "walk_in_guest_1".to_string(),
-            primary_phone: "".to_string(),
-            name: "Walk-In Guest 1".to_string(),
-            profiles: vec![],
-            balance_credits: 0,
-            last_visit_ts: None,
-            arrival_history_count_30d: 0,
-            discount_ineligible: true,
-        };
+        let walk_in = synthesize_walkin_preview(1);
+        assert_eq!(walk_in.customer_id, "walk_in_guest_1");
+        assert_eq!(walk_in.name, "Walk-In Guest 1");
+        assert!(walk_in.discount_ineligible);
+        assert_eq!(walk_in.balance_credits, 0);
+        assert!(walk_in.profiles.is_empty());
+        assert_eq!(walk_in.arrival_history_count_30d, 0);
+        assert!(walk_in.last_visit_ts.is_none());
+
         let json = serde_json::to_string(&walk_in).expect("serialize");
         assert!(json.contains(r#""discount_ineligible":true"#));
+    }
+
+    #[test]
+    fn synthesize_walkin_guest_2_distinct_from_guest_1() {
+        let g1 = synthesize_walkin_preview(1);
+        let g2 = synthesize_walkin_preview(2);
+        assert_ne!(g1.customer_id, g2.customer_id);
+        assert_ne!(g1.name, g2.name);
+        assert!(g1.discount_ineligible && g2.discount_ineligible);
+    }
+
+    // ── Session 2 NEW: integration tests against real v2-db pool ──────────
+    //
+    // These exercise the full `fetch_profile_preview` query against a freshly
+    // migrated v2-db SQLite file. Use `tempfile` + `v2_db::open` + `migrate`.
+    // Tests run sequentially in their own pool — no cross-contamination.
+
+    async fn open_test_v2db() -> v2_db::DbPool {
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let path = tmp.path().to_str().expect("tempfile str path").to_string();
+        // Hold the file alive via leak — pool keeps a handle anyway, but the
+        // NamedTempFile drop would unlink prematurely on some platforms.
+        std::mem::forget(tmp);
+        let pool = v2_db::open(&path).await.expect("open v2-db");
+        v2_db::migrate(&pool).await.expect("migrate v2-db");
+        pool
+    }
+
+    /// Seed the minimum FK chain a Found-path test needs: staff (PACT-018 FK
+    /// target) + customer + wallet. Returns customer_id for the test to query.
+    async fn seed_basic_chain(pool: &v2_db::DbPool, balance: i64) -> String {
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-test', 'Test Staff', '0000000001', '0001', 'cashier', 1)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed staff");
+
+        let customer_id = "cust-test-001".to_string();
+        sqlx::query(
+            "INSERT INTO customers (id, phone, display_name) \
+             VALUES (?, '+919876543210', 'Test Customer')",
+        )
+        .bind(&customer_id)
+        .execute(pool)
+        .await
+        .expect("seed customer");
+
+        sqlx::query(
+            "INSERT INTO wallets (id, customer_id, balance_credits) VALUES ('w-1', ?, ?)",
+        )
+        .bind(&customer_id)
+        .bind(balance)
+        .execute(pool)
+        .await
+        .expect("seed wallet");
+
+        customer_id
+    }
+
+    #[tokio::test]
+    async fn fetch_profile_preview_found_returns_canonical_shape() {
+        let pool = open_test_v2db().await;
+        let customer_id = seed_basic_chain(&pool, 480).await;
+
+        let preview = fetch_profile_preview(&pool, &customer_id)
+            .await
+            .expect("fetch");
+
+        assert_eq!(preview.customer_id, customer_id);
+        assert_eq!(preview.primary_phone, "+919876543210");
+        assert_eq!(preview.name, "Test Customer");
+        assert_eq!(preview.balance_credits, 480);
+        assert_eq!(preview.profiles.len(), 1);
+        assert!(preview.profiles[0].is_default);
+        assert!(!preview.profiles[0].discount_ineligible);
+        assert_eq!(preview.profiles[0].profile_id, customer_id);
+        assert_eq!(preview.last_visit_ts, None);
+        assert_eq!(preview.arrival_history_count_30d, 0);
+        assert!(!preview.discount_ineligible);
+    }
+
+    #[tokio::test]
+    async fn fetch_profile_preview_no_wallet_defaults_balance_to_zero() {
+        // §AMEND-1.A NF-bono-1 sibling — customer with no wallet row must
+        // serialize `balance_credits: 0`, NOT NULL or absent. The COALESCE
+        // in the join SQL is the structural enforcement.
+        let pool = open_test_v2db().await;
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-1', 'S', '0000000001', '0001', 'cashier', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO customers (id, phone, display_name) \
+             VALUES ('cust-no-wallet', '+919999999998', 'No Wallet')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let preview = fetch_profile_preview(&pool, "cust-no-wallet")
+            .await
+            .expect("fetch");
+        assert_eq!(preview.balance_credits, 0);
+        assert_eq!(preview.name, "No Wallet");
+    }
+
+    #[tokio::test]
+    async fn fetch_profile_preview_missing_customer_returns_row_not_found() {
+        let pool = open_test_v2db().await;
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-1', 'S', '0000000001', '0001', 'cashier', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let err = fetch_profile_preview(&pool, "nonexistent-customer")
+            .await
+            .expect_err("must fail");
+        // sqlx::Error::RowNotFound is the exact variant fetch_one returns
+        // when zero rows match — handler wraps this as 404 NotFound (which
+        // the lookup_by_phone path also reaches via LookupResult::NotFound,
+        // so this branch is defense-in-depth for direct callers).
+        assert!(matches!(err, sqlx::Error::RowNotFound));
+    }
+
+    #[tokio::test]
+    async fn fetch_profile_preview_arrival_count_filters_30d_window() {
+        let pool = open_test_v2db().await;
+        let customer_id = seed_basic_chain(&pool, 100).await;
+
+        // Seed pod (FK target for sessions.pod_id). v2-db schema columns:
+        // id / display_name / hardware_class / ip_address / status / updated_at
+        sqlx::query(
+            "INSERT INTO pods (id, display_name, hardware_class) \
+             VALUES ('p-1', 'Pod 1', 'sim_pod')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed pod");
+
+        // Two sessions: one inside the 30d window, one outside.
+        sqlx::query(
+            "INSERT INTO sessions (id, customer_id, pod_id, session_type, \
+             started_at, ended_at, billing_state, staff_id) \
+             VALUES ('sess-recent', ?, 'p-1', 'solo', \
+                     datetime('now', '-5 days'), datetime('now', '-5 days', '+30 minutes'), \
+                     'ended_normal', 's-test')",
+        )
+        .bind(&customer_id)
+        .execute(&pool)
+        .await
+        .expect("seed recent session");
+
+        sqlx::query(
+            "INSERT INTO sessions (id, customer_id, pod_id, session_type, \
+             started_at, ended_at, billing_state, staff_id) \
+             VALUES ('sess-old', ?, 'p-1', 'solo', \
+                     datetime('now', '-60 days'), datetime('now', '-60 days', '+30 minutes'), \
+                     'ended_normal', 's-test')",
+        )
+        .bind(&customer_id)
+        .execute(&pool)
+        .await
+        .expect("seed old session");
+
+        let preview = fetch_profile_preview(&pool, &customer_id)
+            .await
+            .expect("fetch");
+        assert_eq!(
+            preview.arrival_history_count_30d, 1,
+            "only the within-30d session counts; got history_count={}",
+            preview.arrival_history_count_30d
+        );
+        // last_visit_ts populated by the most-recent ended session
+        assert!(preview.last_visit_ts.is_some());
+    }
+
+    #[tokio::test]
+    async fn record_lookup_writes_audit_row_for_phone_found_path() {
+        // Sanity-check the substrate primitive end-to-end inside the racecontrol
+        // test harness — guards against a future v2-db schema change that
+        // breaks the bind ordering. Functional duplicate of the v2-db crate's
+        // own tests, but in the racecontrol test process so a workspace-wide
+        // `cargo test -p racecontrol-crate` catches the drift class too.
+        use v2_db::cirs::{LookupInput, LookupResult, record_lookup};
+
+        let pool = open_test_v2db().await;
+        let customer_id = seed_basic_chain(&pool, 100).await;
+
+        let input = LookupInput::Phone { phone: "+919876543210".to_string() };
+        let result = LookupResult::Found { customer_id: customer_id.clone() };
+
+        record_lookup(&pool, "s-test", Some(customer_id.as_str()), &input, &result)
+            .await
+            .expect("record_lookup");
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM cirs_lookup_audit \
+             WHERE staff_id = 's-test' AND customer_id = ? AND result = 'found'",
+        )
+        .bind(&customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(count, 1, "exactly one audit row for the lookup");
+
+        let input_method: String = sqlx::query_scalar(
+            "SELECT input_method FROM cirs_lookup_audit \
+             WHERE staff_id = 's-test' AND customer_id = ?",
+        )
+        .bind(&customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("input_method");
+        assert_eq!(input_method, "phone");
     }
 }

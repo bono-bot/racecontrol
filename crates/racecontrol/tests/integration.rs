@@ -698,7 +698,7 @@ async fn run_test_migrations(pool: &SqlitePool) {
 fn create_test_state(pool: SqlitePool) -> Arc<racecontrol_crate::state::AppState> {
     let config = racecontrol_crate::config::Config::default_test();
     let field_cipher = racecontrol_crate::crypto::encryption::test_field_cipher();
-    Arc::new(racecontrol_crate::state::AppState::new(config, pool, field_cipher))
+    Arc::new(racecontrol_crate::state::AppState::new_with_test_v2db(config, pool, field_cipher))
 }
 
 /// Insert a test driver with a wallet.

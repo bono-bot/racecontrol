@@ -29,7 +29,7 @@ mod tests {
             .expect("in-memory sqlite pool");
 
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, pool, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher))
     }
 
     /// Build a test router: a single GET /test behind require_staff_jwt middleware.

@@ -24,7 +24,7 @@ async fn make_test_state() -> Arc<AppState> {
 
     let config = racecontrol_crate::config::Config::default_test();
     let cipher = racecontrol_crate::crypto::encryption::test_field_cipher();
-    Arc::new(AppState::new(config, db, cipher))
+    Arc::new(AppState::new_with_test_v2db(config, db, cipher))
 }
 
 fn make_claims() -> Extension<StaffClaims> {

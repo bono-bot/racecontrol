@@ -42,6 +42,12 @@ mod tests;
 pub struct AppState {
     pub config: Config,
     pub db: SqlitePool,
+    /// V2-native SQLite pool for the v2-db substrate (customers, wallets,
+    /// sessions, cirs_lookup_audit, etc.). Separate file from `db` per
+    /// PACT-20260503-003 Phase 0.2 — V1 and V2 schemas live in distinct DBs
+    /// for clean cutover semantics. PACT-20260506-001 Phase 1 wire-up
+    /// Session 2 added this field.
+    pub v2db: v2_db::DbPool,
     pub pods: RwLock<HashMap<String, PodInfo>>,
     pub dashboard_tx: broadcast::Sender<DashboardEvent>,
     /// Broadcast channel for emitting events to Bono's VPS relay.
@@ -204,7 +210,26 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(config: Config, db: SqlitePool, field_cipher: FieldCipher) -> Self {
+    /// Test-only constructor — opens a lazy in-memory v2-db pool so existing
+    /// tests that don't exercise v2-db functionality keep their sync construction
+    /// path. The lazy pool only connects on first query, so tests that never
+    /// touch v2-db incur no runtime cost. Tests that DO need v2-db (cirs_lookup
+    /// integration tests) construct their own pool via `v2_db::open`/`migrate`
+    /// directly. PACT-20260506-001 Phase 1 wire-up Session 2.
+    ///
+    /// Not gated on `#[cfg(test)]` because external integration tests in
+    /// `crates/racecontrol/tests/*.rs` are separate compilation units and
+    /// cannot see `#[cfg(test)]`-only items in the lib. The function name
+    /// (`_test_v2db`) carries the test-only signal at the call site.
+    #[doc(hidden)]
+    pub fn new_with_test_v2db(config: Config, db: SqlitePool, field_cipher: FieldCipher) -> Self {
+        let v2db = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .expect("connect_lazy to in-memory SQLite cannot fail");
+        Self::new(config, db, v2db, field_cipher)
+    }
+
+    pub fn new(config: Config, db: SqlitePool, v2db: v2_db::DbPool, field_cipher: FieldCipher) -> Self {
         let (dashboard_tx, _) = broadcast::channel(1024);
         let (bono_event_tx, _) = broadcast::channel(256);
         // Extract email alert config before config is moved into the struct
@@ -226,6 +251,7 @@ impl AppState {
         Self {
             config,
             db,
+            v2db,
             pods: RwLock::new(HashMap::new()),
             dashboard_tx,
             bono_event_tx,

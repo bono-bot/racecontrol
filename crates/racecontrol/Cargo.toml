@@ -47,6 +47,11 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 
+# v2-db — V2-native SQLite-first DB substrate (PACT-20260503-003 Phase 0.2).
+# PACT-20260506-001 Phase 1 wire-up Session 2 adds this dep so HTTP handlers
+# can call cirs::lookup_by_phone, cirs::record_lookup, and reuse LookupInput.
+v2-db = { path = "../v2-db" }
+
 # mDNS discovery
 mdns-sd = "0.12"
 

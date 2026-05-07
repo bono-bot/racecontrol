@@ -212,7 +212,7 @@ async fn make_test_db() -> sqlx::SqlitePool {
 async fn make_state_with_db(db: sqlx::SqlitePool) -> Arc<AppState> {
     let config = crate::config::Config::default_test();
     let field_cipher = crate::crypto::encryption::test_field_cipher();
-    Arc::new(AppState::new(config, db, field_cipher))
+    Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
 }
 
 // ─── Badge evaluation tests ───────────────────────────────────────────────

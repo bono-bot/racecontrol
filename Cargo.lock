@@ -3601,6 +3601,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "uuid",
+ "v2-db",
  "winapi",
 ]
 
@@ -5758,6 +5759,7 @@ dependencies = [
  "libsqlite3-sys",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tempfile",
  "thiserror 2.0.18",
