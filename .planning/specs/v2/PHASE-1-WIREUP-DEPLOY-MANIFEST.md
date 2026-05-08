@@ -158,11 +158,11 @@ The Path A fix is verified at the JSON wire-format level via TS compiler + Rust 
 
 | # | Decision | Source |
 |---|---|---|
-| **K1** | Per-PR MERGE auth — PR #64 OPEN-DRAFT, CI 5/5 PASS, mergeStateStatus CLEAN; awaiting Captain promote-from-draft + merge click. (PR-open itself authorized by Captain "Proceed autonomously" 2026-05-08 ~10:52 IST + ~13:10 IST.) | this manifest §2 + GitHub PR #64 |
+| **K1** | Per-PR MERGE auth — **DISPOSED** Captain explicit "merge PR #64 as fixed-window" 2026-05-08 ~13:50 IST. PR #64 MERGED `991b5411` 2026-05-08 13:54 IST (squash on main; branch deleted) | this manifest §2 + GitHub PR #64 |
 | **K2** | Cross-layer naming-drift — **CLOSED** via `ba17088f` (TS `ProfilePreview`/`ProfileSummary` fields aligned to Rust canonical: `name`, `primary_phone`, `last_visit_ts`, `discount_ineligible` mirrored) | flagged Session 6d Lane A; resolved Session 7 fix-inline |
 | **K3** | RsX refund-threshold for `ApproveRefundOverThreshold` enum entry (Wave 1 scope) | PACT-20260506-001 §AMEND-1.I |
 | **K4** | PIN-LOCKOUT sub-questions 1.e-h (cadence/delivery/reset/fallback) (Wave 1 scope) | §S-82 Q1 |
-| **K5** | **MERGE BLOCKER** — Idle-timeout impl is fixed-window-from-iat, NOT sliding-window per Captain §S-82 Q3 — sliding refresh deferred to "Session 6 PR-readiness" per inline comment at `middleware.rs:106-107`; needs Captain ratify-or-fix before PR #64 merge | discovered during MMA prompt authoring |
+| **K5** | Idle-timeout fixed-window-from-iat vs §S-82 Q3 sliding-window — **DISPOSED** Captain Path A 2026-05-08 ~13:50 IST verbatim "merge PR #64 as fixed-window; file V2.1 sliding-window PACT post-launch". V2.0 ships as-shipped; V2.1 sliding-window PACT pin planted at memory `project_v2_1_sliding_window_idle_timeout_pact_pin.md` | discovered during MMA prompt authoring; surfaced via INBOX `f7d00b04` 2026-05-08 13:44 IST |
 
 ---
 
@@ -202,3 +202,21 @@ Manifest authored at `3ea5dc89` (HEAD `8043f6b3`). Following commits + events ha
 - PR #64 fully ready for Captain merge-auth click (K1) — awaiting promote-from-draft + merge
 - K5 (sliding vs fixed-window idle-timeout) is the remaining substantive decision; Captain ratify-or-fix needed before merge
 - Quality Gate / E2E live / visual-verification gates still apply at Session 8 deploy-time (post-merge)
+
+---
+
+## §7 — Merge + K5 disposition addendum (2026-05-08 ~13:55 IST)
+
+| When | Event | Reference |
+|---|---|---|
+| 2026-05-08 ~13:44 IST | K5 surfaced to Captain via INBOX | comms-link `f7d00b04` |
+| 2026-05-08 ~13:50 IST | Captain Path A disposition: "merge PR #64 as fixed-window; file V2.1 sliding-window PACT post-launch" | chat session verbatim |
+| 2026-05-08 ~13:54 IST | PR #64 promoted from draft → ready + squash-merged to main | merge commit `991b5411` |
+| 2026-05-08 ~13:55 IST | V2.1 sliding-window PACT pin planted | memory file `project_v2_1_sliding_window_idle_timeout_pact_pin.md` |
+| 2026-05-08 ~13:55 IST | `middleware.rs:103-110` inline comment updated to cite V2.1 PACT pin (post-merge docs commit) | this commit |
+
+**Wave 0 status:** SHIPPED to main. Session 8 deploy-time gates (Quality Gate / E2E live / visual verification on POS .130 / Bono VPS parity per §1.8) remain — those are deploy disposition, separate from PR-merge.
+
+**V2.1 trigger conditions for sliding-window PACT FILE:** V2.0 launch readiness Wave 6 / staff burn-in data >10% mid-active force-re-PIN / Captain explicit request / 2026-06-30 calendar reminder — whichever first.
+
+**Manifest now stale-at:** §4 condition (a) PR-open + post-merge SUMMARY.md replaces it — SUMMARY.md not yet authored; this manifest stays durable until SUMMARY.md or until Session 8 deploy-time replaces it.
