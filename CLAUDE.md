@@ -769,10 +769,14 @@ Before investigating from scratch, consult `docs/`:
 
 ## Brand Identity
 
+_Canonical sources: colors → `packages/shared-tokens/tokens.css` (`--rp-*` tokens, both web and kiosk import this). Fonts → `kiosk/src/app/globals.css` `@theme inline` block (kiosk = unified-theme reference). Full V2 design substrate → `comms-link/v2-skeleton/10-ui-design-system.md`. RATIFIED 2026-05-08 IST per Captain disposition; supersedes May 2 design brief._
+
 - Racing Red: `#E10600` | Asphalt Black: `#1A1A1A` | Gunmetal Grey: `#5A5A5A`
-- Card: `#222222` | Border: `#333333`
-- Fonts: Montserrat (body), Enthocentric (headers)
+- Card: `#222222` | Border: `#333333` | Surface (elevated): `#2A2A2A` | Red-hover: `#FF1A1A`
+- Fonts: Montserrat (body, 400/500/600/700), Orbitron (display, 500/700/900)
+- Tailwind utility prefix: `rp-*` (e.g. `bg-rp-red`, `text-rp-grey`, `border-rp-border`)
 - OLD orange `#FF4400` is DEPRECATED — do not use
+- Enthocentric (display) DEPRECATED 2026-05-08 — never shipped, replaced by Orbitron canonical in kiosk
 
 ---
 
