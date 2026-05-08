@@ -26,40 +26,53 @@ import { test, expect, type Route, type Page } from "@playwright/test";
 const POS_LOOKUP_URL = "/v2/pos/lookup";
 const LOOKUP_API_PATTERN = "**/api/v1/cirs/lookup";
 
+// Fixture shape mirrors the Rust canonical ProfilePreview at
+// crates/racecontrol/src/api/cirs_lookup.rs (post-K2 close-out):
+//   { customer_id, primary_phone, name, profiles[], balance_credits,
+//     last_visit_ts: string|null, arrival_history_count_30d, discount_ineligible }
 interface FoundResponseProfile {
   customer_id: string;
-  full_name: string;
-  balance_credits: number;
-  arrival_count_30d: number;
+  primary_phone: string;
+  name: string;
   profiles: Array<{
     profile_id: string;
-    full_name: string;
+    name: string;
     is_default: boolean;
     discount_ineligible: boolean;
   }>;
+  balance_credits: number;
+  last_visit_ts: string | null;
+  arrival_history_count_30d: number;
+  discount_ineligible: boolean;
 }
 
 const REGISTERED_CUSTOMER: FoundResponseProfile = {
   customer_id: "00000000-0000-0000-0000-000000000001",
-  full_name: "Test Customer",
-  balance_credits: 480,
-  arrival_count_30d: 4,
+  primary_phone: "+919876543210",
+  name: "Test Customer",
   profiles: [
     {
       profile_id: "00000000-0000-0000-0000-000000000001",
-      full_name: "Test Customer",
+      name: "Test Customer",
       is_default: true,
       discount_ineligible: false,
     },
   ],
+  balance_credits: 480,
+  last_visit_ts: "2026-05-05T14:25:00+05:30",
+  arrival_history_count_30d: 4,
+  discount_ineligible: false,
 };
 
 const WALK_IN_GUEST_1: FoundResponseProfile = {
   customer_id: "walk_in_guest_1",
-  full_name: "Walk-In Guest 1",
-  balance_credits: 0,
-  arrival_count_30d: 0,
+  primary_phone: "",
+  name: "Walk-In Guest 1",
   profiles: [],
+  balance_credits: 0,
+  last_visit_ts: null,
+  arrival_history_count_30d: 0,
+  discount_ineligible: true,
 };
 
 const fulfillJson = (route: Route, body: unknown, status = 200) =>
@@ -95,7 +108,7 @@ test.describe("CIRS lookup E2E (PACT-20260506-001 §5.4)", () => {
     await page.locator("#phone-lookup-input").fill("9876543210");
     await page.getByRole("button", { name: /^Lookup$/ }).click();
 
-    // h2 in ProfilePreviewCard renders profile.full_name; specific role+name
+    // h2 in ProfilePreviewCard renders profile.name; specific role+name
     // avoids collision with the ProfileSummary span "Test Customer (default)".
     await expect(
       page.getByRole("heading", { name: "Test Customer" }),
@@ -107,7 +120,7 @@ test.describe("CIRS lookup E2E (PACT-20260506-001 §5.4)", () => {
     // in the REGISTERED_CUSTOMER fixture.
     await expect(page.getByText("Wallet balance")).toBeVisible();
     await expect(page.getByText("480")).toBeVisible();
-    // arrival_count_30d > 0 surfaces the Repeat badge (aria-label set per
+    // arrival_history_count_30d > 0 surfaces the Repeat badge (aria-label set per
     // ProfilePreviewCard's isNew check).
     await expect(page.getByLabel("Repeat customer")).toBeVisible();
   });

@@ -28,19 +28,33 @@ export type CirsLookupRequest =
   | { method: "nfc_tag_id"; tag_id: string }
   | { method: "walk_in_guest_id"; guest_id: 1 | 2 };
 
+// ProfileSummary + ProfilePreview field names mirror the Rust canonical
+// shape at `crates/racecontrol/src/api/cirs_lookup.rs`:
+//   ProfileSummary  { profile_id, name, is_default, discount_ineligible }
+//   ProfilePreview  { customer_id, primary_phone, name, profiles[],
+//                     balance_credits, last_visit_ts: Option<String>,
+//                     arrival_history_count_30d: u32, discount_ineligible }
+//
+// Earlier draft used `full_name` + `arrival_count_30d` and omitted
+// primary_phone / last_visit_ts / discount_ineligible — fixed in Session 7
+// MMA close-out K2 (sub-PACT alternative was rejected per kaizen-discipline;
+// drift is single-PR-scope).
 export interface ProfileSummary {
   profile_id: string;
-  full_name: string;
+  name: string;
   is_default: boolean;
   discount_ineligible: boolean;
 }
 
 export interface ProfilePreview {
   customer_id: string;
-  full_name: string;
-  balance_credits: number;
-  arrival_count_30d: number;
+  primary_phone: string;
+  name: string;
   profiles: ProfileSummary[];
+  balance_credits: number;
+  last_visit_ts: string | null;
+  arrival_history_count_30d: number;
+  discount_ineligible: boolean;
 }
 
 export type CirsLookupResponse =

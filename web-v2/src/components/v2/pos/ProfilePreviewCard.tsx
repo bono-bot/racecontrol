@@ -4,8 +4,10 @@
  * PACT-20260506-001 Phase 1 wire-up Session 4.
  *
  * Absorbs gap #1 (UI evaluation 2026-05-08 ~05:15 IST): NEW vs REPEAT badge
- *   driven by arrival_count_30d (0 → NEW; ≥1 → REPEAT). Helps staff route
- *   to gaming-hall education step (Scenario 1 step 4 — "education NOT optional").
+ *   driven by arrival_history_count_30d (0 → NEW; ≥1 → REPEAT). Helps staff
+ *   route to gaming-hall education step (Scenario 1 step 4 — "education NOT
+ *   optional"). Field rename in Session 7 K2 close-out aligns TS to Rust
+ *   canonical name (was `arrival_count_30d` pre-K2).
  *
  * Absorbs gap #5 (same evaluation): tier/discount surface placeholder.
  *   The slot renders Wave 0 with a placeholder when Wave 4 MI substrate
@@ -44,14 +46,14 @@ const TIER_LABEL: Record<NonNullable<ProfilePreviewWithTier["tier"]>, string> = 
 };
 
 export default function ProfilePreviewCard({ profile }: Props) {
-  const isNew = profile.arrival_count_30d === 0;
+  const isNew = profile.arrival_history_count_30d === 0;
   const tierKnown = profile.tier !== undefined;
 
   return (
     <article className={styles.card}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          <h2 className={styles.name}>{profile.full_name}</h2>
+          <h2 className={styles.name}>{profile.name}</h2>
           <p className={styles.customerId}>ID {profile.customer_id}</p>
         </div>
         <span
@@ -72,7 +74,7 @@ export default function ProfilePreviewCard({ profile }: Props) {
         </div>
         <div className={styles.metric}>
           <span className={styles.metricLabel}>Visits (30d)</span>
-          <span className={styles.metricValue}>{profile.arrival_count_30d}</span>
+          <span className={styles.metricValue}>{profile.arrival_history_count_30d}</span>
         </div>
       </div>
 
@@ -104,7 +106,7 @@ export default function ProfilePreviewCard({ profile }: Props) {
           {profile.profiles.map((p) => (
             <div key={p.profile_id} className={styles.profile}>
               <span className={styles.profileName}>
-                {p.full_name}
+                {p.name}
                 {p.is_default && " (default)"}
               </span>
               <span className={styles.profileMeta}>
