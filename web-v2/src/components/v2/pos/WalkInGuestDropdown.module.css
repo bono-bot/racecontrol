@@ -1,0 +1,96 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: 8px;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--rp-text-primary);
+  margin: 0;
+}
+
+.subLabel {
+  font-size: 0.75rem;
+  color: var(--rp-text-muted);
+  margin: 0;
+}
+
+.slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  background: var(--rp-asphalt-black);
+  border: 2px solid var(--rp-border);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: border-color 80ms linear;
+}
+
+.slot:hover:not(:disabled) {
+  border-color: var(--rp-racing-red);
+}
+
+.slot:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.slotName {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.slotStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.statusFree {
+  color: var(--rp-success);
+}
+
+.statusOccupied {
+  color: var(--rp-warning);
+}
+
+.statusDot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.note {
+  font-size: 0.75rem;
+  color: var(--rp-text-muted);
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 2px solid var(--rp-warning);
+  border-radius: 4px;
+}

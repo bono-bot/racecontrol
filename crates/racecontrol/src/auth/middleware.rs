@@ -100,7 +100,34 @@ fn extract_staff_claims<B>(state: &Arc<AppState>, req: &Request<B>) -> Result<St
         return Err(());
     }
 
+    // PACT-20260506-001 §AMEND-1.F + Captain §S-82 Q3 idle-session-timeout.
+    // The token's `exp` provides an absolute upper bound; this check enforces
+    // the configured idle window upper bound (default 1800s = 30 min) by
+    // measuring time-since-issue. Sliding-window refresh on activity (token
+    // re-issuance) is sequenced into PR-readiness Session 6.
+    let idle_timeout = state.config.auth.idle_timeout_secs;
+    if is_idle_expired(&data.claims, idle_timeout) {
+        return Err(());
+    }
+
     Ok(data.claims)
+}
+
+/// Returns `true` when the token has aged beyond the configured idle window.
+///
+/// Reads the wall clock once via `chrono::Utc::now()`. Tokens issued in the
+/// future (clock skew) treat as not-expired (saturating subtraction).
+///
+/// Per Captain §S-82 Q3 disposition (2026-05-07 ~05:30 IST): default 30 min
+/// sliding window via `idle_timeout_secs = 1800` in `[auth]` config.
+pub(crate) fn is_idle_expired(claims: &StaffClaims, idle_timeout_secs: u64) -> bool {
+    if idle_timeout_secs == 0 {
+        return false;
+    }
+    let now = chrono::Utc::now().timestamp();
+    let iat = claims.iat as i64;
+    let elapsed = now.saturating_sub(iat);
+    elapsed > idle_timeout_secs as i64
 }
 
 // ─── Strict middleware (rejects unauthenticated requests) ─────────────────

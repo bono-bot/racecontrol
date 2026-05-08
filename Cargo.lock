@@ -3601,6 +3601,7 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "uuid",
+ "v2-db",
  "winapi",
 ]
 

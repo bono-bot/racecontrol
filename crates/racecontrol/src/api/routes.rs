@@ -82,6 +82,7 @@ use super::kiosk_handlers::*;
 use super::leaderboard_events::*;
 use super::leaderboard_driver_profile::*;
 use super::leaderboard_driver_ratings::*;
+use super::cirs_lookup;
 use super::leaderboard_public::*;
 use super::mesh_intelligence::*;
 use super::pod_exec::*;
@@ -829,6 +830,8 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pricing/engine/break-even", get(crate::pricing_engine::break_even_handler))
         .route("/pricing/engine/recommendations", get(crate::pricing_engine::recommendations_handler))
         .route("/pricing/engine/apply", post(crate::pricing_engine::apply_recommendation_handler))
+        // PACT-20260506-001 Phase 1 — CIRS lookup (Wave 0 customer surface; staff-JWT-gated, non-privileged per §AMEND-1.E + Q5-A)
+        .route("/cirs/lookup", post(cirs_lookup::cirs_lookup_handler))
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))

@@ -56,7 +56,7 @@ mod lockdown_tests {
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     #[tokio::test]
@@ -224,7 +224,7 @@ mod pod_status_summary_tests {
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     #[tokio::test]
@@ -603,7 +603,7 @@ mod watchdog_crash_report_tests {
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     #[tokio::test]
@@ -748,7 +748,7 @@ mod data_rights_tests {
 
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     fn make_auth_headers(state: &AppState, driver_id: &str) -> axum::http::HeaderMap {
@@ -1187,7 +1187,7 @@ mod game_launch_history_filter_tests {
 
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     async fn seed_event(
@@ -1428,7 +1428,7 @@ mod self_topup_tests {
 
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     fn make_claims(sub: &str, role: &str) -> Option<Extension<StaffClaims>> {
@@ -1996,7 +1996,7 @@ mod telemetry_fallback_tests {
         }
 
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, db, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
     }
 
     /// Build the minimal axum Router for the telemetry-fallback endpoint.

@@ -127,6 +127,13 @@ pub struct AuthConfig {
     /// Set via RACECONTROL_BREAK_GLASS_SECRET env var or config file.
     #[serde(default)]
     pub break_glass_secret: Option<String>,
+    /// PACT-20260506-001 §AMEND-1.F + Captain §S-82 Q3 (2026-05-07 ~05:30 IST).
+    /// Idle-session-timeout window in seconds. The staff JWT cookie is
+    /// re-issued on every authenticated request; if no authenticated request
+    /// arrives within this window, the cookie expires and staff must re-PIN.
+    /// Default: 1800 (30 minutes sliding window).
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout_secs: u64,
 }
 
 impl Default for AuthConfig {
@@ -141,6 +148,7 @@ impl Default for AuthConfig {
             evolution_instance: None,
             admin_pin_hash: None,
             break_glass_secret: None,
+            idle_timeout_secs: default_idle_timeout(),
         }
     }
 }
@@ -431,6 +439,7 @@ fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 fn default_jwt_secret() -> String { String::new() }
 fn default_pin_expiry() -> u64 { 600 }
 fn default_otp_expiry() -> u64 { 300 }
+fn default_idle_timeout() -> u64 { 1800 }
 fn default_watchdog_interval() -> u64 { 10 }
 fn default_heartbeat_timeout() -> i64 { 30 }
 fn default_restart_cooldown() -> i64 { 120 }
