@@ -3320,3 +3320,347 @@
             "Auto-end Completed even when pod is offline (covers CONTEXT.md WaitingForGame+Disconnect open question — W3 closure)"
         );
     }
+
+    // ─── F25a — Pricing Strategy infrastructure tests (§AMEND-3 / §AMEND-3.II) ──
+    //
+    // These tests cover the trait + impls + tier-validator added in F25a. They
+    // exercise the strategies DIRECTLY (not through the live billing-tick code
+    // path) — F25b will add live-path tests once callers route through Strategy.
+    //
+    // Two anchors guard correctness:
+    //   1. Vivek canonical regression (Way A): 150min == ₹2,700 (270000 paise)
+    //   2. SnapPricingStrategy parity: cumulative_cost_paise(N) byte-identical
+    //      to the existing free fn `snap_cost_for_minutes(N, 2500, 70000, 90000)`.
+    //
+    // F25a does NOT change customer-facing behavior; SnapPricingStrategy IS the
+    // active default per `default_strategy()`. Way A tests are forward-coverage.
+
+    use crate::billing_pricing::{
+        PricingStrategy, SnapPricingStrategy, TierValidation, WayAAdditiveLadder,
+        default_billing_rate_tiers, default_strategy, snap_cost_for_minutes, validate_tier_set,
+        FALLBACK_RATE_PAISE_PER_MIN, SNAP_STRATEGY, WAY_A_STRATEGY,
+    };
+    use rc_common::types::SimType;
+
+    // ── WayAAdditiveLadder: Vivek canonical regression + boundaries ─────────
+
+    #[test]
+    fn f25a_waya_vivek_150min_is_2700_rupees() {
+        // Vivek anchor: 150 minutes under default tiers = 30×₹25 + 30×₹20 + 90×₹15 = ₹2,700.
+        let tiers = default_billing_rate_tiers();
+        let cost = WAY_A_STRATEGY.cumulative_cost_paise(150, &tiers);
+        assert_eq!(
+            cost, 270000,
+            "F25a Vivek regression: WayA 150min must equal ₹2,700 (270000 paise). Got {} paise.",
+            cost
+        );
+    }
+
+    #[test]
+    fn f25a_waya_30min_is_750() {
+        let tiers = default_billing_rate_tiers();
+        // 30 × ₹25 = ₹750
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(30, &tiers), 75000);
+    }
+
+    #[test]
+    fn f25a_waya_60min_is_1350() {
+        let tiers = default_billing_rate_tiers();
+        // 30×₹25 + 30×₹20 = ₹750 + ₹600 = ₹1,350
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(60, &tiers), 135000);
+    }
+
+    #[test]
+    fn f25a_waya_zero_min_is_zero() {
+        let tiers = default_billing_rate_tiers();
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(0, &tiers), 0);
+    }
+
+    #[test]
+    fn f25a_waya_boundary_minutes() {
+        // Minute-by-minute ladder should be strictly monotonically increasing.
+        // No snap boundaries — no inversions allowed.
+        let tiers = default_billing_rate_tiers();
+        let strategy = WAY_A_STRATEGY;
+
+        let test_cases: &[(u32, i64)] = &[
+            (1, 2500),       // 1 × ₹25
+            (29, 72500),     // 29 × ₹25
+            (30, 75000),     // 30 × ₹25 (tier 1 boundary)
+            (31, 77000),     // 30×₹25 + 1×₹20
+            (45, 105000),    // 30×₹25 + 15×₹20
+            (59, 133000),    // 30×₹25 + 29×₹20
+            (60, 135000),    // 30×₹25 + 30×₹20 (tier 2 boundary)
+            (61, 136500),    // 30×₹25 + 30×₹20 + 1×₹15
+            (90, 180000),    // 30×₹25 + 30×₹20 + 30×₹15
+            (120, 225000),   // 30×₹25 + 30×₹20 + 60×₹15
+            (150, 270000),   // Vivek
+            (180, 315000),   // 30×₹25 + 30×₹20 + 120×₹15
+        ];
+        for (mins, expected) in test_cases {
+            assert_eq!(
+                strategy.cumulative_cost_paise(*mins, &tiers),
+                *expected,
+                "WayA {}min expected {} paise, got {}",
+                mins, expected,
+                strategy.cumulative_cost_paise(*mins, &tiers)
+            );
+        }
+
+        // Monotonicity: cost(N+1) > cost(N) for all N (strict — every minute incurs cost)
+        let mut prev = strategy.cumulative_cost_paise(0, &tiers);
+        for n in 1u32..=200 {
+            let curr = strategy.cumulative_cost_paise(n, &tiers);
+            assert!(curr > prev, "WayA non-monotonic at minute {}: prev={} curr={}", n, prev, curr);
+            prev = curr;
+        }
+    }
+
+    #[test]
+    fn f25a_waya_rate_for_next_minute_correct_at_boundaries() {
+        // Per the function contract: returns rate for the (elapsed+1)-th minute.
+        // At elapsed=0, the 1st minute is tier 1 (₹25).
+        // At elapsed=29, the 30th minute is still tier 1.
+        // At elapsed=30, the 31st minute is tier 2.
+        // At elapsed=59, the 60th minute is still tier 2.
+        // At elapsed=60, the 61st minute is tier 3 (₹15).
+        let tiers = default_billing_rate_tiers();
+        let s = WAY_A_STRATEGY;
+        assert_eq!(s.rate_for_next_minute_paise(0, &tiers), 2500);
+        assert_eq!(s.rate_for_next_minute_paise(29, &tiers), 2500);
+        assert_eq!(s.rate_for_next_minute_paise(30, &tiers), 2000);
+        assert_eq!(s.rate_for_next_minute_paise(59, &tiers), 2000);
+        assert_eq!(s.rate_for_next_minute_paise(60, &tiers), 1500);
+        assert_eq!(s.rate_for_next_minute_paise(120, &tiers), 1500);
+    }
+
+    // ── WayAAdditiveLadder: degenerate Configs ──────────────────────────────
+
+    #[test]
+    fn f25a_waya_empty_tiers_falls_back_to_default_rate() {
+        let empty: Vec<crate::billing_pricing::BillingRateTier> = Vec::new();
+        // Way A on empty tiers: fallback rate × minutes
+        assert_eq!(
+            WAY_A_STRATEGY.cumulative_cost_paise(10, &empty),
+            10 * FALLBACK_RATE_PAISE_PER_MIN
+        );
+        assert_eq!(
+            WAY_A_STRATEGY.cumulative_cost_paise(150, &empty),
+            150 * FALLBACK_RATE_PAISE_PER_MIN
+        );
+        assert_eq!(
+            WAY_A_STRATEGY.rate_for_next_minute_paise(50, &empty),
+            FALLBACK_RATE_PAISE_PER_MIN
+        );
+    }
+
+    #[test]
+    fn f25a_waya_single_tier_unlimited_acts_as_flat_rate() {
+        let one_tier = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1,
+                tier_name: "Flat".into(),
+                threshold_minutes: 0,
+                rate_per_min_paise: 1800,
+                sim_type: None,
+            },
+        ];
+        // 100 × 1800 = 180000
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(100, &one_tier), 180000);
+        assert_eq!(WAY_A_STRATEGY.rate_for_next_minute_paise(0, &one_tier), 1800);
+        assert_eq!(WAY_A_STRATEGY.rate_for_next_minute_paise(999, &one_tier), 1800);
+    }
+
+    #[test]
+    fn f25a_waya_filters_out_sim_specific_tiers() {
+        // sim_type=Some(...) tiers are filtered out — only universal tiers count in v2.0.
+        let mixed = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "Universal".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "AC-only".into(), threshold_minutes: 60,
+                rate_per_min_paise: 9999, sim_type: Some(SimType::AssettoCorsa),
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 3, tier_name: "UniversalEnd".into(), threshold_minutes: 0,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        // 50 min: only universal tiers count → 30×2500 + 20×1500 = 75000 + 30000 = 105000
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(50, &mixed), 105000);
+    }
+
+    // ── SnapPricingStrategy: parity with existing free fn ───────────────────
+
+    #[test]
+    fn f25a_snap_strategy_parity_with_snap_cost_for_minutes() {
+        // CHARACTERIZATION: SnapPricingStrategy must be byte-identical to the
+        // existing free function for the (2500, 70000, 90000) hardcoded triple.
+        // Any divergence here = behavior change leak in F25a (BLOCKER).
+        let tiers = default_billing_rate_tiers();
+        let snap = SnapPricingStrategy;
+        for m in [0u32, 1, 15, 27, 28, 29, 30, 31, 35, 45, 59, 60, 61, 75, 90, 120, 150] {
+            let trait_result = snap.cumulative_cost_paise(m, &tiers);
+            let free_fn_result = snap_cost_for_minutes(m, 2500, 70000, 90000);
+            assert_eq!(
+                trait_result, free_fn_result,
+                "F25a parity break at {}min: trait={} free_fn={}",
+                m, trait_result, free_fn_result
+            );
+        }
+    }
+
+    #[test]
+    fn f25a_default_strategy_is_snap_in_f25a() {
+        // F25a invariant: default_strategy() returns SnapPricingStrategy.
+        // F25b WILL change this assertion — when F25b flips the default, this
+        // test must be updated to assert WayAAdditiveLadder. The invariant is
+        // load-bearing for F25a no-behavior-change guarantee.
+        let s = default_strategy();
+        assert_eq!(s.name(), "SnapPricingStrategy");
+        // Static singletons identity check — both strategies are accessible.
+        assert_eq!(SNAP_STRATEGY.name(), "SnapPricingStrategy");
+        assert_eq!(WAY_A_STRATEGY.name(), "WayAAdditiveLadder");
+    }
+
+    // ── Tier validation ─────────────────────────────────────────────────────
+
+    #[test]
+    fn f25a_validator_accepts_default_tiers() {
+        assert_eq!(validate_tier_set(&default_billing_rate_tiers()), TierValidation::Valid);
+    }
+
+    #[test]
+    fn f25a_validator_rejects_empty() {
+        let v: Vec<crate::billing_pricing::BillingRateTier> = Vec::new();
+        assert_eq!(validate_tier_set(&v), TierValidation::Empty);
+    }
+
+    #[test]
+    fn f25a_validator_rejects_unlimited_in_middle() {
+        // threshold=0 (unlimited) on tier_order=2 instead of tier_order=3
+        let bad = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "Std".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "BadUnlimited".into(), threshold_minutes: 0,
+                rate_per_min_paise: 2000, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 3, tier_name: "Marathon".into(), threshold_minutes: 0,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        match validate_tier_set(&bad) {
+            TierValidation::UnlimitedNotLast { offending_tier_order } => {
+                assert_eq!(offending_tier_order, 2);
+            }
+            other => panic!("expected UnlimitedNotLast, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn f25a_validator_rejects_duplicate_tier_order() {
+        let bad = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "A".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "B".into(), threshold_minutes: 60,
+                rate_per_min_paise: 2000, sim_type: None,
+            },
+        ];
+        assert_eq!(
+            validate_tier_set(&bad),
+            TierValidation::DuplicateTierOrder { tier_order: 1 }
+        );
+    }
+
+    #[test]
+    fn f25a_validator_rejects_non_positive_rate() {
+        let bad = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "Std".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "FreeBug".into(), threshold_minutes: 60,
+                rate_per_min_paise: 0, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 3, tier_name: "Mar".into(), threshold_minutes: 0,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        match validate_tier_set(&bad) {
+            TierValidation::NonPositiveRate { tier_order } => assert_eq!(tier_order, 2),
+            other => panic!("expected NonPositiveRate, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn f25a_validator_rejects_non_increasing_thresholds() {
+        let bad = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "A".into(), threshold_minutes: 60,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "B".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2000, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 3, tier_name: "C".into(), threshold_minutes: 0,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        assert_eq!(validate_tier_set(&bad), TierValidation::ThresholdsNotIncreasing);
+    }
+
+    #[test]
+    fn f25a_validator_rejects_u32_max_threshold() {
+        // F25a Step 4 VERIFY (Mistral V3 + Nemotron V2 consensus): u32::MAX
+        // threshold is a degenerate config; reject loudly.
+        let bad = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "Pathological".into(), threshold_minutes: u32::MAX,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "Mar".into(), threshold_minutes: 0,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        match validate_tier_set(&bad) {
+            TierValidation::PathologicalThreshold { tier_order } => assert_eq!(tier_order, 1),
+            other => panic!("expected PathologicalThreshold, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn f25a_validator_accepts_no_unlimited_tier() {
+        // It's legal to have all tiers bounded (no unlimited tier). WayA falls
+        // through to last-tier rate for minutes beyond the highest threshold.
+        let bounded_only = vec![
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 1, tier_name: "A".into(), threshold_minutes: 30,
+                rate_per_min_paise: 2500, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 2, tier_name: "B".into(), threshold_minutes: 60,
+                rate_per_min_paise: 2000, sim_type: None,
+            },
+            crate::billing_pricing::BillingRateTier {
+                tier_order: 3, tier_name: "C".into(), threshold_minutes: 90,
+                rate_per_min_paise: 1500, sim_type: None,
+            },
+        ];
+        assert_eq!(validate_tier_set(&bounded_only), TierValidation::Valid);
+        // 100min (10 over the 90 cap): 30×2500 + 30×2000 + 30×1500 + 10×1500 = 75000 + 60000 + 45000 + 15000 = 195000
+        assert_eq!(WAY_A_STRATEGY.cumulative_cost_paise(100, &bounded_only), 195000);
+    }
