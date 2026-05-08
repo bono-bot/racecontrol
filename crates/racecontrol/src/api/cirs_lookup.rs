@@ -767,4 +767,99 @@ mod tests {
         .expect("input_method");
         assert_eq!(input_method, "phone");
     }
+
+    // ── §5.5 Performance smoke (PACT-20260506-001 §5.5 + DoD §1.2) ────────
+    //
+    // Target: p50 ≤ 50ms / p95 ≤ 500ms / p99 ≤ 1000ms against a 10K-row
+    // canonical-customer-set. Gate is the DoD §1.2 ceiling (500ms p95) — a
+    // soft regression detector, not a benchmark. Local Windows debug build
+    // typically observes p95 well under 5ms on indexed single-row joins.
+    //
+    // Sequential measurement matches the POS-staff usage pattern (one staff
+    // member typing one phone at a time). Parallel/load testing is a separate
+    // concern deferred per PACT §6 NOT TESTED ("Concurrent FK-rejection paths
+    // under multi-writer load — Phase 1 wire-up is single-handler-per-request;
+    // load-test scope post-Phase-1").
+
+    #[tokio::test]
+    async fn perf_smoke_fetch_profile_preview_p95_under_500ms() {
+        use std::time::Instant;
+
+        let pool = open_test_v2db().await;
+
+        // Staff seed (PACT-018 FK target). Not exercised by fetch_profile_preview
+        // itself, but seeded for parity with the full handler path's record_lookup.
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('s-perf', 'Perf Staff', '0000000099', '0099', 'cashier', 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed staff");
+
+        // Seed 10,000 customers + 10,000 wallets in a single transaction.
+        // Without the transaction wrapper SQLite issues one fsync per INSERT
+        // and 10K inserts dominate test time; with the transaction the entire
+        // seed completes in <2s on local NVMe.
+        const TOTAL_CUSTOMERS: usize = 10_000;
+        let seed_start = Instant::now();
+        let mut tx = pool.begin().await.expect("begin tx");
+        for i in 0..TOTAL_CUSTOMERS {
+            let cid = format!("cust-perf-{i:05}");
+            let phone = format!("+9198{i:08}");
+            sqlx::query(
+                "INSERT INTO customers (id, phone, display_name) \
+                 VALUES (?, ?, 'Perf Customer')",
+            )
+            .bind(&cid)
+            .bind(&phone)
+            .execute(&mut *tx)
+            .await
+            .expect("seed customer");
+
+            sqlx::query(
+                "INSERT INTO wallets (id, customer_id, balance_credits) \
+                 VALUES (?, ?, 100)",
+            )
+            .bind(format!("w-perf-{i:05}"))
+            .bind(&cid)
+            .execute(&mut *tx)
+            .await
+            .expect("seed wallet");
+        }
+        tx.commit().await.expect("commit tx");
+        let seed_elapsed = seed_start.elapsed();
+
+        // Time N=100 sequential lookups against a deterministic spread of
+        // customer_ids. The (i * 97) % 10_000 visit pattern is non-contiguous,
+        // so the SQLite page cache cannot trivially short-circuit the join.
+        const ITERATIONS: usize = 100;
+        let mut latencies_us: Vec<u128> = Vec::with_capacity(ITERATIONS);
+        for i in 0..ITERATIONS {
+            let target = (i * 97) % TOTAL_CUSTOMERS;
+            let cid = format!("cust-perf-{target:05}");
+            let start = Instant::now();
+            let _preview = fetch_profile_preview(&pool, &cid).await.expect("fetch");
+            latencies_us.push(start.elapsed().as_micros());
+        }
+
+        latencies_us.sort_unstable();
+        let p50 = latencies_us[ITERATIONS / 2];
+        let p95 = latencies_us[(ITERATIONS as f64 * 0.95) as usize];
+        let p99 = latencies_us[(ITERATIONS as f64 * 0.99) as usize];
+        let max = *latencies_us.last().expect("non-empty");
+
+        eprintln!(
+            "[perf §5.5] N={ITERATIONS} dataset={TOTAL_CUSTOMERS}  \
+             seed={seed_elapsed:?}  p50={p50}us  p95={p95}us  p99={p99}us  max={max}us"
+        );
+
+        // DoD §1.2 budget: p95 ≤ 500ms = 500_000us. A single-row indexed join
+        // exceeding this is a structural regression (N+1 queries / lost index
+        // / lock contention).
+        assert!(
+            p95 < 500_000,
+            "p95={p95}us exceeds DoD §1.2 budget of 500_000us — perf regression"
+        );
+    }
 }
