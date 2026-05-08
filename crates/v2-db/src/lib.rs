@@ -24,6 +24,19 @@ pub enum Error {
     Sqlx(#[from] sqlx::Error),
     #[error("migrate: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// V2 Wave 1 W1-S2: WalletService::reserve_credits rejected because the
+    /// customer's wallet balance is below the requested debit. Wave 1 surface
+    /// (HOLD-RELEASE-CAPTURE deferred to Wave 3 per PHASE-1-WAVE-1-PLAN.md
+    /// §1.2 OOS).
+    #[error("insufficient wallet balance: customer {customer_id} has {balance_credits} credits, requires {required_credits}")]
+    InsufficientFunds {
+        customer_id: uuid::Uuid,
+        balance_credits: i64,
+        required_credits: i64,
+    },
+    /// V2 Wave 1 W1-S2: customer has no wallet row (top-up has not occurred).
+    #[error("wallet not found for customer {0}")]
+    WalletNotFound(uuid::Uuid),
 }
 
 /// Open a SQLite pool at `path`. Creates the file if missing. WAL journal mode
