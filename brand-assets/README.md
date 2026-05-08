@@ -42,6 +42,8 @@ logos/
 
 **Provenance:** Captain uploaded this asset directly to Emergent.sh during the V2.0 pod display MVP build (2026-05-08 16:30-17:30 IST window). Preserved here to (a) survive Emergent project retention windows and (b) be the canonical source for the existing `racecontrol/kiosk/public/rp-logo-blanking.png` and any future `<BrandLogo />` real-mark swap-in.
 
+**Emergent build preservation:** V2.0 pod display MVP saved at commit `7adf3c12` (Captain Save-to-GitHub triggered 2026-05-08 ~18:35 IST). Reference build IDE at `https://vscode-449a0dc2-07cb-417a-a975-6a82a2184710.preview.emergentagent.com/`; live preview at `https://racing-pod-display.preview.emergentagent.com/`. The Emergent build references this asset at `/app/frontend/public/brand/racing-point-logo-light.png` (cached locally on Emergent infra; identical bytes to the file in this dir).
+
 ---
 
 ## Usage
