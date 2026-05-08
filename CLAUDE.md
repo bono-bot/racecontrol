@@ -780,6 +780,31 @@ _Canonical sources: colors → `packages/shared-tokens/tokens.css` (`--rp-*` tok
 
 ---
 
+## Doctrine Conventions
+
+### Substrate-Pointer Convention (extends comms-link/CLAUDE.md Network Identity precedent)
+
+**When this CLAUDE.md cites a fact that has a code/file source-of-truth, the citation MUST include `(canonical: <path>)` — or be wrapped in an italicized "Canonical sources:" line above the fact list.**
+
+Existing applications:
+- Brand Identity → `(canonical: packages/shared-tokens/tokens.css for colors; kiosk/src/app/globals.css for fonts; comms-link/v2-skeleton/10-ui-design-system.md for full V2 substrate)` — applied 2026-05-08
+- Network Identity → `comms-link/CLAUDE.md` "Network Identity" section (already enforced; original precedent 2026-05-03 G9 #3 IP-drift class)
+
+Candidate applications (annotate as the surface arises; do not pre-annotate speculatively per kaizen-discipline):
+- Crate Names → `(canonical: workspace Cargo.toml)`
+- Service Ports → `(canonical: <relevant config file>)`
+- Billing rates → `(canonical: <pricing source-of-truth>)`
+
+**Why:** This CLAUDE.md is loaded into every session as system prompt context. Without a substrate pointer, the agent treats the summary as authoritative and produces derived artifacts (briefs, plans, config) using the summary's vocabulary — which may diverge from canonical. Pattern observed 8-9 times within 24h across two sessions on 2026-05-08, all same META class (passive-memory-vs-environment in derived-artifact authoring). See `~/.claude/projects/C--Users-bono/memory/feedback_emergent_directed_spend_protocol.md` META-class extension for analysis.
+
+**Composes with:** Verify-Before-Generate (2026-04-11) · Rule 0 — Enumerate Before Asserting (v4.4) · directed-spend Rules 1-4 · `comms-link/CLAUDE.md` Network Identity (sibling pattern, IP-class-specific).
+
+**Scope:** Documentation convention. Not hook-enforced (yet). If recurrence persists, escalate to hook enforcement (Recommendation #2 in protocol META-class extension).
+
+**Stale-at:** Re-evaluate after 10 sessions or 2026-05-22 (whichever first). If META class continues to fire ≥1×/session despite this convention, escalate to hook enforcement.
+
+---
+
 ## Security Cameras
 
 - 13x Dahua 4MP. Auth: `admin` / `Admin@123`, RTSP `subtype=1`
