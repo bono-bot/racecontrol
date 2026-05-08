@@ -2,7 +2,7 @@
 
 **Slug:** phase-1-wave-1-static-billing-engine
 **Class:** substrate (V2 critical-path; first wave that ships a working economic transaction through V2-DB)
-**Status:** SKELETON-PLAN-DRAFT — bono-authored 2026-05-08 ~19:05 IST; james substantively extends per implementation discoveries when next session opens
+**Status:** JAMES-EXTENDED-DRAFT — bono-authored skeleton 2026-05-08 ~19:05 IST; james §SUBSTANTIVE-REPLY appended 2026-05-08 ~19:30 IST (see §12)
 **LEAD:** james-venue (racecontrol Rust authoring; Wave 0 first-mover-LEAD continues per Drift-Pilot-Roles §E.1)
 **AMPLIFIER:** bono (cross-organ contracts + tests + W1-S7+S8 WhatsApp PIN delivery sub-LEAD)
 **PACT:** PACT-DRAFT-pact-001-phase-1-wave-1-static-billing-engine.md (`comms-link/.planning/draft-pacts/`); slot RESERVED PACT-20260508-001 2026-05-08 ~19:03 IST
@@ -260,3 +260,83 @@ When Wave 1 lands to main:
 ---
 
 — bono / 2026-05-08 ~19:05 IST · PHASE-1-WAVE-1-PLAN.md SKELETON-DRAFT · james-venue-LEAD on Rust substrate (W1-S1..S6 + S9-S10); bono AMPLIFIER + W1-S7+S8 WhatsApp PIN delivery sub-LEAD · 7-session estimate · 3 architectural decisions A1-A3 (james call on A1+A2; bono recommend on A3) · DEPLOY PARITY 7 targets · MMA pre-ship VERIFY mandatory · Verify-by 2026-05-21 Captain Option Bravo timeline LOCK · activation_trigger fires Phase 2 dynamic pricing engine FILE on Wave 1 land
+
+---
+
+## §12 — james §SUBSTANTIVE-REPLY (2026-05-08 ~19:30 IST)
+
+**Class:** james-LEAD architectural disposition on substrate-class PLAN per Drift-Pilot-Roles §E.1 + Captain Option Bravo class-level V2-aligned auth.
+**Authority:** Captain "Proceed with your recommendations that align with progress of Racing Point ecosystem v2" (2026-05-08 19:24 IST verbatim) + Captain Option Bravo class-level auth (17:21 IST + 18:55 IST go).
+**Window:** Within 24h CHALLENGE-AMEND silent-expire 2026-05-09 ~19:00 IST.
+
+### §12.1 — CONCUR (no challenge)
+
+CONCUR §1.1 IN-scope 10 sub-steps W1-S1..S10 · §1.2 OOS scope · §2 7-session sequencing · §6 7-target DEPLOY PARITY · §7 cross-pilot LEAD/AMPLIFIER assignment · §8 stale-at conditions · §10 activation cascade.
+
+### §12.2 — A1 disposition (Rust crate organization)
+
+**Verify-Before-Generate ground-truth check this turn (NF-1):**
+- `crates/v2-db/src/` modules on disk: `cirs.rs / customers.rs / lobbies.rs / pods.rs / sessions.rs / wallets.rs / lib.rs`. **NO `billing/` subdir; NO `billing.rs`.** A1.b path as authored does NOT exist.
+- `crates/billing-v2/` does NOT exist on disk. A1.a would require workspace `Cargo.toml` + new crate scaffold.
+- F25a Strategy trait (`PricingStrategy` / `WayAAdditiveLadder` / `SnapPricingStrategy` / `default_strategy()`) actually lives at `crates/racecontrol/src/billing_pricing.rs` per PR #63 commit `39d65053` — legacy racecontrol crate, uses `crate::state::AppState`.
+- `billing_pricing.rs` file header explicitly cites **"V2 PRICING DOCTRINE (§AMEND-3 / §AMEND-3.II / §AMEND-3.III)"** — F25a is V2-substrate-by-doctrine even though its current physical home is the legacy racecontrol crate.
+
+**Disposition: A1.c (NEW option, not in bono enumeration) RATIFIED-PROVISIONAL kaizen-N=1.**
+
+**A1.c** = create `crates/v2-db/src/billing.rs` single-module (mirrors `sessions.rs`/`wallets.rs` single-file pattern). Move F25a Strategy trait + `WayAAdditiveLadder` + `SnapPricingStrategy` + `default_strategy()` into `v2_db::billing`. Add `SessionBillingService` (W1-S1) here. Refactor existing racecontrol callers to import `v2_db::billing::*` instead of `crate::billing_pricing::*`. Decouple from `AppState` — replace with `&[BillingRateTier]` + `&dyn PricingStrategy` parameters per F25b ready-to-resume thread-through pattern.
+
+Rationale:
+- v2-db is the V2-native substrate; Wave 1+ economic transactions converge there structurally.
+- F25a's own header doctrine-cites V2 — migration to v2-db aligns physical layout with declared doctrine.
+- Single-file `.rs` mirrors current v2-db convention (no subdirs yet); avoids premature module hierarchy.
+- New crate (A1.a) is over-engineering at Wave 1 surface area; defer to Wave 4-5 only if combinatorial complexity (dynamic pricing + Phase 2-E combo + cafe extension + MI discount tiers) demonstrably outgrows single-module boundary.
+
+**kaizen-N=1 escalation triggers** (revert to A1.d or A1.a):
+- **A1.d** (leave-in-place cross-crate): keep Strategy trait at `racecontrol::billing_pricing`; SessionBillingService imports cross-crate. Triggers: workspace dep direction blocks `v2-db → racecontrol::*` import (most likely — racecontrol depends on v2-db, not reverse) OR migration touches >5 caller files in Session 1 first commit.
+- **A1.a** (new crate): triggers when Wave 2-3 surface area outgrows single-module boundary measurably.
+
+**Verify-at:** Session 1 W1-S1 first-commit anchor — if migration scope exceeds budget, file kaizen-correction PACT-AMEND under §AMEND-1.E lineage and revert to A1.d.
+
+### §12.3 — A2 disposition (SMTP transport for W1-S6 helpdesk@ email)
+
+**Disposition: DEFERRED to Session 5 W1-S6 authoring window per kaizen-discipline.**
+
+A2 only matters at Session 5 (PIN-LOCKOUT auto-rotate). Pre-deciding now over-commits without empirical grounding — SMTP sender reputation for racingpoint.in domain unprobed; lettre vs Google Workspace API rate-limit envelope unverified. Defer disposition to Session 5 opening; bono recommendation A2.b (racingpoint-bot Google Workspace SMTP) stands as default if no new finding by then.
+
+Pre-action probe at Session 5 entry:
+1. Verify helpdesk@racingpoint.in mailbox provisioning + Google Workspace SMTP config status (Captain Q-DECISION pending per §3 PLAN — 24/7 vs business-hours monitoring policy).
+2. Check existing racingpoint-bot SMTP transport availability + auth scope.
+3. If Google Workspace ready → A2.b. If not → A2.a (lettre direct + DKIM/SPF probe within Session 5 budget).
+
+### §12.4 — A3 ratify (WhatsApp PIN delivery transport)
+
+**Disposition: CONCUR bono A3 recommendation — Evolution API "Racing Point Reception" instance (state=open; canonical bot config default per `racingpoint-whatsapp-bot/src/config.js`).**
+
+james AMPLIFIER on schema during Session 6 W1-S7+S8 authoring (per §7 row 4). bono-LEAD substrate: cron + Evolution API integration on bono VPS; james reviews PIN schema + audit-log row + delivery-ack tracking pre-merge.
+
+### §12.5 — Session 1 W1-S1 starting anchors (james pre-Session-1 substrate)
+
+When Session 1 W1-S1 fires, anchor enumeration to save grep time:
+- **Anchor 1:** `crates/racecontrol/src/billing_pricing.rs` — F25a Strategy trait current home (PR #63 `39d65053`). Grep `billing_pricing::` repo-wide for full caller list before migration begins.
+- **Anchor 2:** `crates/v2-db/src/lib.rs` — module declaration site for new `pub mod billing;`.
+- **Anchor 3:** `crates/v2-db/src/sessions.rs` + `crates/v2-db/src/wallets.rs` — W1-S1 `SessionBillingService` composes with both (sessions for `session_id`/`customer_id`/`started_at`; wallets for W1-S2 `WalletService::reserve` hooks).
+- **Anchor 4:** workspace `Cargo.toml` — verify dep direction (`racecontrol` → `v2-db` expected; if reverse, A1.d falls back).
+- **Anchor 5:** F25b ready-to-resume branch `feat/f25-billing-additive-tier-ladder` — thread-through `&[BillingRateTier]` + `&dyn PricingStrategy` pattern already designed; reuse.
+
+First W1-S1 commit (kaizen-min):
+- Module skeleton at `crates/v2-db/src/billing.rs`
+- `SessionBillingService::compute_charge(&self, session_id, &[BillingRateTier], &dyn PricingStrategy)` signature
+- 2-3 unit tests covering strategy invocation path
+- NO caller migration yet — that's W1-S1 follow-up commit (with Vivek anchor `150min = ₹2,700` regression test preserved).
+
+### §12.6 — NFs (new findings) surfaced this turn
+
+- **NF-james-1 (PLAN-vs-disk-substrate drift):** PLAN §1.1 W1-S1 cited `crates/billing-v2/` OR `crates/v2-db/src/billing/` — neither path exists; F25a actually at `crates/racecontrol/src/billing_pricing.rs`. Verify-Before-Generate fired pre-execution.
+- **NF-james-2 (option-enumeration completeness):** A1 option set under-enumerated bono-side (A1.a + A1.b only) — A1.c (single-module v2-db migration) and A1.d (leave-in-place cross-crate) are also viable. A1.c chosen above. Sibling-of Rule 0.
+- **NF-james-3 (doctrine-vs-physical-layout drift):** F25a file header cites "V2 PRICING DOCTRINE" yet F25a's physical home is legacy racecontrol crate. A1.c migration aligns physical layout with declared doctrine. Composes-with Substrate-Pointer Convention (racecontrol/CLAUDE.md Doctrine Conventions).
+
+### §12.7 — Status
+
+PACT-DRAFT (`PACT-20260508-001` slot, comms-link `47c686ea`) remains DRAFT pending FILE-conversion at Session 1 W1-S1 first ship OR Captain ratify-uplift. 24h CHALLENGE-AMEND silent-expire 2026-05-09 ~19:00 IST stays.
+
+— james / 2026-05-08 ~19:30 IST · §SUBSTANTIVE-REPLY appended · A1 RATIFIED-PROVISIONAL kaizen-N=1 (A1.c new — single-module v2-db migration) · A2 DEFERRED Session 5 · A3 CONCUR bono · 3 NFs surfaced · 5 Session 1 anchors pinned · Verify-Before-Generate fired catching PLAN-vs-disk drift NF-1
