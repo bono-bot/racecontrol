@@ -167,7 +167,8 @@ test.describe("CIRS lookup E2E (PACT-20260506-001 §5.4)", () => {
   }) => {
     await page.route(LOOKUP_API_PATTERN, async (route) => {
       const body = route.request().postDataJSON();
-      if (body?.method === "walk_in_guest_id" && body?.walk_in_guest_id === 1) {
+      // Inner field is `guest_id` (Rust canonical wire — Session 7 MMA fix).
+      if (body?.method === "walk_in_guest_id" && body?.guest_id === 1) {
         return fulfillJson(route, { status: "found", profile: WALK_IN_GUEST_1 });
       }
       // NotFound on the seed phone path so the WalkInGuestDropdown surfaces.

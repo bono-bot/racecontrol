@@ -97,7 +97,10 @@ export default function PosLookupPage() {
   };
 
   const handleWalkInSelect = (id: 1 | 2) => {
-    void lookup({ method: "walk_in_guest_id", walk_in_guest_id: id });
+    // Inner field is `guest_id` to match Rust canonical wire format
+    // (Session 7 MMA EXECUTE path A — earlier draft sent `walk_in_guest_id`
+    // which 400'd at the racecontrol handler).
+    void lookup({ method: "walk_in_guest_id", guest_id: id });
   };
 
   const reset = () => setView({ kind: "idle" });

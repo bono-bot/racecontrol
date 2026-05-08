@@ -13,11 +13,20 @@
  * Composes-with cirs_lookup.rs serde tests (14/14 PASS commit c0078935).
  */
 
+// Inner field names mirror the Rust canonical wire format
+// (`crates/v2-db/src/cirs.rs::LookupInput`):
+//   QrPayload    { payload:  String }
+//   NfcTagId     { tag_id:   String }
+//   WalkInGuestId{ guest_id: u8 }
+//
+// Earlier draft (Session 4) used method-name-mirrored fields (qr_payload /
+// nfc_tag_id / walk_in_guest_id) which caused real-wire JSON 400s — fixed
+// in Session 7 MMA EXECUTE path A per 3/3 consensus DIAGNOSE finding.
 export type CirsLookupRequest =
   | { method: "phone"; phone: string }
-  | { method: "qr_payload"; qr_payload: string }
-  | { method: "nfc_tag_id"; nfc_tag_id: string }
-  | { method: "walk_in_guest_id"; walk_in_guest_id: 1 | 2 };
+  | { method: "qr_payload"; payload: string }
+  | { method: "nfc_tag_id"; tag_id: string }
+  | { method: "walk_in_guest_id"; guest_id: 1 | 2 };
 
 export interface ProfileSummary {
   profile_id: string;
