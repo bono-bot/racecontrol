@@ -15,6 +15,10 @@ composes_with:
   - racecontrol/CLAUDE.md Brand Identity (LOCKED) + Standing Rules
   - Captain claude.ai/design bundle 2026-05-02 v2-design-h-V3XSuJJ (tokens canonical)
   - Phase 91 UI-SPEC convention (predecessor; bundle supersedes on tokens + fonts)
+  - V2-MASTER-STATE §S-114 (Captain v2-design ratify 5-decision matrix 2026-05-08 ~16:24 IST; kiosk @theme canonical + Enthocentric DEPRECATED + shadcn/ui canonical SUPERSEDED by Captain LOCK 2026-05-09)
+  - V2-MASTER-STATE §S-126 (Wave 4 MI Ingestion DRAFT segment-M amend `20ae9b1`; schema patch queue consumed by future POS Layer N+ surfaces — Wave 4 discount tier display + Wave 5 staff PIN telemetry display; Layer 1 V2.0 does not render but cross-link awareness for downstream layer authoring)
+  - V2-MASTER-STATE §S-128 (Wave 5 Captain-curated WhatsApp workflow framework PACT-DRAFT `1269b4d`; bono cloud-LEAD per Q5 split; POS Layer 6+ admin surface MAY render `whatsapp_consent` state per-customer per-trigger-class; awareness-only at Layer 1)
+  - V2 brand-voice substrate `.planning/v2-brand-voice/` (Race Engineer voice locked PART 47 + 10 reactive templates v0.1 commit `28524c1`; composes-with §Copywriting Contract proactive voice rules — verb+noun CTAs / no "are you sure" anti-pattern / toast-only-for-background-events)
 ---
 
 # UI-SPEC — V2 Design Layer 1: Foundation + POS .130 Staff Terminal
@@ -29,6 +33,8 @@ composes_with:
 > 3. Captain claude.ai/design bundle tokens.jsx (expansions of the brand palette + fonts + motion)
 > 4. Source handoff §1–§12 (this UI-SPEC's structural input)
 > 5. Phase 91 UI-SPEC (legacy convention; bundle supersedes on tokens + fonts)
+>
+> **Supersession note (per bono AMPLIFIER review msg=35734 §4-A):** V2-MASTER-STATE §S-114 (Captain ratify 2026-05-08 ~16:24 IST) named "shadcn/ui canonical" + "kiosk @theme canonical" at the time, but **Captain LOCK 2026-05-09 user prompt** (later + explicit + tighter) supersedes the shadcn/ui dimension specifically — this UI-SPEC honors the Captain LOCK (no shadcn) over the §S-114 default. The kiosk @theme canonical dimension stands. Enthocentric DEPRECATED dimension (also from §S-114) is honored — Chakra Petch is the canonical V2 display font.
 
 ---
 
@@ -40,7 +46,7 @@ composes_with:
 | Preset | not applicable |
 | Component library | none — hand-authored primitives in `web-v2/src/components/` |
 | Icon library | none — inline SVG with `currentColor` in `web-v2/src/components/icons/` |
-| Font (display) | Chakra Petch (Eurostile / Bank Gothic fallback) — Enthocentric stand-in per bundle |
+| Font (display) | Chakra Petch (CANONICAL per V2-MASTER-STATE §S-114 Captain ratify 2026-05-08 ~16:24 IST; Eurostile / Bank Gothic fallback). Enthocentric DEPRECATED — bundle's original lean-on Enthocentric is the legacy reference; Chakra Petch is the V2 canonical display font (free Google Fonts alternative chosen at §S-114 ratify time). |
 | Font (body) | Montserrat |
 | Font (mono) | JetBrains Mono — tabular figures mandatory for ticking values |
 | Framework | Next.js 16.1.6 App Router |
@@ -551,9 +557,11 @@ Source handoff §8 had 13 Q-DECISIONs. Disposition for this UI-SPEC:
 
 **Why unresolved**: Handoff names "likely 5/5min" but explicitly defers to Captain reserve. Note: PART 51 §S-82 Captain disposition (2026-05-07) addressed PIN-LOCKOUT for an adjacent context = `5 wrong → auto-rotate + WhatsApp to staff phone + helpdesk@racingpoint.in 5-wrong reset HUMAN gate`. This MAY be the answer for Layer 1 too, but session-bound disposition was for a different framing — Captain needs to confirm whether §S-82 PIN-LOCKOUT semantics apply to POS `/v2/pos/login` or only the rotated context.
 
+**Cross-context note (per bono AMPLIFIER review msg=35734 §2)**: V2-MASTER-STATE §S-122 W1-S7+S8 staff PIN delivery scaffolding (commit `2574ff18`; bono cloud-LEAD on PIN-rotation telemetry per Wave 1 PACT §7) provides the operational substrate complement to §S-82 lockout policy. Composability: §S-82 lockout policy (5-wrong → auto-rotate trigger) + §S-122 PIN-rotation delivery telemetry (`staff_pin_telemetry` table: event_id + event_at_utc + staff_id + pin_rotation_cycle + delivery_channel + delivery_latency_ms + delivery_status) = full operational picture for Captain Q-5 disposition. Layer 1 UI design impact still ZERO regardless.
+
 **Layer 1 design impact**: ZERO (UI is policy-agnostic). `<StaffPinGate>` POSTs to `POST /api/v1/auth/staff/pin` and renders whatever the server returns. Server-side policy can be implemented and tuned without UI rework.
 
-**Recommended next step**: Captain ratifies §S-82 PIN-LOCKOUT semantics also apply to POS login → server-side wires; or names a different POS-specific policy.
+**Recommended next step**: Captain ratifies §S-82 PIN-LOCKOUT semantics also apply to POS login → server-side wires §S-122 telemetry; or names a different POS-specific policy.
 
 ### UNRESOLVED-2 — Q-DECISION-9: Discount surface (auto-apply vs staff-toggle)
 
@@ -563,7 +571,9 @@ Source handoff §8 had 13 Q-DECISIONs. Disposition for this UI-SPEC:
 
 **Cross-context note**: PART 51 §S-82 Captain disposition Q4 (2026-05-07) ratified "discount auto-apply YES MI-adaptive (Tier 1 deterministic formula reading mesh_kb.db; first 30-day Captain-curated learn-mode)" — but this is the **MI-adaptive discount** for Wave 4, NOT the happy-hour + iRacing 20% Q-DECISION-9 framing. The two discount systems may compose (auto-apply MI tier discount + staff-toggle event discount) or one may subsume the other.
 
-**Layer 1 design impact**: NONE in V2.0 ship-pack. Top-up flow renders Way A additive ladder per `POST /api/v1/billing/estimate` server response. NO discount controls in V2.0 top-up surface — discount surfacing is deferred to Wave 4 per V2 6-wave plan §S-83. When Captain disposes Q-9, retrofit `<TierLadderTable>` + add discount toggle/auto-apply to `/v2/pos/topup/[customer_id]`.
+**Cross-context note (per bono AMPLIFIER review msg=35734 §2)**: V2-MASTER-STATE §S-126 (Wave 4 MI Ingestion DRAFT segment-M amend `20ae9b1`) provides the schema substrate for Wave 4 retrofit. §4.1 schema patch queue includes `combo_offer_id` FK + `rate_resolution_method` ENUM + `revenue_paise_provisional/final` — all consumed by the Wave 4 discount UI surface when Q-9 disposes. Composability: when Captain disposes Q-9, the retrofit on `<TierLadderTable>` reads from `rate_resolution_method` (MI vs happy-hour vs iRacing-20%) and renders both auto-applied and staff-toggle controls per disposed policy.
+
+**Layer 1 design impact**: NONE in V2.0 ship-pack. Top-up flow renders Way A additive ladder per `POST /api/v1/billing/estimate` server response. NO discount controls in V2.0 top-up surface — discount surfacing is deferred to Wave 4 per V2 6-wave plan §S-83. When Captain disposes Q-9, retrofit `<TierLadderTable>` + add discount toggle/auto-apply to `/v2/pos/topup/[customer_id]` reading §S-126 schema substrate.
 
 **Recommended next step**: Captain ratifies Q-DECISION-9 in Wave 4 planning context (not blocking Layer 1 V2.0 ship). Layer 1 ships discount-naive; Wave 4 design layer extends.
 
