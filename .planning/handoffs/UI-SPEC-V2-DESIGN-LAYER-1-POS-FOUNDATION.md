@@ -19,6 +19,24 @@ composes_with:
   - V2-MASTER-STATE §S-126 (Wave 4 MI Ingestion DRAFT segment-M amend `20ae9b1`; schema patch queue consumed by future POS Layer N+ surfaces — Wave 4 discount tier display + Wave 5 staff PIN telemetry display; Layer 1 V2.0 does not render but cross-link awareness for downstream layer authoring)
   - V2-MASTER-STATE §S-128 (Wave 5 Captain-curated WhatsApp workflow framework PACT-DRAFT `1269b4d`; bono cloud-LEAD per Q5 split; POS Layer 6+ admin surface MAY render `whatsapp_consent` state per-customer per-trigger-class; awareness-only at Layer 1)
   - V2 brand-voice substrate `.planning/v2-brand-voice/` (Race Engineer voice locked PART 47 + 10 reactive templates v0.1 commit `28524c1`; composes-with §Copywriting Contract proactive voice rules — verb+noun CTAs / no "are you sure" anti-pattern / toast-only-for-background-events)
+checker_review:
+  artifact: .planning/handoffs/UI-SPEC-CHECKER-V2-DESIGN-LAYER-1-POS-FOUNDATION.md
+  date: 2026-05-09 IST
+  aggregate_verdict_raw: BLOCKED (5/6 dimensions PASS; Dimension 4 BLOCK on size-count + weight-count caps)
+  aggregate_verdict_post_exception: RATIFIED (Captain Option Bravo rule-exception 2026-05-09 ~04:46 IST supersedes Dimension 4 generic-mobile heuristic per §S-114 bundle ratify + POS-fixed-1920×1080 hardware grounding)
+captain_rule_exceptions:
+  - id: D4-typography-count-caps
+    granted_by: Captain Option Bravo class-level V2-aligned auth (verbatim "I authorize you to Proceed with your recommendation that is aligned with Racing Point ecosystem v2 development. Proceed autonomously")
+    granted_at: 2026-05-09 ~04:46 IST
+    rule_exempted: gsd-ui-checker Dimension 4 — type scale size-count limit 4 + weight-count limit 2
+    actual_state_in_ui_spec: 10 sizes + 4 weights (per §Typography table)
+    grounding:
+      - V2-MASTER-STATE §S-114 (Captain v2-design ratify 5-decision matrix 2026-05-08 ~16:24 IST) ratified Captain claude.ai/design bundle TYPE map which includes the 10-size scale; supersedes generic-mobile rule heuristic for V2 design fidelity
+      - POS-fixed-1920×1080 hardware context (no responsive collapse; staff at distance ~5ft from terminal) materially differs from mobile-default 4-size rule context; hero amount tier (display-XL/L/M) is operationally critical for payment-success readability
+      - Type scale is architecturally 4-tier (display / heading / body / mono) × variants; rule heuristic counts variants not tiers — variant count is the apparent overflow but architectural intent is within kaizen discipline
+      - Weight ladder 400/500/600/700 honors functional distinction (body/mono-medium/display-medium/display-bold) per bundle ratify; collapsing to 2 weights would degrade design fidelity ratified at §S-114
+    scope: Layer 1 V2.0 ship-pack ONLY; downstream layers re-evaluate against their own hardware contexts (PWA mobile may inherit tighter caps)
+    review_path_post_exception: future gsd-ui-checker re-runs MUST honor this exception (read frontmatter `captain_rule_exceptions` before running Dimension 4); checker rule-set update is a separate sibling-PACT candidate to codify exception-honoring at the checker level
 ---
 
 # UI-SPEC — V2 Design Layer 1: Foundation + POS .130 Staff Terminal
@@ -94,6 +112,8 @@ Declared values (multiples of 4):
 ## Typography
 
 Type scale ratified from bundle tokens.jsx TYPE map (Captain-ratified 2026-05-06 ~17:00 IST). POS-fixed-1920×1080 affords the larger display sizes (no responsive collapse).
+
+> **Captain rule-exception D4-typography-count-caps (granted 2026-05-09 ~04:46 IST per Option Bravo V2-aligned auth):** This type scale exceeds the gsd-ui-checker Dimension 4 generic-mobile heuristic caps (10 sizes vs 4-cap; 4 weights vs 2-cap). The exception is grounded in: (1) V2-MASTER-STATE §S-114 Captain ratify of the bundle TYPE map 2026-05-08 ~16:24 IST; (2) POS-fixed-1920×1080 hardware context (staff at ~5ft distance — hero amounts at 64px / 48px / 32px are operationally critical for payment-success readability without responsive collapse); (3) the architecturally 4-tier scale (display / heading / body / mono) × variants — checker counts variants not tiers, so the apparent overflow IS within kaizen discipline at the architectural level. Weight ladder 400 (body) / 500 (mono medium) / 600 (display medium + body emphasis) / 700 (display bold) honors functional distinctions ratified at §S-114; collapsing to 2 weights would degrade design fidelity. **Scope:** Layer 1 V2.0 only — downstream Layer 2+ (mobile PWA) re-evaluate against their own hardware contexts. See frontmatter `captain_rule_exceptions` for canonical exception record + `checker_review` for verdict trace.
 
 | Role | Size | Weight | Line height | Tracking | Case | Font slot | Usage |
 |------|------|--------|-------------|----------|------|-----------|-------|
