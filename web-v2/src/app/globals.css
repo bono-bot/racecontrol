@@ -14,6 +14,19 @@
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: #1a1a1a;
   color: #f5f5f5;
+
+  /* Brand tokens — sourced from racecontrol/CLAUDE.md "Brand Identity" */
+  --rp-racing-red: #e10600;
+  --rp-racing-red-hover: #ff3b2d;
+  --rp-asphalt-black: #1a1a1a;
+  --rp-gunmetal-grey: #5a5a5a;
+  --rp-card: #222222;
+  --rp-border: #333333;
+  --rp-text-primary: #f5f5f5;
+  --rp-text-muted: #a0a0a0;
+  --rp-success: #22c55e;
+  --rp-warning: #f59e0b;
+  --rp-error: #ef4444;
 }
 
 * {
