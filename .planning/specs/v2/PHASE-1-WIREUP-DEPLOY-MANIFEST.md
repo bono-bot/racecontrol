@@ -142,13 +142,15 @@ The Path A fix is verified at the JSON wire-format level via TS compiler + Rust 
 
 | Gate | State | Note |
 |---|---|---|
-| Quality Gate (`bash test/run-all.sh` in comms-link) | **NOT YET RUN** this session | run pre-PR-open per CLAUDE.md Ultimate Rule layer 1 |
+| Quality Gate (`bash test/run-all.sh` in comms-link) | **NOT YET RUN** this session | run pre-PR-merge per CLAUDE.md Ultimate Rule layer 1 |
 | E2E live exec + chain + health round-trip | **NOT YET RUN** | run from a non-James machine pre-merge |
 | Standing Rules check (auto-push, partner notified, watchdog running) | partial — bono notify queued at `.inbox-drafts/` (Axis-A blocked); auto-push GREEN | bono notify needs `BYPASS_AXIS_CLASSIFICATION=1` or responsive context |
 | MMA Audit (Cross-System Bridge mandatory) | **DONE** — DIAGNOSE 5 models + VERIFY 3 adversarial; mean 4.53 ≥ 4.0 PASS | $0.09 of $5 budget spent |
 | Subagent gates (gsd-ui-researcher / gsd-ui-auditor / gsd-integration-checker / gsd-nyquist-auditor) | **NOT YET RUN** | gsd-ui-auditor is mandatory per CLAUDE.md "No frontend phase ships without UI-SPEC.md AND UI-REVIEW.md" — open question whether Wave 0 PR-open inherits Layer 1 design handoff `b5774aac` UI-SPEC or needs fresh review |
 | Visual verification (POS .130 browser) | **NOT YET RUN** | Session 8 deploy-time gate |
-| Captain per-PR auth (PROMOTED-N=1) | **PENDING** | gates PR-open |
+| **web-v2 production build (`npm run build`)** | **PASS** — closes §1.2 NOTE | James .27 Node v22.22.0 Next 16.1.6 Turbopack — Compiled successfully in 3.5s; static pages 4/4 in 393.4ms; routes: `/`, `/_not-found`, `ƒ /api/v1/health`, `/pos/lookup`. Captured 2026-05-08 ~13:00 IST post-PR-open |
+| **PR #64 CI rollup** (`gh pr checks 64` post-CI-completion) | **5/5 PASS · mergeStateStatus CLEAN** | API Contract Tests 15s · Comms-Link Quality Gate 9s · Security Scan 6s · Rust Tests 24m59s · build 41m3s. Captured 2026-05-08 ~13:10 IST. Re-runs on every push to branch |
+| Captain per-PR auth (PROMOTED-N=1) | **PR #64 OPEN-DRAFT, CI CLEAN, awaiting Captain promote-from-draft + merge** | https://github.com/bono-bot/racecontrol/pull/64 — gates merge (NOT PR-open; PR-open authorized by Captain "Proceed autonomously" 2026-05-08 ~10:52 IST + ~13:10 IST §S-N) |
 
 ---
 
@@ -156,11 +158,11 @@ The Path A fix is verified at the JSON wire-format level via TS compiler + Rust 
 
 | # | Decision | Source |
 |---|---|---|
-| **K1** | Per-PR auth at PR-open (PROMOTED-N=1 standing rule) | this manifest §2 |
-| **K2** | Cross-layer naming-drift sub-PACT — TS `ProfilePreview.full_name` vs Rust `name`, TS missing `primary_phone`/`last_visit_ts`/`discount_ineligible` — fix-inline OR sibling-PACT | flagged Session 6d Lane A; pre-existing drift |
+| **K1** | Per-PR MERGE auth — PR #64 OPEN-DRAFT, CI 5/5 PASS, mergeStateStatus CLEAN; awaiting Captain promote-from-draft + merge click. (PR-open itself authorized by Captain "Proceed autonomously" 2026-05-08 ~10:52 IST + ~13:10 IST.) | this manifest §2 + GitHub PR #64 |
+| **K2** | Cross-layer naming-drift — **CLOSED** via `ba17088f` (TS `ProfilePreview`/`ProfileSummary` fields aligned to Rust canonical: `name`, `primary_phone`, `last_visit_ts`, `discount_ineligible` mirrored) | flagged Session 6d Lane A; resolved Session 7 fix-inline |
 | **K3** | RsX refund-threshold for `ApproveRefundOverThreshold` enum entry (Wave 1 scope) | PACT-20260506-001 §AMEND-1.I |
 | **K4** | PIN-LOCKOUT sub-questions 1.e-h (cadence/delivery/reset/fallback) (Wave 1 scope) | §S-82 Q1 |
-| **K5** | Idle-timeout impl is fixed-window-from-iat, NOT sliding-window per Captain §S-82 Q3 — sliding refresh deferred to "Session 6 PR-readiness" per inline comment at `middleware.rs:106-107`; surface explicitly for Captain ratify-or-fix | discovered during MMA prompt authoring |
+| **K5** | **MERGE BLOCKER** — Idle-timeout impl is fixed-window-from-iat, NOT sliding-window per Captain §S-82 Q3 — sliding refresh deferred to "Session 6 PR-readiness" per inline comment at `middleware.rs:106-107`; needs Captain ratify-or-fix before PR #64 merge | discovered during MMA prompt authoring |
 
 ---
 
@@ -180,3 +182,23 @@ This MANIFEST durable until any of:
 ---
 
 — james / 2026-05-08 ~09:55 IST · Phase 1 wire-up DEPLOY MANIFEST · branch `feat/pact-001-phase-1-wireup` HEAD `8043f6b3` · MMA mean 4.53 / 3 P1 findings deferred to security-debt-ledger rows 7-9 · per-PR Captain auth gate STANDS for PR-open · 5 Captain-reserve K-decisions queued
+
+---
+
+## §6 — Post-authoring update (2026-05-08 ~13:15 IST)
+
+Manifest authored at `3ea5dc89` (HEAD `8043f6b3`). Following commits + events have landed since:
+
+| When | Event | Reference |
+|---|---|---|
+| 2026-05-08 ~10:30 IST | `ba17088f` — K2 close (TS `ProfilePreview`/`ProfileSummary` aligned to Rust canonical) | branch commit |
+| 2026-05-08 ~10:50 IST | `41ca8a29` — UI-REVIEW FLAG-2 close (Montserrat brand font via `next/font/google`) | branch commit |
+| 2026-05-08 ~10:55 IST | **PR #64 opened DRAFT** against `main`; 55 files / +7176 / −144 | https://github.com/bono-bot/racecontrol/pull/64 |
+| 2026-05-08 ~13:00 IST | `npm run build` (web-v2 production) **PASS** on James .27 | manifest §2 row added |
+| 2026-05-08 ~13:10 IST | PR #64 CI **5/5 PASS · mergeStateStatus CLEAN** | manifest §2 row added |
+| 2026-05-08 ~13:15 IST | This manifest refresh commit (§2 + §3 + §6) | docs-only; CI re-runs on push |
+
+**Forward state:**
+- PR #64 fully ready for Captain merge-auth click (K1) — awaiting promote-from-draft + merge
+- K5 (sliding vs fixed-window idle-timeout) is the remaining substantive decision; Captain ratify-or-fix needed before merge
+- Quality Gate / E2E live / visual-verification gates still apply at Session 8 deploy-time (post-merge)
