@@ -16,6 +16,9 @@
 **Amendment log:**
 - Captain G33 batch disposition 2026-05-09 ~11:23 IST: Q-S6-1..7 ACCEPT-ALL-DEFAULTS as enumerated in §5 Q-DECISION table — all 7 marked CLOSED below with disposition refs. MMA budget approved. Ahead-of-AMPLIFIER ordering noted (does NOT void bono AMPLIFIER welcome — substantive amendments still surface for next Captain cycle).
 
+**Amendment log (supplementary absorption):**
+- §13 supplementary MMA run (~$0.067 / 12:15 IST 2026-05-09 / 3-clean-of-5 panel) PROMOTED 2 findings touching W1-S6: F-CONS-15 (CROSS PIN-LOCKOUT-bypass via W1-S5 sliding-window refresh — 1/5→3/5 supplementary; W1-S6 publishes lockout-state predicate that W1-S5 reads) + F-CONS-18 (NEW EmailAlerter timeout/retry/error handling — 3/5 supplementary; not in canonical). 2 cross-cutting Q-DECISIONs surfaced affecting W1-S6: Q-W1-CROSS-1 (lockout-check-on-refresh; W1-S6 publishes the predicate W1-S5 reads) + Q-W1-CROSS-2 (implementation order — default a: W1-S6 ships FIRST). Pre-supplementary disposition state ("Step 1 PASS / H1 PLAN proceed") REVERSED → REVISE per supplementary panel; this RCA + W1-S5 RCA require amendment BEFORE re-running MMA Step 1. CITES: §13.1 + §13.2 + §13.3.
+
 **Foundational-boundary classification:** YES — auth boundary per doctrine §"MMA escalation". Same gates as W1-S5: MMA Step 1 DIAGNOSE on the RCA itself + per-PR Captain merge auth at PR-open.
 
 **Scope-narrow vs W1-S5:** W1-S6 is NEW V2 file calling INTO 5 V1 modules (vs W1-S5 = modify-existing V2 substrate that REPLACES V1-era K5 fixed-window). Same boundary class; different topology.
@@ -87,6 +90,31 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
   - `auth.helpdesk_monitoring_hours = "business-hours"` OR `auth.helpdesk_off_hours_forward_to_captain = true` (gates on Captain Q1.g.B disposition per §S-147.1)
 - **Email script_path** — existing `EmailAlerter` field; reuse as-is (A2.c RATIFIED extends not replaces)
 
+### Cross-feature publish surface (supplementary absorption)
+
+**CITES: §13.1 F-CONS-15 + §13.2 Q-W1-CROSS-1 + Q-W1-CROSS-2**
+
+W1-S6 PIN-LOCKOUT auto-rotate is **NOT independent of W1-S5 sliding-window refresh**. W1-S5 staff JWT pre-lockout remains valid + gets refreshed on every authenticated request unless W1-S5 reads a lockout-state predicate that W1-S6 owns. The two share a foundational-auth boundary that §1 above did not previously enumerate:
+
+| New cross-feature surface | Owner-feature | Read by W1-S5? | Write by W1-S6? |
+|---|---|---|---|
+| `staff_pin_lockout_state(staff_id) -> LockoutStatus` predicate | **W1-S6 (NEW; this RCA)** | YES — every refresh path call | YES — at PIN-rotate execution + Captain freeze + counter-decay |
+
+**Predicate shape (W1-S6 publishes; W1-S5 reads):**
+```rust
+pub enum LockoutStatus {
+    Inactive,                  // staff is not under lockout-active
+    Active { since: DateTime<Utc>, reason: LockoutReason }, // 5-wrong PIN auto-rotate fired OR Captain freeze
+}
+pub fn staff_pin_lockout_state(staff_id: &str) -> LockoutStatus { ... }
+```
+
+**State durability:** in-memory HashMap per Q-S6-6 default (acceptable per CR-3 customer-service-priority — restart-after-5-wrong slight forgiveness toward staff). Composes with W1-S5 force-expire JWT revocation (Q-S5-NEW-2-a) at lockout-active detection.
+
+**Ordering implication:** W1-S6 PR-A ships FIRST per Q-W1-CROSS-2 default-a so the predicate exists before W1-S5 reads it. CITES: §13.2 Q-W1-CROSS-2.
+
+**Email/WhatsApp dispatch boundary expansion (NEW):** the EmailAlerter shell-out (A2.c RATIFIED) AND the WhatsApp Captain-freeze dispatch (A3 RATIFIED via bono substrate) both run synchronously inside the lockout-completion flow today. A hung SMTP connection or hung Evolution API call would block the middleware chain, blocking the audit-log + new-PIN-persist + counter-update steps. F-CONS-18 surfaces this at supplementary 3/5 — see §2 EA-5 row + §5 item 9 below.
+
 ---
 
 ## §2 — Inherited-issue catalogue
@@ -104,6 +132,8 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 | AL-1 | (no prior anchor) | `audit_log.action_type` write amplification: every PIN-rotate event = 1 audit row (LOW volume; ≤3/staff/hr × N staff = bounded). | NOT-APPLICABLE — write volume is bounded; not a concern. |
 | AL-2 | `audit_log.action` CHECK constraint (`'create','update','delete'`) per `migrate_policy.rs` schema | W1-S6 must use `log_admin_action` (writes `action_type` column, action='create' fixed) NOT `log_audit` (which is constrained CRUD). Per W1-S3 NF-james-8 axis-distinction. | DIRECT — same disposition as W1-S3+S4; reuse pattern. |
 | WS-1 | racingpoint-whatsapp-bot existing infra | Captain-freeze WhatsApp dispatch to `917981264279` — uses existing Evolution API instance "Racing Point Reception". A3 RATIFIED for W1-S7+S8 daily-PIN; same transport for W1-S6 freeze-event. | INDIRECT — reuse A3 transport; cross-pilot bono-substrate dependency for actual send. |
+| **CROSS-1** [F-CONS-15 supplementary §13.1] | W1-S5 sliding-window refresh path has NO read of W1-S6 `staff_pin_lockout_state` — staff JWT pre-lockout stays valid + gets refreshed indefinitely on activity, undermining W1-S6 lockout intent | DIRECT-CRITICAL — security-class. W1-S6 must PUBLISH a `staff_pin_lockout_state(staff_id) -> LockoutStatus` predicate with shared-state semantics so W1-S5 can read it on every refresh. State durability per Q-S6-6 (in-memory HashMap default). CITES: §13.1 F-CONS-15 |
+| **EA-5** [F-CONS-18 supplementary §13.1] | EmailAlerter shell-out to `comms-link/shared/send-email.js` has NO timeout/retry/error-handling specified; same applies to WhatsApp Captain-freeze Evolution API call. Hung SMTP connection OR hung Evolution API blocks middleware chain → audit-log + new-PIN-persist + counter-update steps blocked behind dispatch | DIRECT — surfaced at supplementary 3/5 (gemini-flash + qwen3-235b + kimi-k2.5; not in canonical). Mitigation: wrap email + WhatsApp dispatch in `tokio::time::timeout(N_secs)` (default 5s); on dispatch failure: PIN-rotation + audit-log + lockout-counter MUST still complete (decoupled from dispatch). CITES: §13.1 F-CONS-18 |
 
 ---
 
@@ -121,6 +151,8 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 | AL-1 audit write amplification | **NOT-APPLICABLE** — bounded volume. | No mitigation needed. |
 | AL-2 action vs action_type column | **ROOT-CAUSED-AND-FIXED** — W1-S3 established the `log_admin_action` pattern; W1-S6 reuses. | Reuse pattern verbatim. |
 | WS-1 WhatsApp transport | **ROOT-CAUSED-AND-FIXED** — A3 RATIFIED for W1-S7+S8 transport; W1-S6 freeze-event uses same path. | Reuse via cross-pilot bono substrate at W1-S6 ship time. |
+| **CROSS-1 lockout-state predicate publish** [supplementary F-CONS-15] | **NEW — W1-S6 OWNS the predicate; W1-S5 reads. Mitigation: publish `staff_pin_lockout_state(staff_id) -> LockoutStatus` with shared-state semantics; gated on Q-W1-CROSS-1 Captain explicit ratify (W1-S5 side; predicate is published REGARDLESS as foundational hygiene)** | NEW finding from supplementary 3/5 consensus. No prior bug ticket — surfaced by cross-feature analysis with W1-S5. State durability per Q-S6-6 default in-memory HashMap. CITES: §13.1 F-CONS-15 |
+| **EA-5 EmailAlerter + WhatsApp dispatch timeout/retry** [supplementary F-CONS-18] | **OPEN — design-shape RCA item; mitigation in §5 sketch update below** | NEW finding from supplementary 3/5 (gemini-flash + qwen3-235b + kimi-k2.5); not in canonical. No prior bug ticket — V1 EmailAlerter alert-class semantics never had this latency-coupling because alerts were observability-class not auth-blocking-class. CITES: §13.1 F-CONS-18 |
 
 **Open RCA items requiring W1-S6 design choice:**
 1. EA-1 HashMap unbounded growth — TTL-purge or LRU
@@ -128,6 +160,8 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 3. EA-3 transport substrate verification at Session 5 entry probe
 4. EA-4 DKIM/SPF for `racingpoint.in` — Session 5 entry probe; potentially Captain Q-DECISION on ship-with-risk-vs-delay
 5. RL-1 NEW per-staff-id rate-limit primitive — module placement + state durability
+6. **CROSS-1: publish `staff_pin_lockout_state` predicate** [supplementary F-CONS-15] — W1-S6 owns the predicate; W1-S5 reads. Signature: `pub fn staff_pin_lockout_state(staff_id: &str) -> LockoutStatus { Inactive | Active { since, reason } }`. State backed by the same `PinLockoutTracker` in-memory HashMap per Q-S6-6. Composes with W1-S5 force-expire JWT revocation (Q-S5-NEW-2-a) at lockout-active detection. **Ordering: W1-S6 PR-A merges FIRST** per Q-W1-CROSS-2-a; W1-S5 PR-A reads-only after merge. CITES: §13.2 Q-W1-CROSS-1 + Q-W1-CROSS-2
+7. **EA-5: timeout/retry/error decoupling for EmailAlerter + WhatsApp dispatch** [supplementary F-CONS-18] — wrap email + WhatsApp dispatch in `tokio::time::timeout(N_secs)` (default 5s). On dispatch failure: PIN-rotation + audit-log + lockout-counter MUST still complete. Audit-log row records dispatch outcome (`dispatched_ok | dispatched_timeout | dispatched_error`). Document failure-mode in code comment naming this disposition. CITES: §13.1 F-CONS-18
 
 ---
 
@@ -165,30 +199,35 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 ### Implementation sketch (kaizen-min)
 
 1. **NEW module `crates/racecontrol/src/auth/staff_auth.rs`** (~80-100 LOC production):
-   - `pub struct PinLockoutTracker { attempts: Mutex<HashMap<StaffId, AttemptState>>, resets: Mutex<HashMap<StaffId, ResetState>> }`
+   - `pub struct PinLockoutTracker { attempts: Mutex<HashMap<StaffId, AttemptState>>, resets: Mutex<HashMap<StaffId, ResetState>>, lockouts: Mutex<HashMap<StaffId, LockoutEntry>> }`
+   - `pub enum LockoutStatus { Inactive, Active { since: DateTime<Utc>, reason: LockoutReason } }`
+   - `pub fn staff_pin_lockout_state(&self, staff_id: &str) -> LockoutStatus` — **NEW public read API consumed by W1-S5 sliding-window refresh path** per CROSS-1 supplementary. CITES: §13.1 F-CONS-15
    - `pub fn record_attempt(staff_id, success: bool) -> AttemptOutcome { Continue, LockoutTriggered }`
    - `pub async fn execute_lockout(state, staff_id) -> Result<LockoutOutcome>` — orchestrates: gen new PIN → persist via `change_staff_pin_safe` → check reset-rate-limit → dispatch email or freeze+WhatsApp → log audit
    - `pub fn reset_attempts(staff_id)` (Captain Q1.c — counter resets on first correct PIN)
-   - Format: ~40 LOC for PinLockoutTracker + ~40 LOC for execute_lockout
+   - Format: ~50 LOC for PinLockoutTracker (was ~40; +10 for `lockouts` HashMap + `staff_pin_lockout_state` public read API per CROSS-1) + ~40 LOC for execute_lockout
    - **Composes with**: `staff_pin_sync::change_staff_pin_safe` (PIN write) + `accounting::log_admin_action` (audit) + `EmailAlerter` extension (email) + `validate_pin_format` (PIN format)
 
-2. **Extend `EmailAlerter` with `send_pin_rotation` method** (~20 LOC):
+2. **Extend `EmailAlerter` with `send_pin_rotation` method** (~30 LOC; was ~20):
    - Sibling to `send_alert`; bypasses per-pod + venue-wide cooldowns (event-class not alert-class)
    - Body schema: `staff_name | employee_id | new_pin | pos_terminal_id | timestamp_ist | refund_attempt_context`
    - Uses same script_path shell-out (A2.c RATIFIED)
+   - **Wrap shell-out in `tokio::time::timeout(EMAIL_DISPATCH_TIMEOUT)` — default 5s** per EA-5 mitigation. On timeout/error: return `DispatchOutcome::Timeout` or `DispatchOutcome::Error(e)` rather than propagating Err and blocking the caller. **Caller (execute_lockout) treats dispatch failure as decoupled — PIN-rotation + audit-log + lockout-counter still complete.** CITES: §13.1 F-CONS-18
+   - Code comment at the timeout site naming this disposition: `// Dispatch decoupled per F-CONS-18 supplementary 3/5; lockout completes regardless. EA-5 RCA §3.`
 
 3. **NEW per-staff-id rate-limit primitive** (~30 LOC; Gap-1):
    - **Option A (recommended)**: inline in `staff_auth.rs` as `ResetState { count: u32, window_start: DateTime<Utc> }` — kaizen-min, scoped to PIN-reset use case only
    - **Option B**: NEW module `crates/racecontrol/src/auth/staff_rate_limit.rs` with generic `StaffRateLimiter<Key>` for future per-staff-id rate-limits (refund-rate, launch-rate)
    - Disposition Q-S6-2 below; recommend Option A
 
-4. **WhatsApp Captain freeze dispatch** (~15 LOC; cross-pilot via bono substrate):
+4. **WhatsApp Captain freeze dispatch** (~25 LOC; was ~15; cross-pilot via bono substrate):
    - On 4th reset attempt within 1hr → freeze account flag + WhatsApp `917981264279` "Staff <name> account FROZEN: 4+ PIN-resets/hr"
    - Reuses A3 RATIFIED Evolution API "Racing Point Reception" instance (W1-S7+S8 sub-LEAD bono); racecontrol-side calls into existing `whatsapp_send` infra (TODO: confirm path)
+   - **Wrap dispatch in `tokio::time::timeout(WHATSAPP_DISPATCH_TIMEOUT)` — default 5s** per EA-5 mitigation. Same decoupling as item 2: dispatch failure does NOT block freeze-flag write or audit-log. Audit-log records `whatsapp_captain_dispatched: ok | timeout | error`. CITES: §13.1 F-CONS-18
 
 5. **Audit log integration** (~10 LOC):
    - `log_admin_action(state, action_type="staff_pin_auto_reset", staff_id, ...)` — mirror W1-S3 pattern
-   - JSON payload: `{ old_pin_hash, new_pin_hash, attempt_count_at_lockout, reset_count_in_window, helpdesk_email_dispatched, whatsapp_captain_dispatched }`
+   - JSON payload: `{ old_pin_hash, new_pin_hash, attempt_count_at_lockout, reset_count_in_window, helpdesk_email_dispatched: ok | timeout | error, whatsapp_captain_dispatched: ok | timeout | error | not_applicable }` — dispatch outcomes recorded as enum-string values per EA-5 decoupling. CITES: §13.1 F-CONS-18
 
 6. **Tests** (~200-250 LOC):
    - Unit: PinLockoutTracker — 1st attempt / 4 wrong attempts / 5th wrong triggers lockout / counter-reset on success / reset-rate-limit boundary (3rd within 1hr OK; 4th triggers freeze)
@@ -213,6 +252,19 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
    - `LOGBOOK.md` row at racecontrol root
    - `feedback_v1_dependent_v2_root_cause_before_proceeding.md` → empirical anchor #2 (RCA-rule applied successfully second time, sibling W1-S5 anchor #1)
 
+9. **Cross-feature predicate publish + dispatch decoupling test additions** (supplementary absorption):
+    - **`staff_pin_lockout_state` public-read API** (CROSS-1): `PinLockoutTracker::staff_pin_lockout_state(&self, staff_id) -> LockoutStatus` reads `lockouts: Mutex<HashMap<StaffId, LockoutEntry>>` written by `execute_lockout` at lockout trigger + cleared by `reset_attempts` (Captain Q1.c — first correct PIN within session). State backed by same in-memory HashMap (Q-S6-6 default).
+    - File: `crates/racecontrol/src/auth/staff_auth.rs` (~10 LOC public method + ~5 LOC LockoutEntry struct)
+    - **Tests added (on top of §5 item 6 base estimate of 8-10 unit + 4-6 integration):**
+      - Unit: `staff_pin_lockout_state` returns `Inactive` for never-locked staff (NEW)
+      - Unit: `staff_pin_lockout_state` returns `Active` immediately after `execute_lockout` (NEW)
+      - Unit: `staff_pin_lockout_state` returns `Inactive` after `reset_attempts` clears lockout (NEW)
+      - Unit: EmailAlerter::send_pin_rotation timeout returns `DispatchOutcome::Timeout` without blocking caller; caller still completes PIN-rotation + audit-log + counter-update (NEW; F-CONS-18 invariant)
+      - Unit: WhatsApp dispatch timeout same decoupling invariant (NEW; F-CONS-18 invariant)
+      - Estimated +5 tests on top of §5 item 6 (was 8-10 + 4-6 → now 13-15 + 4-6).
+    - **Production-code LOC delta:** original §5 estimated ~155-175 LOC. Cross-feature additions add ~40 LOC (item 1 +10 lockout state + read API; item 2 +10 timeout wrap; item 4 +10 timeout wrap; item 5 +5 audit JSON enum; item 9 +5 tests scaffolding). Updated estimate: **~195-215 LOC production + ~310-360 LOC tests** (13-15 unit at 15-25 LOC + 4-6 integration at 25-40 LOC).
+    CITES: §13.1 F-CONS-15 + F-CONS-18 + §13.2 Q-W1-CROSS-1 + Q-W1-CROSS-2
+
 ### Estimated size
 
 - Production code: ~155-175 LOC (PinLockoutTracker + EmailAlerter extension + rate-limit primitive + WhatsApp dispatch + audit integration)
@@ -232,6 +284,8 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 | ~~Q-S6-5~~ | ~~Email body schema enumeration~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Ship enumerated fields per §S-82 line 8023 (`staff_name|employee_id|new_pin|pos_terminal_id|timestamp_ist|refund_attempt_context`) |
 | ~~Q-S6-6~~ | ~~Lockout state durability — in-memory OR DB-backed~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** In-memory HashMap (kaizen-min; restart-after-5-wrong acceptable per CR-3 customer-service-priority — slight forgiveness toward staff). DB-backed deferred to V2.1 if abuse pattern emerges |
 | ~~Q-S6-7~~ (depends on §S-147.1 disposition) | ~~Email body includes "after-hours: Captain mobile" OR transparent forwarding~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Transparent Workspace forwarding (staff sees same body; Workspace routing handles delivery to Captain mobile if Q1.g.B disposition routes that way) |
+| **Q-W1-CROSS-1 (W1-S6 side)** [supplementary §13.2 NEW-Q-DECISION-3] | W1-S6 publishes `staff_pin_lockout_state` predicate REGARDLESS (foundational hygiene); the question is whether W1-S5 sliding-window refresh path READS it on every refresh. Captain disposition affects W1-S5 PR-A scope, NOT W1-S6 PR-A scope (predicate publish is unconditional). | **DEFAULT YES per supplementary 3/5** — W1-S6 publishes; W1-S5 reads. **REQUIRES Captain explicit ratification** (security-class boundary, W1-S5 side). W1-S6 ships predicate publish unconditionally per kaizen-discipline. CITES: §13.2 |
+| **Q-W1-CROSS-2 (W1-S6 side)** [supplementary §13.2 NEW-Q-DECISION-4] | Implementation order — **W1-S6 PR-A merges FIRST** per default-a so predicate exists for W1-S5 read. Affects W1-S6 ship sequencing — W1-S6 cannot wait for W1-S5 PR-A as gate. | **DEFAULT (a) per §13.4** — W1-S6 PR-A FIRST. **REQUIRES Captain explicit ratification** (Wave-1 sequencing topology). Class: Wave-1-orchestration. CITES: §13.2 |
 
 ---
 
@@ -250,6 +304,12 @@ This is an authoring artifact, not a runtime fix. Items NOT exercised:
 - **Production-shape concurrent staff-PIN-attempt under contention** — separate workstream
 - **Cross-pilot bono substrate availability for Captain-freeze WhatsApp dispatch** — coordinate with bono at Session 5 ship-time; A3 RATIFIED transport but actual call-site path racecontrol-side TBD
 - **Memory-file Universal Sync** for the bono mirror of this RCA — same disposition as W1-S5 (probably NO; planning artifact not project-scope feedback rule)
+- **Cross-feature predicate `staff_pin_lockout_state` consumed by W1-S5** — W1-S6 publishes; W1-S5 reads. Round-trip behavior gated on W1-S5 PR-A merge SECOND per Q-W1-CROSS-2-a. CITES: §13.2
+- **EmailAlerter dispatch timeout under real SMTP hang** — `tokio::time::timeout(5s)` unit-tested with mock; production SMTP hang at Server .23 / Bono VPS not exercised pre-ship. Probe at Session 5 entry alongside Q-S6-4 SMTP+DKIM/SPF check.
+- **WhatsApp Evolution API dispatch timeout under real Evolution API hang** — same pattern; cross-pilot bono substrate availability + timeout behavior not exercised pre-ship.
+- **Audit-log dispatch-outcome enum-string values under all 3 paths** (`ok | timeout | error`) — unit-tested; production all-3-paths not naturally exercised.
+- **Re-run MMA Step 1 on this amended RCA + W1-S5 amended RCA** (~$0.07; PASS/REVISE-downgrade gate per §13.3) — gates on this amendment ship
+- **Captain G33 explicit ratification of Q-W1-CROSS-1 + Q-W1-CROSS-2** — security-class + Wave-1-orchestration explicit auth required (W1-S5-side disposition; W1-S6 publishes predicate unconditionally regardless)
 
 ---
 
