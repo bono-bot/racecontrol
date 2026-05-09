@@ -26,7 +26,16 @@
 // `accounting_audit::log_audit` — zero schema migration. Routing fn lands in
 // the W1-S3 follow-up commit.
 
+use std::sync::Arc;
+
+use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use uuid::Uuid;
+
+use crate::accounting::{log_admin_action, post_refund};
+use crate::auth::middleware::StaffClaims;
+use crate::state::AppState;
 
 /// Maximum allowed length for the free-text reason in `RefundReason::Other`.
 /// Captain Q2 disposition: 100 characters.
@@ -162,6 +171,145 @@ pub const fn band_for_amount(amount_paise: i64) -> RefundBand {
     } else {
         RefundBand::C
     }
+}
+
+// ─── HTTP handler ────────────────────────────────────────────────────────────
+
+/// Inbound payload for `POST /api/v1/refund/3band`.
+///
+/// Validation rules:
+/// - `amount_paise` must be `> 0`
+/// - `reason` is **required** for Band B and Band C (`band.requires_reason()`)
+/// - `reason` is **forbidden** for Band A (`!band.requires_reason()`) — staff PIN only
+/// - `RefundReason::Other(s)` — `s` is non-empty + ≤ `MAX_OTHER_REASON_LEN` chars
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouteRefundRequest {
+    pub amount_paise: i64,
+    pub driver_id: String,
+    pub reason: Option<RefundReason>,
+    pub reference_id: Option<String>,
+}
+
+/// 3-band refund routing handler. Wrapper-NOT-replacement: routes to existing
+/// `accounting::post_refund` journal-entry primitive after authorization +
+/// reason-code validation, then persists the band+reason via
+/// `accounting_audit::log_admin_action` (action_type sibling column per
+/// PACT-091 — audit_log.action CHECK constraint is CRUD-only).
+///
+/// Authorization gates per Captain Q2:
+/// - Band A `<₹1000`: staff PIN only (any cashier+ role)
+/// - Band B `₹1000-2999`: staff PIN + reason code
+/// - Band C `≥₹3000`: requires `manager` or `superadmin` role
+///   (PrivilegedAction::ApproveRefundOverThreshold proxy at this layer; the
+///   formal PrivilegedAction enforcement happens at the manager-mode gate)
+pub async fn route_refund(
+    State(state): State<Arc<AppState>>,
+    claims: Option<Extension<StaffClaims>>,
+    Json(req): Json<RouteRefundRequest>,
+) -> (StatusCode, Json<Value>) {
+    // Validate amount
+    if req.amount_paise <= 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "amount_paise must be positive" })),
+        );
+    }
+
+    let band = band_for_amount(req.amount_paise);
+
+    // Validate reason matches band
+    match (&req.reason, band.requires_reason()) {
+        (None, true) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!("band {:?} requires a reason code", band),
+                    "band": band,
+                })),
+            );
+        }
+        (Some(_), false) => {
+            // Band A: reason is staff-PIN-only. Reject explicit reason to keep
+            // policy boundary clean (reason codes carry V2 customer-pricing
+            // signal that should NOT be set when the band doesn't require one).
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!("band {:?} does not accept a reason code", band),
+                    "band": band,
+                })),
+            );
+        }
+        (Some(r), true) => {
+            if let Err(e) = r.validate() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": format!("invalid reason: {}", e) })),
+                );
+            }
+        }
+        (None, false) => { /* Band A no-reason: ok */ }
+    }
+
+    // Manager-mode gate for Band C
+    let staff_id = claims.as_ref().map(|c| c.0.sub.clone());
+    if band.requires_manager_mode() {
+        let has_manager = claims
+            .as_ref()
+            .map(|c| c.0.has_role(&["manager", "superadmin"]))
+            .unwrap_or(false);
+        if !has_manager {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "band C (≥₹3000) refund requires manager-mode (PrivilegedAction::ApproveRefundOverThreshold)",
+                    "band": band,
+                })),
+            );
+        }
+    }
+
+    let refund_id = Uuid::new_v4().to_string();
+
+    // Dispatch to existing journal-entry primitive (fire-and-forget; logs its
+    // own DB errors). Band A/B/C all route through the same primitive — the
+    // band difference is in the AUTHORIZATION gate above + reason-code audit.
+    post_refund(
+        &state,
+        &req.driver_id,
+        req.amount_paise,
+        req.reference_id.as_deref(),
+    )
+    .await;
+
+    // Persist band + reason-code via PACT-091 action_type sibling (bypasses
+    // audit_log.action CHECK CRUD-only).
+    let details = json!({
+        "refund_id": refund_id,
+        "amount_paise": req.amount_paise,
+        "driver_id": req.driver_id,
+        "band": band,
+        "reason_code": req.reason.as_ref().map(|r| r.code()),
+        "reason_other_text": req.reason.as_ref().and_then(|r| match r {
+            RefundReason::Other(s) => Some(s.clone()),
+            _ => None,
+        }),
+        "reference_id": req.reference_id,
+    })
+    .to_string();
+    log_admin_action(&state, band.audit_action(), &details, staff_id.as_deref(), None).await;
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "ok",
+            "refund_id": refund_id,
+            "band": band,
+            "reason_code": req.reason.as_ref().map(|r| r.code()),
+            "amount_paise": req.amount_paise,
+        })),
+    )
 }
 
 #[cfg(test)]
