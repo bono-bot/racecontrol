@@ -1,0 +1,74 @@
+{
+  "w1_s5": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "Concurrent request race condition on token refresh",
+        "reasoning": "RCA acknowledges sliding-window refresh happens 'on each authenticated request' but does not analyze race conditions when concurrent requests arrive from the same staff member. Two simultaneous requests both seeing RefreshSoon will both mint fresh JWTs and write Set-Cookie headers, causing last-write-wins cookie corruption and potential session state inconsistency. Need explicit serialization per staff_id or idempotency key.",
+        "suggested_action": "Add per-staff-id mutex/serialization in the response-mutating layer or implement idempotent refresh using a nonce/etag in the JWT to detect concurrent refresh attempts."
+      },
+      {
+        "severity": "P0",
+        "title": "Multi-instance state inconsistency for sliding-window",
+        "reasoning": "Deployment context mentions 'Server .23 + Bono VPS racecontrol' implying potential multi-instance deployment. In-memory sliding-window state (last_activity tracking) is not shared across instances. A staff member bouncing between instances (load balancer) would experience erratic timeout behavior as each instance tracks activity independently.",
+        "suggested_action": "Document assumption that racecontrol runs single-instance OR implement Redis-backed session store for last_activity OR sticky-session load balancing policy."
+      },
+      {
+        "severity": "P1",
+        "title": "Token replay attack surface post-refresh",
+        "reasoning": "RCA notes old tokens remain valid until natural expiry (24h) after refresh. If an attacker exfiltrates a JWT, refresh does not revoke the stolen token. The sliding-window creates a longer window of exposure (24h from original issuance) compared to explicit revocation.",
+        "suggested_action": "Document security acceptance of this risk OR implement token jti (JWT ID) blocklist for rotated tokens OR reduce expiry window to <1h with aggressive refresh."
+      },
+      {
+        "severity": "P1",
+        "title": "Middleware error handling interaction gap",
+        "reasoning": "Response-mutating middleware (step 5.5) runs post-handler. RCA does not specify behavior when handler returns Err (500, 400, etc.). Refreshing tokens on error responses wastes resources and may mask session issues. Conversely, NOT refreshing on errors may expire valid sessions during transient failures.",
+        "suggested_action": "Explicitly specify refresh policy: only refresh on 2xx responses OR refresh on all non-401 responses. Document in middleware.rs comment."
+      },
+      {
+        "severity": "P1",
+        "title": "Missing feature flag / kill switch",
+        "reasoning": "Sliding-window is a behavioral change to auth boundary. RCA lacks rollback mechanism if production issues arise (cookie storms, client incompatibility). No circuit breaker or config-gated disable path mentioned.",
+        "suggested_action": "Add AuthConfig::enable_sliding_window_idle_refresh bool (default true) allowing immediate revert to fixed-window without code deploy."
+      },
+      {
+        "severity": "P2",
+        "title": "Cookie security attributes incomplete",
+        "reasoning": "RCA mentions httpOnly + Secure + SameSite=Strict but misses __Host- or __Secure- prefixing recommended by OWASP for production cookies. Also missing Max-Age/Expires synchronization with JWT exp.",
+        "suggested_action": "Add __Host- prefix validation (requires Path=/ and no Domain) and align cookie Max-Age with JWT exp claim."
+      },
+      {
+        "severity": "P2",
+        "title": "Clock skew amplification with iat=now",
+        "reasoning": "Marked INDIRECT in RCA. However, with sliding-window setting iat=now on every refresh, servers with clock skew > idle_timeout_secs/2 could cause immediate expiry or negative elapsed times. NTP drift between Server .23 and Bono VPS could trigger spurious logouts.",
+        "suggested_action": "Add server-side clock skew monitoring (alert if |server_time - ntp| > 5s) and use monotonic clocks for elapsed calculation while preserving iat for client info only."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "JWT secret rotation grace + sliding-window interaction",
+        "current_label": "NOT-APPLICABLE-TO-V2 (as a 'bug') + OPEN-FORWARD-LOOKING",
+        "correct_label": "P1-LIVE-RISK",
+        "reasoning": "While marked as forward-looking, the RCA acknowledges refresh always uses CURRENT secret. During rotation, this forces premature migration to new secret for refreshed tokens, potentially breaking clients that haven't rotated yet. This is a live implementation risk, not just a documentation choice."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "w1_s6": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "Email delivery failure handling",
+        "reasoning": "RCA identifies SMTP transport unverified (EA-3) but does not specify failure mode when PIN rotates but email fails to dispatch. Staff is locked out with new PIN but no notification channel, requiring Captain manual intervention. No retry queue, dead-letter handling, or fallback to WhatsApp for email failures.",
+        "suggested_action": "Implement synchronous email success verification OR async retry with WhatsApp fallback after 2 minutes OR keep old PIN active until email confirmed delivered."
+      },
+      {
+        "severity": "P0",
+        "title": "Distributed rate-limiting bypass",
+        "reasoning": "Per-staff-id rate limit (3/hr) uses in-memory HashMap. With 'Server .23 + Bono VPS' deployment, a staff member can attempt 3 resets on each instance (6 total/hr), bypassing the ≤3 cap. This violates the security invariant Captain ratified.",
+        "suggested_action": "Implement Redis-backed rate limiter OR document single-instance deployment constraint OR use sticky sessions to pin staff to instances."
+      },
+      {
+        "severity": "P1",
+        "title": "JWT invalidation on PIN rotation",
+        "reasoning": "W1-S6 rotates PIN but does not mention invalidating existing JWTs. A staff member with an active session (W1-S5 sliding-window refreshing) remains logged in despite PIN rotation, violating the security intent of lock

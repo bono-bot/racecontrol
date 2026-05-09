@@ -1,0 +1,119 @@
+{
+  "w1_s5": {
+    "missed": [
+      {
+        "severity": "P1",
+        "title": "Concurrency hazards in token re-issuance",
+        "reasoning": "The RCA doesn't address concurrent request handling where multiple requests from the same session could trigger simultaneous token re-issuance, leading to token version conflicts or race conditions in cookie setting.",
+        "suggested_action": "Add mutex or atomic state management around token refresh per session to prevent concurrent re-issuance."
+      },
+      {
+        "severity": "P1",
+        "title": "Error handling in response-mutating layer",
+        "reasoning": "No coverage of failure scenarios in the response-mutating middleware (e.g., JWT generation failure during refresh). This could leave responses incomplete or cause panics.",
+        "suggested_action": "Define comprehensive error handling paths for middleware failures, including fallback to original response and structured logging."
+      },
+      {
+        "severity": "P2",
+        "title": "Cookie collision risk with PIN paths",
+        "reasoning": "RCA mentions cookie helpers but doesn't verify absence of naming conflicts between idle-timeout cookies and existing PIN cookies from admin.rs, risking overwrites or client-side conflicts.",
+        "suggested_action": "Audit all cookie namespaces in auth/admin.rs and ensure new cookie uses distinct name with conflict analysis."
+      },
+      {
+        "severity": "P1",
+        "title": "Deployment rollback hazards",
+        "reasoning": "Ignores backward compatibility during rollback: new sliding-window tokens issued during deployment would become invalid if rolling back to fixed-window version, causing immediate session expirations.",
+        "suggested_action": "Implement versioned JWT claims or deployment-stage aware token validation to support safe rollbacks."
+      },
+      {
+        "severity": "P2",
+        "title": "Clock skew amplification in distributed systems",
+        "reasoning": "While clock skew is mentioned, RCA doesn't address how skew greater than idle_timeout_secs could cause simultaneous valid/invalid token states across horizontally scaled instances.",
+        "suggested_action": "Add NTP enforcement checks in deployment pipeline and document skew tolerance limits in validation logic."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "Clock-skew handling",
+        "current_label": "INDIRECT",
+        "correct_label": "DIRECT",
+        "reasoning": "Classified as indirect but is critical path for sliding-window validity checks; skew tolerance must be explicitly designed into refresh logic."
+      },
+      {
+        "item": "JWT secret rotation grace period interaction",
+        "current_label": "OPEN-FORWARD-LOOKING",
+        "correct_label": "P1_SECURITY_RISK",
+        "reasoning": "Downplayed as design choice when mid-rotation refreshes could create tokens valid under both old/new secrets, weakening cryptographic hygiene."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "w1_s6": {
+    "missed": [
+      {
+        "severity": "P1",
+        "title": "HashMap DoS vulnerabilities",
+        "reasoning": "In-memory HashMaps for attempt tracking are susceptible to memory exhaustion attacks via malicious staff_id proliferation. RCA mentions unbounded growth but not active exploitation risks.",
+        "suggested_action": "Implement staff_id validation or LRU eviction with alarms for abnormal growth patterns."
+      },
+      {
+        "severity": "P1",
+        "title": "Atomicity gaps in PIN rotation",
+        "reasoning": "No discussion of transactional integrity between PIN change, audit logging, and counter reset. Network partition during change_staff_pin_safe could leave system in inconsistent state.",
+        "suggested_action": "Add compensating transactions or idempotency tokens for rotation workflow."
+      },
+      {
+        "severity": "P2",
+        "title": "Email delivery observability gaps",
+        "reasoning": "While transport verification is noted, RCA omits real-time monitoring for email delivery failures and alerting when helpdesk@ messages aren't received.",
+        "suggested_action": "Integrate with email provider webhooks for delivery receipts and add Prometheus alerts for undelivered PIN rotations."
+      },
+      {
+        "severity": "P1",
+        "title": "Staff_id enumeration via timing attacks",
+        "reasoning": "Per-staff-id rate-limiting introduces side-channel where response times could reveal valid staff_ids. Not mitigated in proposal.",
+        "suggested_action": "Add constant-time hash comparison or request batching to obscure staff_id validity."
+      },
+      {
+        "severity": "P2",
+        "title": "Cold start state loss hazards",
+        "reasoning": "In-memory state for attempt counters is lost on restart, allowing lockout bypass if crashes occur after failed attempts but before rotation.",
+        "suggested_action": "Document behavior in runbooks and add startup reconciliation with audit_log."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "EmailAlerter cooldown semantics conflict",
+        "current_label": "NOT-APPLICABLE-TO-V2",
+        "correct_label": "DIRECT_SECURITY_GAP",
+        "reasoning": "Misclassified as V1-only issue; cooldown bypass creates new attack vector for email flooding if attacker triggers repeated lockouts."
+      },
+      {
+        "item": "Per-staff-id rate-limit primitive",
+        "current_label": "NEW_ABSTRACTION_NEEDED",
+        "correct_label": "P0_DEPLOYMENT_BLOCKER",
+        "reasoning": "Treated as implementation choice when absence fundamentally blocks feature delivery. Should be elevated to deployment prerequisite."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "cross_rca_interactions": [
+    {
+      "severity": "P1",
+      "title": "Cookie header collision in response chains",
+      "reasoning": "W1-S5's response-mutating middleware sets auth cookies concurrently with W1-S6's potential cookie operations during PIN resets. Uncoordinated Set-Cookie headers could exceed browser limits or cause non-deterministic precedence."
+    },
+    {
+      "severity": "P2",
+      "title": "Shared secret rotation hazards",
+      "reasoning": "W1-S5's JWT secret rotation design (always use current secret) conflicts with W1-S6's PIN reset emails containing time-sensitive credentials. Coordinated rotation required to avoid PINs becoming invalid during rotation windows."
+    },
+    {
+      "severity": "P1",
+      "title": "Audit log write amplification synergy",
+      "reasoning": "Both features increase audit_log volume: W1-S5 through explicit expiry logging, W1-S6 through PIN rotations. Combined load could exceed current PostgreSQL instance capacity during peak events."
+    }
+  ],
+  "blocker_disposition": "REVISE",
+  "blocker_reasoning": "Both RCAs miss critical P1 implementation hazards (concurrency, error handling, security) and misclassify security-sensitive items. Cross-RCA interactions introduce unaddressed systemic risks. Must address gaps before proceeding to implementation."
+}
