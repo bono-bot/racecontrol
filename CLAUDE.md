@@ -584,19 +584,21 @@ curl -s -m 120 https://openrouter.ai/api/v1/chat/completions \
   }')"
 ```
 
-**Model Pool (Step 1 — 10 models, stratified):**
+**Model Pool (5 per step, stratified — May 2026 catalog):**
 
-| Slot | Role (required) | Models |
-|------|-----------------|--------|
-| 1 | Reasoner | DeepSeek R1 0528, GPT-5.4 Nano, Kimi K2.5 |
-| 2 | Code Expert | DeepSeek V3.2, Grok Code Fast, Qwen3 Coder |
-| 3 | SRE/Ops | MiMo v2 Pro, Nemotron 3 Super, MiMo v2 Flash |
-| 4 | Domain Specialist | Varies by domain (see spec Part 8) |
-| 5 | Generalist | Qwen3 235B, Gemini 2.5 Flash, Mistral Medium |
+| Slot | Role (required) | Tier-1 picks | NEVER pick from |
+|------|-----------------|--------------|-----------------|
+| 1 | Reasoner | Claude Opus 4.7, GPT-5.4 / 5.4-pro, DeepSeek V4-Pro, DeepSeek R1, Kimi K2.6, Qwen3.6-Max-Preview, Gemini 2.5 Pro | Haiku / Nano / Flash / Mini / Lite / Small / Edge / Tiny / Fast (speed-class) |
+| 2 | Code Expert | Claude Sonnet 4.6 / 4.5, Claude Opus 4.7, GPT-5.4 / 5.3-codex, DeepSeek V4-Pro, Qwen3-Coder-Plus, Kat-Coder-Pro-v2, Codestral 2508, Devstral Medium | Haiku / Nano / Flash / Mini / Lite / Small / Edge / Tiny / Fast (speed-class — Grok-Code-Fast-1 is allow-listed exception) |
+| 3 | SRE/Ops | MiMo v2.5-Pro / v2-Pro, Nemotron-3-Super-120b, Nemotron-49b | (speed-tolerant — pattern matching dominates) |
+| 4 | Domain Specialist | Varies by domain (see spec Part 8) | — |
+| 5 | Generalist | Qwen3 235B, Gemini 2.5 Pro / Flash, Mistral-Large 2512, Mistral-Medium-3.5, Llama-4-Maverick | (most permissive) |
 
 **Vendor diversity:** Each 5-model iteration MUST include ≥1 reasoner + ≥1 code expert + ≥1 SRE. Max 2 per vendor family. Min 3 vendor families.
 
 **Cost:** ~$2-5 per full audit (OpenRouter). Budget: $5/session unless Uday approves more.
+
+**Enforcement (§S-166, 2026-05-09 + §S-167 vendor-diversity fix):** `scripts/lib/mma-model-registry.js` is the single source of truth — both canonical `multi-model-audit.js` and ad-hoc `.tmp/mma-step{N}-runner.js` MUST `require()` it. `validateRoleAssignment(modelId, role)` rejects speed-class names from `code_expert` + `reasoner` roles via `NAME_PATTERN_BANS`. `selectAdversarialModels()` enforces 3 distinct vendor families (regression caught by §S-166 verify smoke test 2026-05-09 ~22:38 IST and fixed §S-167 same-turn). Refresh: `node scripts/lib/refresh-mma-registry.js --print` (weekly cadence cron-skill registration DEFERRED). Anchor: `feedback_model_role_fit_check_before_vendor_fit_20260509.md` PROMOTE-NOW-ACTIVE.
 
 ### Unified MMA Protocol v3.0 Standing Rules (2026-03-31)
 

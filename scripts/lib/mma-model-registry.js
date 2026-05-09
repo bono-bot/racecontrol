@@ -223,13 +223,28 @@ function selectAdversarialModels(usedModels, count = 3) {
       const cfg = MODEL_REGISTRY[id];
       return cfg && !usedVendors.has(cfg.vendor);
     })
-    // Prefer code_expert role-fit for adversarial (deepest critique on code-changing PRs)
+    // Prefer code_expert role-fit for adversarial (deepest critique on code-changing PRs),
+    // then prefer cheaper models (Step 4 cost optimization preserved from legacy script).
     .sort((a, b) => {
       const aV = validateRoleAssignment(a, 'code_expert').valid ? 0 : 1;
       const bV = validateRoleAssignment(b, 'code_expert').valid ? 0 : 1;
-      return aV - bV;
+      if (aV !== bV) return aV - bV;
+      return MODEL_REGISTRY[a].priceOut - MODEL_REGISTRY[b].priceOut;
     });
-  return candidates.slice(0, count);
+
+  // §S-167 fix: enforce inter-adversarial vendor-diversity (regression caught by §S-166 verify smoke test).
+  // Original legacy script enforced ≥3 distinct vendor families across the 3 adversarial slots; refactor
+  // dropped this guard. Re-add: at most 1 model per vendor family in the returned set.
+  const selected = [];
+  const advVendors = new Set();
+  for (const id of candidates) {
+    if (selected.length >= count) break;
+    const cfg = MODEL_REGISTRY[id];
+    if (advVendors.has(cfg.vendor)) continue;
+    advVendors.add(cfg.vendor);
+    selected.push(id);
+  }
+  return selected;
 }
 
 module.exports = {
