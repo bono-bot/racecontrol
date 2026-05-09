@@ -4,7 +4,19 @@
 
 **Author:** james · **Date:** 2026-05-09 ~10:15 IST · **Branch context:** `feat/v2-wave-1-w1-s1-billing-service` HEAD `3b44f051`
 
-**Status:** DRAFT-v2 — bono AMPLIFIER msg=35808 ABSORBED 2026-05-09 ~10:34 IST (CONCUR + 3 NITs + 1 CAVEAT + 1 FLAG + 1 RATIONALE-EXTENSION applied as amendments below); Captain Q-RECONCILE-1 EXPLICIT-RATIFY = AUTHORIZED via msg=35809 ~10:45 IST (gate (1) ✓ → (2) Captain G33 batch on Q-S5-1..5 + Q-S5-6 candidate PENDING → (3) MMA Step 1 DIAGNOSE on RCA-as-amended PENDING → (4) W1-S5 H1 PLAN PENDING). Per-PR Captain merge auth at PR-open STANDS independently.
+**Status:** DRAFT-v2-CAPTAIN-DISPOSITIONED — Captain G33 batch disposition 2026-05-09 ~11:23 IST CLOSED Q-S5-1..7 ACCEPT-ALL-DEFAULTS + MMA Step 1 budget APPROVED up to $10 OpenRouter (W1-S5 + W1-S6 batched OR separate) + per-PR Captain merge auth STANDS at PR-open + PROMOTE-N=2 → N=3 §S-142.3 PATH-TYPO sub-class codification APPROVED at next charter cycle. 24h Captain correction-window 2026-05-10 ~11:23 IST.
+
+**Gate sequence (POST Captain G33 batch disposition):**
+- (1) bono AMPLIFIER ✓ COMPLETE — msg=35808 (10:34 IST) absorbed in DRAFT-v2 `cb9ea94f`
+- (2a) Captain Q-RECONCILE-1 ✓ CLOSED — msg=35809 EXPLICIT-RATIFY = AUTHORIZED (10:45 IST)
+- (2b) Captain G33 batch Q-S5-1..7 ✓ CLOSED — disposition 11:23 IST ACCEPT-ALL-DEFAULTS (this update)
+- (3) MMA Step 1 DIAGNOSE on RCA-as-amended — budget APPROVED up to $10; execution PENDING (Captain user decision on timing)
+- (4) W1-S5 H1 PLAN — PENDING (gated on (3))
+- Per-PR Captain merge auth at W1-S5 PR-open STANDS independently.
+
+**Amendment log (this version):**
+- Captain G33 batch disposition 2026-05-09 ~11:23 IST: Q-S5-1..7 ACCEPT-ALL-DEFAULTS as enumerated in §5 Q-DECISION table — all 7 marked CLOSED below with disposition refs. MMA budget approved. PROMOTE-N=3 codification approved at next charter cycle.
+- bono AMPLIFIER msg=35808 ABSORBED 2026-05-09 ~10:34 IST (CONCUR + 3 NITs + 1 CAVEAT + 1 FLAG + 1 RATIONALE-EXTENSION applied as amendments below); Captain Q-RECONCILE-1 EXPLICIT-RATIFY = AUTHORIZED via msg=35809 ~10:45 IST.
 
 **Amendment log (this version):**
 - NIT-1 (bono msg=35808 §A axis-1): §1 row 8 path corrected — `config.rs::AuthConfig::idle_timeout_secs` → `config/services.rs:105+136+:442`. PATH-TYPO sub-class N=2 evidence (PROMOTE-N=2 candidacy invoked per bono §C). **Verify-Before-Generate FIRED during this amendment**: bono msg=35808 §A axis-2 cited `default_idle_timeout()` at `:151` — james `git cat-file -e` + grep verification at amendment-time showed actual line is **442**, not 151. Bono's `:151` cite was itself a PATH-TYPO instance pre-correction; james VBG caught + corrected to `:442` before propagating into this RCA. Empirical doctrine bar advance: §S-121 v0.2 source-verify gate works bilateral-symmetric — both pilots' cite-discipline gets caught by structural fix; redundancy preserves substrate-correctness against single-pilot path-discipline failure (per §S-143.6 sub-observation). PROMOTE-N=2 candidacy now has N=3 empirical evidence anchors (1 james W1-S5 RCA original + 1 bono msg=35808 NIT-1 catch + 1 bono msg=35808 self-instance `:151` james-caught).
@@ -234,14 +246,14 @@ Issues at this boundary, drawn from V1 failure-mode investigation + commit-log +
 
 | ID | Question | Default if Captain doesn't disposition |
 |---|---|---|
-| ~~Q-RECONCILE-1~~ | ~~Confirm W1-S5 IS the V2.1 sliding-window PACT executed early; authorize amending middleware.rs comment + V2.1 pin~~ | **CLOSED — Captain EXPLICIT-RATIFY = AUTHORIZED 2026-05-09 ~10:45 IST per msg=35809.** V2.1 pin amendment to RETIRED-PULLED-FORWARD-TO-W1-S5 + middleware.rs:103-110 comment amendment both AUTHORIZED at W1-S5 ship time |
-| Q-S5-1 | Cookie name: `staff_jwt` (overwrite) vs `staff_idle_refresh` (sibling) | DEFAULT: `staff_jwt` overwrite per kaizen-smallest |
-| Q-S5-2 | Audit log routine re-issuance? | DEFAULT: NO routine logging; YES on idle-expiry 401 |
-| Q-S5-3 | Adopt `IdleTimeoutStrategy` trait per §AMEND-3.II D12 OR keep direct logic per kaizen? | DEFAULT: keep direct (only 2 strategies, no third planned). **bono RATIONALE-EXTENSION (msg=35808 §A axis-6):** if DEFAULT taken, add `// Trait DEFERRED-TO-N3 per kaizen; if 3rd timeout-strategy variant lands, abstract here per §AMEND-3.II D12 Foundation/Strategy/Config separation.` comment in middleware.rs at sliding-window-vs-fixed-window decision site so future "should we abstract this?" thinker has audit trail without re-deriving |
-| Q-S5-4 | JWT secret rotation: refresh always uses CURRENT secret? | DEFAULT: YES, document the choice in code comment |
-| Q-S5-5 | `idle_refresh_grace_secs` config knob — ship now or defer? | DEFAULT: defer (hardcode the grace window inside `IdleTimeoutStatus::RefreshSoon` threshold; expose as config in a follow-up if observed need) |
-| **Q-S5-6** [added per bono FLAG-1 msg=35808 §A axis-4] | Response-mutating-middleware-layer (Gap-2) — is W1-S5 introducing a **ratified pattern** with named doctrine that future RCAs cite (CSRF token rotation / audit-trail headers / SameSite-policy-rotation will compose-with), OR an **explicit one-off-with-no-future-composition** (named anti-precedent stance preventing inertia-class composition)? | DEFAULT: explicit one-off with named anti-precedent (kaizen-narrow; only ratify reusable pattern when ≥2 use cases empirically demand it); Captain may amend to ratified-pattern if CSRF/audit-trail/SameSite-rotation are foreseeable in V2.0+ |
-| **Q-S5-7** [added per bono CAVEAT-1 msg=35808 §A axis-2 — see PLAN-1 in §2/§3] | PHASE-1-WAVE-1-PLAN.md row 21+33 "7-min" vs §S-82 Q3 + V2.1 PIN + middleware.rs:124 + config/services.rs:442 (1800s/30-min) inconsistency — disposition (a) plan-author typo (amend in same W1-S5 ship), (b) distinct timeout silent-disposition, OR (c) commit-history reconciliation needed | DEFAULT: (a) plan-author typo class — Occam test favors typo given 4 anchors agree on 30-min; W1-S5 ship amends PHASE-1-WAVE-1-PLAN row 21+33 in same commit |
+| ~~Q-RECONCILE-1~~ | ~~Confirm W1-S5 IS the V2.1 sliding-window PACT executed early; authorize amending middleware.rs comment + V2.1 pin~~ | **✓ CLOSED — Captain EXPLICIT-RATIFY = AUTHORIZED 2026-05-09 ~10:45 IST per msg=35809.** V2.1 pin amendment to RETIRED-PULLED-FORWARD-TO-W1-S5 + middleware.rs:103-110 comment amendment both AUTHORIZED at W1-S5 ship time |
+| ~~Q-S5-1~~ | ~~Cookie name: `staff_jwt` (overwrite) vs `staff_idle_refresh` (sibling)~~ | **✓ CLOSED — Captain G33 batch disposition 2026-05-09 ~11:23 IST: ACCEPT-DEFAULT.** `staff_jwt` overwrite (kaizen-smallest) ratified |
+| ~~Q-S5-2~~ | ~~Audit log routine re-issuance?~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** NO routine logging on refresh; YES on idle-expiry 401 |
+| ~~Q-S5-3~~ | ~~Adopt `IdleTimeoutStrategy` trait per §AMEND-3.II D12 OR keep direct logic per kaizen?~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT with RATIONALE-EXTENSION.** Keep direct logic; W1-S5 implementation MUST add `// Trait DEFERRED-TO-N3 per kaizen; if 3rd timeout-strategy variant lands, abstract here per §AMEND-3.II D12 Foundation/Strategy/Config separation.` comment at sliding-window-vs-fixed-window decision site (per bono RATIONALE-EXTENSION msg=35808 §A axis-6) |
+| ~~Q-S5-4~~ | ~~JWT secret rotation: refresh always uses CURRENT secret?~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Always CURRENT secret + document choice in code comment |
+| ~~Q-S5-5~~ | ~~`idle_refresh_grace_secs` config knob — ship now or defer?~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Defer config knob; hardcode grace window in `IdleTimeoutStatus::RefreshSoon` threshold; expose as config follow-up if observed need |
+| ~~Q-S5-6~~ [added per bono FLAG-1 msg=35808 §A axis-4] | ~~Response-mutating-middleware-layer (Gap-2) — ratified pattern OR explicit one-off?~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Explicit one-off with named anti-precedent (kaizen-narrow); future CSRF rotation / audit-trail headers / SameSite-policy-rotation must justify their own composition NOT inherit by precedent. W1-S5 implementation MUST add anti-precedent comment at response-mutating-middleware site naming this disposition |
+| ~~Q-S5-7~~ [added per bono CAVEAT-1 msg=35808 §A axis-2 — see PLAN-1 in §2/§3] | ~~PHASE-1-WAVE-1-PLAN.md row 21+33 "7-min" vs 4 anchors saying 30-min — (a)/(b)/(c)~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT (a) plan-author typo class.** W1-S5 implementation ship MUST amend PHASE-1-WAVE-1-PLAN row 21+33 7-min→30-min in same commit |
 
 ---
 

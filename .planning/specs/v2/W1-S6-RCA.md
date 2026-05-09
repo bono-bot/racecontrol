@@ -4,7 +4,17 @@
 
 **Author:** james · **Date:** 2026-05-09 ~10:33 IST · **Branch context:** `feat/v2-wave-1-w1-s1-billing-service` HEAD `15490644` (W1-S5 RCA at HEAD; W1-S6 RCA appends here)
 
-**Status:** DRAFT — pending Captain G33 review + bono AMPLIFIER + MMA Step 1 DIAGNOSE before W1-S6 H1 PLAN can be filed.
+**Status:** DRAFT-CAPTAIN-DISPOSITIONED-PRE-AMPLIFIER — Captain G33 batch disposition 2026-05-09 ~11:23 IST CLOSED Q-S6-1..7 ACCEPT-ALL-DEFAULTS + MMA Step 1 budget APPROVED up to $10 (W1-S5 + W1-S6 batched OR separate) + per-PR Captain merge auth STANDS at PR-open. **Captain dispositioned ahead of bono AMPLIFIER** — unusual ordering; if bono AMPLIFIER returns with substantive amendments, those will re-surface for Captain in next disposition cycle. 24h Captain correction-window 2026-05-10 ~11:23 IST.
+
+**Gate sequence (POST Captain G33 batch disposition):**
+- (1) bono AMPLIFIER — PENDING (msg=35812 ship triggered request; Captain pre-empted with disposition)
+- (2) Captain G33 batch Q-S6-1..7 ✓ CLOSED — disposition 11:23 IST ACCEPT-ALL-DEFAULTS (this update)
+- (3) MMA Step 1 DIAGNOSE on RCA — budget APPROVED up to $10; execution PENDING (Captain user decision on timing)
+- (4) W1-S6 H1 PLAN — PENDING (gated on (3))
+- Per-PR Captain merge auth at W1-S6 PR-open STANDS independently.
+
+**Amendment log:**
+- Captain G33 batch disposition 2026-05-09 ~11:23 IST: Q-S6-1..7 ACCEPT-ALL-DEFAULTS as enumerated in §5 Q-DECISION table — all 7 marked CLOSED below with disposition refs. MMA budget approved. Ahead-of-AMPLIFIER ordering noted (does NOT void bono AMPLIFIER welcome — substantive amendments still surface for next Captain cycle).
 
 **Foundational-boundary classification:** YES — auth boundary per doctrine §"MMA escalation". Same gates as W1-S5: MMA Step 1 DIAGNOSE on the RCA itself + per-PR Captain merge auth at PR-open.
 
@@ -213,15 +223,15 @@ W1-S6 introduces NEW V2 file `crates/racecontrol/src/auth/staff_auth.rs` (per PH
 
 ### Open Captain Q-DECISIONs surfaced by this RCA
 
-| ID | Question | Default if Captain doesn't disposition |
+| ID | Question | Disposition |
 |---|---|---|
-| Q-S6-1 | EmailAlerter extension shape — sibling method `send_pin_rotation` (bypass cooldowns) OR new `EmailAlerter::send_event_email(skip_cooldown=true)` generalized method | DEFAULT: sibling method (kaizen-smallest; scoped to W1-S6 use) |
-| Q-S6-2 | Per-staff-id rate-limit placement — inline in staff_auth.rs (Option A) OR NEW module `auth/staff_rate_limit.rs` (Option B; generalized) | DEFAULT: Option A inline (kaizen-min; only 1 use case planned in V2.0) |
-| Q-S6-3 | ≤3 resets/staff/hr cap — bono SUGGESTION per §S-82 line 8024; pending Captain explicit | DEFAULT: 3/hr (bono recommendation; Captain may amend to 5 or 2 based on ops experience) |
-| Q-S6-4 | SMTP transport + DKIM/SPF Session 5 entry probe disposition: ship-with-risk if DKIM/SPF absent OR delay W1-S6 until reputation infra ready | DEFAULT: probe-and-decide at Session 5 entry; if DKIM/SPF absent, surface as Captain Q-DECISION before code |
-| Q-S6-5 | Email body schema — bono enumerated fields (`staff_name|employee_id|new_pin|pos_terminal_id|timestamp_ist|refund_attempt_context`) per §S-82 line 8023; pending Captain explicit | DEFAULT: ship as enumerated; Captain may amend pre-launch |
-| Q-S6-6 | Lockout state durability — in-memory HashMap (lost on restart; 5-attempt counter resets to 0) OR DB-backed (durable, cloud-syncable) | DEFAULT: in-memory (kaizen-min; restart-after-5-wrong is acceptable failure mode — slight forgiveness toward staff matches CR-3 customer-service-priority); DB-backed adds W1-S2 wallet-style cloud-sync complexity |
-| Q-S6-7 (depends on §S-147.1 disposition) | If Q1.g.B = Google Workspace forward to Captain mobile during off-hours, does W1-S6 email body include "after-hours: Captain mobile +91-79812-64279" instruction OR is forwarding fully transparent to staff? | DEFAULT: transparent forwarding (staff sees same body; Workspace handles routing) |
+| ~~Q-S6-1~~ | ~~EmailAlerter extension shape — sibling method vs generalized~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Sibling method `send_pin_rotation` (bypass cooldowns); kaizen-smallest scoped to W1-S6 |
+| ~~Q-S6-2~~ | ~~Per-staff-id rate-limit placement — inline OR NEW module~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Inline in staff_auth.rs (kaizen-min); only 1 use case in V2.0 |
+| ~~Q-S6-3~~ | ~~≤3 resets/staff/hr cap~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** 3 resets/staff/hr (bono SUGGESTION ratified by Captain) |
+| ~~Q-S6-4~~ | ~~SMTP+DKIM/SPF Session 5 entry probe disposition~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Probe-and-decide at Session 5 entry; if DKIM/SPF absent, surface as Captain Q-DECISION BEFORE code (gate IN-WORKFLOW; ship-with-risk NOT pre-authorized) |
+| ~~Q-S6-5~~ | ~~Email body schema enumeration~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Ship enumerated fields per §S-82 line 8023 (`staff_name|employee_id|new_pin|pos_terminal_id|timestamp_ist|refund_attempt_context`) |
+| ~~Q-S6-6~~ | ~~Lockout state durability — in-memory OR DB-backed~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** In-memory HashMap (kaizen-min; restart-after-5-wrong acceptable per CR-3 customer-service-priority — slight forgiveness toward staff). DB-backed deferred to V2.1 if abuse pattern emerges |
+| ~~Q-S6-7~~ (depends on §S-147.1 disposition) | ~~Email body includes "after-hours: Captain mobile" OR transparent forwarding~~ | **✓ CLOSED — Captain G33 ~11:23 IST: ACCEPT-DEFAULT.** Transparent Workspace forwarding (staff sees same body; Workspace routing handles delivery to Captain mobile if Q1.g.B disposition routes that way) |
 
 ---
 
