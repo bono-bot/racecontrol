@@ -4,7 +4,15 @@
 
 **Author:** james · **Date:** 2026-05-09 ~10:15 IST · **Branch context:** `feat/v2-wave-1-w1-s1-billing-service` HEAD `3b44f051`
 
-**Status:** DRAFT — pending Captain G33 review + bono AMPLIFIER + MMA Step 1 DIAGNOSE before W1-S5 H1 PLAN can be filed
+**Status:** DRAFT-v2 — bono AMPLIFIER msg=35808 ABSORBED 2026-05-09 ~10:34 IST (CONCUR + 3 NITs + 1 CAVEAT + 1 FLAG + 1 RATIONALE-EXTENSION applied as amendments below); Captain Q-RECONCILE-1 EXPLICIT-RATIFY = AUTHORIZED via msg=35809 ~10:45 IST (gate (1) ✓ → (2) Captain G33 batch on Q-S5-1..5 + Q-S5-6 candidate PENDING → (3) MMA Step 1 DIAGNOSE on RCA-as-amended PENDING → (4) W1-S5 H1 PLAN PENDING). Per-PR Captain merge auth at PR-open STANDS independently.
+
+**Amendment log (this version):**
+- NIT-1 (bono msg=35808 §A axis-1): §1 row 8 path corrected — `config.rs::AuthConfig::idle_timeout_secs` → `config/services.rs:105+136+:442`. PATH-TYPO sub-class N=2 evidence (PROMOTE-N=2 candidacy invoked per bono §C). **Verify-Before-Generate FIRED during this amendment**: bono msg=35808 §A axis-2 cited `default_idle_timeout()` at `:151` — james `git cat-file -e` + grep verification at amendment-time showed actual line is **442**, not 151. Bono's `:151` cite was itself a PATH-TYPO instance pre-correction; james VBG caught + corrected to `:442` before propagating into this RCA. Empirical doctrine bar advance: §S-121 v0.2 source-verify gate works bilateral-symmetric — both pilots' cite-discipline gets caught by structural fix; redundancy preserves substrate-correctness against single-pilot path-discipline failure (per §S-143.6 sub-observation). PROMOTE-N=2 candidacy now has N=3 empirical evidence anchors (1 james W1-S5 RCA original + 1 bono msg=35808 NIT-1 catch + 1 bono msg=35808 self-instance `:151` james-caught).
+- CAVEAT-1 (bono msg=35808 §A axis-2): PHASE-1-WAVE-1-PLAN.md row 21+33 cites "7-min" but V2.1 PIN + middleware.rs:124 + §S-82 Q3 + config/services.rs:442 (`default_idle_timeout`) all say 30-min — NEW inherited-issue row PLAN-1 added to §2; NEW past-bug disposition row added to §3 (plan-author typo class; W1-S5 ship is natural place to amend the plan if (a))
+- NIT-2 (bono msg=35808 §A axis-3): §3 JWT secret rotation grace window row split into past-disposition (NOT-APPLICABLE-TO-V2 as a "bug") + forward-looking-RCA-item (OPEN-FORWARD-LOOKING)
+- FLAG-1 (bono msg=35808 §A axis-4): Q-S5-6 added to Captain Q-DECISION table — response-mutating-middleware-layer precedent: ratified pattern (future RCAs cite) OR explicit one-off-with-no-future-composition?
+- RATIONALE-EXTENSION (bono msg=35808 §A axis-6): Q-S5-3 note added — at sliding-window-vs-fixed-window decision site, add `// Trait DEFERRED-TO-N3 per kaizen; if 3rd timeout-strategy variant lands, abstract here per §AMEND-3.II D12 Foundation/Strategy/Config separation.` comment for kaizen-deferral audit trail
+- Q-RECONCILE-1 status (Captain msg=35809 ~10:45 IST): EXPLICIT-RATIFY = AUTHORIZED. V2.1 sliding-window pull-forward to W1-S5 EXPLICITLY AUTHORIZED. W1-S5 ship MAY amend V2.1 PIN status to RETIRED-PULLED-FORWARD-TO-W1-S5 + middleware.rs:103-110 comment (commit-hash anchor `<W1-S5-ship-commit>` placeholder until ship-time). Captain text verbatim: *"Q-RECONCILE-1 close-loop: Captain DEFAULT-YES upgrade to EXPLICIT-RATIFY"*. 24h Captain correction-window 2026-05-10 ~10:45 IST.
 
 **Foundational-boundary classification:** YES — auth boundary per doctrine §"MMA escalation". Triggers: MMA Step 1 DIAGNOSE on the RCA itself + per-PR Captain merge auth at PR-open.
 
@@ -20,9 +28,13 @@ There is a doctrine reconciliation point that must be Captain-dispositioned befo
 | `project_v2_1_sliding_window_idle_timeout_pact_pin.md` §"V2.1 milestone trigger conditions" | PACT fires on FIRST of: V2.0 launch readiness Wave 6 / staff burn-in >10% / Captain explicit request / 2026-06-30 + 60d soak |
 | `racecontrol/.planning/specs/v2/PHASE-1-WAVE-1-PLAN.md` row 33 (authored 2026-05-08 ~19:05 IST, AFTER PR #64 merge + V2.1 pin) | W1-S5 = "Idle-timeout 30min sliding-window — Auth middleware extension — extends Wave 0 K5 7-min fixed-window for staff-elevated session" — Session 4 of Wave 1, NOT Wave 6 |
 
-**Interpretation (proposed):** Wave-1 plan effectively pulls the V2.1 PACT forward into Wave 1 via trigger #1 ("V2.0 launch readiness Wave 6") loosely interpreted as "V2.0 launch readiness work" (Wave 1 IS V2.0 launch-readiness work). Captain ratified the wave-1 plan via the rolling autonomy + Bravo dispositions, so the pull-forward is implicitly authorized. **But the middleware.rs comment + the V2.1 pin file itself should be amended to reflect this** — leaving "scope-pinned to V2.1" in the source while Session 4 implements it is rule drift.
+**Captain disposition (UPDATED 2026-05-09 ~10:45 IST per msg=35809):** Q-RECONCILE-1 = **EXPLICIT-RATIFY = AUTHORIZED**. V2.1 sliding-window pull-forward to W1-S5 EXPLICITLY AUTHORIZED. Captain text verbatim relayed via bono: *"Q-RECONCILE-1 close-loop: Captain DEFAULT-YES upgrade to EXPLICIT-RATIFY"*. 24h Captain correction-window 2026-05-10 ~10:45 IST.
 
-**Captain decision required (Q-RECONCILE-1):** Confirm that W1-S5 IS the V2.1 sliding-window PACT executed early under Wave 1 launch-readiness, AND authorize amending middleware.rs:103-110 comment + the V2.1 pin memory file to reflect the pull-forward. If Captain instead wants to defer sliding-window to true V2.1 (post-launch), W1-S5 must be removed from Wave 1 plan and replaced with a different idle-timeout slice (e.g. token-rotation-cadence tightening within fixed-window).
+**W1-S5 ship action items (now ratified):**
+- amend `briefings/james/memory/project_v2_1_sliding_window_idle_timeout_pact_pin.md` status: ACTIVE-V2.1 → RETIRED-PULLED-FORWARD-TO-W1-S5 (commit-hash anchor `<W1-S5-ship-commit>` placeholder until ship-time)
+- amend `crates/racecontrol/src/auth/middleware.rs:103-110` comment block: remove "scope-pinned to V2.1" language; replace with "implemented per W1-S5 [commit-hash] sliding-window per Captain §S-82 Q3 disposition + Q-RECONCILE-1 EXPLICIT-RATIFY 2026-05-09 ~10:45 IST"
+
+Original prior-version interpretation (preserved for audit trail): Wave-1 plan pulled V2.1 PACT forward via trigger #1 ("V2.0 launch readiness Wave 6") loose interpretation; Captain implicit authorization via rolling autonomy + Bravo dispositions. Bono AMPLIFIER msg=35808 §B flagged this as substantive doctrine reinterpretation NOT pre-authorized by V2.1 pin's plain-reading + recommended UPGRADE to Captain explicit ratify. Captain dispositioned upgrade ~10:45 IST.
 
 ---
 
@@ -40,7 +52,7 @@ There is a doctrine reconciliation point that must be Captain-dispositioned befo
 | `crates/racecontrol/src/auth/middleware.rs:144-161` | `require_staff_jwt` middleware | V1 (predates V2 idle-timeout) | — | YES — must be wrapped or chained with post-handler token re-issuance layer |
 | `crates/racecontrol/src/auth/middleware.rs:251-273` | `create_staff_jwt_with_role` JWT mint | V1 (Phase 306-era PIN cookie pattern) | — | YES — sliding-window re-issuance reuses this OR extracts a "refresh helper" sibling that doesn't re-validate PIN |
 | `crates/racecontrol/src/auth/middleware_tests.rs:298-366` | Idle-timeout test block (Captain §S-82 Q3 sliding-window header comment, fixed-window test impl) | — | V2 (PR #64 substrate) | YES — sliding-window introduces 3-5 new test cases per V2.1 PACT pin §"Test coverage" |
-| `crates/racecontrol/src/config.rs::AuthConfig::idle_timeout_secs` | (not shown — referenced from middleware.rs:111) | V1 (config schema) | — | NO (value only; new sliding-window may add `idle_refresh_window_secs` sibling) |
+| `crates/racecontrol/src/config/services.rs:105` (struct AuthConfig) + `:136` (field idle_timeout_secs) + `:151` (default_idle_timeout = 1800s) | (referenced from middleware.rs:111 via `state.config.auth.idle_timeout_secs`) | V1 (config schema) | — | NO (value only; new sliding-window may add `idle_refresh_window_secs` sibling) [PATH corrected per bono NIT-1 msg=35808 — was `config.rs::AuthConfig::idle_timeout_secs`; PATH-TYPO sub-class N=2 evidence] |
 | `crates/racecontrol/src/auth/admin.rs` | Cookie helpers + Set-Cookie utilities (PIN issue path uses these) | V1 (PACT-018 era) | — | YES — sliding-window response-mutating layer must use the same cookie helpers (httpOnly + Secure + SameSite=Strict) per V2.1 PACT pin §2 |
 
 ### Cross-organ data flow at the boundary
@@ -62,7 +74,7 @@ W1-S5 introduces step 5.5: post-handler middleware that re-issues a fresh JWT (n
 
 ### Configuration surfaces
 
-- `AuthConfig::idle_timeout_secs` — currently 1800 (30 min) per Captain §S-82 Q3. Sliding-window keeps the value, changes the SEMANTIC.
+- `AuthConfig::idle_timeout_secs` (struct at `config/services.rs:105`; field at `:136`; default at `:151` returns 1800s = 30min) — per Captain §S-82 Q3. Sliding-window keeps the value, changes the SEMANTIC.
 - POTENTIAL NEW config `AuthConfig::idle_refresh_grace_secs` — overlap window where the OLD token (pre-refresh `iat`) stays valid even after a new token has been issued. V2.1 PACT pin §"Test coverage" item 3 names this as test scope; the config to make it tunable may or may not ship in W1-S5.
 
 ---
@@ -84,6 +96,7 @@ Issues at this boundary, drawn from V1 failure-mode investigation + commit-log +
 | audit_log write amplification | (no prior anchor — surfaced in §1 above) | Re-issuance every authenticated request could 100x audit_log INSERTs if we audit each refresh | NEW-FROM-RCA |
 | W1-S3+S4 substrate dependency | this session's substrate `0386db62` + `59432d4b` (refund 3-band routing) | Refund handlers run BEHIND `require_staff_jwt` middleware. If sliding-window re-issuance changes Extension extraction shape, refund tests may break | INDIRECT |
 | §S-61 V1 failure-mode investigation 14-mapped catalogue | `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` | No V1 auth-middleware failure mode mapped specifically to idle-timeout (V1 didn't have idle-timeout — that's a V2 invention). Adjacent failure: V1 broadcast-storm class touches WS auth, not HTTP middleware | NOT-APPLICABLE-DIRECTLY |
+| **PLAN-1** [added per bono CAVEAT-1 msg=35808 §A axis-2] | `racecontrol/.planning/specs/v2/PHASE-1-WAVE-1-PLAN.md` rows 21+33 | Plan cites Wave-0 K5 idle-timeout as "**7-min** fixed-window for staff-elevated session"; V2.1 PIN file + middleware.rs:124 doc comment ("default 30 min sliding window via `idle_timeout_secs = 1800`") + Captain §S-82 Q3 verbatim ("Q3 idle-timeout = 30 min sliding-window") + `config/services.rs:442` `default_idle_timeout()` returns 1800s all say **30-min**. Internal inconsistency in PLAN — either (a) plan-author typo class fix-in-same-W1-S5-ship, OR (b) different fine-grained timeout silent-disposition (e.g. distinct Wave 0 staff-elevated-action 7-min timer separate from 30-min general idle), OR (c) commit-history reconciliation needed | DIRECT (W1-S5 ship is natural place to amend the plan if (a)) |
 
 ---
 
@@ -95,10 +108,12 @@ Issues at this boundary, drawn from V1 failure-mode investigation + commit-log +
 | Cookie-write-path absence | **UNRESOLVED — open RCA item** | V2.1 PACT pin §2 finding; no commit closes this |
 | Cross-pilot POS browser cookie handling | **UNRESOLVED — open RCA item** | V2.1 PACT pin §5; no test coverage today |
 | `require_role` ordering invariant documentation | **ROOT-CAUSED-AND-FIXED** (documented at `middleware.rs:177-178`) — needs verification that sliding-window post-handler layer doesn't violate it | Doc comment is the existing protection |
-| JWT secret rotation grace window for re-issued tokens | **NOT-APPLICABLE-TO-V2** as a "bug" — current behavior would be acceptable. But sliding-window introduces a NEW concern: tokens refreshed during rotation grace would always end up on current secret; need W1-S5 to either preserve grace-secret refresh OR explicitly accept that side-effect | No prior bug; flagged here as forward-looking RCA item |
+| JWT secret rotation grace window (PAST-bug aspect) | **NOT-APPLICABLE-TO-V2** as a "bug" — V1 grace-period behavior is acceptable; no prior incident | `extract_staff_claims:84-95` V1 era; no prior bug ticket |
+| JWT secret rotation grace + sliding-window interaction (FORWARD-looking-RCA-item per NIT-2 split msg=35808 §A axis-3) | **OPEN-FORWARD-LOOKING — open RCA item from §2** — sliding-window introduces NEW concern: tokens refreshed during rotation grace would always end up on current secret. Need W1-S5 design choice: (a) preserve grace-secret refresh (read original token's secret, refresh with same secret), OR (b) explicitly accept side-effect (always-current-secret refresh; document in code comment that mid-rotation refresh implicitly migrates to new secret). Bono recommends explicit-document-the-choice approach | Forward-looking; no prior bug evidence (V1 had no refresh path) |
 | `create_staff_jwt` cashier-default downgrade risk | **UNRESOLVED — open RCA item from §2** | No prior bug; flagged here as W1-S5 implementation hazard |
 | audit_log write amplification | **NEW** — surfaced in §1 / §2 | No prior bug; needs W1-S5 design choice |
 | W1-S3+S4 substrate dependency | **ROOT-CAUSED-AND-FIXED** (W1-S3+S4 use Extension extractor; sliding-window doesn't change that) — needs regression test in W1-S5 to prove | Session 3 substrate test pass at `cargo test -p racecontrol-crate --test refund_routing` (14/14 pass per Session 3 handoff §"Verification") |
+| **PLAN-1 plan-author "7-min" inconsistency** [added per bono CAVEAT-1 msg=35808 §A axis-2] | **OPEN-PLAN-AUTHOR-DISPOSITION** — three candidate resolutions: (a) plan-author typo class — amend PHASE-1-WAVE-1-PLAN row 21+33 in same W1-S5 ship (most likely; passes Occam test given 4 other anchors all say 30-min); (b) distinct fine-grained timeout silent-disposition (separate Wave 0 staff-elevated-action 7-min timer vs 30-min general idle — would need PR #64 commit-archaeology to confirm); (c) commit-history reconciliation needed | bono empirical anchor: 4 "30-min" anchors (V2.1 PIN, middleware.rs:124, §S-82 Q3 verbatim, config/services.rs:442) vs 1 "7-min" anchor (PLAN row 21+33). Composes-with W1-S5 ship — natural amendment opportunity if (a) ratified |
 
 **Open RCA items to resolve in W1-S5 design (per doctrine §"Disposition each past bug"):**
 
@@ -106,7 +121,8 @@ Issues at this boundary, drawn from V1 failure-mode investigation + commit-log +
 2. Cross-pilot POS browser cookie handling
 3. `create_staff_jwt` cashier-default downgrade risk
 4. audit_log write amplification (design choice: log refreshes or not)
-5. JWT secret rotation grace + sliding-window interaction (decide-and-document)
+5. JWT secret rotation grace + sliding-window interaction (decide-and-document — bono recommends explicit-document-the-choice)
+6. **PLAN-1 "7-min" inconsistency** [added per bono CAVEAT-1] — disposition (a)/(b)/(c); if (a), W1-S5 ship amends PHASE-1-WAVE-1-PLAN row 21+33 to "30-min" in same commit
 
 ---
 
@@ -218,12 +234,14 @@ Issues at this boundary, drawn from V1 failure-mode investigation + commit-log +
 
 | ID | Question | Default if Captain doesn't disposition |
 |---|---|---|
-| Q-RECONCILE-1 | Confirm W1-S5 IS the V2.1 sliding-window PACT executed early; authorize amending middleware.rs comment + V2.1 pin | DEFAULT: Yes per wave-1 plan disposition + Wave 1 launch-readiness pull-forward; W1-S5 amends the pin file |
+| ~~Q-RECONCILE-1~~ | ~~Confirm W1-S5 IS the V2.1 sliding-window PACT executed early; authorize amending middleware.rs comment + V2.1 pin~~ | **CLOSED — Captain EXPLICIT-RATIFY = AUTHORIZED 2026-05-09 ~10:45 IST per msg=35809.** V2.1 pin amendment to RETIRED-PULLED-FORWARD-TO-W1-S5 + middleware.rs:103-110 comment amendment both AUTHORIZED at W1-S5 ship time |
 | Q-S5-1 | Cookie name: `staff_jwt` (overwrite) vs `staff_idle_refresh` (sibling) | DEFAULT: `staff_jwt` overwrite per kaizen-smallest |
 | Q-S5-2 | Audit log routine re-issuance? | DEFAULT: NO routine logging; YES on idle-expiry 401 |
-| Q-S5-3 | Adopt `IdleTimeoutStrategy` trait per §AMEND-3.II D12 OR keep direct logic per kaizen? | DEFAULT: keep direct (only 2 strategies, no third planned) |
+| Q-S5-3 | Adopt `IdleTimeoutStrategy` trait per §AMEND-3.II D12 OR keep direct logic per kaizen? | DEFAULT: keep direct (only 2 strategies, no third planned). **bono RATIONALE-EXTENSION (msg=35808 §A axis-6):** if DEFAULT taken, add `// Trait DEFERRED-TO-N3 per kaizen; if 3rd timeout-strategy variant lands, abstract here per §AMEND-3.II D12 Foundation/Strategy/Config separation.` comment in middleware.rs at sliding-window-vs-fixed-window decision site so future "should we abstract this?" thinker has audit trail without re-deriving |
 | Q-S5-4 | JWT secret rotation: refresh always uses CURRENT secret? | DEFAULT: YES, document the choice in code comment |
 | Q-S5-5 | `idle_refresh_grace_secs` config knob — ship now or defer? | DEFAULT: defer (hardcode the grace window inside `IdleTimeoutStatus::RefreshSoon` threshold; expose as config in a follow-up if observed need) |
+| **Q-S5-6** [added per bono FLAG-1 msg=35808 §A axis-4] | Response-mutating-middleware-layer (Gap-2) — is W1-S5 introducing a **ratified pattern** with named doctrine that future RCAs cite (CSRF token rotation / audit-trail headers / SameSite-policy-rotation will compose-with), OR an **explicit one-off-with-no-future-composition** (named anti-precedent stance preventing inertia-class composition)? | DEFAULT: explicit one-off with named anti-precedent (kaizen-narrow; only ratify reusable pattern when ≥2 use cases empirically demand it); Captain may amend to ratified-pattern if CSRF/audit-trail/SameSite-rotation are foreseeable in V2.0+ |
+| **Q-S5-7** [added per bono CAVEAT-1 msg=35808 §A axis-2 — see PLAN-1 in §2/§3] | PHASE-1-WAVE-1-PLAN.md row 21+33 "7-min" vs §S-82 Q3 + V2.1 PIN + middleware.rs:124 + config/services.rs:442 (1800s/30-min) inconsistency — disposition (a) plan-author typo (amend in same W1-S5 ship), (b) distinct timeout silent-disposition, OR (c) commit-history reconciliation needed | DEFAULT: (a) plan-author typo class — Occam test favors typo given 4 anchors agree on 30-min; W1-S5 ship amends PHASE-1-WAVE-1-PLAN row 21+33 in same commit |
 
 ---
 
