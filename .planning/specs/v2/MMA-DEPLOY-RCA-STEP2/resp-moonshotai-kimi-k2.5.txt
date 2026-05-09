@@ -1,0 +1,108 @@
+```json
+{
+  "pr_title": "fix(watchdog,deploy): atomic OTA swap with TTL sentinel",
+  "pr_summary": "Eliminate race condition in pod deployment (CF-1) by collapsing kill/copy/swap into single rc-sentry /exec chain using CMD &. Harden OTA_DEPLOYING sentinel (CF-2) with JSON TTL pattern mirroring MAINTENANCE_MODE, preventing premature rollback on manual deploys or script crashes.",
+  "scope_decision": {
+    "cf1_approach": "single_exec_chain",
+    "cf2_approach": "ttl_json_body",
+    "rationale": "Using & chains avoids new rc-sentry endpoints (minimal change, leverages existing BLOCKED_PATTERNS exemption for single &). JSON TTL mirrors proven BUG-71 pattern, adding lease semantics without new files. Both changes are confined to rollback_manager.rs and deploy-pod.sh, reversible by reverting PR."
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add TTL-aware check for OTA_DEPLOYING sentinel: parse JSON timestamp_epoch, suppress rollback only if within 300s window",
+      "lines_changed_estimate": 20,
+      "risk": "medium",
+      "risk_reason": "Changes critical rollback suppression logic; malformed JSON or clock skew could incorrectly permit rollback during active deploy"
+    },
+    {
+      "id": "A2",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add auto_clear_ota_deploying_json(max_age_secs) helper mirroring maintenance_mode pattern to clean stale sentinels",
+      "lines_changed_estimate": 15,
+      "risk": "low",
+      "risk_reason": "Cleanup-only path; falls back to file mtime if JSON invalid, matching existing defensive pattern"
+    },
+    {
+      "id": "A3",
+      "file": "rc-watchdog/src/main.rs",
+      "kind": "edit",
+      "summary": "Invoke auto_clear_ota_deploying_json(300) in watchdog main loop before rollback check",
+      "lines_changed_estimate": 3,
+      "risk": "low",
+      "risk_reason": "Adds periodic cleanup call similar to existing auto_clear_maintenance_mode_json invocation"
+    },
+    {
+      "id": "A4",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Write JSON OTA_DEPLOYING sentinel with epoch timestamp before atomic swap",
+      "lines_changed_estimate": 5,
+      "risk": "medium",
+      "risk_reason": "Requires Git Bash date command; incorrect path or format leaves sentinel missing (CF-2 regression)"
+    },
+    {
+      "id": "A5",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Replace 3 separate /exec calls with single atomic chain using & operator; move sentinel cleanup post-healthcheck",
+      "lines_changed_estimate": 20,
+      "risk": "medium",
+      "risk_reason": "Single long-running command exceeds rc-sentry timeout if copy is slow; requires sufficient timeout_ms in curl"
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "kind": "unit",
+      "what": "Test ota_deploying_ttl_check returns Suppress for recent timestamp (<300s), Proceed for expired (>300s) or missing file",
+      "expected": "Recent epoch suppresses rollback; expired or missing allows rollback"
+    },
+    {
+      "id": "T2",
+      "kind": "unit",
+      "what": "Test auto_clear_ota_deploying_json removes file only when expired, preserves fresh sentinel",
+      "expected": "File deleted if epoch >300s old, preserved if fresh; returns true if deletion occurred"
+    },
+    {
+      "id": "T3",
+      "kind": "integration",
+      "what": "Mock rc-sentry /exec endpoint and run deploy-pod.sh against it",
+      "expected": "Receives exactly one POST with cmd containing 'taskkill & del & copy & move' chain; OTA_DEPLOYING JSON written before POST and deleted after health poll"
+    },
+    {
+      "id": "T4",
+      "kind": "live-pod",
+      "what": "Execute deploy script against Pod 1 (non-canary)",
+      "expected": "Agent updates to new hash, watchdog logs show 'OTA_DEPLOYING sentinel present' then cleanup, zero rollback events for new binary"
+    }
+  ],
+  "rollback": "Revert PR via git revert. If OTA_DEPLOYING JSON blocks rollback, manually delete C:\\RacingPoint\\OTA_DEPLOYING or wait 5m for TTL expiry. Revert deploy-pod.sh changes by using previous script version (acknowledging re-introduces CF-1/CF-2).",
+  "verify_post_deploy": [
+    {
+      "step": "Check agent binary hash",
+      "command_or_observation": "sha256sum C:/RacingPoint/rc-agent.exe",
+      "pass_criteria": "Matches deploy target hash (e.g., 8e378f4d...)"
+    },
+    {
+      "step": "Verify OTA sentinel absent",
+      "command_or_observation": "ls C:/RacingPoint/OTA_DEPLOYING",
+      "pass_criteria": "File not found (cleaned up post-healthcheck)"
+    },
+    {
+      "step": "Check watchdog logs for suppression then clearance",
+      "command_or_observation": "grep -i ota rc-watchdog.log",
+      "pass_criteria": "Contains 'OTA_DEPLOYING sentinel present — suppressing rollback' during deploy window, then 'clearing expired OTA_DEPLOYING' or absence of file; no 'performing rollback' for new binary"
+    }
+  ],
+  "blast_radius": "fleet_pods",
+  "dependencies_on_other_findings": ["BUG-71 (MAINTENANCE_MODE TTL pattern already landed in Pod 8)"],
+  "open_questions_for_captain": [
+    "Confirm 300s TTL sufficient for slow copy operations on Pod 1-7 hardware?",
+    "Should deploy-pod.sh use PowerShell for epoch timestamp to avoid Git Bash dependency, or is Git Bash guaranteed on admin workstations?"
+  ]
+}
+```

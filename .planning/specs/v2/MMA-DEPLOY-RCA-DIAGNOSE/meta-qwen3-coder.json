@@ -1,0 +1,28 @@
+{
+  "model": "qwen/qwen3-coder",
+  "usage": {
+    "prompt_tokens": 1798,
+    "completion_tokens": 1851,
+    "total_tokens": 3649,
+    "cost": 0.0023776,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 64,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0.0023776,
+      "upstream_inference_prompt_cost": 0.0005266,
+      "upstream_inference_completions_cost": 0.001851
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  },
+  "finish_reason": "stop",
+  "elapsed_s": 14.195
+}

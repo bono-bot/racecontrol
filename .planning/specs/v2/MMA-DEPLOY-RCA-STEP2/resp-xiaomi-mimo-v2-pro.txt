@@ -1,0 +1,111 @@
+```json
+{
+  "pr_title": "Atomic OTA deploy with TTL sentinel (CF-1+CF-2)",
+  "pr_summary": "Closes race condition in deploy script by using single atomic /exec chain; replaces bare OTA_DEPLOYING file with JSON TTL sentinel matching MAINTENANCE_MODE pattern.",
+  "scope_decision": {
+    "cf1_approach": "single_exec_chain",
+    "cf2_approach": "ttl_json_body",
+    "rationale": "CF-1: Use Windows-CMD `&` chain in one /exec call to make kill+swap atomic. CF-2: Model OTA_DEPLOYING after proven MAINTENANCE_MODE JSON pattern (timestamp_epoch + TTL) to prevent premature rollback clears. Minimal surface: only deploy script + watchdog sentinel check."
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Replace 3 separate /exec calls with single atomic chain using `&` operator; set JSON OTA_DEPLOYING sentinel before swap, clear after health-poll.",
+      "lines_changed_estimate": 25,
+      "risk": "medium",
+      "risk_reason": "Changing critical deploy sequence; must verify atomic chain works on Windows CMD with blocked patterns."
+    },
+    {
+      "id": "A2",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add `auto_clear_ota_deploying_json(max_age_secs)` mirroring auto_clear_maintenance_mode_json pattern.",
+      "lines_changed_estimate": 40,
+      "risk": "low",
+      "risk_reason": "Mirroring existing proven pattern (BUG-71 fix); isolated new function."
+    },
+    {
+      "id": "A3",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Replace bare `ota_deploying.is_file()` check with TTL-aware JSON check using new function.",
+      "lines_changed_estimate": 15,
+      "risk": "medium",
+      "risk_reason": "Modifies rollback suppression logic; must ensure backward compatibility with old bare-file sentinel during transition."
+    },
+    {
+      "id": "A4",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Call auto_clear_ota_deploying_json in watchdog main loop alongside maintenance mode clear.",
+      "lines_changed_estimate": 5,
+      "risk": "low",
+      "risk_reason": "Adding one function call to existing cleanup routine."
+    },
+    {
+      "id": "A5",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Add helper functions to set/clear OTA_DEPLOYING as JSON {timestamp_epoch: N} via /exec.",
+      "lines_changed_estimate": 20,
+      "risk": "low",
+      "risk_reason": "Isolated helper functions; follows existing curl pattern."
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "kind": "unit",
+      "what": "Test auto_clear_ota_deploying_json with fresh JSON sentinel (age < TTL)",
+      "expected": "Returns false (does not clear), file remains"
+    },
+    {
+      "id": "T2",
+      "kind": "unit",
+      "what": "Test auto_clear_ota_deploying_json with expired JSON sentinel (age > TTL)",
+      "expected": "Returns true, file deleted"
+    },
+    {
+      "id": "T3",
+      "kind": "unit",
+      "what": "Test auto_clear_ota_deploying_json with legacy bare file (no JSON)",
+      "expected": "Falls back to mtime check, clears if mtime old"
+    },
+    {
+      "id": "T4",
+      "kind": "integration",
+      "what": "Simulate deploy sequence with mock rc-sentry: verify single /exec chain executes atomically",
+      "expected": "All commands in chain execute in one HTTP roundtrip"
+    },
+    {
+      "id": "T5",
+      "kind": "live-pod",
+      "what": "Deploy to Pod 1 (non-canary) using new script; monitor watchdog logs for sentinel behavior",
+      "expected": "No rollback fires during deploy; sentinel cleared after health-poll; binary swap succeeds"
+    }
+  ],
+  "rollback": "Revert PR commit; redeploy previous script + watchdog binary to Pods 1-7. Old watchdog handles bare OTA_DEPLOYING file; old script uses 3-call sequence (race condition returns but system functional).",
+  "verify_post_deploy": [
+    {
+      "step": "Check watchdog logs on deployed pod",
+      "command_or_observation": "grep -i 'ota_deploying' C:\\RacingPoint\\logs\\rc-watchdog.log",
+      "pass_criteria": "See 'OTA_DEPLOYING sentinel present — suppressing rollback' during deploy, then no rollback triggered"
+    },
+    {
+      "step": "Verify sentinel file format after deploy starts",
+      "command_or_observation": "type C:\\RacingPoint\\OTA_DEPLOYING",
+      "pass_criteria": "Contains valid JSON with timestamp_epoch field"
+    },
+    {
+      "step": "Confirm atomic chain in rc-sentry logs",
+      "command_or_observation": "grep 'exec' C:\\RacingPoint\\logs\\rc-sentry.log | tail -5",
+      "pass_criteria": "Single /exec request containing full chain with `&` separators"
+    }
+  ],
+  "blast_radius": "single_pod",
+  "dependencies_on_other_findings": [],
+  "open_questions_for_captain": ["Should TTL for OTA_DEPLOYING be configurable (env var) or fixed (300s)?", "Do we need to handle migration where old bare sentinel exists during watchdog upgrade?"]
+}
+```

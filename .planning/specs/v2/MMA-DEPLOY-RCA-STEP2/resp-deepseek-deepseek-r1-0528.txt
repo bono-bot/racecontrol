@@ -1,0 +1,82 @@
+```json
+{
+  "pr_title": "Fix deploy atomicity and OTA sentinel TTL (CF-1, CF-2)",
+  "pr_summary": "Replaces 3-step deploy with atomic chain command and adds TTL to OTA_DEPLOYING sentinel to prevent watchdog races. Closes CF-1 (kill-swap race) and CF-2 (sentinel discipline).",
+  "scope_decision": {
+    "cf1_approach": "single_exec_chain",
+    "cf2_approach": "ttl_json_body",
+    "rationale": "Atomic command chain fixes kill-swap race in one HTTP call (CF-1). TTL JSON sentinel mirrors proven MAINTENANCE_MODE pattern - prevents indefinite suppression and works with existing watchdog clearance logic (CF-2)."
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Replace 3-step deploy with atomic chain: kill+backup+swap in one /exec call. Add JSON sentinel write/remove with TTL timestamp.",
+      "lines_changed_estimate": 15,
+      "risk": "medium",
+      "risk_reason": "Critical path modification - must preserve Windows CMD syntax and health check sequence"
+    },
+    {
+      "id": "A2",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Modify OTA_DEPLOYING check: use read_sentinel_timestamp() with OTA_MAX_AGE_SEC constant for TTL validation",
+      "lines_changed_estimate": 20,
+      "risk": "medium",
+      "risk_reason": "Alters core rollback suppression logic - requires precise timestamp handling"
+    },
+    {
+      "id": "A3",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add auto_clear_ota_deploying_sentinel() mirroring MAINTENANCE_MODE pattern with file mtime fallback",
+      "lines_changed_estimate": 25,
+      "risk": "low",
+      "risk_reason": "Self-contained logic similar to existing auto_clear_maintenance_mode_json"
+    },
+    {
+      "id": "A4",
+      "file": "rc-watchdog/src/watchdog.rs",
+      "kind": "edit",
+      "summary": "Add auto_clear_ota_deploying_sentinel(OTA_MAX_AGE_SEC) call in main watchdog loop",
+      "lines_changed_estimate": 3,
+      "risk": "low",
+      "risk_reason": "Simple function call addition in existing periodic check"
+    },
+    {
+      "id": "A5",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Define OTA_MAX_AGE_SEC constant (600s) and export to watchdog.rs",
+      "lines_changed_estimate": 2,
+      "risk": "low",
+      "risk_reason": "Constant definition with clear semantics"
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "kind": "unit",
+      "what": "Test atomic command chain in rc-sentry: mock /exec with kill+backup+swap command",
+      "expected": "All operations complete in single request without BLOCKED_PATTERNS rejection"
+    },
+    {
+      "id": "T2",
+      "kind": "unit",
+      "what": "Test auto_clear_ota_deploying_sentinel() with expired/fresh sentinels (JSON/mtime)",
+      "expected": "Expired sentinels cleared, fresh ones retained with correct warnings"
+    },
+    {
+      "id": "T3",
+      "kind": "live-pod",
+      "what": "Deploy to test pod (1-7): verify sentinel creation/TTL during deploy + watchdog suppression logs",
+      "expected": "Watchdog suppresses rollback during deploy, clears sentinel post-healthcheck, no old binary resurrection"
+    }
+  ],
+  "rollback": "Revert PR and redeploy previous watchdog/deploy-pod.sh. Old sentinel format still works with new logic (mtime fallback). Atomic chain fails gracefully to separate commands.",
+  "verify_post_deploy": [
+    {
+      "step": "Watchdog log check",
+      "command_or_observation": "grep 'OTA_DEPLOYING' rc-watchdog.log",
+      "pass_criteria": "Shows sentinel suppression during deploy + TTL clearance

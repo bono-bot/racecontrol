@@ -1,0 +1,28 @@
+{
+  "model": "deepseek/deepseek-r1-0528",
+  "usage": {
+    "prompt_tokens": 1790,
+    "completion_tokens": 6366,
+    "total_tokens": 8156,
+    "cost": 0.0145723,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 64,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0.0145723,
+      "upstream_inference_prompt_cost": 0.0008854,
+      "upstream_inference_completions_cost": 0.0136869
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 5236,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  },
+  "finish_reason": "stop",
+  "elapsed_s": 86.649
+}

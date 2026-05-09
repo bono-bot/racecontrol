@@ -1,0 +1,122 @@
+```json
+{
+  "pr_title": "Fix P0 Race: Atomic Deploy & TTL OTA Sentinel",
+  "pr_summary": "Addresses CF-1 (non-atomic kill+swap race) by introducing a new `/exec_atomic_deploy` endpoint in rc-sentry. Closes CF-2 (OTA_DEPLOYING discipline gap) by implementing a TTL-based JSON sentinel, mirroring `MAINTENANCE_MODE` pattern. Ensures atomic swap and robust rollback suppression.",
+  "scope_decision": {
+    "cf1_approach": "new_atomic_endpoint",
+    "cf2_approach": "ttl_json_body",
+    "rationale": "A new atomic endpoint in rc-sentry is the most robust way to ensure the kill+swap sequence executes as a single, uninterruptible operation, bypassing `BLOCKED_PATTERNS` limitations and `&` vs `&&` nuances. Combining this with the `OTA_DEPLOYING` sentinel update within the same endpoint ensures the sentinel is set/cleared atomically with the swap. The TTL JSON body for `OTA_DEPLOYING` leverages an existing, proven pattern, reducing risk and improving maintainability over a bare file."
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "file": "rc-sentry/src/main.rs",
+      "kind": "edit",
+      "summary": "Add new `handle_exec_atomic_deploy` endpoint to rc-sentry, accepting a JSON payload for the full atomic sequence and OTA sentinel management.",
+      "lines_changed_estimate": 80,
+      "risk": "medium",
+      "risk_reason": "New HTTP endpoint and complex command execution logic. Requires careful parsing and error handling. Potential for new `BLOCKED_PATTERNS` bypass if not careful, but designed to avoid shell chaining."
+    },
+    {
+      "id": "A2",
+      "file": "rc-sentry/src/main.rs",
+      "kind": "edit",
+      "summary": "Implement `exec_atomic_deploy` logic: kill agent, write `OTA_DEPLOYING` (with TTL), copy prev, move new, then clear `OTA_DEPLOYING` (on success/failure).",
+      "lines_changed_estimate": 120,
+      "risk": "high",
+      "risk_reason": "This is the core atomic operation. Incorrect command sequencing, file path handling, or sentinel management could lead to agent downtime or failed deploys. Requires robust error handling and logging."
+    },
+    {
+      "id": "A3",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Modify `ota_deploying` check to read JSON `{timestamp_epoch: N}` and apply TTL logic, similar to `auto_clear_maintenance_mode_json`.",
+      "lines_changed_estimate": 40,
+      "risk": "low",
+      "risk_reason": "Leverages existing, proven pattern. Changes are localized to the sentinel check logic. Risk of incorrect timestamp parsing or comparison."
+    },
+    {
+      "id": "A4",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add a new helper function `auto_clear_ota_deploying_json(max_age_secs: u64)` to encapsulate the TTL logic for `OTA_DEPLOYING`.",
+      "lines_changed_estimate": 30,
+      "risk": "low",
+      "risk_reason": "Refactoring and encapsulating logic. Low risk as it mirrors an existing function."
+    },
+    {
+      "id": "A5",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Update `deploy-pod.sh` to use the new `/exec_atomic_deploy` endpoint, passing all necessary commands and the `OTA_DEPLOYING` TTL.",
+      "lines_changed_estimate": 50,
+      "risk": "medium",
+      "risk_reason": "Script changes can break existing deploy workflows. Requires careful testing to ensure correct JSON payload construction and endpoint interaction."
+    },
+    {
+      "id": "A6",
+      "file": "rc-sentry/src/lib.rs",
+      "kind": "edit",
+      "summary": "Add new `AtomicDeployCommand` struct for deserializing the JSON payload for `/exec_atomic_deploy`.",
+      "lines_changed_estimate": 20,
+      "risk": "low",
+      "risk_reason": "Simple data structure definition. Low risk unless fields are incorrectly defined."
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "kind": "unit",
+      "what": "Test `auto_clear_ota_deploying_json` with various timestamps and `max_age_secs`.",
+      "expected": "Sentinel file is correctly identified as expired/not expired, and removed if expired."
+    },
+    {
+      "id": "T2",
+      "kind": "unit",
+      "what": "Test `handle_exec_atomic_deploy` with a mock file system, verifying file operations (kill, copy, move) and `OTA_DEPLOYING` sentinel lifecycle.",
+      "expected": "Agent binary is swapped, `rc-agent-prev.exe` is created, `OTA_DEPLOYING` is written with correct timestamp and then removed."
+    },
+    {
+      "id": "T3",
+      "kind": "integration",
+      "what": "Run `deploy-pod.sh` against a local rc-sentry + rc-watchdog setup.",
+      "expected": "Agent is successfully updated, no rollback occurs, and `OTA_DEPLOYING` file is absent after successful deploy."
+    },
+    {
+      "id": "T4",
+      "kind": "live-pod",
+      "what": "Deploy a new `rc-agent.exe` version to Pod 1 using the updated `deploy-pod.sh`.",
+      "expected": "Agent updates successfully without rollback. Verify `rc-agent.exe` version, `rc-agent-prev.exe` exists, and `OTA_DEPLOYING` is not present."
+    }
+  ],
+  "rollback": "Revert the PR. For Pods 1-7, redeploy the previous `rc-sentry` and `rc-watchdog` binaries (if they were updated) and revert `deploy-pod.sh` to its prior version. This will restore the previous race-prone behavior but ensure stability.",
+  "verify_post_deploy": [
+    {
+      "step": "1. Check rc-agent version on Pod 1",
+      "command_or_observation": "rc-agent.exe --version",
+      "pass_criteria": "Output matches the newly deployed version hash."
+    },
+    {
+      "step": "2. Verify `rc-agent-prev.exe` exists",
+      "command_or_observation": "dir C:\\RacingPoint\\rc-agent-prev.exe",
+      "pass_criteria": "File exists and its timestamp/size matches the previous agent binary."
+    },
+    {
+      "step": "3. Verify `OTA_DEPLOYING` sentinel is absent",
+      "command_or_observation": "dir C:\\RacingPoint\\OTA_DEPLOYING",
+      "pass_criteria": "File does NOT exist after successful deploy and health check."
+    },
+    {
+      "step": "4. Monitor rc-watchdog logs for rollback attempts",
+      "command_or_observation": "tail -f C:\\RacingPoint\\logs\\rc-watchdog.log | grep 'rollback'",
+      "pass_criteria": "No 'rollback' messages related to the deploy event, or only 'suppressing rollback' messages during the brief OTA window."
+    }
+  ],
+  "blast_radius": "fleet_pods",
+  "dependencies_on_other_findings": [],
+  "open_questions_for_captain": [
+    "What is the desired `max_age_secs` for the `OTA_DEPLOYING` sentinel? (Defaulting to 300s for now, matching `MAINTENANCE_MODE`.)",
+    "Are there any other commands that should be part of the atomic deploy sequence beyond kill, copy, move, and sentinel management?"
+  ]
+}
+```

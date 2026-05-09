@@ -1,0 +1,71 @@
+[
+  {
+    "model": "sonnet-4.6",
+    "status": "OK",
+    "usage": {
+      "prompt_tokens": 3191,
+      "completion_tokens": 4000,
+      "total_tokens": 7191,
+      "cost": 0.069573,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.069573,
+        "upstream_inference_prompt_cost": 0.009573,
+        "upstream_inference_completions_cost": 0.06
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "cost": 0.069573,
+    "elapsed": 97.7,
+    "finish": "length"
+  },
+  {
+    "model": "gpt-5.4-nano",
+    "status": "OK",
+    "usage": {
+      "prompt_tokens": 2691,
+      "completion_tokens": 2164,
+      "total_tokens": 4855,
+      "cost": 0.0032432,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0032432,
+        "upstream_inference_prompt_cost": 0.0005382,
+        "upstream_inference_completions_cost": 0.002705
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    },
+    "cost": 0.0032432,
+    "elapsed": 13.7,
+    "finish": "stop"
+  },
+  {
+    "model": "nemotron-70b",
+    "status": "API_ERROR",
+    "error": {
+      "message": "No endpoints found for nvidia/llama-3.1-nemotron-70b-instruct.",
+      "code": 404
+    },
+    "elapsed": 1.4
+  }
+]

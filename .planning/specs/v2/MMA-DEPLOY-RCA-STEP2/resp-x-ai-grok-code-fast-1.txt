@@ -1,0 +1,71 @@
+{
+  "pr_title": "Fix OTA deploy race and sentinel TTL (CF-1 + CF-2)",
+  "pr_summary": "Closes CF-1 by atomically chaining kill+swap in single /exec call using CMD '&' operator. Closes CF-2 by replacing bare-file OTA_DEPLOYING with JSON TTL sentinel mirroring MAINTENANCE_MODE pattern, set/cleared atomically in the chain. Prevents watchdog rollback races and premature clears.",
+  "scope_decision": {
+    "cf1_approach": "single_exec_chain",
+    "cf2_approach": "ttl_json_body",
+    "rationale": "Single exec chain avoids multi-roundtrip races without blocked operators. TTL JSON sentinel adds expiration (e.g., 300s) and atomic set/clear, modeled on proven MAINTENANCE_MODE auto_clear pattern, ensuring watchdog suppresses rollback only during active deploy."
+  },
+  "actions": [
+    {
+      "id": "A1",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Replace bare-file OTA_DEPLOYING check with JSON TTL read, using auto_clear_maintenance_mode_json pattern for 300s TTL.",
+      "lines_changed_estimate": 15,
+      "risk": "low",
+      "risk_reason": "Mirrors existing MAINTENANCE_MODE logic; no new dependencies."
+    },
+    {
+      "id": "A2",
+      "file": "rc-sentry/src/main.rs",
+      "kind": "edit",
+      "summary": "Allow /exec to accept 'ota_deploy' command with chained CMD string for atomic kill+swap+sentinel set/clear.",
+      "lines_changed_estimate": 20,
+      "risk": "medium",
+      "risk_reason": "Extends handle_exec to parse new 'ota_deploy' key; must ensure BLOCKED_PATTERNS still apply to sub-commands."
+    },
+    {
+      "id": "A3",
+      "file": "scripts/deploy-pod.sh",
+      "kind": "edit",
+      "summary": "Replace 3 separate /exec calls with single /exec using 'ota_deploy' key, chaining taskkill & copy & move & echo JSON sentinel.",
+      "lines_changed_estimate": 10,
+      "risk": "low",
+      "risk_reason": "Script change only; atomic chain prevents races."
+    },
+    {
+      "id": "A4",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Add helper function to write OTA_DEPLOYING JSON with current timestamp_epoch.",
+      "lines_changed_estimate": 10,
+      "risk": "low",
+      "risk_reason": "Simple JSON write; reuses serde logic from MAINTENANCE_MODE."
+    },
+    {
+      "id": "A5",
+      "file": "rc-watchdog/src/rollback_manager.rs",
+      "kind": "edit",
+      "summary": "Integrate TTL check into perform_rollback suppression logic.",
+      "lines_changed_estimate": 5,
+      "risk": "low",
+      "risk_reason": "Extends existing if-block; no new paths."
+    }
+  ],
+  "test_plan": [
+    {"id": "T1", "kind": "unit", "what": "Test auto_clear_maintenance_mode_json on OTA_DEPLOYING file with expired TTL", "expected": "File removed, rollback not suppressed"},
+    {"id": "T2", "kind": "unit", "what": "Test OTA_DEPLOYING JSON write and read in rollback_manager", "expected": "JSON written correctly, TTL check passes within 300s"},
+    {"id": "T3", "kind": "integration", "what": "Simulate /exec ota_deploy chain in test env", "expected": "Process killed, binaries swapped, sentinel set/cleared without race"},
+    {"id": "T4", "kind": "live-pod", "what": "Deploy to Pod 1, trigger OTA, observe no rollback during 30s deploy window", "expected": "New binary persists, logs show sentinel TTL active"}
+  ],
+  "rollback": "Revert PR by git reset --hard to pre-merge commit; redeploy Pods 1-7 with previous binary if needed. OTA_DEPLOYING falls back to bare-file check if JSON absent.",
+  "verify_post_deploy": [
+    {"step": "Check rc-agent version on Pod 1", "command_or_observation": "curl http://pod1:8091/version", "pass_criteria": "Returns new binary hash"},
+    {"step": "Trigger manual OTA on Pod 1", "command_or_observation": "Run deploy-pod.sh", "pass_criteria": "No watchdog rollback logs within 5min"},
+    {"step": "Verify sentinel TTL", "command_or_observation": "Check C:\\RacingPoint\\OTA_DEPLOYING file post-deploy", "pass_criteria": "JSON with recent timestamp_epoch, expires after 300s"}
+  ],
+  "blast_radius": "fleet_pods",
+  "dependencies_on_other_findings": [],
+  "open_questions_for_captain": ["Confirm 300s TTL duration is sufficient for typical deploy times", "Ensure CMD '&' chaining works reliably on Windows 11 without shell escaping issues"]
+}

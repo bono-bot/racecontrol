@@ -1,0 +1,74 @@
+```json
+{
+  "scores": {
+    "correctness": 3.0,
+    "risk_coverage": 2.0,
+    "backward_compatibility": 2.5,
+    "test_plan_adequacy": 2.0,
+    "concreteness": 2.5,
+    "independence_from_anchoring": 2.0,
+    "overall": 2.33
+  },
+  "rationale_per_dimension": {
+    "correctness": "The single `&` chain reduces roundtrips from 3 to 1, which is the right direction. However, correctness is not guaranteed. Windows CMD `&` chains are NOT atomic — each command executes sequentially and the shell can be interrupted. The critical window is between `taskkill` completing and the final `ren rc-agent-new.exe rc-agent.exe` completing. If rc-watchdog polls at the 5s boundary and rc-agent.exe is absent (post-taskkill, pre-final-ren), watchdog sees 2 consecutive health-check failures (it polls every 5-10s, needs 2 failures) — but actually the first failure triggers restart attempt, and if rc-agent.exe is missing during the ren window, the restart fails, counting as failure 2. The chain's wall-clock time (taskkill + del + ren + ren over HTTP) is likely 200-800ms on a local LAN, well under 5s, so the race is PROBABLY won in practice. But the PLAN presents this as solved rather than probabilistically mitigated. No timeout_ms floor is specified in the /exec payload, meaning a slow pod (disk I/O spike, AV scan) could stretch the chain past the watchdog poll boundary. The JSON sentinel (CF-2 fix) is the actual correctness backstop, but the sentinel-before-chain ordering creates its own correctness hazard (see FL-1). Score: 3 — race is mitigated but not eliminated; correctness depends on sentinel discipline that the plan itself identifies as the original gap.",
+    "risk_coverage": "The rollback plan is dangerously thin. It covers the happy-path revert (git revert + redeploy watchdog) but misses: (1) partial chain failure leaving rc-agent.exe absent with sentinel present — silent death for 300s (FL-1, P0); (2) JSON parse failure behavior in A2 is unspecified — corrupted sentinel could default to 'no suppression' causing rollback of a good binary (FL-2, P1); (3) sc stop RCWatchdog succeeding but sc start failing leaves pod unmanaged with no recovery path (FL-3, P1); (4) clock skew between pod system clock and deploy-script clock invalidating TTL calculation (FL-4, P2); (5) the deploy-watchdog.sh bootstrapping gap means pods on old rc-watchdog get no TTL benefit, making CF-2 fix ineffective for those pods during the transition window (FL-5, P0). The PLAN acknowledges CF12-Q4 as open but does not treat it as a blocking dependency — it is one.",
+    "backward_compatibility": "Two distinct compat directions exist and the PLAN conflates them. Direction A (new watchdog reads old bare-file sentinel): mtime fallback is specified and reasonable. Direction B (old watchdog reads new JSON sentinel): old watchdog does bare `is_file()` — JSON file exists, is_file() returns true, rollback suppressed. This is SAFE for suppression. However, the mtime fallback in A2 is described as firing 'when a JSON body sentinel exists but is older than TTL' — but the OLD watchdog on Pod 8 doesn't have A2 at all. So Pod 8 old watchdog will suppress rollback forever if a stale JSON sentinel leaks (no TTL enforcement on old binary). This is the inverse of the original CF-2 bug — instead of rollback firing when it shouldn't, rollback is suppressed when it should fire. The PLAN claims 'both directions safe' without analyzing this case. Additionally, A6's `echo {\"timestamp_epoch\":$(date +%s)}` uses bash `date +%s` — this is a bash construct being written into a Windows path. If deploy-pod.sh runs in Git Bash or WSL this works; if it ever runs in cmd.exe or PowerShell it silently writes the literal string `$(date +%s)` as the timestamp, producing a malformed JSON body that A2 must handle gracefully (ties to FL-2).",
+    "test_plan_adequacy": "T1-T3 unit tests cover the auto_clear logic in isolation — adequate for that function. T4 asserts 'exactly ONE POST containing the chain' — this tests the HTTP consolidation but does NOT test whether the chain actually completes before a watchdog poll fires. It's a mock test that proves the script sends one request, not that the race is won. T5 is explicitly happy-path: 'observe sentinel present log + zero rollback events for 5min.' This does NOT test the original failure scenario: watchdog waking mid-chain WITHOUT OTA_DEPLOYING set. There is no test for: (a) sentinel present but chain fails mid-way (FL-1 scenario); (b) JSON parse failure in A2; (c) TTL expiry during an actually-long deploy; (d) old watchdog binary behavior with new JSON sentinel; (e) the race condition itself under artificial delay injection. The test plan would pass even if the race condition still exists, as long as the happy path works. This is the most critical gap — the tests don't falsify the hypothesis that the race is fixed.",
+    "concreteness": "A1/A3/A4/A7 are concrete and implementable. A2 has a critical underspecification: the behavior on JSON parse failure is not defined (safe-default vs unsafe-default). A5's chain command is concrete but missing: (1) minimum timeout_ms value for the /exec call; (2) handling of `taskkill` exit code when rc-agent.exe is already dead (taskkill returns non-zero, `&` continues anyway — this is actually fine with `&` vs `&&`, but should be explicit); (3) what happens if `rc-agent-new.exe` doesn't exist when the chain runs (ren fails silently or errors, rc-agent.exe is already deleted). A6 has the bash-vs-cmd portability issue noted above. CF12-Q4 (deploy-watchdog.sh) is listed as 'will be added' but no action item exists for it in the 7-action table — it's a missing file that is a hard dependency for the CF-2 fix to reach pods 1-7. The rollback procedure for rc-watchdog itself has no pre-condition check (is rc-watchdog-prev.exe guaranteed to exist?).",
+    "independence_from_anchoring": "The PLAN was synthesized from models that were shown the CLAUDE.md 'Remote deploy sequence' canonical pattern in the Step 1+2 prompts. This almost certainly anchored all 5 models toward `single_exec_chain` as the natural solution — it mirrors the existing pattern. The gemini dissent for `new_atomic_endpoint` was the only voice questioning this framing, and it was dismissed as '~200 LOC, deferred.' However, `new_atomic_endpoint` has a fundamentally different correctness property: it moves the atomicity guarantee into the server (rc-sentry), where it can hold a mutex, check sentinel state, and perform the swap as a single operation with proper error handling and rollback. The `single_exec_chain` approach is a client-side hack that relies on OS command sequencing speed beating a timer — it's fragile by construction. The anchoring bias caused the consensus to optimize for LOC minimization (25 LOC vs 200 LOC) over correctness guarantees. A fresh review without the canonical pattern would likely weight `new_atomic_endpoint` more seriously. The 4/5 consensus for `single_exec_chain` may reflect prompt anchoring rather than independent technical judgment. Score: 2 — significant anchoring risk on the most consequential architectural decision."
+  },
+  "flaws_identified": [
+    {
+      "id": "FL-1",
+      "severity": "P0",
+      "title": "Sentinel-before-chain ordering creates silent fleet death on script crash",
+      "description": "A6 writes OTA_DEPLOYING JSON sentinel BEFORE A5 executes the atomic chain. If the deploy script crashes, is killed, loses network connectivity, or the /exec call to rc-sentry times out after A6 but before A5 completes, the state is: OTA_DEPLOYING sentinel present (suppressing rollback), rc-agent.exe absent or in old state, rc-agent-new.exe not swapped. Watchdog sees rc-agent unhealthy but rollback is suppressed. Pod is silently dead for up to 300s (TTL). With 7 pods to deploy, this failure mode has 7 opportunities to fire. The PLAN does not specify any recovery action for this state, and T5 does not test it.",
+      "fix_recommendation": "Either (a) write sentinel AFTER confirming chain success (check for 'SWAPPED' in /exec response body before writing sentinel — but this reintroduces the race window), or (b) implement a two-phase sentinel: write sentinel, execute chain, on chain failure immediately delete sentinel and surface error. The /exec response must be parsed for success/failure, not just HTTP 200. Alternatively, this is the strongest argument for gemini's `new_atomic_endpoint` which can manage sentinel lifecycle atomically server-side."
+    },
+    {
+      "id": "FL-2",
+      "severity": "P1",
+      "title": "A2 JSON parse failure behavior unspecified — either choice is dangerous",
+      "description": "When `auto_clear_ota_deploying_json()` reads the sentinel file and JSON parsing fails (corrupted write, partial write during crash, literal '$(date +%s)' from cmd.exe execution), the code must decide: treat as 'sentinel active' (suppress rollback) or treat as 'no sentinel' (allow rollback). Safe-default (suppress) means a corrupted sentinel permanently blocks rollback until manually deleted — same as the original CF-2 bug but harder to detect. Unsafe-default (allow rollback) means a partially-written sentinel during a valid deploy causes watchdog to roll back a good binary. The PLAN specifies neither behavior, leaving it to implementer discretion.",
+      "fix_recommendation": "Specify explicitly in A2: on JSON parse failure, log a WARNING and fall back to mtime of the file itself (same as legacy bare-file path). This gives a bounded suppression window even for corrupted JSON. Add a unit test case `test_auto_clear_ota_json_corrupted_mtime_fallback` to T1-T3."
+    },
+    {
+      "id": "FL-3",
+      "severity": "P1",
+      "title": "rc-watchdog deploy has no self-recovery if sc start fails",
+      "description": "The rollback procedure and CF12-Q4 both involve stopping and restarting RCWatchdog via `sc stop / copy / sc start`. If `sc start RCWatchdog` fails (binary corrupt, DLL missing, service account issue), the pod has no watchdog. rc-agent can crash and never be restarted. There is no watchdog-of-the-watchdog. The PLAN's rollback section lists this sequence without any failure handling or verification step.",
+      "fix_recommendation": "Add a post-start health check: after `sc start RCWatchdog`, poll `sc query RCWatchdog` for RUNNING state with a 30s timeout. If not RUNNING, alert and do NOT proceed with rc-agent deploy. Consider whether Windows Service Recovery settings (sc failure) can auto-restart RCWatchdog on crash — document current state."
+    },
+    {
+      "id": "FL-4",
+      "severity": "P1",
+      "title": "Old rc-watchdog on unupgraded pods will suppress rollback indefinitely on stale JSON sentinel",
+      "description": "Pods that do NOT receive the new rc-watchdog binary (because deploy-watchdog.sh doesn't exist yet) run old code with bare `is_file()` check. If a JSON sentinel is written by the new deploy-pod.sh and then the deploy fails (FL-1 scenario), the old watchdog sees is_file()=true and suppresses rollback forever — no TTL enforcement. This is the original CF-2 bug in a new form. The PLAN claims backward compat is safe in both directions but this case is not analyzed.",
+      "fix_recommendation": "CF12-Q4 must be a BLOCKING dependency, not an open question. deploy-watchdog.sh must be created and rc-watchdog must be deployed to ALL pods BEFORE deploy-pod.sh with JSON sentinel is deployed. The PR should include deploy-watchdog.sh or the JSON sentinel change must be gated behind a feature flag until all pods are on new rc-watchdog."
+    },
+    {
+      "id": "FL-5",
+      "severity": "P1",
+      "title": "A6 uses bash date +%s in a Windows file path — portability not guaranteed",
+      "description": "`echo {\"timestamp_epoch\":$(date +%s)} > C:\\RacingPoint\\OTA_DEPLOYING` — `$(date +%s)` is a bash subshell expansion. If deploy-pod.sh is ever executed outside Git Bash (e.g., from a CI runner using cmd.exe, PowerShell, or a different shell), the literal string `$(date +%s)` is written to the file, producing invalid JSON. The PLAN does not specify the required execution environment for deploy-pod.sh.",
+      "fix_recommendation": "Add a shebang assertion or runtime check: `if [ -z \"$BASH_VERSION\" ]; then echo 'ERROR: deploy-pod.sh requires bash'; exit 1; fi`. Alternatively use a more portable timestamp mechanism or have rc-sentry write the sentinel server-side (again pointing toward `new_atomic_endpoint`)."
+    },
+    {
+      "id": "FL-6",
+      "severity": "P1",
+      "title": "Race window is probabilistically mitigated, not eliminated — no timing analysis provided",
+      "description": "The PLAN asserts single `&` chain 'wins the race' but provides no timing analysis. The chain executes: taskkill (may wait for process termination, up to several seconds if rc-agent has open handles), del (fast), ren (fast), ren (fast). If rc-agent holds file handles or has a graceful shutdown hook, taskkill /F may still take 1-3s. On a pod with AV scanning active, file operations may be delayed. The watchdog polls every 5-10s — if it last polled 4.9s ago when the chain starts, and taskkill takes 2s, there is a 2.9s window before next poll. This is likely safe but not guaranteed. No minimum timeout_ms is specified for the /exec curl call.",
+      "fix_recommendation": "Add explicit timing analysis to the PLAN: measure taskkill latency on actual pod hardware. Specify timeout_ms >= 10000 in /exec payload to prevent premature HTTP timeout. Document that the race window is reduced to <1s in normal conditions but not eliminated, and that the JSON sentinel (CF-2) is the primary correctness guarantee, not the chain speed."
+    },
+    {
+      "id": "FL-7",
+      "severity": "P2",
+      "title": "T5 canary on Pod 1 requires new rc-watchdog pre-deployed — chicken-and-egg not resolved",
+      "description": "Pod 1 is currently on old rc-watchdog. T5 tests TTL behavior which requires new rc-watchdog. To deploy new rc-watchdog to Pod 1, deploy-watchdog.sh must exist (CF12-Q4 open). T5 cannot be executed as written until CF12-Q4 is resolved. The PLAN presents T5 as a straightforward live test without acknowledging this dependency.",
+      "fix_recommendation": "T5 must be preceded by: (1) create deploy-watchdog.sh, (2) deploy new rc-watchdog to Pod 1, (3) verify RCWatchdog service running new binary, (4) THEN run T5. Add these as explicit pre-conditions to T5 in the test plan."
+    },
+    {
+      "id": "FL-8",
+      "severity": "P2",
+      "title": "rc-agent-new.exe pre-condition not verified before chain execution",
+      "description": "A5's chain assumes `rc-agent-new.exe` exists in the target directory before executing. If the file upload step (not shown in the 7 actions) fails or uploads to the wrong path, the chain executes `tas
