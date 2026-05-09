@@ -3,7 +3,9 @@
 **Scope**: W1-S5 + W1-S6 + W3 RCA triplet (foundational-boundary class — auth + auth + wallet)
 **Authored**: 2026-05-09 ~12:25 IST · **Authored-by**: james (Claude Opus 4.7 1M)
 **Substrate-class**: foundational-boundary triplet PLAN
-**Status**: DRAFT-REVISE-PENDING-SUPPLEMENTARY-ABSORPTION — Wave A authorial substrate authored against canonical §S-153 14-CONSENSUS THEN supplementary run at racecontrol `MMA-W1-S5-W1-S6-DIAGNOSE/SYNTHESIS.md` (slot-collision N=4 hit 2026-05-09 ~12:12 IST) returned REVISE disposition with 4 newly-promoted CONSENSUS items + 3 NEW Captain Q-DECISIONs. Per supplementary §7 recommended workflow: W1-S5 + W1-S6 RCAs amend → MMA Step 1 re-run → Step 2 PLAN re-author (NOT H1 PLAN direct from this Wave A). This Wave A substrate is reference-only until RCA-amendment cycle completes. See §13 supplementary absorption.
+**Status**: REFERENCE-ONLY-SUPERSEDED-BY-WAVE-A2 — successor `MMA-STEP-2-W1S5-W1S6-W3-PLAN-A2.md` shipped 2026-05-09 ~19:15 IST integrating §13 amendment as primary, absorbing PR #67 `7dcedd00` amended RCAs (Captain Option 4 zero-spend substrate path), and consolidating N=2 supplementary PR-breakdown. Wave A retained as reference for design-history-trail per §13.3 promise.
+
+**Original Status (preserved for trail)**: DRAFT-REVISE-PENDING-SUPPLEMENTARY-ABSORPTION — Wave A authorial substrate authored against canonical §S-153 14-CONSENSUS THEN supplementary run at racecontrol `MMA-W1-S5-W1-S6-DIAGNOSE/SYNTHESIS.md` (slot-collision N=4 hit 2026-05-09 ~12:12 IST) returned REVISE disposition with 4 newly-promoted CONSENSUS items + 3 NEW Captain Q-DECISIONs. Per supplementary §7 recommended workflow: W1-S5 + W1-S6 RCAs amend → MMA Step 1 re-run → Step 2 PLAN re-author (NOT H1 PLAN direct from this Wave A). This Wave A substrate is reference-only until RCA-amendment cycle completes. See §13 supplementary absorption.
 **Filed under**: §S-153 MMA Step 1 closure + §S-153.8 forward gate-action + supplementary REVISE disposition (slot-collision-N=4 anchor)
 **Authorization chain**: user-shipped G33-statement (drafted by james-this-session, returned verbatim 12:20 IST) → Step 2 PLAN authoring authorized + Steps 3+4 cascade authorized + class-level per-PR merge auth pre-grant for foundational-boundary (auth + billing + wallet) at PR-open with evidence pack
 **V2 doctrine alignment**: §S-146 V1↔V2 RCA rule SECOND end-to-end pipeline application · §AMEND-3.II D12 Foundation/Strategy/Config separation · Wallet Framing C · Pod-display state-channel premise · F-05 anti-pattern codification candidate
@@ -415,6 +417,8 @@ When Wave B runs:
 Pre-supplementary (this Wave A authored): "Step 2 PLAN Wave A authored against canonical 14 CONSENSUS; Wave B formal multi-model deferred."
 
 Post-supplementary: **"Step 2 PLAN Wave A is REFERENCE-ONLY. Per supplementary §7 recommended workflow, W1-S5 + W1-S6 RCAs require amendment FIRST before re-running MMA Step 1 (~$0.07; 4 consensus items resolved → expect PASS/REVISE-downgrade); after PASS, Step 2 PLAN re-author absorbs amended-RCA findings. THEN H1 PLAN derivation."**
+
+**2026-05-09 ~19:15 IST disposition update**: Captain Option 4 zero-spend substrate path 12:49 IST bypassed re-Step-1 MMA spend; PR #67 `7dcedd00` 19:11 IST amended W1-S5 + W1-S6 RCAs absorbing all 4 promoted CONSENSUS + 4 Captain Q-DECISIONs (Q-W1-CROSS-1 + Q-W1-CROSS-2 + Q-W1-S5-NEW-1 + Q-S5-NEW-2). Wave A.2 SHIPPED at racecontrol pending-commit-this-author-turn (file: `MMA-STEP-2-W1S5-W1S6-W3-PLAN-A2.md`); supersedes this Wave A. RCA-amendment cycle CLOSED. Wave A.2 is the substantive successor referenced above.
 
 W3 RCA at `78f82654` is NOT touched by supplementary run (W1-S5 + W1-S6 only). W3 dispositions in §2 (F-CONS-2, F-CONS-8, F-CONS-11, F-CONS-13, F-CONS-14) remain valid; W3 PR-A can proceed on its own track.
 
