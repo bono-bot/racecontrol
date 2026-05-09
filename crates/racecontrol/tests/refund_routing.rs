@@ -910,3 +910,150 @@ async fn concurrent_route_refund_under_wal_multi_connection() {
         N as f64 / wall_elapsed.as_secs_f64()
     );
 }
+
+// ─── Item 10c (NOT TESTED → tested): N>>20 concurrency at Wave-2+ scale ──────
+//
+// Closes the prior commit's NOT TESTED ("N>>20 concurrency — kaizen-min stops
+// at 20; if Wave-2+ scale demands N=100+, separate workstream + benchmark
+// suite"). N=200 parallel `route_refund` invocations, same pool config as
+// the N=20 test (tempfile + WAL + max_conn=8 + busy_timeout=5s), same
+// invariants asserted.
+//
+// Compared to N=20:
+//   - 10x more JoinSet tasks → exercises tokio scheduler under heavier load
+//   - 10x more audit_log INSERT contention → busy_timeout retry path is
+//     exercised more frequently (more tasks waiting for the writer lock)
+//   - 200 unique driver/staff IDs → asserts unique-pkg integrity at scale
+//
+// Wave-2+ readiness signal: if this test fails (lost-write / cross-write /
+// payload tearing / SQLITE_BUSY leak), the 3band wrapper's audit_log path
+// is structurally unsafe for cafe/dynamic-pricing/MI surfaces that may
+// drive higher concurrent refund volume than V2.0 staff-PIN flow.
+//
+// Soft wall-clock floor: 5s (sanity gate). Real prod with persistent disk
+// + 5 indexes will be slower per-INSERT but within the same order. If this
+// test runtime balloons past 5s, that's a regression signal, not a benchmark.
+
+#[tokio::test]
+async fn concurrent_route_refund_at_scale_n200_under_wal() {
+    const N: usize = 200;
+
+    let (_guard, pool) = create_wal_test_db().await;
+
+    // Seed N drivers in a single transaction (200 individual INSERTs would
+    // dominate test time; transaction wraps them into a single fsync.
+    // Same trick used in cirs_lookup perf_smoke for 10K customers.)
+    let mut tx = pool.begin().await.expect("begin tx");
+    for i in 0..N {
+        sqlx::query("INSERT INTO drivers (id, name, phone) VALUES (?, ?, ?)")
+            .bind(format!("drv_scale_{i:03}"))
+            .bind(format!("Scale Driver {i:03}"))
+            .bind("9999999999")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.expect("commit tx");
+
+    let state = create_test_state(pool.clone());
+
+    let wall_start = Instant::now();
+    let mut set = JoinSet::new();
+    for i in 0..N {
+        let st = state.clone();
+        set.spawn(async move {
+            let req = RouteRefundRequest {
+                amount_paise: 50_000 + (i as i64),
+                driver_id: format!("drv_scale_{i:03}"),
+                reason: None,
+                reference_id: Some(format!("scale_ref_{i:03}")),
+            };
+            route_refund(
+                axum::extract::State(st),
+                Some(Extension(StaffClaims {
+                    sub: format!("scale_staff_{i:03}"),
+                    role: "cashier".to_string(),
+                    exp: 9_999_999_999,
+                    iat: 1,
+                })),
+                Json(req),
+            )
+            .await
+        });
+    }
+
+    let mut ok_count = 0;
+    let mut non_ok_bodies: Vec<Value> = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        let (status, Json(body)) = joined.expect("task panicked");
+        if status == StatusCode::OK {
+            ok_count += 1;
+        } else {
+            non_ok_bodies.push(body);
+        }
+    }
+    let wall_elapsed = wall_start.elapsed();
+
+    assert_eq!(
+        ok_count, N,
+        "expected {} successful route_refund calls under N>>20 contention; failed_bodies={:?}",
+        N, non_ok_bodies
+    );
+
+    // (1) all N writes committed
+    let row_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action_type = 'refund_3band_a'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row_count, N as i64, "lost-write under N>>20 contention");
+
+    // (2) N distinct staff_ids preserved (no overwrite/cross-write at scale)
+    let distinct_staff_ids: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT staff_id) FROM audit_log WHERE action_type = 'refund_3band_a'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        distinct_staff_ids, N as i64,
+        "cross-write/overwrite under N>>20 contention"
+    );
+
+    // (3) Payload integrity — sample 20 rows uniformly across 0..N to keep
+    // assertion noise bounded; full N validation in the N=20 test already
+    // covers tight-loop integrity.
+    for sample_idx in (0..N).step_by(N / 20) {
+        let new_values: String = sqlx::query_scalar(
+            "SELECT new_values FROM audit_log WHERE staff_id = ? AND action_type = 'refund_3band_a'",
+        )
+        .bind(format!("scale_staff_{sample_idx:03}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&new_values).unwrap();
+        let expected_amount = 50_000 + (sample_idx as i64);
+        assert_eq!(
+            parsed["amount_paise"], expected_amount,
+            "amount_paise mismatch for scale_staff_{sample_idx:03} under N>>20"
+        );
+        assert_eq!(parsed["driver_id"], format!("drv_scale_{sample_idx:03}"));
+    }
+
+    eprintln!(
+        "[concurrency wal scale] N={N}  max_conn=8  wall_clock={wall_elapsed:?}  \
+         throughput={:.1} req/s  per-call_avg={:.2}ms",
+        N as f64 / wall_elapsed.as_secs_f64(),
+        wall_elapsed.as_secs_f64() * 1000.0 / N as f64
+    );
+
+    // Soft sanity gate: 5s wall-clock floor. Prod-shape with disk + 5
+    // indexes will be slower per-INSERT but within same order. Regression
+    // signal, not a benchmark.
+    assert!(
+        wall_elapsed.as_secs_f64() < 5.0,
+        "N>>20 wall-clock {:?} exceeds 5s sanity gate — possible scheduler / lock-contention regression",
+        wall_elapsed
+    );
+}
