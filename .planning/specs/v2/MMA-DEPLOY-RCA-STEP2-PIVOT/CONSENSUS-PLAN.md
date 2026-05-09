@@ -1,3 +1,17 @@
+> **⛔ STATUS — BLOCKED-AT-STEP-4-VERIFY-PIVOT-ROUND (2026-05-09 ~21:36 IST)**
+>
+> MMA Step 4 VERIFY PIVOT-round adversarial gate scored this PIVOT PLAN at **1.75/5 overall** (PASS threshold = 4.0); 3/3 models returned BLOCK. **SECOND CONSECUTIVE BLOCK** on this RCA pipeline.
+>
+> **DO NOT author PR commits from this PIVOT PLAN until Captain dispositions amendments.** See `../MMA-DEPLOY-RCA-STEP4-PIVOT/CONSENSUS-VERIFY.md` for:
+> - 2 P0 convergent flaws (PV-FL-1 Tokio Mutex cancellation hazard leaks partial state · PV-FL-2 rc-sentry crash orphans deploy state — mistral SPOF concern from PIVOT round PROVEN insufficient at 60s mtime fallback)
+> - 4 P1 convergent flaws (PV-FL-3 Phase 1 circular dependency · PV-FL-4 Pod 8 OLD-sentry 404 path · PV-FL-5 missing chaos tests · PV-FL-6 mutex poisoning unaddressed)
+> - 3/3 models surfaced **Win32 `LockFileEx`** as strongest alternative architecture (OS-level mutex persistence across crashes; eliminates PV-FL-1 + PV-FL-2 + PV-FL-6)
+> - 5 revised disposition options (PV2-OPT-A respin / **PV2-OPT-B LockFileEx pivot** / PV2-OPT-C single-pilot amend / PV2-OPT-D halt / **PV2-OPT-E manual bridge for customer impact**)
+>
+> Captain Q-DECISION required before any code is written from this PIVOT PLAN. My hybrid recommendation: **PV2-OPT-E (manual bridge per G9 #4 sentinel discipline) + PV2-OPT-B (LockFileEx) queued for next session**.
+
+---
+
 # MMA Step 2 PIVOT — CF-1+CF-2+CF-9 bundle (`/exec_atomic_deploy` server-side architecture) — CONSENSUS
 
 **Captain-authorized**: 2026-05-09 ~21:04 IST verbatim "Pivot to gemini's new_atomic_endpoint (~$0.05-0.10 MMA cost; sustainable structural fix; no pod touch yet)" → Option B explicit ratification post-Step-4-BLOCK

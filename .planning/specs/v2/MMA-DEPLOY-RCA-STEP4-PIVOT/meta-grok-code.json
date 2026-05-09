@@ -1,0 +1,29 @@
+{
+  "model": "x-ai/grok-code-fast-1",
+  "usage": {
+    "prompt_tokens": 4148,
+    "completion_tokens": 1896,
+    "total_tokens": 6044,
+    "cost": 0.00363868,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 194,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0.00363868,
+      "upstream_inference_prompt_cost": 0.00079468,
+      "upstream_inference_completions_cost": 0.002844
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 290,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  },
+  "cost": 0.00363868,
+  "finish_reason": "stop",
+  "elapsed_s": 24.4
+}
