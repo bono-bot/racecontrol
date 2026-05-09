@@ -51,6 +51,41 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 
 ---
 
+## V1-dependent V2 sections — RCA + past-bug review BEFORE proceeding (Captain directive 2026-05-09 IST)
+
+**For any change to a deployed V2 section that inherits, calls into, reuses, or shares schema/state with V1 parts: do NOT proceed directly. Produce a written 5-section root-cause analysis (RCA) BEFORE H1 PLAN.**
+
+**5-section RCA (mandatory before action):**
+1. **Boundary map** — exact files / DB tables / IPC seams / API routes / config keys where V2 crosses into V1. Cite paths + line numbers.
+2. **Inherited-issue catalogue** — every known V1 bug, footgun, race, or doctrine deviation touching the same boundary. Sources: `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (10 candidate categories A-J) · §S-61 PART 41 V1 failure-mode investigation (14 mapped: 8 VERIFIED + 4 PARTIAL + 1 INFERRED + 1 UNVERIFIED) · LOGBOOK.md grep for boundary files · V2-MASTER-STATE §S-N entries naming the surface · G9/UCA tagged with same component.
+3. **Past-bug review** — for each past bug at this boundary, disposition: `ROOT-CAUSED-AND-FIXED` / `PATCHED-ONLY` (open RCA item) / `UNRESOLVED` (open RCA item) / `NOT-APPLICABLE-TO-V2` (with justification). Cite commits / PRs / §S-N anchors.
+4. **V2-alignment delta** — what the boundary *should* look like under V2 doctrine (V2-MASTER-STATE canonical-source ledger + `project_v2_customer_workflows_consolidated_20260503` + Wallet Framing C + Pod = state-channel premise + foundation/strategy/config separation §AMEND-3.II D12). Name the gap explicitly.
+5. **Proposed change framed against V2 doctrine, not V1 inertia** — change must move the boundary toward V2 alignment OR explicitly justify temporary V1 retention as the kaizen-correct choice with a written follow-up trigger condition that retires the V1 path.
+
+**Triggers (any one fires the rule):**
+- Editing a file with both V1-era and V2-era code paths
+- Touching DB tables / migrations that pre-date V2 planning (2026-05-01)
+- Calling into a V1 module from V2 code (or vice versa)
+- Modifying a deployed surface on V2 doctrine but reading/writing V1-era data
+- User says "fix" / "improve" / "change" on a section flagged V1-dependent
+- Adding a feature on top of a section whose V1 ancestor is in `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` candidate categories A-J
+
+**Foundational-boundary escalation:** if the boundary is foundational (billing / wallet / auth / pod-state-channel / WhatsApp identity / DB schema), run MMA Step 1 DIAGNOSE on the RCA itself (5-model consensus on root causes) BEFORE proceeding to PLAN. Per-PR Captain merge auth required (sibling of `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md`); standing-autonomy verbs do NOT satisfy.
+
+**V2-alignment statement on every change:** description must include "V2 doctrine alignment:" line naming which V2 anchor the change moves toward.
+
+**Why:** V1 failed and venue is closed because V1-era code carried compounding unresolved root causes (broadcast storm class, schema drift, audit-blind proxy checking, recovery cascades). When V2 code reuses V1 parts, the same root causes propagate forward unless surfaced and dispositioned. F25a billing-strategy substrate succeeded because it root-caused V1 SnapPricing first (preserved as known strategy with HISTORICAL block, not accidental fall-through). Q-PRICE-1 dispositioned via timeline reframing only worked because V1-era patch was identified as V1, not V2 doctrine. Skipping this step produces "patch V1 forward" — same bug, new branch, V2 doctrine drifts.
+
+**Anti-patterns blocked:** quick-fix on V2 surface that silently inherits V1 race · V2 feature on V1 schema without naming what V1 schema assumptions are now V2 contracts · treating V1-era code in V2 file as "already-working baseline" (V1 failed; baseline is conditional on RCA) · patching symptom in V2 when root cause is in V1 part being called · "I'll RCA later" (RCA is precondition, not follow-up).
+
+**Bilateral:** applies to james AND bono. Both pilots produce 5-section RCA before V1↔V2 boundary work. Universal Sync covers this rule across CLAUDE.md / CGP / comms-link / bono memory.
+
+**Composes with:** Verify-Before-Generate (V1↔V2 seam = high-value verify zone) · `feedback_kaizen_discipline_dont_complicate.md` (RCA detail high; change stays smallest invariant) · `feedback_autonomy_principle_v2_compass.md` (V2 = compass; RCA exposes divergence) · `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md` (foundational boundaries → per-PR auth) · `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (primary V1 failure-class inventory).
+
+**Master memory:** `~/.claude/projects/C--Users-bono/memory/feedback_v1_dependent_v2_root_cause_before_proceeding.md` (full how-to-apply + structural-fix sub-rule).
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
