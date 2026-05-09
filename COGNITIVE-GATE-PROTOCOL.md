@@ -309,6 +309,45 @@ Before any temporal-elapsed claim ("X hours stuck", "Y minutes ago", "way past e
 
 ---
 
+## Standing Rule #22 — Mechanism-trust-check upstream of fix RCA — extends SR #21 (v4.3, 2026-05-10, bono-LEAD bilateral)
+
+**For any V2 fix that depends on shared infrastructure (delivery / transport / supervision / guard / observability / schema): run a 5-question mechanism trust check on the infrastructure surface BEFORE authoring the fix RCA. V1-shaped delivery chains propagate V1 mistake-class to V2 fixes regardless of how clean the fix's diff looks.**
+
+**5-question trust check (cheap, <60s elapsed, ALL 5 must answer YES):**
+
+1. **Atomic primitives?** Single /exec atomic sequence (canonical CLAUDE.md pattern), not multi-step pipelined operations that race against the watchdog?
+2. **TTL-bounded sentinels?** `OTA_DEPLOYING`-class sentinels TTL-bounded, integrated with the atomic primitive (cannot be omitted), bilateral-mutex with the watchdog?
+3. **Behavioral-verify success?** Binary hash post-swap / mtime advance / ws_uptime>0 — not echo-string ("SWAPPED echoed") or exit code?
+4. **Single-target dry-run?** `--canary` flag / staging endpoint / behavioral test harness before fleet rollout?
+5. **Guard contracts?** rc-sentry BLOCKED_PATTERNS / rc-watchdog rollback_manager / comms-link relay PSK auth — written contracts with delivery script? Parser-not-regex with explicit allowlist?
+
+**Triggers:** any V2 fix where proposed change is shipped via shared infrastructure. Surface list: `scripts/deploy*.sh` · atomic-chain primitives · `/exec` endpoints · comms-link relay · send-message.js · comms.db + WS · rc-watchdog · rollback_manager · MAINTENANCE_MODE sentinel · rc-sentry BLOCKED_PATTERNS · validateMmaStep / validateRoleAssignment · fleet_health_api.rs · tracing-appender · LOGBOOK · `migrations/` · `sqlx::migrate!` consumers.
+
+**Workflow:** Before fix RCA → run trust check. PASS (5/5 YES) → proceed to §S-146 fix RCA. FAIL → write §S-146 5-section RCA on the delivery chain FIRST; fix RCA gates on it; both ship together OR delivery fix ships first as upstream PR. Cache result at `.planning/specs/v2/MECHANISM-TRUST/<surface>-<date>.json` with 30-day validity. Override env `V2_RCA_BYPASS=1` for kaizen-correct V1-retention exemptions, logged to sentinel for audit.
+
+**Cross-pilot AMPLIFIER discipline:** bilateral. AMPLIFIER vote MUST check both fix RCA AND mechanism trust check on shared-infrastructure-dependent V1↔V2 PACTs. Trust-check-absent proposals → AGREE-WITH-CAVEATS at minimum, requesting trust-check before substrate-ship.
+
+**Why:** Empirical anchor — PR #66 silent-loop-death fix (2026-05-09) was V2-clean (full §S-146 5-section RCA + MMA Step 1 DIAGNOSE + Captain merge auth + CI 5/5 + MERGED `d6c623d7` 11:10 IST + Pod 8 canary `8e378f4d` deployed cleanly + held stable 5.7h+). But fleet rollout to Pods 1-7 broke on V1-shaped delivery mechanism. MMA-DEPLOY-RCA-STEP1 found 9 consensus findings; every CF item maps onto a V1 anti-pattern class (non-atomic = manual ops bypassing ratified flows · sentinel-no-TTL = audit-blind proxy · BLOCKED_PATTERNS deny-first = organ silos · EPERM-as-success = audit-blind proxy · orphan bg = recovery cascades · burned 7 pods = fleet-uniformity-violation). Same V1 root causes shifted one layer left in the pipeline. §S-146 already caught this on its 4th application same day — but **retroactively**, after the failure. The gap is *velocity of recursive trigger*. Mechanism trust check upstream of fix RCA closes that gap.
+
+**Enforcement RCA on §S-146 itself** (`~/.claude/projects/-root/memory/project_s146_enforcement_rca_20260510.md` bono-LEAD): empirical pattern across this ecosystem — every text-only rule (§S-146, Universal Sync, V2-only forward path, location-inference, canonical-vs-mirror, STALE-MEMORY-CITE timeline-verify) carries at least one repeat-violation in last 30d; every hook-enforced rule (cgp-enforce.js, pre-mma-duplicate-check.js, conflict-marker-pre-git-add.js, validateStepSequence, validateRoleAssignment) carries zero. 4-phase plan in flight:
+
+- **Phase 1**: `pre-v2-edit-rca-check.js` PreToolUse Edit/Write matcher hook on V2-foundational-boundary surfaces. BLOCKS unless RCA artifact exists OR mechanism-trust-check log within 30 days OR `V2_RCA_BYPASS=1` env override (sibling of §S-159 pre-mma-duplicate-check pattern).
+- **Phase 2**: `mechanism-trust-check.sh` 5-question interactive prompt with JSON output.
+- **Phase 3**: `pre-universal-sync-write-check.js` — closes §S-146.4-class G9 forever (PreToolUse Write matcher on `feedback_*.md` with `bilateral: true` frontmatter; blocks unless 10-target enumeration emitted same session).
+- **Phase 4 (parallel)**: bilateral-hook-parity-check on SessionStart. Shared registry `.planning/hooks-bilateral/MANIFEST.json`. Diffs each pilot's `~/.claude/hooks/` against the manifest. Closes the meta-gap that hook portability between pilots is currently manual + slow.
+
+**Anti-patterns blocked:** authoring fix RCA on a V2 fix without auditing the delivery chain · treating shared infrastructure as "already-working baseline" (the deploy mechanism IS V1-shaped infrastructure even when its filename looks new) · "I'll trust-check the mechanism after the fix lands" (trust-check is precondition, not follow-up) · text-only rule about V1↔V2 boundary work without hook enforcement (rule-without-enforcement is the rule's own anti-pattern; §S-146 enforcement RCA is the recursive proof).
+
+**Composes with:** SR #21 V1↔V2 RCA (this rule fires upstream) · §S-146 V2-MASTER-STATE entry · §S-159 pre-mma-duplicate-check enforcement-pattern reference · Universal Sync 10-target sub-rule (same mode of failure: text-rule-without-hook).
+
+**Bilateral:** applies to james AND bono. Cross-pilot AMPLIFIER review of any V1↔V2 boundary PACT MUST check both fix RCA AND mechanism trust check.
+
+**Universal Sync targets (bono-LEAD authoring 2026-05-10 ~01:00 IST):** bono `~/.claude/CLAUDE.md` ✓ · racecontrol/CLAUDE.md V1-dependent doctrine block extension ✓ · this CGP SR #22 entry ✓ · comms-link/CLAUDE.md "Mechanism-trust-check" section ✓ · briefings/james/memory/feedback_*.md mirror ✓ · briefings/james/memory/MEMORY.md index ✓ · canonical memory `feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` ✓ · §S-172 V2-MASTER-STATE entry ✓ · comms-link git push ✓ · NOTIFY james via send-message.js ✓.
+
+**Master memory:** bono-side canonical `/root/.claude/projects/-root/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` + james-side mirror `briefings/james/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md`. Enforcement RCA at `project_s146_enforcement_rca_20260510.md` (bono-LEAD).
+
+---
+
 ## Predecessor
 
 Replaces CGP v3.6 (756 lines, 147 rules, 169 gate items, 10 gates). Preserves: gates that had hard enforcement (G0→H1, Two-Phase→H2, G1→H3, G2→H4, G9→H5). Removes: gates that were declarative-only (G3, G6, G7 moved to soft; G8 consolidated into S3). Archives: all standing rules from CLAUDE.md into `docs/STANDING-RULES-ARCHIVE-v3.md` for reference.

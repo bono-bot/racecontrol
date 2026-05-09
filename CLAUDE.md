@@ -86,6 +86,20 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 
 ---
 
+## Mechanism-trust-check upstream of fix RCA — extends §S-146 (bono 2026-05-10 IST · BILATERAL)
+
+When a V2 fix depends on shared infrastructure (delivery / transport / supervision / guard / observability / schema), run a **5-question mechanism trust check** on the infrastructure surface BEFORE authoring the fix RCA: (1) atomic primitives? (2) TTL-bounded sentinels integrated with the atomic primitive? (3) behavioral-verify success (binary hash / mtime / ws_uptime), not echo-string? (4) single-target dry-run path? (5) guards have written contracts with delivery script (parser-not-regex + allowlist)? ALL 5 must answer YES. FAIL → infrastructure surface gets its own §S-146 5-section RCA before fix RCA proceeds. Cache at `.planning/specs/v2/MECHANISM-TRUST/<surface>-<date>.json` 30-day validity. Override `V2_RCA_BYPASS=1` (logged).
+
+**Empirical anchor:** PR #66 silent-loop-death fix (2026-05-09) was V2-clean but shipped via V1-shaped delivery mechanism → fleet rollout broke 7 pods on the same V1 mistake-class (non-atomic kill+swap CF-1 · OTA_DEPLOYING sentinel-no-TTL CF-2 · BLOCKED_PATTERNS deny-first CF-4 · EPERM-as-success CF-5 · orphan bg processes CF-6 · burned 7 pods cycling same SHA failure G9-class). §S-146 caught it on 4th application same day, retroactively. Mechanism trust check upstream closes the velocity gap.
+
+**Enforcement RCA on §S-146 itself** at `~/.claude/projects/-root/memory/project_s146_enforcement_rca_20260510.md`: text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero. 4-phase plan: Phase 1 `pre-v2-edit-rca-check.js` hook · Phase 2 `mechanism-trust-check.sh` · Phase 3 `pre-universal-sync-write-check.js` · Phase 4 bilateral-hook-parity-check.
+
+**Bilateral:** applies to james AND bono. AMPLIFIER review checks both fix RCA AND mechanism trust check on shared-infrastructure-dependent V1↔V2 PACTs.
+
+**Master memory:** bono-side `/root/.claude/projects/-root/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` + james-side mirror via comms-link/briefings/james/memory/.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
