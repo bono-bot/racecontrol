@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "wallet",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "HOLD-RELEASE-CAPTURE not yet 2-phase committed (PACT-024 \u00a7A wrapper pending bono-LEAD); v1-era driver_id-scoped vs V2 customer_id-scoped boundary (W3 RCA 78f82654; v1 wallet.rs/wallet_refund.rs vs V2 v2-db/wallets.rs WalletService W1-S2)."
+    },
+    "ttl_sentinels": {
+      "answer": "N/A",
+      "evidence": "No sentinels in wallet layer; orthogonal."
+    },
+    "behavioral_verify": {
+      "answer": "NO",
+      "evidence": "F-05 UPDATE-then-SELECT same-column anti-pattern PATCHED-ONLY (W3 RCA \u00a73 disposition); \u20b9162.50 loss empirical anchor; not codified as guard."
+    },
+    "single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "Tests exist for W1-S2 wallet schema repair (43/43 PASS post cargo clean -p v2-db; 2026-05-08 NF-james-4); per-wallet fixture coverage."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "PACT-024 \u00a7A wallet-client.js wrapper (Idempotency-Key) pending bono-LEAD per W3 RCA + \u00a7S-165.6 + \u00a7S-174.6 cascade."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "FAIL but actively being remediated. Wave 1 PR-D (W3 wallet HRC) is the V2-aligned PR; gates on F-05 codification + Captain G33 v5/v6/v7 + bono-LEAD wallet-client.js wrapper. Cross-pilot artifact."
+}

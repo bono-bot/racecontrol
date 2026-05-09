@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "rc-sentry",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "BLOCKED_PATTERNS check at main.rs:722-744 is non-atomic w/ /exec dispatch; deny-first regex pattern (CF-4)."
+    },
+    "ttl_sentinels": {
+      "answer": "N/A",
+      "evidence": "rc-sentry doesn't manage sentinels; orthogonal layer."
+    },
+    "behavioral_verify": {
+      "answer": "NO",
+      "evidence": "Returns exit codes from spawned processes; doesn't behavior-verify the operation's actual effect (CF-5: rc-sentry 403 not surfaced; EPERM-as-success; exit-0-with-0-bytes silent)."
+    },
+    "single_target_dry_run": {
+      "answer": "NO",
+      "evidence": "No /exec/validate endpoint (CF-4 P1 fix); no dry-run for /exec calls."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "BLOCKED_PATTERNS regex deny-first with no explicit allowlist (CF-4 5/5 consensus)."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "CF-4 + CF-5 + CF-6 cluster; remediation plan parser-not-regex + per-command allowlist + structured success/error JSON."
+}

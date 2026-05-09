@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "fleet-health-api",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "YES",
+      "evidence": "In-memory mutex updates on per-pod store (ws_reconnect_times); atomic at lock level."
+    },
+    "ttl_sentinels": {
+      "answer": "NO",
+      "evidence": "silent_reconnect_suspected flag never auto-clears (fleet_health_api.rs:243 'Part 4 future work' comment); \u00a7S-150 anchor; server-side detection without pod-side recovery."
+    },
+    "behavioral_verify": {
+      "answer": "NO",
+      "evidence": "HTTP probe is proxy for pod health (audit-blind proxy checking class \u00a7S-61 V1 failure mode); HTTP-reachable \u2260 WS state-channel functional; CF-9 watchdog deploy-aware health checks missing."
+    },
+    "single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "Per-pod /api/v1/fleet/health queries; can probe individual pods."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "No contract w/ rc-agent on what fleet_health represents; ws_connected proxy lies when WS task dies but HTTP server stays (PR #66 silent-loop-death anchor)."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "FAIL; primary V1 failure-mode (audit-blind proxy) lives here. PR #66 added pod-side heartbeat-thread to closure-pending \u00a7S-153 server-side fleet_health_api.rs heartbeat-mtime reader integration."
+}
