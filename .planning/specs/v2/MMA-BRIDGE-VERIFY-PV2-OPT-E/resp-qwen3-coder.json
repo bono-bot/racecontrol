@@ -1,0 +1,50 @@
+{
+  "modelId": "qwen/qwen3-coder",
+  "status": 200,
+  "wall": 12877,
+  "body": {
+    "id": "gen-1778347082-Xcb4qz4JBNyPPEo46kuO",
+    "object": "chat.completion",
+    "created": 1778347082,
+    "model": "qwen/qwen3-coder-480b-a35b-07-25",
+    "provider": "Google",
+    "system_fingerprint": null,
+    "choices": [
+      {
+        "index": 0,
+        "logprobs": null,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "```\n=== SCORES ===\n1. race_correctness: 2 — The PLAN assumes sentinel timing wins races but fails to verify watchdog poll interval or handle taskkill→copy gap; race window exists.\n2. sentinel_discipline: 3 — Sentinel set/clear ordering is mostly correct, but lacks durability guarantees (e.g., flush) and rc-sentry death during clear is unhandled.\n3. rollback_safety: 2 — Rollback assumes sentinel still present, but auto-clear at 300s can invalidate that assumption, leading to rollback vs. respawn race.\n4. failure_mode_coverage: 3 — Some FL/PV issues are marked \"addressed\" but lack concrete safeguards (e.g., rc-sentry SPOF, Tokio mutex N/A claim).\n5. operational_discipline: 4 — Pilot isolation and observation windows are sound, but Pod 1 contamination recovery is under-specified.\n6. concurrent_collision: 2 — INBOX notify is insufficient; no hard interlock prevents parallel james sessions from corrupting bridge ops.\n\nOVERALL: 2.67/5 — BLOCK\n```\n\n---\n\n## 🔍 FLAWS (BLOCKING + CRITICAL)\n\n### **PV-BR-FL-1**\n- **severity:** P0 (BLOCK)\n- **section:** 4.3\n- **what's wrong:** Atomic chain does not enforce sentinel durability before `taskkill`. No explicit `FlushFileBuffers` or retry on file-readiness.\n- **why it matters:** If watchdog sees empty/corrupt `OTA_DEPLOYING` before flush completes, rollback may trigger during deploy.\n- **proposed amendment:** Add explicit flush after sentinel write (e.g., via PowerShell `Flush()` or retry-until-readable probe) before chain begins.\n\n---\n\n### **PV-BR-FL-2**\n- **severity:** P0 (BLOCK)\n- **section:** 4.3\n- **what's wrong:** No verification that `rc-agent-8e378f4d.exe` exists and is valid before atomic chain begins.\n- **why it matters:** If file missing/corrupt, `copy` silently fails, OLD binary respawns → silent stuck state.\n- **proposed amendment:** Add pre-chain file size/hash check of `rc-agent-8e378f4d.exe`.\n\n---\n\n### **PV-BR-FL-3**\n- **severity:** P0 (BLOCK)\n- **section:** 4.3\n- **what's wrong:** Chain uses `ping -n 3` for delay — arbitrary and unreliable for sync.\n- **why it matters:** If copy completes before watchdog polls, OLD binary may respawn from stale state.\n- **proposed amendment:** Replace `ping` delay with explicit file-readiness check or sentinel probe.\n\n---\n\n### **PV-BR-FL-4**\n- **severity:** P0 (BLOCK)\n- **section:** 4.6\n- **what's wrong:** Rollback assumes sentinel still exists, but may have auto-cleared at 300s.\n- **why it matters:** If rollback fires after 300s and watchdog sees no sentinel, rollback may be ignored or trigger unwanted rollback-loop.\n- **proposed amendment:** Re-set sentinel with fresh TTL **before** rollback chain, and verify presence post-set.\n\n---\n\n### **PV-BR-FL-5**\n- **severity:** P1\n- **section:** 4.2\n- **what's wrong:** 1s flush wait is not durable on NTFS without explicit flush syscall.\n- **why it matters:** Watchdog may read incomplete/empty `OTA_DEPLOYING` → rollback triggered mid-deploy.\n- **proposed amendment:** Use PowerShell `Set-Content + Flush()` or retry-until-readable pattern.\n\n---\n\n### **PV-BR-FL-6**\n- **severity:** P1\n- **section:** 4.4\n- **what's wrong:** Healthcheck depends on `rc-sentry`, which is a SPOF. If it dies mid-check, no way to verify health.\n- **why it matters:** False-negative healthcheck leads to rollback on healthy pod or ramp continuation on broken pod.\n- **proposed amendment:** Add fallback healthcheck via Tailscale SSH or direct port probe.\n\n---\n\n### **PV-BR-FL-7**\n- **severity:** P1\n- **section:** 4.7\n- **what's wrong:** No explicit panic.log diff check — relies on \"unchanged size\".\n- **why it matters:** Panic may grow in-place without size change (e.g., overwrite), masking regression.\n- **proposed amendment:** Add `fc` or hash diff of panic.log pre/post.\n\n---\n\n### **PV-BR-FL-8**\n- **severity:** P2\n- **section:** 4.1\n- **what's wrong:** No explicit check for `rc-agent-prev.exe` integrity before overwrite.\n- **why it matters:** If `rc-agent-prev.exe` is corrupt, rollback fails → stuck pod.\n- **proposed amendment:** Add hash/size check of `rc-agent-prev.exe` in preflight.\n\n---\n\n### **PV-BR-FL-9**\n- **severity:** P2\n- **section:** 4.7\n- **what's wrong:** No check for rollback logs in watchdog during observation window.\n- **why it matters:** Silent rollback may occur and go undetected → false success.\n- **proposed amendment:** Add log grep for \"rollback\" or \"SF-05\" in watchdog logs.\n\n---\n\n### **PV-BR-FL-10**\n- **severity:** P2\n- **section:** 10\n- **what's wrong:** \"Bono INBOX notify\" is not a hard interlock — insufficient to prevent james collision.\n- **why it matters:** Parallel james ops may overwrite bridge binaries mid-deploy.\n- **proposed amendment:** Add file-based mutex (e.g., `C:\\RacingPoint\\.deploy_lock`) or registry semaphore.\n\n---\n\n## ✅ CHALLENGE QUESTION ANSWERS\n\n### **CQ1:** What is watchdog poll interval N? What if respawn happens before copy completes?\n- **Answer:** N is not specified in PLAN. If respawn occurs before copy completes, OLD binary may be reloaded. This creates a race window not addressed.\n\n### **CQ2:** Is 1s flush wait enough without `FlushFileBuffers`?\n- **Answer:** No. NTFS may defer writes. 1s is not a durability guarantee. Risk of incomplete file read by watchdog.\n\n### **CQ3:** What if rc-sentry dies between sentinel set and atomic chain?\n- **Answer:** Chain never executes. Sentinel remains set. Manual recovery required via SSH. Not handled in PLAN.\n\n### **CQ4:** What if rollback fires after 300s auto-clear?\n- **Answer:** Watchdog may not suppress rollback → rollback may fail or conflict with respawn. Risk of stuck pod.\n\n### **CQ5:** What if Pod 1's `rc-agent-prev.exe` is corrupt?\n- **Answer:** Rollback fails. PLAN says \"may already be touched\" but no recovery path. Pod stuck.\n\n### **CQ6:** Does OLD rc-sentry support all needed endpoints?\n- **Answer:** Not verified. If `:8091/exec` or file ops missing, PLAN fails silently. Must preflight all endpoints.\n\n### **CQ7:** Is INBOX notify sufficient to prevent james collision?\n- **Answer:** No. Notify ≠ interlock. Parallel ops can still interfere. Needs file/registry mutex.\n\n---\n\n**VERDICT: BLOCK** — 5 P0 flaws (race gaps, rollback timing, file durability, rollback sentinel invalidation, missing binary check) must be fixed before pilot. Add flush, file checks, rollback sentinel reset, and durability probes.",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 4872,
+      "completion_tokens": 1638,
+      "total_tokens": 6510,
+      "cost": 0.00402024,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 2,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00402024,
+        "upstream_inference_prompt_cost": 0.00107184,
+        "upstream_inference_completions_cost": 0.0029484
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+}
