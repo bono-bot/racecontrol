@@ -9,8 +9,9 @@
 //! Route-level tests are deferred to a fuller integration pass post-Wave-1
 //! Session 7 PR-open.
 
+use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
@@ -673,5 +674,239 @@ async fn perf_smoke_route_refund_band_a_p95_under_100ms() {
     assert!(
         p95 < 100_000,
         "p95={p95}us exceeds 100_000us gate — perf regression on audit_log INSERT path"
+    );
+}
+
+// ─── Item 10b (NOT TESTED → tested): Concurrency under WAL + max_connections>1 ─
+//
+// Closes the prior commit's meta NOT TESTED ("Concurrency under WAL +
+// max_connections>1 — would need different test pool config"). The earlier
+// `concurrent_band_a_route_refund_writes_distinct_audit_rows` used in-memory
+// pool with max_connections=1 — SQLite serializes writes structurally there,
+// so it was a smoke test for no-panic/no-deadlock under multi-call invocation,
+// NOT true writer contention.
+//
+// This test uses a tempfile-backed SQLite pool with WAL journal mode +
+// max_connections=8 + busy_timeout=5s. With WAL, multiple readers don't block
+// the single writer, but writers still serialize at the SQLite level — they
+// wait their turn under busy_timeout instead of failing immediately with
+// SQLITE_BUSY. This is the production-shaped path: 8 async-tokio tasks each
+// holding their own DB connection, racing for the writer lock under the
+// busy_timeout retry policy.
+//
+// What this validates:
+// - No SQLITE_BUSY errors leak out to handler responses (busy_timeout absorbs)
+// - All N writes commit (no lost-write under contention)
+// - Each audit row carries its distinct staff_id (no overwrite/cross-write)
+// - Handler doesn't deadlock under multi-connection contention
+//
+// Production note: real venue audit_log lives on persistent disk with 5
+// indexes + WAL2 (SQLite 3.45+). This in-process WAL mirrors the lock
+// semantics but not the disk-IO cost; latency observations here are not
+// gate values.
+
+async fn create_wal_test_db() -> (tempfile::NamedTempFile, SqlitePool) {
+    let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+    let path = tmp.path().to_string_lossy().to_string();
+
+    // file-backed SQLite with WAL + busy_timeout + multi-connection pool.
+    // sqlx::sqlite::SqliteConnectOptions::from_str + .pragma() ensures the
+    // PRAGMA fires on every connection acquisition (per-connection state).
+    let opts = sqlx::sqlite::SqliteConnectOptions::from_str(&format!("sqlite://{}", path))
+        .expect("parse sqlite uri")
+        .create_if_missing(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5));
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect_with(opts)
+        .await
+        .expect("create wal pool");
+
+    // Apply same minimal schema as create_test_db (above).
+    sqlx::query(
+        "CREATE TABLE drivers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            phone TEXT
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE audit_log (
+            id TEXT PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            row_id TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN ('create', 'update', 'delete')),
+            old_values TEXT,
+            new_values TEXT,
+            staff_id TEXT,
+            ip_address TEXT,
+            action_type TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE accounts (
+            id TEXT PRIMARY KEY,
+            code INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            account_type TEXT NOT NULL,
+            description TEXT
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE journal_entries (
+            id TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            entry_type TEXT,
+            reference_id TEXT,
+            staff_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TABLE journal_lines (
+            id TEXT PRIMARY KEY,
+            entry_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            debit_paise INTEGER NOT NULL DEFAULT 0,
+            credit_paise INTEGER NOT NULL DEFAULT 0
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO accounts (id, code, name, account_type) VALUES ('acc_refunds', 3001, 'Refunds', 'expense'), ('acc_wallet', 2001, 'Customer Wallet', 'liability')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    (tmp, pool)
+}
+
+#[tokio::test]
+async fn concurrent_route_refund_under_wal_multi_connection() {
+    const N: usize = 20;
+
+    let (_guard, pool) = create_wal_test_db().await;
+
+    // Confirm WAL is active on the pool (per-connection PRAGMA propagation).
+    let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        journal_mode.to_lowercase(),
+        "wal",
+        "expected journal_mode=wal, got {journal_mode}"
+    );
+
+    // Seed N distinct drivers up-front (avoid FK contention surprising the
+    // test scope; the test target IS the audit_log INSERT contention).
+    for i in 0..N {
+        sqlx::query("INSERT INTO drivers (id, name, phone) VALUES (?, ?, ?)")
+            .bind(format!("drv_wal_{i:02}"))
+            .bind(format!("Test Driver wal {i:02}"))
+            .bind("9999999999")
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let state = create_test_state(pool.clone());
+
+    // Spawn N tasks. Each holds its own AppState clone and runs route_refund
+    // independently. Under max_connections=8 + WAL, up to 8 tasks compete for
+    // the writer lock at any instant; busy_timeout=5s absorbs the contention.
+    let wall_start = Instant::now();
+    let mut set = JoinSet::new();
+    for i in 0..N {
+        let st = state.clone();
+        set.spawn(async move {
+            let req = RouteRefundRequest {
+                amount_paise: 50_000 + (i as i64),
+                driver_id: format!("drv_wal_{i:02}"),
+                reason: None,
+                reference_id: Some(format!("wal_ref_{i:02}")),
+            };
+            route_refund(
+                axum::extract::State(st),
+                Some(Extension(StaffClaims {
+                    sub: format!("wal_staff_{i:02}"),
+                    role: "cashier".to_string(),
+                    exp: 9_999_999_999,
+                    iat: 1,
+                })),
+                Json(req),
+            )
+            .await
+        });
+    }
+
+    let mut ok_count = 0;
+    while let Some(joined) = set.join_next().await {
+        let (status, Json(body)) = joined.expect("task panicked");
+        assert_eq!(status, StatusCode::OK, "task body={}", body);
+        ok_count += 1;
+    }
+    let wall_elapsed = wall_start.elapsed();
+    assert_eq!(ok_count, N);
+
+    // Audit_log invariants under contention:
+    // (1) all N writes committed
+    let row_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE action_type = 'refund_3band_a'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row_count, N as i64, "lost-write under contention");
+
+    // (2) each row carries its distinct staff_id (no cross-write/overwrite)
+    let distinct_staff_ids: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT staff_id) FROM audit_log WHERE action_type = 'refund_3band_a'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(distinct_staff_ids, N as i64, "cross-write/overwrite at audit-log layer");
+
+    // (3) each row carries its expected amount (no payload tearing under
+    // contention — JSON serialization of `details` happens BEFORE the INSERT
+    // SQL fires, so any tearing here would be a Rust-level concurrency bug).
+    for i in 0..N {
+        let new_values: String = sqlx::query_scalar(
+            "SELECT new_values FROM audit_log WHERE staff_id = ? AND action_type = 'refund_3band_a'",
+        )
+        .bind(format!("wal_staff_{i:02}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let parsed: Value = serde_json::from_str(&new_values).unwrap();
+        let expected_amount = 50_000 + (i as i64);
+        assert_eq!(
+            parsed["amount_paise"], expected_amount,
+            "amount_paise mismatch for staff wal_staff_{i:02}"
+        );
+        assert_eq!(parsed["driver_id"], format!("drv_wal_{i:02}"));
+    }
+
+    eprintln!(
+        "[concurrency wal] N={N}  max_conn=8  wall_clock={wall_elapsed:?}  \
+         throughput={:.1} req/s",
+        N as f64 / wall_elapsed.as_secs_f64()
     );
 }
