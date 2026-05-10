@@ -7,6 +7,25 @@
 
 ---
 
+## §0.1 — Layer frame (diagnostic vocabulary; added 2026-05-10 ~13:54 IST per Captain commission "Proceed with your recommendations")
+
+The autonomous V2 completion machinery is decomposed into 4 feedback-loop layers for diagnostic routing and investment prioritization. **This is a vocabulary, not a new canonical structure** — the loop in §3 remains the engine; phase ladders live in V2-ROADMAP.
+
+| Layer | Function | Owner | Failure mode | Feedback path |
+|---|---|---|---|---|
+| **L1 SUBSTRATE** | hooks · state files (in-flight ledger / sentinels / court-queue) · comms.db transport · memory files · repos | bilateral pilot maintenance | substrate drift (state out-of-sync · hooks unregistered · transport broken · ws-exec routing class) | escalates to mechanism-trust-check upstream of fix RCA (§S-146) |
+| **L2 DOCTRINE** | CGP H1-H5 · §S-146 RCA pattern · mechanism-trust-check · Q3 self-test · standing rules · ledger schema · §S-121 timeline-verify | Captain ratifies (Level A/B/C) | rule drift between sync targets · text-only vs hook-enforced (text-only carries repeat-violations; hook-enforced carries zero) | rewrites L3 gates per-action |
+| **L3 OPERATION** | doorbell loop · Q1+Q2+Q3+V2-transport+Captain-stake gating · wave selection · PR authoring · AMPLIFIER cycles · slot-collision · concurrent-coordination · H2/H3/H4 verification | bono solo · james solo · bilateral concurrent | goal-among-sub-paths drift · partner-blocker-waiting · stale-cite vs live-state · option-table-when-Q3-cleared | drops drift_signals into ledger entries |
+| **L4 ADAPTATION** | G9 tracking · MMA-Diagnose · AMPLIFIER critique · ledger drift_signals analysis · Pattern-N (CANDIDATE-N1 → PROMOTE-N=2 → ACTIVE) · §S-146 cascade RCA | both pilots + Captain ratification | drift NOT detected in time · false-positive G9 · CANDIDATE-N1 promoted without trial | feeds L2 (PROMOTE → doctrine update); §S-146 enforcement RCA → 4-phase plan |
+
+**Use the vocabulary in:** ledger drift_signals fields · AMPLIFIER msgs · post-mortem RCAs · investment-prioritization (fix L1 substrate gaps blocking L3 first; resolve L2 doctrine drift before L3 scaling).
+
+**Do not:** author a separate `V2-COMPLETION-LAYERS.md` canonical doc (re-scaffolds what was simplified) · treat layering as a confidence-unlock (it routes; it doesn't move trial-duration / Captain-pending-orientation / hook-enforcement variables).
+
+**Reference:** `~/.claude/projects/-root/memory/feedback_layer_diagnostic_frame_v2_completion_20260510.md` (to be authored if recurrence pattern emerges).
+
+---
+
 ## §1 — Goal
 
 **Operational target (current goal):** COMPLETE Racing Point ecosystem v2.
