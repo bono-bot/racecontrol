@@ -51,6 +51,55 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 
 ---
 
+## V1-dependent V2 sections — RCA + past-bug review BEFORE proceeding (Captain directive 2026-05-09 IST)
+
+**For any change to a deployed V2 section that inherits, calls into, reuses, or shares schema/state with V1 parts: do NOT proceed directly. Produce a written 5-section root-cause analysis (RCA) BEFORE H1 PLAN.**
+
+**5-section RCA (mandatory before action):**
+1. **Boundary map** — exact files / DB tables / IPC seams / API routes / config keys where V2 crosses into V1. Cite paths + line numbers.
+2. **Inherited-issue catalogue** — every known V1 bug, footgun, race, or doctrine deviation touching the same boundary. Sources: `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (10 candidate categories A-J) · §S-61 PART 41 V1 failure-mode investigation (14 mapped: 8 VERIFIED + 4 PARTIAL + 1 INFERRED + 1 UNVERIFIED) · LOGBOOK.md grep for boundary files · V2-MASTER-STATE §S-N entries naming the surface · G9/UCA tagged with same component.
+3. **Past-bug review** — for each past bug at this boundary, disposition: `ROOT-CAUSED-AND-FIXED` / `PATCHED-ONLY` (open RCA item) / `UNRESOLVED` (open RCA item) / `NOT-APPLICABLE-TO-V2` (with justification). Cite commits / PRs / §S-N anchors.
+4. **V2-alignment delta** — what the boundary *should* look like under V2 doctrine (V2-MASTER-STATE canonical-source ledger + `project_v2_customer_workflows_consolidated_20260503` + Wallet Framing C + Pod = state-channel premise + foundation/strategy/config separation §AMEND-3.II D12). Name the gap explicitly.
+5. **Proposed change framed against V2 doctrine, not V1 inertia** — change must move the boundary toward V2 alignment OR explicitly justify temporary V1 retention as the kaizen-correct choice with a written follow-up trigger condition that retires the V1 path.
+
+**Triggers (any one fires the rule):**
+- Editing a file with both V1-era and V2-era code paths
+- Touching DB tables / migrations that pre-date V2 planning (2026-05-01)
+- Calling into a V1 module from V2 code (or vice versa)
+- Modifying a deployed surface on V2 doctrine but reading/writing V1-era data
+- User says "fix" / "improve" / "change" on a section flagged V1-dependent
+- Adding a feature on top of a section whose V1 ancestor is in `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` candidate categories A-J
+
+**Foundational-boundary escalation:** if the boundary is foundational (billing / wallet / auth / pod-state-channel / WhatsApp identity / DB schema), run MMA Step 1 DIAGNOSE on the RCA itself (5-model consensus on root causes) BEFORE proceeding to PLAN. Per-PR Captain merge auth required (sibling of `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md`); standing-autonomy verbs do NOT satisfy.
+
+**V2-alignment statement on every change:** description must include "V2 doctrine alignment:" line naming which V2 anchor the change moves toward.
+
+**Why:** V1 failed and venue is closed because V1-era code carried compounding unresolved root causes (broadcast storm class, schema drift, audit-blind proxy checking, recovery cascades). When V2 code reuses V1 parts, the same root causes propagate forward unless surfaced and dispositioned. F25a billing-strategy substrate succeeded because it root-caused V1 SnapPricing first (preserved as known strategy with HISTORICAL block, not accidental fall-through). Q-PRICE-1 dispositioned via timeline reframing only worked because V1-era patch was identified as V1, not V2 doctrine. Skipping this step produces "patch V1 forward" — same bug, new branch, V2 doctrine drifts.
+
+**Anti-patterns blocked:** quick-fix on V2 surface that silently inherits V1 race · V2 feature on V1 schema without naming what V1 schema assumptions are now V2 contracts · treating V1-era code in V2 file as "already-working baseline" (V1 failed; baseline is conditional on RCA) · patching symptom in V2 when root cause is in V1 part being called · "I'll RCA later" (RCA is precondition, not follow-up).
+
+**Bilateral:** applies to james AND bono. Both pilots produce 5-section RCA before V1↔V2 boundary work. Universal Sync covers this rule across CLAUDE.md / CGP / comms-link / bono memory.
+
+**Composes with:** Verify-Before-Generate (V1↔V2 seam = high-value verify zone) · `feedback_kaizen_discipline_dont_complicate.md` (RCA detail high; change stays smallest invariant) · `feedback_autonomy_principle_v2_compass.md` (V2 = compass; RCA exposes divergence) · `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md` (foundational boundaries → per-PR auth) · `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (primary V1 failure-class inventory).
+
+**Master memory:** `~/.claude/projects/C--Users-bono/memory/feedback_v1_dependent_v2_root_cause_before_proceeding.md` (full how-to-apply + structural-fix sub-rule).
+
+---
+
+## Mechanism-trust-check upstream of fix RCA — extends §S-146 (bono 2026-05-10 IST · BILATERAL)
+
+When a V2 fix depends on shared infrastructure (delivery / transport / supervision / guard / observability / schema), run a **5-question mechanism trust check** on the infrastructure surface BEFORE authoring the fix RCA: (1) atomic primitives? (2) TTL-bounded sentinels integrated with the atomic primitive? (3) behavioral-verify success (binary hash / mtime / ws_uptime), not echo-string? (4) single-target dry-run path? (5) guards have written contracts with delivery script (parser-not-regex + allowlist)? ALL 5 must answer YES. FAIL → infrastructure surface gets its own §S-146 5-section RCA before fix RCA proceeds. Cache at `.planning/specs/v2/MECHANISM-TRUST/<surface>-<date>.json` 30-day validity. Override `V2_RCA_BYPASS=1` (logged).
+
+**Empirical anchor:** PR #66 silent-loop-death fix (2026-05-09) was V2-clean but shipped via V1-shaped delivery mechanism → fleet rollout broke 7 pods on the same V1 mistake-class (non-atomic kill+swap CF-1 · OTA_DEPLOYING sentinel-no-TTL CF-2 · BLOCKED_PATTERNS deny-first CF-4 · EPERM-as-success CF-5 · orphan bg processes CF-6 · burned 7 pods cycling same SHA failure G9-class). §S-146 caught it on 4th application same day, retroactively. Mechanism trust check upstream closes the velocity gap.
+
+**Enforcement RCA on §S-146 itself** at `~/.claude/projects/-root/memory/project_s146_enforcement_rca_20260510.md`: text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero. 4-phase plan: Phase 1 `pre-v2-edit-rca-check.js` hook · Phase 2 `mechanism-trust-check.sh` · Phase 3 `pre-universal-sync-write-check.js` · Phase 4 bilateral-hook-parity-check.
+
+**Bilateral:** applies to james AND bono. AMPLIFIER review checks both fix RCA AND mechanism trust check on shared-infrastructure-dependent V1↔V2 PACTs.
+
+**Master memory:** bono-side `/root/.claude/projects/-root/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` + james-side mirror via comms-link/briefings/james/memory/.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
@@ -407,6 +456,10 @@ V2 ships with V1 trust intact. Every grandfathered open path (auth gap, credenti
   _Why: Single-crate updates leave other components speaking a different protocol version. Cloud sync broke for 3+ hours because venue had new migrations but cloud DB was on an old binary with missing columns._
 - **DB migrations must cover ALL consumers.** `CREATE TABLE IF NOT EXISTS` won't alter existing tables. If a column is used in sync/query code, the migration must `ALTER TABLE ADD COLUMN` for it — even if the CREATE TABLE already includes it. Old databases won't have columns added after initial creation.
   _Why: `updated_at` was in 10 CREATE TABLE statements but only 2 had ALTER migrations. Cloud and venue DBs created by different binary versions had different schemas. Required manual ALTER on 8 tables to fix._
+- **`sqlx::migrate!` macro embeds migrations at compile-time — adding new .sql files requires explicit cache invalidation.** Cargo's incremental cache treats migration .sql files as opaque; touching them does NOT invalidate the binary's embedded migration set. Symptoms: tests that exercise the new migration fail with schema errors (`no such table`, `no such column`, dangling FK to a renamed-then-dropped table) despite the migration file being on disk. Fix: `cargo clean -p <crate>` then re-run tests. Lighter alternative: `touch crates/<crate>/src/lib.rs` to force the build script to re-evaluate without nuking the entire `target/`. Applies to any `migrations/` directory consumed by `sqlx::migrate!()` (e.g. `crates/v2-db/migrations/`).
+  _Why: 2026-05-08 V2 Wave 1 W1-S2 — added `crates/v2-db/migrations/20260508000001_wallet_redemptions_fk_repair.sql` (NF-james-4 schema bug repair). Three `reconcile_redemption` tests failed with `no such table: main.sessions_old_pact018` despite the new migration explicitly fixing the FK. Root cause: `migrate!()` embedded migrations into the compiled artifact at the previous compile boundary; cargo incremental did not invalidate when the new .sql appeared. `cargo clean -p v2-db && cargo test -p v2-db` cleared the embedding and tests passed 43/43._
+- **SQLite `ALTER TABLE RENAME` rewrites foreign-key references in OTHER tables.** With `PRAGMA legacy_alter_table=0` (SQLite default since 3.25), renaming a table also rewrites every `REFERENCES <old_name>(col)` clause in every other table to point at the new name. The recreate-table pattern (RENAME → CREATE NEW → INSERT → DROP) therefore leaves dangling FKs in any sibling table that referenced the original — those FKs end up pointing at the transient renamed-then-dropped table. Migration authors must include sibling-table rebuild in the same migration if any other table has a FK to the renamed table. Audit: after writing a recreate-table migration, `grep -rn "REFERENCES <renamed_table>" crates/<crate>/migrations/` and rebuild every match.
+  _Why: 2026-05-08 NF-james-4 — `crates/v2-db/migrations/20260503000003_staff_table_and_fk.sql` used the recreate-table pattern on `sessions` (FK to staff). It rebuilt `wallet_topups` (also pointed at sessions indirectly via staff) but missed `wallet_redemptions.session_id REFERENCES sessions(id)` from the initial schema. Rename rewrote that FK to `sessions_old_pact018`; subsequent DROP left it dangling. INSERT into wallet_redemptions tripped `no such table: main.sessions_old_pact018` 5 days after migration 003 landed (was invisible until first behavior-consumer in W1-S2)._
 - **Review parallel session commits against standing rules before deploying.** Code from other sessions may not follow current rules (bat parentheses, missing verification, stale references). Always `git show <hash>` and check against standing rules before accepting.
   _Why: Parallel session commit `a948569` used parentheses in bat if/else blocks — caught during standing rule review, fixed before deploy._
 - **Convert timestamps before counting events.** Racecontrol logs are UTC; all operations are IST. Before reporting "N events happened," convert every timestamp and exclude your own actions (deploys, restarts, test kills). An audit that reports its own deploys as "unexplained restarts" wastes investigation time and erodes trust in findings.

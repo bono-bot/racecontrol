@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "rc-watchdog",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "rollback_manager.rs:104-216 perform_rollback() uses atomic file rename ops but service-loop in service.rs:234-559 not panic-contained; CF-9 watchdog deploy-aware health checks missing."
+    },
+    "ttl_sentinels": {
+      "answer": "NO",
+      "evidence": "OTA_DEPLOYING checked at rollback_manager.rs:121-128 but TTL/expiry not enforced rc-watchdog-side; sentinel is shared state without bilateral mutex with deploy-pod.sh."
+    },
+    "behavioral_verify": {
+      "answer": "NO",
+      "evidence": "Health-poll based; rolls back on poll failure (CF-9 finding). Pod 1 manual atomic-chain swap rolled back here when OTA_DEPLOYING absent."
+    },
+    "single_target_dry_run": {
+      "answer": "NO",
+      "evidence": "No dry-run mode for rc-watchdog; only runtime supervision."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "No written contract w/ deploy-pod.sh on rollback semantics; CF-9 NOVEL P0/P1 finding flagged this for V2 substrate."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "Sibling-of deploy-pod failure-class. CF-9 + CF-2 are the bundled V2-aligned remediation per MMA Step 2 PLAN."
+}

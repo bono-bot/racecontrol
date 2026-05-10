@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "auth",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "YES",
+      "evidence": "JWT issuance + validation atomic; staff_auth.rs sliding-window auth (W1-S5 RCA 15490644)."
+    },
+    "ttl_sentinels": {
+      "answer": "YES",
+      "evidence": "JWT TTL enforced; sliding-window refresh logic in W1-S5 RCA scope; create_staff_jwt(claims) preserves role per W1-S5 mitigation."
+    },
+    "behavioral_verify": {
+      "answer": "YES",
+      "evidence": "Signature validation + claims validation; W1-S5 + W1-S6 RCAs cover role-downgrade + PIN-LOCKOUT; integration tests exist."
+    },
+    "single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "W1-S5 + W1-S6 integration tests cover sliding-window + PIN-LOCKOUT scenarios (cargo test passes pre-amend1 branch)."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "W1-S5 NEW-Q-CROSS-1 lockout-check-on-refresh security-class flagged BLOCKING in MMA Step 4 VERIFY (Wave A.2.1 surgical amendment in flight); contract not yet codified between sliding-window + PIN-LOCKOUT layers."
+    }
+  },
+  "overall": "PARTIAL",
+  "notes": "PARTIAL verdict \u2014 4 YES + 1 NO. Most issues addressed via W1-S5 + W1-S6 RCAs and Wave A.2.1 amendment; cross-coupling Q-CROSS-1 the open item. PR-A (W1-S6) + PR-C (W1-S5) ready to author per \u00a7S-165 cascade."
+}
