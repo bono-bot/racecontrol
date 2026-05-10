@@ -137,6 +137,29 @@ Loop closes; outcome delivered with evidence
 
 **Doctrine reference:** `feedback_compact_clear_autonomous_discipline_20260510.md` (full rule + decision table + anti-patterns).
 
+### §3.2 — Apply recommendations autonomously (STANDING RULE; Captain commission 2026-05-10 ~13:18 IST)
+
+Captain verbatim: *"Make it a standing rule to apply all your recommendations for me."*
+
+**Rule:** When a recommendation passes the autonomous-eligibility gates (Q1+Q2+Q3+V2-transport+Captain-stake), AUTO-APPLY. Do NOT surface options A/B/C/D for selection when one path is clearly autonomous-eligible. Surface only the Captain-stake items as genuine asks (clear operational questions, not options-tables).
+
+**The autonomous-eligibility gate:**
+- Q1: V2-aligned? · Q2: Info-complete? · Q3: NOT canonical-boundary? · V2-transport: not broken? · Captain-stake: NO?
+- All clear → AUTO-APPLY (write PATH-PICKED-EXECUTING ledger entry; execute; report what landed)
+- Any gate fires → Captain-ask (operational question, not options-table)
+
+**Banned closures unless gate fires:**
+- "Stand by for direction"
+- "Let me know if you want me to..."
+- "Your call on A/B/C/D"
+- "Want me to do X or Y?" (when both X and Y are Q3-cleared)
+
+**Genuine Captain-asks remain** — Q3 / V2-transport / §5 boundary / pre-existing-dirt of unknown provenance / Class B/C outbound / Path B Captain-pending entries. These surface as clear operational questions.
+
+**Empirical anchor:** earlier same session 13:15 IST surfaced 4 options for compact-readiness NEEDS-PREP when only 1 (Option B refinement) was autonomous-eligible. Captain commissioned standing rule in response 13:18 IST. Rule self-applies retroactively this turn — Option B was auto-applied before the rule's substrate landed.
+
+**Doctrine reference:** `feedback_apply_recommendations_autonomously_20260510.md` (full rule + autonomous-eligibility filter + bilateral application + anti-pattern test cases).
+
 ---
 
 ## §4 — Decision taxonomy

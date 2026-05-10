@@ -100,6 +100,22 @@ When a V2 fix depends on shared infrastructure (delivery / transport / supervisi
 
 ---
 
+## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL)
+
+Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to apply all your recommendations for me."*
+
+**Rule:** When generating a recommendation that passes the autonomous-eligibility gates (Q1 V2-aligned · Q2 info-complete · Q3 not canonical-boundary · V2-transport not broken · not Captain-stake), AUTO-APPLY. Do NOT surface options A/B/C/D for selection when one path is clearly autonomous-eligible. Banned closures unless gate fires: "Stand by for direction" / "Let me know if you want me to..." / "Your call on A/B/C/D" / "Want me to do X or Y?" (when both Q3-cleared).
+
+**Genuine Captain-asks remain** — Q3 canonical-boundary touches / §5 boundary surfaces / V2-transport-broken paths / pre-existing-dirt of unknown provenance / Class B/C outbound / doctrine changes not yet commissioned / Path B Captain-pending. These use clear operational questions, not options-tables.
+
+**Bilateral:** applies to both pilots. AMPLIFIER reviews check rule compliance — substrate that surfaces options-tables when clearly autonomous-eligible = AGREE-WITH-CAVEATS at minimum.
+
+**Empirical anchor:** earlier same session 13:15 IST surfaced 4 options when 1 was autonomous-eligible; Captain commissioned standing rule 13:18 IST. Rule promotes to ACTIVE without 30-day CANDIDATE-N1 trial via explicit standing-rule directive.
+
+**Master memory:** `/root/.claude/projects/-root/memory/feedback_apply_recommendations_autonomously_20260510.md` · **V2-COMPLETION-AUTONOMOUS-PROCESS §3.2** integration · **comms-link/CLAUDE.md** mirror.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
