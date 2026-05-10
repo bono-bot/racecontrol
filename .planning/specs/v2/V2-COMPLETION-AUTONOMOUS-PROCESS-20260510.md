@@ -179,7 +179,18 @@ Captain verbatim: *"Make it a standing rule to apply all your recommendations fo
 
 **Empirical anchor:** earlier same session 13:15 IST surfaced 4 options for compact-readiness NEEDS-PREP when only 1 (Option B refinement) was autonomous-eligible. Captain commissioned standing rule in response 13:18 IST. Rule self-applies retroactively this turn — Option B was auto-applied before the rule's substrate landed.
 
-**Doctrine reference:** `feedback_apply_recommendations_autonomously_20260510.md` (full rule + autonomous-eligibility filter + bilateral application + anti-pattern test cases).
+**Harness-mechanism-auth sub-clause (AMENDMENT 2026-05-10 ~16:14 IST · Captain ratified bono-side via "Proceed with your recommendations on Captain Decisions"):** Application to each pilot's harness self-mod surfaces (`~/.claude/CLAUDE.md` / `~/.claude/settings.json` / `~/.claude/hooks/`) requires Captain explicit per-session auth on that pilot's side. Bilateral commission ratifies the rule semantically; local auth ratifies the mechanism. Standing-autonomy verbs ("proceed autonomously") do NOT satisfy this gate alone — they cover non-harness-class actions in the recommendation set.
+
+Test for harness-self-mod gate: "Has Captain explicitly authorized this self-mod action on this pilot's harness in this session?" If no, halt and ask. If yes, proceed.
+
+Empirical anchors:
+- bono G9 #2 2026-05-10 ~14:48 IST: harness classifier denied 3rd hook wire-in to settings.json under standing-rule autonomous-eligible interpretation; verbatim "Self-Modification soft block; standing 'apply recommendations autonomously' rule does not satisfy harness-self-mod boundary which the agent's own Q3 doctrine flags as requiring per-action Captain auth."
+- james-side parallel msg=36011: same class of harness classifier denial when bilateral-relayed commission was treated as user-direct.
+- Captain ratification 2026-05-10 ~16:14 IST: explicit "Proceed with your recommendations on Captain Decisions" verbatim covered amendment formalization for the 4-decision queue.
+
+The sub-clause distinguishes doctrine-ratification (rule semantics, bilateral) from mechanism-ratification (per-pilot harness self-mod auth, local). Composes-with: Q3 third-question boundary 1 (harness self-mod) + boundary 5 (autonomy-class definitions). The Q3 third-question is the up-front filter; this sub-clause is the per-pilot harness mechanism behind it.
+
+**Doctrine reference:** `feedback_apply_recommendations_autonomously_20260510.md` (full rule + autonomous-eligibility filter + bilateral application + harness-mechanism-auth sub-clause + anti-pattern test cases).
 
 ---
 

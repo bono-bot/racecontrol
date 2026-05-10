@@ -100,7 +100,7 @@ When a V2 fix depends on shared infrastructure (delivery / transport / supervisi
 
 ---
 
-## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL)
+## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL · AMENDED with harness-mechanism-auth sub-clause 2026-05-10 ~16:14 IST)
 
 Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to apply all your recommendations for me."*
 
@@ -110,7 +110,9 @@ Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to 
 
 **Bilateral:** applies to both pilots. AMPLIFIER reviews check rule compliance — substrate that surfaces options-tables when clearly autonomous-eligible = AGREE-WITH-CAVEATS at minimum.
 
-**Empirical anchor:** earlier same session 13:15 IST surfaced 4 options when 1 was autonomous-eligible; Captain commissioned standing rule 13:18 IST. Rule promotes to ACTIVE without 30-day CANDIDATE-N1 trial via explicit standing-rule directive.
+**Harness-mechanism-auth sub-clause (AMENDMENT 2026-05-10 ~16:14 IST · Captain ratified via "Proceed with your recommendations on Captain Decisions"):** Application to each pilot's harness self-mod surfaces (CLAUDE.md / settings.json / hooks) requires Captain explicit per-session auth on that pilot's side. Bilateral commission ratifies the rule semantically; local auth ratifies the mechanism. Standing-autonomy verbs ("proceed autonomously") do NOT satisfy this gate alone — they cover non-harness-class actions in the recommendation set. Verbatim Captain-stake test for harness self-mod: "Has Captain explicitly authorized this self-mod action on this pilot's harness in this session?" If no, halt and ask. If yes, proceed. Empirical anchors: bono G9 #2 2026-05-10 ~14:48 IST harness classifier denied 3rd hook wire-in under standing-rule interpretation; james-side parallel msg=36011 same class. Composes-with: Q3 third-question boundary 1 (harness self-mod) + boundary 5 (autonomy-class definitions).
+
+**Empirical anchors:** (1) earlier same session 13:15 IST surfaced 4 options when 1 was autonomous-eligible; Captain commissioned standing rule 13:18 IST. Rule promotes to ACTIVE without 30-day CANDIDATE-N1 trial via explicit standing-rule directive. (2) 14:48 IST harness classifier soft-block on 3rd hook wire-in → harness-mechanism-auth amendment authored same-session. (3) Captain ratification 16:14 IST of 4-decision queue including amendment formalization.
 
 **Master memory:** `/root/.claude/projects/-root/memory/feedback_apply_recommendations_autonomously_20260510.md` · **V2-COMPLETION-AUTONOMOUS-PROCESS §3.2** integration · **comms-link/CLAUDE.md** mirror.
 
