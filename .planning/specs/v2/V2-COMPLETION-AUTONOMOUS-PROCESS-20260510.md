@@ -102,6 +102,41 @@ Loop closes; outcome delivered with evidence
 - **Vague-escalation-fatigue** — "I'm stuck" without thresholds is either over-escalation (Captain spam) or under-escalation (silent deadlock). Explicit (a)-(d) above breaks this.
 - **Self-caught-mistakes-don't-fix** — defects I noticed before Captain did still need structural close, not just patched-in-place. Otherwise the pattern recurs cross-session.
 
+### §3.1 — Compact/Clear discipline (added 2026-05-10 ~13:10 IST per Captain commission "You need to do it. As a part of the autonomous process.")
+
+`/compact` and `/clear` are user-typed slash commands; I cannot fire them via tool. The autonomous part is **proactive readiness monitoring + state preparation + recommendation surfacing**, not the trigger itself.
+
+**When to run readiness check** (insert into loop at these natural break points):
+- After H2 settle on a major substrate ship (commits landed, ledger transitioned, no mid-execution)
+- When all-paths-gated state is reached (every concrete next-pick fails Q3 / V2-transport / Captain-stake gates)
+- After completed bilateral cycle (msg sent + ack received + leg-3 settled bilaterally)
+- Before Captain orientation moment (when "stand by" is the discipline-correct answer)
+
+**The check:** `bash /root/.claude/state/compact-readiness-check.sh` (script ratified 2026-05-10 same turn). Verdict = `READY` | `NEEDS-PREP` | `NOT-READY`.
+
+**Decision rule:**
+- `READY` → emit recommendation to user with: (a) verdict, (b) what the ledger captures, (c) `/compact` vs `/clear` choice rationale
+- `NEEDS-PREP` → fix blocking reasons (commit substrate; populate missing closure_condition/next_action; transition PATH-PICKED-EXECUTING) before recommending
+- `NOT-READY` → structural blocker; surface to Captain; do not recommend compact
+
+**Pre-compact prep routine:**
+1. Run readiness check
+2. If NEEDS-PREP, address each blocking reason
+3. Verify each AWAITING-PARTNER-ACK entry references relevant msg-IDs in evidence text (cross-compaction traceability)
+4. Brief pre-compact summary in ledger entry's `notes` field if substantial reasoning would be lost
+5. Re-run check; expect READY
+6. Surface recommendation
+
+**When NOT to recommend** (anti-patterns blocked):
+- PATH-PICKED-EXECUTING ledger entry without closure_evidence (mid-execution)
+- AWAITING-PARTNER-ACK with msg sent <5min ago (partner reply may be in-flight)
+- Uncommitted substrate (would be lost on /clear, lossily summarized on /compact)
+- Captain in active dialog about a specific task (operational > token efficiency)
+
+**Why this is part of THE autonomous process:** the ledger (Path A from same session) is the durable state foundation that makes /compact and /clear low-cost. Without proactive readiness monitoring + prep, auto-compact fires reactively under context-window pressure — risking mid-execution losses. With this discipline, compact/clear become explicit loop step transitions rather than external concerns.
+
+**Doctrine reference:** `feedback_compact_clear_autonomous_discipline_20260510.md` (full rule + decision table + anti-patterns).
+
 ---
 
 ## §4 — Decision taxonomy
