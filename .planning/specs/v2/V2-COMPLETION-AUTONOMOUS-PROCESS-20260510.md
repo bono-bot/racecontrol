@@ -68,12 +68,18 @@ Q4 MID-EXECUTION SANITY CHECK (does new info from execution invalidate Q1+Q2+Q3?
 H3 evidence (exact behavior + raw output + where + not-tested)
        │
        ▼
-Bilateral mechanism? → close-loop 4-leg verify
+Index-discoverable substrate? → update relevant index (MEMORY.md / pointer-files) for cross-pilot discovery
+       │
+       ▼
+Bilateral mechanism with REQUIRED partner cooperation? → close-loop 4-leg verify
+       │     │  (Mechanism = doorbell / cross-pilot exec / negotiated handoff. NOT firing for unilateral
+       │     │   doctrine sync / one-way reference publishing — those use leg-4 substitute "partner reports
+       │     │   observed behavior" per close-loop memory body.)
        │     │
        │     ▼ on FAIL: diagnose-leg (which of 4 missing/mismatched/timing) → up to 2 retries → escalate with leg evidence
        │
        ▼
-H2 — fix in one msg, claim "done" in NEXT
+H2 — fix in one msg, claim "done" in NEXT (H2 fires on FIX claims, not on substrate writes that don't claim "done")
        │
        ▼
 Captain correction? → G9 cycle: WHY + STRUCTURAL fix in same session
