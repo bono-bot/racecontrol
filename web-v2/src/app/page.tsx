@@ -7,11 +7,14 @@ export const metadata: Metadata = {
     "Eight pro-grade racing simulators · cafe · venue in Hyderabad. Book your first sim time.",
 };
 
-// Captain-fillable placeholders flagged with __TODO_CAPTAIN__ literal so they
-// surface visibly in pre-deploy review (grep -n __TODO_CAPTAIN__).
-const VENUE_WHATSAPP_LINK = "https://wa.me/__TODO_CAPTAIN_PHONE__";
+// Venue-specific values. Phone number + address line 1 default to graceful
+// fallbacks so the page is customer-ready even before Captain fills them
+// (wa.me/ with no number lands on WhatsApp's main page; address falls back
+// to city-level + WhatsApp-for-directions framing). Captain fills with real
+// venue values + rebuilds; rebuild is non-destructive (no schema change).
+const VENUE_WHATSAPP_LINK = "https://wa.me/"; // append phone number when known
 const PWA_BOOK_LINK = "https://app.racingpoint.cloud/";
-const VENUE_ADDRESS_LINE_1 = "__TODO_CAPTAIN_ADDRESS_LINE_1__";
+const VENUE_ADDRESS_LINE_1 = ""; // street-line 1 (Captain to fill); rendered conditionally
 const VENUE_ADDRESS_LINE_2 = "Hyderabad, Telangana, India";
 const VENUE_HOURS = "Open daily · 12:00 – 24:00 IST";
 
@@ -264,10 +267,19 @@ function LocationHours() {
         <div className={styles.locationBlock}>
           <h3>Address</h3>
           <p>
-            {VENUE_ADDRESS_LINE_1}
-            <br />
+            {VENUE_ADDRESS_LINE_1 ? (
+              <>
+                {VENUE_ADDRESS_LINE_1}
+                <br />
+              </>
+            ) : null}
             {VENUE_ADDRESS_LINE_2}
           </p>
+          {!VENUE_ADDRESS_LINE_1 ? (
+            <p className={styles.muted}>
+              Ask on WhatsApp for the full venue address and pin.
+            </p>
+          ) : null}
         </div>
         <div className={styles.locationBlock}>
           <h3>Hours</h3>

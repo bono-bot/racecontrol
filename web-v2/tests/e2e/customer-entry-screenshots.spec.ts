@@ -11,6 +11,8 @@
 import { test, expect } from "@playwright/test";
 
 const BASE = process.env.SCREENSHOT_BASE || "http://localhost:3502";
+const URL_PATH = process.env.SCREENSHOT_PATH || "/v2/";
+const FILE_SUFFIX = process.env.SCREENSHOT_SUFFIX || "";
 
 const VIEWPORTS = [
   { name: "mobile", width: 375, height: 812 },
@@ -23,7 +25,7 @@ for (const vp of VIEWPORTS) {
     page,
   }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await page.goto(`${BASE}/v2/`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}${URL_PATH}`, { waitUntil: "networkidle" });
 
     // Sanity: heading rendered.
     await expect(
@@ -40,7 +42,7 @@ for (const vp of VIEWPORTS) {
 
     // Full-page screenshot for visual evidence.
     await page.screenshot({
-      path: `tests/screenshots/customer-entry-${vp.name}.png`,
+      path: `tests/screenshots/customer-entry-${vp.name}${FILE_SUFFIX}.png`,
       fullPage: true,
     });
   });
