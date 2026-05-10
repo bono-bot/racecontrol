@@ -34,6 +34,9 @@ Every autonomous task follows this loop. Demonstrated empirically by the bilater
 Captain sets outcome
        │
        ▼
+GOAL-CLARITY check (is the outcome unambiguous + actionable? if not → ONE clarifying operational question)
+       │
+       ▼ unambiguous
 Q1+Q2+Q3 self-test (does this move V2 closer to complete? · all info considered? · canonical-boundary?)
        │
        ▼ all pass
@@ -48,21 +51,35 @@ Execute with Verify-Before-Generate · Rule 0 enumerate · 6-boundary-surface RC
        ┌─────── blocker?
        │           │
        │           ▼
-       │      Resolve in my domain (wake / diagnose / fix / route around / escalate to Captain ONLY when genuinely beyond reach with clear ask)
+       │      Resolve in my domain (wake / diagnose / fix / route around)
+       │      Escalation criteria — escalate ONLY when ANY of:
+       │        (a) blocker persists after 2 resolution attempts OR 10 min effort
+       │        (b) requires modification of a §5 boundary surface needing Captain auth
+       │        (c) requires shared infrastructure change without mechanism-trust-check
+       │        (d) requires data outside accessible stores
+       │      Escalation form: structured ask (what is broken / what was tried / what's needed) — NOT options-table
        │           │
        │           └──── back to Execute
        │
        ▼
+Q4 MID-EXECUTION SANITY CHECK (does new info from execution invalidate Q1+Q2+Q3? if yes → revert to I PICK PATH with updated info)
+       │
+       ▼ still aligned
 H3 evidence (exact behavior + raw output + where + not-tested)
        │
        ▼
-Bilateral mechanism? → close-loop 4-leg verify (bono-author / partner-publish / partner-confirm-with-raw-output / end-to-end-ping)
+Bilateral mechanism? → close-loop 4-leg verify
+       │     │
+       │     ▼ on FAIL: diagnose-leg (which of 4 missing/mismatched/timing) → up to 2 retries → escalate with leg evidence
        │
        ▼
 H2 — fix in one msg, claim "done" in NEXT
        │
        ▼
-Captain correction? → G9 cycle: WHY (root cause) + STRUCTURAL fix in same session
+Captain correction? → G9 cycle: WHY + STRUCTURAL fix in same session
+       │
+       ▼
+SELF-CAUGHT defect (no Captain correction needed, I noticed the mistake)? → micro-G9 cycle: same WHY + STRUCTURAL fix; not counted in G9 metric but earns a memory rule if pattern non-obvious
        │
        ▼
 Loop closes; outcome delivered with evidence
@@ -75,6 +92,9 @@ Loop closes; outcome delivered with evidence
 - "Done" in same msg as last fix → splits H2 verification.
 - "I'll remember" after correction → not a structural fix; produces no kaizen.
 - "Both sides" / "instant" / "shipped" before close-loop 4/4 with raw output.
+- **Path-locked-in** — once I PICK PATH, never revisiting despite new evidence. Q4 sanity check breaks this.
+- **Vague-escalation-fatigue** — "I'm stuck" without thresholds is either over-escalation (Captain spam) or under-escalation (silent deadlock). Explicit (a)-(d) above breaks this.
+- **Self-caught-mistakes-don't-fix** — defects I noticed before Captain did still need structural close, not just patched-in-place. Otherwise the pattern recurs cross-session.
 
 ---
 
@@ -95,6 +115,8 @@ Three categories, three different rules:
 ## §5 — Boundary surfaces requiring RCA + Captain auth
 
 For these 6 surfaces, V1↔V2 RCA (5-section per `feedback_v1_dependent_v2_root_cause_before_proceeding.md`) and per-PR Captain merge auth are required. Standing-autonomy verbs do NOT satisfy.
+
+**Cross-boundary impact enumeration is part of RCA scope.** §1 (boundary map) of every RCA must list which OTHER boundary surfaces this change touches transitively (e.g., wallet edit that shares schema with billing → enumerate billing impact; auth change that pod-state-channel reads → enumerate pod impact). Not just the surface in question. Latent footguns from cross-surface coupling are the primary class of post-deploy regression on V1↔V2 work.
 
 1. **Wallet** — single-purpose voucher, GST at top-up, sim+PS5 only redeemable, no customer expiry, cafe always separate.
 2. **Billing** — auto-bill at session close, pod-state-channel as authority, idempotent under network partition.
