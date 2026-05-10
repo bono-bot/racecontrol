@@ -55,8 +55,8 @@ function detectVmsAppend(command) {
 
 function slotPreflight() {
   try {
-    execFileSync('git', ['-C', COMMS_LINK_DIR, 'fetch', 'origin', '--quiet'], { timeout: 10000, stdio: 'pipe' });
-    const showOut = execFileSync('git', ['-C', COMMS_LINK_DIR, 'show', 'origin/main:V2-MASTER-STATE.md'], { timeout: 5000, encoding: 'utf-8' });
+    execFileSync('git', ['-C', COMMS_LINK_DIR, 'fetch', 'origin', '--quiet'], { timeout: 10000, stdio: 'pipe', maxBuffer: 50 * 1024 * 1024 });
+    const showOut = execFileSync('git', ['-C', COMMS_LINK_DIR, 'show', 'origin/main:V2-MASTER-STATE.md'], { timeout: 5000, encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 });
     const sectionLines = showOut.split('\n').filter(l => /^## §S-\d+/.test(l));
     const originLatest = sectionLines.length > 0 ? sectionLines[sectionLines.length - 1] : '';
     const originSlotMatch = originLatest.match(/§S-(\d+)/);

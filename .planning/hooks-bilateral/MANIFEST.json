@@ -76,6 +76,20 @@
       "james_install_date": null,
       "last_bilateral_test_date": null,
       "comment": "Phase 4 SessionStart advisory hook. Reads this MANIFEST + computes local SHA256 per registered hook + emits drift/missing/tbd advisory to stderr. Self-referenced (its own hash registers here)."
+    },
+    {
+      "name": "pre-vms-duplicate-check.js",
+      "version": "0.1.0",
+      "spec_anchor": "comms-link/V2-MASTER-STATE.md §S-178 + §S-184 + §S-189 + §S-190",
+      "spec_path": "racecontrol/.planning/hooks-bilateral/pre-vms-duplicate-check.spec.md",
+      "bono_sentinel_hash": "30d340101163b61471a3c711513dea254f593eb8fb082cda225976df1627bb80",
+      "james_sentinel_hash": "TBD",
+      "override_env_var": "VMS_FORCE_APPEND",
+      "override_reason_var": null,
+      "bono_install_date": "2026-05-10",
+      "james_install_date": "2026-05-10",
+      "last_bilateral_test_date": "2026-05-10",
+      "comment": "PreToolUse Bash hook detecting V2-MASTER-STATE.md §S-N append patterns. Runs slot pre-flight (git fetch + grep tail) and BLOCKs on declared slot ≤ origin latest. Override VMS_FORCE_APPEND=1 logged to data/vms-append-overrides.jsonl. bono-side install authorized by user-pilot 2026-05-10 ~06:31 IST verbatim 'I authorize you touch your own configuration. So yes install it.' Self-test 5/5 PASS. james-side ACTIVE per §S-178."
     }
   ]
 }
