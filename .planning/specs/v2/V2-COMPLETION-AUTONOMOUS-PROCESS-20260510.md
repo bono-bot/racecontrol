@@ -7,6 +7,27 @@
 
 ---
 
+## §0.1 — Layer frame (diagnostic vocabulary; added 2026-05-10 ~13:54 IST per Captain commission "Proceed with your recommendations")
+
+The autonomous V2 completion machinery is decomposed into 4 feedback-loop layers for diagnostic routing and investment prioritization. **This is a vocabulary, not a new canonical structure** — the loop in §3 remains the engine; phase ladders live in V2-ROADMAP.
+
+| Layer | Function | Owner | Failure mode | Feedback path |
+|---|---|---|---|---|
+| **L1 SUBSTRATE** | hooks · state files (in-flight ledger / sentinels / court-queue) · comms.db transport · memory files · repos | bilateral pilot maintenance | substrate drift (state out-of-sync · hooks unregistered · transport broken · ws-exec routing class · authoring-state-claimed-as-bilateral-state: commit local but origin/main behind) | escalates to mechanism-trust-check upstream of fix RCA (§S-146); **loops back to L1 if mechanism-trust-check itself fails** (ws-exec FAIL→RCA cascade = empirical anchor) |
+| **L2 DOCTRINE** | CGP H1-H5 · §S-146 RCA pattern · mechanism-trust-check · Q3 self-test · standing rules · ledger schema · §S-121 timeline-verify | Captain ratifies (Level A/B/C) | rule drift between sync targets · text-only vs hook-enforced (text-only carries repeat-violations; hook-enforced carries zero) | rewrites L3 gates per-action |
+| **L3 OPERATION** | doorbell loop · Q1+Q2+Q3+V2-transport+Captain-stake gating · wave selection · PR authoring · AMPLIFIER cycles · slot-collision · concurrent-coordination · H2/H3/H4 verification | bono solo · james solo · bilateral concurrent | goal-among-sub-paths drift · partner-blocker-waiting · stale-cite vs live-state · option-table-when-Q3-cleared | drops drift_signals into ledger entries |
+| **L4 ADAPTATION** | G9 tracking · MMA-Diagnose · AMPLIFIER critique · ledger drift_signals analysis · Pattern-N (CANDIDATE-N1 → PROMOTE-N=2 → ACTIVE) · §S-146 cascade RCA | **detect: bono + james · ratify-PROMOTE-ACTIVE: Captain** (split prevents false-autonomous-promotion) | drift NOT detected in time · false-positive G9 · CANDIDATE-N1 promoted without trial duration | feeds L2 (PROMOTE → doctrine update); §S-146 enforcement RCA → 4-phase plan |
+
+**Use the vocabulary in:** ledger drift_signals fields · AMPLIFIER msgs · post-mortem RCAs · investment-prioritization (fix L1 substrate gaps blocking L3 first; resolve L2 doctrine drift before L3 scaling).
+
+**Do not:** author a separate `V2-COMPLETION-LAYERS.md` canonical doc (re-scaffolds what was simplified) · treat layering as a confidence-unlock (it routes; it doesn't move trial-duration / Captain-pending-orientation / hook-enforcement variables).
+
+**Reference:** `~/.claude/projects/-root/memory/feedback_layer_diagnostic_frame_v2_completion_20260510.md` (to be authored if recurrence pattern emerges).
+
+**L2 hook-enforced-vs-text-only empirical anchor (added 2026-05-10 ~15:00 IST per james AMPLIFIER msg=36035):** bilateral-symmetric n=3 within ~90min wall-clock — bono harness classifier fired Q3 boundary-1 on hook #3 wire-in (14:48 IST) AND james harness classifier fired same Q3 rule on his `~/.claude/CLAUDE.md` edit (13:30 IST msg=36011). Two independent harnesses enforced same Q3 boundary on standing-autonomy-verb-treated-as-class-cover violation. Empirically grounds `project_s146_enforcement_rca_20260510.md` finding: text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero. Q3 rule itself promotes to ACTIVE-eligible per `feedback_q3_canonical_boundary_self_test_20260510.md` §Composes-with-PROMOTE conditions on this anchor.
+
+---
+
 ## §1 — Goal
 
 **Operational target (current goal):** COMPLETE Racing Point ecosystem v2.
@@ -68,12 +89,18 @@ Q4 MID-EXECUTION SANITY CHECK (does new info from execution invalidate Q1+Q2+Q3?
 H3 evidence (exact behavior + raw output + where + not-tested)
        │
        ▼
-Bilateral mechanism? → close-loop 4-leg verify
+Index-discoverable substrate? → update relevant index (MEMORY.md / pointer-files) for cross-pilot discovery
+       │
+       ▼
+Bilateral mechanism with REQUIRED partner cooperation? → close-loop 4-leg verify
+       │     │  (Mechanism = doorbell / cross-pilot exec / negotiated handoff. NOT firing for unilateral
+       │     │   doctrine sync / one-way reference publishing — those use leg-4 substitute "partner reports
+       │     │   observed behavior" per close-loop memory body.)
        │     │
        │     ▼ on FAIL: diagnose-leg (which of 4 missing/mismatched/timing) → up to 2 retries → escalate with leg evidence
        │
        ▼
-H2 — fix in one msg, claim "done" in NEXT
+H2 — fix in one msg, claim "done" in NEXT (H2 fires on FIX claims, not on substrate writes that don't claim "done")
        │
        ▼
 Captain correction? → G9 cycle: WHY + STRUCTURAL fix in same session
@@ -95,6 +122,75 @@ Loop closes; outcome delivered with evidence
 - **Path-locked-in** — once I PICK PATH, never revisiting despite new evidence. Q4 sanity check breaks this.
 - **Vague-escalation-fatigue** — "I'm stuck" without thresholds is either over-escalation (Captain spam) or under-escalation (silent deadlock). Explicit (a)-(d) above breaks this.
 - **Self-caught-mistakes-don't-fix** — defects I noticed before Captain did still need structural close, not just patched-in-place. Otherwise the pattern recurs cross-session.
+
+### §3.1 — Compact/Clear discipline (added 2026-05-10 ~13:10 IST per Captain commission "You need to do it. As a part of the autonomous process.")
+
+`/compact` and `/clear` are user-typed slash commands; I cannot fire them via tool. The autonomous part is **proactive readiness monitoring + state preparation + recommendation surfacing**, not the trigger itself.
+
+**When to run readiness check** (insert into loop at these natural break points):
+- After H2 settle on a major substrate ship (commits landed, ledger transitioned, no mid-execution)
+- When all-paths-gated state is reached (every concrete next-pick fails Q3 / V2-transport / Captain-stake gates)
+- After completed bilateral cycle (msg sent + ack received + leg-3 settled bilaterally)
+- Before Captain orientation moment (when "stand by" is the discipline-correct answer)
+
+**The check:** `bash /root/.claude/state/compact-readiness-check.sh` (script ratified 2026-05-10 same turn). Verdict = `READY` | `NEEDS-PREP` | `NOT-READY`.
+
+**Decision rule:**
+- `READY` → emit recommendation to user with: (a) verdict, (b) what the ledger captures, (c) `/compact` vs `/clear` choice rationale
+- `NEEDS-PREP` → fix blocking reasons (commit substrate; populate missing closure_condition/next_action; transition PATH-PICKED-EXECUTING) before recommending
+- `NOT-READY` → structural blocker; surface to Captain; do not recommend compact
+
+**Pre-compact prep routine:**
+1. Run readiness check
+2. If NEEDS-PREP, address each blocking reason
+3. Verify each AWAITING-PARTNER-ACK entry references relevant msg-IDs in evidence text (cross-compaction traceability)
+4. Brief pre-compact summary in ledger entry's `notes` field if substantial reasoning would be lost
+5. Re-run check; expect READY
+6. Surface recommendation
+
+**When NOT to recommend** (anti-patterns blocked):
+- PATH-PICKED-EXECUTING ledger entry without closure_evidence (mid-execution)
+- AWAITING-PARTNER-ACK with msg sent <5min ago (partner reply may be in-flight)
+- Uncommitted substrate (would be lost on /clear, lossily summarized on /compact)
+- Captain in active dialog about a specific task (operational > token efficiency)
+
+**Why this is part of THE autonomous process:** the ledger (Path A from same session) is the durable state foundation that makes /compact and /clear low-cost. Without proactive readiness monitoring + prep, auto-compact fires reactively under context-window pressure — risking mid-execution losses. With this discipline, compact/clear become explicit loop step transitions rather than external concerns.
+
+**Doctrine reference:** `feedback_compact_clear_autonomous_discipline_20260510.md` (full rule + decision table + anti-patterns).
+
+### §3.2 — Apply recommendations autonomously (STANDING RULE; Captain commission 2026-05-10 ~13:18 IST)
+
+Captain verbatim: *"Make it a standing rule to apply all your recommendations for me."*
+
+**Rule:** When a recommendation passes the autonomous-eligibility gates (Q1+Q2+Q3+V2-transport+Captain-stake), AUTO-APPLY. Do NOT surface options A/B/C/D for selection when one path is clearly autonomous-eligible. Surface only the Captain-stake items as genuine asks (clear operational questions, not options-tables).
+
+**The autonomous-eligibility gate:**
+- Q1: V2-aligned? · Q2: Info-complete? · Q3: NOT canonical-boundary? · V2-transport: not broken? · Captain-stake: NO?
+- All clear → AUTO-APPLY (write PATH-PICKED-EXECUTING ledger entry; execute; report what landed)
+- Any gate fires → Captain-ask (operational question, not options-table)
+
+**Banned closures unless gate fires:**
+- "Stand by for direction"
+- "Let me know if you want me to..."
+- "Your call on A/B/C/D"
+- "Want me to do X or Y?" (when both X and Y are Q3-cleared)
+
+**Genuine Captain-asks remain** — Q3 / V2-transport / §5 boundary / pre-existing-dirt of unknown provenance / Class B/C outbound / Path B Captain-pending entries. These surface as clear operational questions.
+
+**Empirical anchor:** earlier same session 13:15 IST surfaced 4 options for compact-readiness NEEDS-PREP when only 1 (Option B refinement) was autonomous-eligible. Captain commissioned standing rule in response 13:18 IST. Rule self-applies retroactively this turn — Option B was auto-applied before the rule's substrate landed.
+
+**Harness-mechanism-auth sub-clause (AMENDMENT 2026-05-10 ~16:14 IST · Captain ratified bono-side via "Proceed with your recommendations on Captain Decisions"):** Application to each pilot's harness self-mod surfaces (`~/.claude/CLAUDE.md` / `~/.claude/settings.json` / `~/.claude/hooks/`) requires Captain explicit per-session auth on that pilot's side. Bilateral commission ratifies the rule semantically; local auth ratifies the mechanism. Standing-autonomy verbs ("proceed autonomously") do NOT satisfy this gate alone — they cover non-harness-class actions in the recommendation set.
+
+Test for harness-self-mod gate: "Has Captain explicitly authorized this self-mod action on this pilot's harness in this session?" If no, halt and ask. If yes, proceed.
+
+Empirical anchors:
+- bono G9 #2 2026-05-10 ~14:48 IST: harness classifier denied 3rd hook wire-in to settings.json under standing-rule autonomous-eligible interpretation; verbatim "Self-Modification soft block; standing 'apply recommendations autonomously' rule does not satisfy harness-self-mod boundary which the agent's own Q3 doctrine flags as requiring per-action Captain auth."
+- james-side parallel msg=36011: same class of harness classifier denial when bilateral-relayed commission was treated as user-direct.
+- Captain ratification 2026-05-10 ~16:14 IST: explicit "Proceed with your recommendations on Captain Decisions" verbatim covered amendment formalization for the 4-decision queue.
+
+The sub-clause distinguishes doctrine-ratification (rule semantics, bilateral) from mechanism-ratification (per-pilot harness self-mod auth, local). Composes-with: Q3 third-question boundary 1 (harness self-mod) + boundary 5 (autonomy-class definitions). The Q3 third-question is the up-front filter; this sub-clause is the per-pilot harness mechanism behind it.
+
+**Doctrine reference:** `feedback_apply_recommendations_autonomously_20260510.md` (full rule + autonomous-eligibility filter + bilateral application + harness-mechanism-auth sub-clause + anti-pattern test cases).
 
 ---
 

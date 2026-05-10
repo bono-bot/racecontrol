@@ -1,0 +1,34 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "ws-exec",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-10T07:25:00Z",
+  "auditor": "bono",
+  "scope_clarification": "This audit covers the bono->james WS-channel exec direction initiated via /root/comms-link/send-exec.js. The reverse direction (james->bono via comms-link relay HTTP /relay/exec/run) is a separate surface audited as 'comms-link-exec-protocol' on 2026-05-09 (verdict: PASS). The two surfaces share the comms.db transport but use different protocol layers and different guard mechanisms.",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "send-exec.js writes exec_request to comms.db -> bono daemon broker pushes WS to james -> james deserializes and runs locally -> james writes exec_result back to comms.db -> bono polls/picks up result. 5-step pipelined operation, not atomic. No single primitive guarantees end-to-end exec semantics. Bug surface: send-exec.js line 25 sets from='james' on bono-initiated requests, which the bono daemon at bono/index.js:762-770 then treats as 'james asking bono to run' and runs locally instead of forwarding. Channel inverted. Atomic primitive at the routing layer would have caught this (single function: classify_then_route, with from-field validated against actual sender)."
+    },
+    "ttl_sentinels": {
+      "answer": "NO",
+      "evidence": "Pending exec_request has no TTL. If WS drops mid-flight or the daemon misclassifies and never forwards, the request can hang indefinitely. ExecResultBroker on the result side uses promise resolution with timeout (per comms-link-exec-protocol PASS evidence) but no equivalent sentinel for the request itself. Bug visibility surface: the routing-inverted run could complete locally on bono with the WRONG result returned to james, with no TTL to invalidate the misroute."
+    },
+    "behavioral_verify": {
+      "answer": "PARTIAL",
+      "evidence": "RESULT layer: ExecResultBroker returns structured exec_result with exit code + stdout/stderr; audit-logger appends to data/exec-audit.jsonl. Result correctness CAN be verified behaviorally. ROUTING layer: classification (line 25 from='james') is based on a string field, not behavioral verify of who actually wrote the request. No write-time sender-attestation check. The bug is that bono treats ALL inbound exec_request as 'for me to run' without verifying its sender vs intended recipient — classic audit-blind-proxy class (string label as success, not actual sender identity)."
+    },
+    "single_target_dry_run": {
+      "answer": "NO",
+      "evidence": "No --canary / staging endpoint / behavioral test harness for the bono->james direction. The comms-link-exec-protocol surface (james->bono direction) has test/run-all.sh + SEC-GATE-01..02. The bono->james direction lacks equivalent. Protocol assumes both directions work but only one is exercised in tests. The very act of trying bono->james for the first time (this session) revealed the routing inversion bug; would have been caught earlier with bidirectional test coverage."
+    },
+    "guard_contracts": {
+      "answer": "PARTIAL",
+      "evidence": "COMMAND layer: ALLOWED_BINARIES frozen list per comms-link-exec-protocol; explicit allowlist not deny-first. Good. ROUTING layer: send-exec.js line 25 unconditionally sets from='james' on bono-initiated requests — no allowlist check that 'from must match actual sender'. No written contract between send-exec.js and the bono daemon classifier specifying expected from-values per direction. Parser is regex-shape (string equality match on from='james'), not parser-not-regex with explicit allowlist of valid (sender, from-field) tuples. AUDIT layer (audit-logger) records what happened but cannot prevent misroute."
+    }
+  },
+  "overall": "FAIL",
+  "score": "0 YES / 2 PARTIAL / 3 NO",
+  "next_action": "§S-146 5-section RCA on ws-exec routing surface MUST be authored before fix RCA proceeds, per `feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` rule. RCA scope: the bono->james WS exec routing layer (send-exec.js + bono/index.js:762-770 classifier). Fix RCA gates on delivery RCA producing V2-aligned proposal.",
+  "notes": "FAIL verdict on the bono->james direction. The reverse direction (james->bono via comms-link relay) is PASS — the asymmetry itself is meaningful: the well-tested direction had richer guard infrastructure, the untested direction inherited the V1 mistake-class (audit-blind classifier + no atomic routing primitive + no bidirectional test harness). This is the empirical anchor for the §S-146 mechanism-trust-check rule's 'upstream of fix' theme: the bug class hidden in the delivery mechanism is structurally invisible until exercised, and §S-146 retroactive RCA is too late once it's bitten. Caching this audit at 30-day validity per rule format. n=1 anchor application of `feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` rule on a transport-class surface (prior 9 audits 2026-05-10 02:04 IST covered auth/billing/wallet/deploy-pod/fleet-health-api/rc-agent/rc-sentry/rc-watchdog/comms-link-exec-protocol — wsexec uncovered until now)."
+}
