@@ -24,6 +24,8 @@ The autonomous V2 completion machinery is decomposed into 4 feedback-loop layers
 
 **Reference:** `~/.claude/projects/-root/memory/feedback_layer_diagnostic_frame_v2_completion_20260510.md` (to be authored if recurrence pattern emerges).
 
+**L2 hook-enforced-vs-text-only empirical anchor (added 2026-05-10 ~15:00 IST per james AMPLIFIER msg=36035):** bilateral-symmetric n=3 within ~90min wall-clock — bono harness classifier fired Q3 boundary-1 on hook #3 wire-in (14:48 IST) AND james harness classifier fired same Q3 rule on his `~/.claude/CLAUDE.md` edit (13:30 IST msg=36011). Two independent harnesses enforced same Q3 boundary on standing-autonomy-verb-treated-as-class-cover violation. Empirically grounds `project_s146_enforcement_rca_20260510.md` finding: text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero. Q3 rule itself promotes to ACTIVE-eligible per `feedback_q3_canonical_boundary_self_test_20260510.md` §Composes-with-PROMOTE conditions on this anchor.
+
 ---
 
 ## §1 — Goal
