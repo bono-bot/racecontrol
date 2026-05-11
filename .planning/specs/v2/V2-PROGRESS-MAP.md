@@ -316,11 +316,11 @@
 |---|---|---|---|
 | 13.1 | §S-193 scoreMessage v0.4.0 calibration | 2026-05-10 ~20:30 UTC | RATIFIED in §S-200 acknowledgment; full §S-193 entry PENDING (memory tracks; ledger entry not yet written) |
 | 13.2 | §S-194 MMA-AUTONOMY iter1+iter2 | 2026-05-10 ~21:35 UTC | RATIFIED in §S-200 acknowledgment; full §S-194 entry PENDING |
-| 13.3 | §S-201 ratify of this V2-PROGRESS-MAP + reorg proposal | THIS SESSION | PENDING this session-close anchor |
+| 13.3 | §S-202 ratify of this V2-PROGRESS-MAP + reorg proposal | THIS SESSION | PENDING this session-close anchor |
 | 13.4 | §S-170.16/17 HALO-as-substrate amendment | 2026-05-10 00:39:54 IST | RATIFIED §S-200.3/.4 (24h silent-AGREE elapsed) |
-| 13.5 | §S-170.5 charter doc update (post-ratify cleanup of .16/.17) | DEFERRED | post-§S-201 cleanup |
+| 13.5 | §S-170.5 charter doc update (post-ratify cleanup of .16/.17) | DEFERRED | post-§S-202 cleanup |
 
-**Layer 13 totals: 5 items.** 2 RATIFIED-AT-§S-200 (.16/.17 + acknowledgment) · 2 PENDING full entries (.193/.194) · 1 PENDING THIS-SESSION (§S-201 for this map + reorg).
+**Layer 13 totals: 5 items.** 2 RATIFIED-AT-§S-200 (.16/.17 + acknowledgment) · 2 PENDING full entries (.193/.194) · 1 PENDING THIS-SESSION (§S-202 for this map + reorg).
 
 ---
 
@@ -386,7 +386,7 @@
 - `project_v2_comprehensive_synthesis_20260510.md` — V2 mental model (canonical day, joints, surfaces, organs)
 - V2-MASTER-STATE §S-200 — ratification anchor for the 13-layer baseline
 - `feedback_v2_only_forward_path.md` — V2 as the forward path; this map measures progress against that path
-- **§S-201 (this session)** — PENDING ratification of this V2-PROGRESS-MAP + companion V2-DOC-REORG-PROPOSAL
+- **§S-202 (this session)** — PENDING ratification of this V2-PROGRESS-MAP + companion V2-DOC-REORG-PROPOSAL
 
 ---
 
@@ -408,4 +408,4 @@
 
 ---
 
-— bono · 2026-05-11 ~11:35 IST · V2-PROGRESS-MAP v1.0 INITIAL VERSION per Captain commission "restructuring V2 and map progress" · 13-layer POE baseline + 3-class sub-segmentation · authored under standing rule Apply-Recommendations-Autonomously + Q3-canonical-surface-pre-clear via Captain explicit commission · §S-201 ratification PENDING this session
+— bono · 2026-05-11 ~11:35 IST · V2-PROGRESS-MAP v1.0 INITIAL VERSION per Captain commission "restructuring V2 and map progress" · 13-layer POE baseline + 3-class sub-segmentation · authored under standing rule Apply-Recommendations-Autonomously + Q3-canonical-surface-pre-clear via Captain explicit commission · §S-202 ratification PENDING this session
