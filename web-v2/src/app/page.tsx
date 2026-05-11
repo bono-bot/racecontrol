@@ -1,21 +1,41 @@
 import type { Metadata } from "next";
 import styles from "./page.module.css";
 
+const SITE_TITLE = "RacingPoint — Real cars. Real circuits. Real you.";
+const SITE_DESCRIPTION =
+  "Eight pro-grade racing simulators · cafe · venue in Hyderabad. Book your first sim time.";
+const SITE_URL = "https://v2.racingpoint.cloud/v2";
+
 export const metadata: Metadata = {
-  title: "RacingPoint — Real cars. Real circuits. Real you.",
-  description:
-    "Eight pro-grade racing simulators · cafe · venue in Hyderabad. Book your first sim time.",
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: "RacingPoint",
+    locale: "en_IN",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
 };
 
-// Venue-specific values. Phone number + address line 1 default to graceful
-// fallbacks so the page is customer-ready even before Captain fills them
-// (wa.me/ with no number lands on WhatsApp's main page; address falls back
-// to city-level + WhatsApp-for-directions framing). Captain fills with real
-// venue values + rebuilds; rebuild is non-destructive (no schema change).
-const VENUE_WHATSAPP_LINK = "https://wa.me/"; // append phone number when known
-const PWA_BOOK_LINK = "https://app.racingpoint.cloud/";
-const VENUE_ADDRESS_LINE_1 = ""; // street-line 1 (Captain to fill); rendered conditionally
-const VENUE_ADDRESS_LINE_2 = "Hyderabad, Telangana, India";
+// Venue-specific values sourced verbatim from canonically-deployed apex site
+// (racingpoint-website pm2 service @ racingpoint.cloud, 5d uptime).
+// Single source of truth lives at the apex footer; copied here to keep the
+// V2 entry page content-parity with apex until apex itself is migrated.
+const VENUE_WHATSAPP_PHONE = "917981264279";
+const VENUE_WHATSAPP_LINK = `https://wa.me/${VENUE_WHATSAPP_PHONE}`;
+const PWA_BOOK_LINK = "https://app.racingpoint.cloud/book";
+const VENUE_ADDRESS_LINE_1 = "Bandlaguda, Hyderabad";
+const VENUE_ADDRESS_LINE_2 = "Telangana, India";
+const VENUE_MAPS_PIN = "https://share.google/nufGoHR5BectU5NFh";
+const VENUE_EMAIL = "info@racingpoint.in";
+const VENUE_INSTAGRAM = "https://www.instagram.com/racingpoint.in/";
 const VENUE_HOURS = "Open daily · 12:00 – 24:00 IST";
 
 export default function Home() {
@@ -193,8 +213,8 @@ function CreditsExplainer() {
       <ol className={styles.creditsList}>
         <li>
           <strong>You top up credits</strong> at the counter or on the app.
-          GST is applied at the top-up moment, not at every session — what
-          you see on the wallet is what you spend.
+          GST (18%) is applied at the top-up moment, not at every session
+          — what you see on the wallet is what you spend.
         </li>
         <li>
           <strong>Credits redeem for sim time and console gaming</strong>.
@@ -267,19 +287,19 @@ function LocationHours() {
         <div className={styles.locationBlock}>
           <h3>Address</h3>
           <p>
-            {VENUE_ADDRESS_LINE_1 ? (
-              <>
-                {VENUE_ADDRESS_LINE_1}
-                <br />
-              </>
-            ) : null}
+            {VENUE_ADDRESS_LINE_1}
+            <br />
             {VENUE_ADDRESS_LINE_2}
           </p>
-          {!VENUE_ADDRESS_LINE_1 ? (
-            <p className={styles.muted}>
-              Ask on WhatsApp for the full venue address and pin.
-            </p>
-          ) : null}
+          <p>
+            <a
+              href={VENUE_MAPS_PIN}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Maps →
+            </a>
+          </p>
         </div>
         <div className={styles.locationBlock}>
           <h3>Hours</h3>
@@ -293,6 +313,16 @@ function LocationHours() {
           <h3>Get in touch</h3>
           <p>
             <a href={VENUE_WHATSAPP_LINK}>WhatsApp</a>
+            <br />
+            <a href={`mailto:${VENUE_EMAIL}`}>{VENUE_EMAIL}</a>
+            <br />
+            <a
+              href={VENUE_INSTAGRAM}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Instagram
+            </a>
             <br />
             <a href={PWA_BOOK_LINK}>Customer app</a>
           </p>
