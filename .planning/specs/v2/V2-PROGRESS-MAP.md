@@ -12,14 +12,14 @@
 
 | Class | Total | DONE | IN-FLIGHT | BLOCKED | NOT-STARTED | % closed |
 |---|---|---|---|---|---|---|
-| **V2-LIVE-BLOCKING** (gates customer-day §4 14:00→14:56) | **~78** | 19 | 14 | 11 | 34 | **24%** |
+| **V2-LIVE-BLOCKING** (gates customer-day §4 14:00→14:56) | **~78** | **21** | 14 | 11 | 32 | **27%** |
 | **V2-DISCIPLINE / POST-LIVE** (some explicitly post-live by design) | **~32** | 8 | 5 | 3 | 16 | **25%** |
 | **AMBIGUOUS** (Captain-framing-dependent) | **~12** | 2 | 3 | 1 | 6 | **17%** |
-| **TOTAL** | **~122** | 29 | 22 | 15 | 56 | **24%** |
+| **TOTAL** | **~122** | **31** | 22 | 15 | 54 | **25%** |
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
 >
-> **What this number means:** ~76% of V2-LIVE-BLOCKING items remain. Capacity-weighted velocity TBD (close-rate metric kicks in over next 7 sessions per §S-200.1 verify-by-3).
+> **What this number means:** ~73% of V2-LIVE-BLOCKING items remain. **Δ this session (2026-05-11): +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Closure rate: 24%→27% in ~1h session.** Capacity-weighted velocity TBD (close-rate metric kicks in over next 7 sessions per §S-200.1 verify-by-3).
 
 ---
 
@@ -295,8 +295,8 @@
 
 | # | Item | Class | Status |
 |---|---|---|---|
-| 12.1 | racingpoint.cloud nginx vhost DRIFT-BEHAVIORAL (+5229B, port corrections, /register dropped) | LIVE-BLOCKING (customer-facing) | Captain-decision pending (a)/(b)/(c) reconcile §S-200.7 |
-| 12.2 | sites-enabled-not-symlink drift class | LIVE-BLOCKING | partially closed §S-196/§S-198/§S-199; racingpoint.cloud remains |
+| 12.1 | racingpoint.cloud nginx vhost DRIFT-BEHAVIORAL (+5229B, port corrections, /register dropped) | LIVE-BLOCKING (customer-facing) | **DONE 2026-05-11 ~12:28 IST — Option (c) hybrid executed: cp enabled→available + symlink swap + nginx -t passes + reload + 5/5 subdomain HTTPS verified (200/301/301/301/307). Backup `racingpoint.cloud.pre-reconcile-20260511` retained. Captain D4 auth via "Proceed with your recommendation" ~12:25 IST.** |
+| 12.2 | sites-enabled-not-symlink drift class | LIVE-BLOCKING | **DONE 2026-05-11 — class fully closed: 5/5 sites-enabled vhosts now symlinks. §S-196 (apex+kiosk) + §S-198 (cert SAN) + §S-199 (vhost edit) + D4 (racingpoint.cloud reconcile this turn).** |
 | 12.3 | Mode 2 cron session-only durability gap | DISCIPLINE | CronCreate tool-claim ≠ runtime-claim CANDIDATE-N1 §S-200.11 |
 | 12.4 | Capability manifest age (>7 days warn) | DISCIPLINE | re-scan recommended |
 | 12.5 | Pre-existing /root tracked mods (5 hook files + court-queue.json + 1 deleted backup) | DISCIPLINE | Captain orientation pending (entry 5.8) |
@@ -304,7 +304,7 @@
 | 12.7 | HTTP-canonical redirect partial | DISCIPLINE | §S-199 finding |
 | 12.8 | 3 untracked /root hooks (g9-auto-detect, knowledge-graph-lookup, g9-trend-report) | DISCIPLINE | g9-4 Captain ask pending entry 5.14 |
 
-**Layer 12 totals: 8 items** (§S-200.2 said 4; **+4** — i counted things §S-200 collapsed). 4 LIVE-BLOCKING / 4 DISCIPLINE. 1 DONE.
+**Layer 12 totals: 8 items** (§S-200.2 said 4; **+4** — i counted things §S-200 collapsed). 4 LIVE-BLOCKING / 4 DISCIPLINE. **3 DONE (12.1 D4 reconcile + 12.2 sites-enabled class closed + 12.6 cert SAN); 5 open.**
 
 ---
 
