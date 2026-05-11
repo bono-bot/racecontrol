@@ -100,6 +100,33 @@ When a V2 fix depends on shared infrastructure (delivery / transport / supervisi
 
 ---
 
+## §S-186 pre-§S-146 small-fix fast-lane — narrows RCA scope (Captain ratify 2026-05-11 IST · BILATERAL)
+
+**Applies to both James and Bono.** §S-146 carve-out for one specific class — pre-§S-146 stale small bug fixes. Bug-fix PRs created < 2026-05-09 (date §S-146 ratified) with **ALL** of {≤200 LOC, single-boundary, no schema change, no protocol change, bug-fix only} get a **3-section short-RCA** (what / why-still-needed / V2-compat-check) instead of full 5-section + MMA Step 1 DIAGNOSE. Captain per-PR auth for rebase + merge **still required** — carve-out narrows the RCA-process burden only, not the merge gate.
+
+**Eligibility check (ALL six must hold):**
+1. PR created < 2026-05-09
+2. Diff ≤ 200 LOC
+3. Touches a single foundational boundary
+4. No schema change (DB migration, JSON field rename in persisted state)
+5. No protocol change (WebSocket message types, config_push routes, IPC contracts)
+6. Bug fix only (not feature add, not refactor)
+
+**Short-RCA template (3 sections, posted as PR comment):**
+1. **What** — files + LOC + change summary
+2. **Why still needed** — grep main for change semantics; cite grep output
+3. **V2-compat check** — cite V2 docs read; explicit "no conflict" or "conflict at X — mitigation Y"
+
+**NOT eligible (full §S-146 still required):** PRs created ≥ 2026-05-09 · schema/protocol changes regardless of size · multi-boundary touches · refactors / feature adds.
+
+**Why:** Literal §S-146 application to pre-§S-146 stale small bug fixes was over-broad (empirical anchor: PR #17 "Pod undefined" admin display bug, 193 LOC, sitting 19 days at 2026-05-11). The doctrine was scoped for active-development V1↔V2 boundary pushes, not historical small fixes. Throughput collapse on customer-visible fix class is a worse outcome than the marginal RCA risk this carve-out accepts.
+
+**Composes with:** §S-146 V1↔V2 RCA (parent — carve-out narrows scope only) · §S-186 V2-VELOCITY RATIFY (parent ratify) · §S-186 mechanism-trust-check (sibling extension) · Layer 4 Captain per-PR auth (retained) · CGP H1 (still required for rebase action).
+
+**Master memory:** james-side `~/.claude/projects/C--Users-bono/memory/feedback_pre_s146_small_fix_fastlane_20260511.md` (full eligibility check + 3-section template + worked examples). Ratify anchor: `project_s186_v2_velocity_ratify_20260511.md`.
+
+---
+
 ## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL · AMENDED with harness-mechanism-auth sub-clause 2026-05-10 ~16:14 IST)
 
 Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to apply all your recommendations for me."*
