@@ -34,6 +34,117 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 
 ---
 
+## V2-only forward path (Captain directive 2026-05-01 IST, refined post-G9 #2)
+
+**V2 is the only forward architectural path for the RacingPoint ecosystem. Every new session must be geared toward supporting and building V2.**
+
+**V2 incorporates V1 modules** per `comms-link/v2-skeleton/05-definition-of-done.md` keep/mold/discard filter. Carry-forwards include the currency unit (rupee=credit, DoD line 39) · top-up bonus-credit ladder (DoD line 64) · kiosk-staff launch first iteration (Skeleton line 71) · all V1 organs (racecontrol, comms-link, admin, whatsapp-bot, kiosk, pods, POS — V2 adds the skeleton layer atop).
+
+**What V2 closes is V1-shaped antipatterns** — organ silos without skeleton, point-to-point ad-hoc connections, manual operations that bypass ratified flows. NOT V1 components categorically.
+
+**Pre-action V2-transport check** (mandatory for prod-touch — Server .23 / Pods 1-8 / POS .130 / Cloud apps / comms-link prod / Bono VPS prod):
+1. **Q1** — Is the target classified as production?
+2. **Q2** — Grep `reference_local_capabilities.md` for the ratified V2 transport (bono comms-link relay `localhost:8766/relay/exec/run`, `/rp-bono-exec` skill, `/rp-james-exec` skill, `ssh server` alias, rc-sentry `:8091/exec` pod-side).
+3. **Q3** — Use it. If no V2 transport exists for the target, halt and ask Captain — **never invent a V1 fallback.**
+
+**Composes with:** Rule 0 · H4 · PACT-027 §10 · AMEND-1 bundle-of-8 (RATIFIED 2026-05-01 ~06:05 IST). Empirical anchors: G9 #1 direct-SSH-to-prod (correct path was bono-relay); G9 #2 over-broad "V1 closed" wording corrected via spec-grep. Master memory: `feedback_v2_only_forward_path.md`. Charter doctrine: `comms-link/PACT-CHARTER.md` §V2.0.
+
+---
+
+## V1-dependent V2 sections — RCA + past-bug review BEFORE proceeding (Captain directive 2026-05-09 IST)
+
+**For any change to a deployed V2 section that inherits, calls into, reuses, or shares schema/state with V1 parts: do NOT proceed directly. Produce a written 5-section root-cause analysis (RCA) BEFORE H1 PLAN.**
+
+**5-section RCA (mandatory before action):**
+1. **Boundary map** — exact files / DB tables / IPC seams / API routes / config keys where V2 crosses into V1. Cite paths + line numbers.
+2. **Inherited-issue catalogue** — every known V1 bug, footgun, race, or doctrine deviation touching the same boundary. Sources: `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (10 candidate categories A-J) · §S-61 PART 41 V1 failure-mode investigation (14 mapped: 8 VERIFIED + 4 PARTIAL + 1 INFERRED + 1 UNVERIFIED) · LOGBOOK.md grep for boundary files · V2-MASTER-STATE §S-N entries naming the surface · G9/UCA tagged with same component.
+3. **Past-bug review** — for each past bug at this boundary, disposition: `ROOT-CAUSED-AND-FIXED` / `PATCHED-ONLY` (open RCA item) / `UNRESOLVED` (open RCA item) / `NOT-APPLICABLE-TO-V2` (with justification). Cite commits / PRs / §S-N anchors.
+4. **V2-alignment delta** — what the boundary *should* look like under V2 doctrine (V2-MASTER-STATE canonical-source ledger + `project_v2_customer_workflows_consolidated_20260503` + Wallet Framing C + Pod = state-channel premise + foundation/strategy/config separation §AMEND-3.II D12). Name the gap explicitly.
+5. **Proposed change framed against V2 doctrine, not V1 inertia** — change must move the boundary toward V2 alignment OR explicitly justify temporary V1 retention as the kaizen-correct choice with a written follow-up trigger condition that retires the V1 path.
+
+**Triggers (any one fires the rule):**
+- Editing a file with both V1-era and V2-era code paths
+- Touching DB tables / migrations that pre-date V2 planning (2026-05-01)
+- Calling into a V1 module from V2 code (or vice versa)
+- Modifying a deployed surface on V2 doctrine but reading/writing V1-era data
+- User says "fix" / "improve" / "change" on a section flagged V1-dependent
+- Adding a feature on top of a section whose V1 ancestor is in `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` candidate categories A-J
+
+**Foundational-boundary escalation:** if the boundary is foundational (billing / wallet / auth / pod-state-channel / WhatsApp identity / DB schema), run MMA Step 1 DIAGNOSE on the RCA itself (5-model consensus on root causes) BEFORE proceeding to PLAN. Per-PR Captain merge auth required (sibling of `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md`); standing-autonomy verbs do NOT satisfy.
+
+**V2-alignment statement on every change:** description must include "V2 doctrine alignment:" line naming which V2 anchor the change moves toward.
+
+**Why:** V1 failed and venue is closed because V1-era code carried compounding unresolved root causes (broadcast storm class, schema drift, audit-blind proxy checking, recovery cascades). When V2 code reuses V1 parts, the same root causes propagate forward unless surfaced and dispositioned. F25a billing-strategy substrate succeeded because it root-caused V1 SnapPricing first (preserved as known strategy with HISTORICAL block, not accidental fall-through). Q-PRICE-1 dispositioned via timeline reframing only worked because V1-era patch was identified as V1, not V2 doctrine. Skipping this step produces "patch V1 forward" — same bug, new branch, V2 doctrine drifts.
+
+**Anti-patterns blocked:** quick-fix on V2 surface that silently inherits V1 race · V2 feature on V1 schema without naming what V1 schema assumptions are now V2 contracts · treating V1-era code in V2 file as "already-working baseline" (V1 failed; baseline is conditional on RCA) · patching symptom in V2 when root cause is in V1 part being called · "I'll RCA later" (RCA is precondition, not follow-up).
+
+**Bilateral:** applies to james AND bono. Both pilots produce 5-section RCA before V1↔V2 boundary work. Universal Sync covers this rule across CLAUDE.md / CGP / comms-link / bono memory.
+
+**Composes with:** Verify-Before-Generate (V1↔V2 seam = high-value verify zone) · `feedback_kaizen_discipline_dont_complicate.md` (RCA detail high; change stays smallest invariant) · `feedback_autonomy_principle_v2_compass.md` (V2 = compass; RCA exposes divergence) · `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md` (foundational boundaries → per-PR auth) · `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (primary V1 failure-class inventory).
+
+**Master memory:** `~/.claude/projects/C--Users-bono/memory/feedback_v1_dependent_v2_root_cause_before_proceeding.md` (full how-to-apply + structural-fix sub-rule).
+
+---
+
+## Mechanism-trust-check upstream of fix RCA — extends §S-146 (bono 2026-05-10 IST · BILATERAL)
+
+When a V2 fix depends on shared infrastructure (delivery / transport / supervision / guard / observability / schema), run a **5-question mechanism trust check** on the infrastructure surface BEFORE authoring the fix RCA: (1) atomic primitives? (2) TTL-bounded sentinels integrated with the atomic primitive? (3) behavioral-verify success (binary hash / mtime / ws_uptime), not echo-string? (4) single-target dry-run path? (5) guards have written contracts with delivery script (parser-not-regex + allowlist)? ALL 5 must answer YES. FAIL → infrastructure surface gets its own §S-146 5-section RCA before fix RCA proceeds. Cache at `.planning/specs/v2/MECHANISM-TRUST/<surface>-<date>.json` 30-day validity. Override `V2_RCA_BYPASS=1` (logged).
+
+**Empirical anchor:** PR #66 silent-loop-death fix (2026-05-09) was V2-clean but shipped via V1-shaped delivery mechanism → fleet rollout broke 7 pods on the same V1 mistake-class (non-atomic kill+swap CF-1 · OTA_DEPLOYING sentinel-no-TTL CF-2 · BLOCKED_PATTERNS deny-first CF-4 · EPERM-as-success CF-5 · orphan bg processes CF-6 · burned 7 pods cycling same SHA failure G9-class). §S-146 caught it on 4th application same day, retroactively. Mechanism trust check upstream closes the velocity gap.
+
+**Enforcement RCA on §S-146 itself** at `~/.claude/projects/-root/memory/project_s146_enforcement_rca_20260510.md`: text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero. 4-phase plan: Phase 1 `pre-v2-edit-rca-check.js` hook · Phase 2 `mechanism-trust-check.sh` · Phase 3 `pre-universal-sync-write-check.js` · Phase 4 bilateral-hook-parity-check.
+
+**Bilateral:** applies to james AND bono. AMPLIFIER review checks both fix RCA AND mechanism trust check on shared-infrastructure-dependent V1↔V2 PACTs.
+
+**Master memory:** bono-side `/root/.claude/projects/-root/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` + james-side mirror via comms-link/briefings/james/memory/.
+
+---
+
+## §S-186 pre-§S-146 small-fix fast-lane — narrows RCA scope (Captain ratify 2026-05-11 IST · BILATERAL)
+
+**Applies to both James and Bono.** §S-146 carve-out for one specific class — pre-§S-146 stale small bug fixes. Bug-fix PRs created < 2026-05-09 (date §S-146 ratified) with **ALL** of {≤200 LOC, single-boundary, no schema change, no protocol change, bug-fix only} get a **3-section short-RCA** (what / why-still-needed / V2-compat-check) instead of full 5-section + MMA Step 1 DIAGNOSE. Captain per-PR auth for rebase + merge **still required** — carve-out narrows the RCA-process burden only, not the merge gate.
+
+**Eligibility check (ALL six must hold):**
+1. PR created < 2026-05-09
+2. Diff ≤ 200 LOC
+3. Touches a single foundational boundary
+4. No schema change (DB migration, JSON field rename in persisted state)
+5. No protocol change (WebSocket message types, config_push routes, IPC contracts)
+6. Bug fix only (not feature add, not refactor)
+
+**Short-RCA template (3 sections, posted as PR comment):**
+1. **What** — files + LOC + change summary
+2. **Why still needed** — grep main for change semantics; cite grep output
+3. **V2-compat check** — cite V2 docs read; explicit "no conflict" or "conflict at X — mitigation Y"
+
+**NOT eligible (full §S-146 still required):** PRs created ≥ 2026-05-09 · schema/protocol changes regardless of size · multi-boundary touches · refactors / feature adds.
+
+**Why:** Literal §S-146 application to pre-§S-146 stale small bug fixes was over-broad (empirical anchor: PR #17 "Pod undefined" admin display bug, 193 LOC, sitting 19 days at 2026-05-11). The doctrine was scoped for active-development V1↔V2 boundary pushes, not historical small fixes. Throughput collapse on customer-visible fix class is a worse outcome than the marginal RCA risk this carve-out accepts.
+
+**Composes with:** §S-146 V1↔V2 RCA (parent — carve-out narrows scope only) · §S-186 V2-VELOCITY RATIFY (parent ratify) · §S-186 mechanism-trust-check (sibling extension) · Layer 4 Captain per-PR auth (retained) · CGP H1 (still required for rebase action).
+
+**Master memory:** james-side `~/.claude/projects/C--Users-bono/memory/feedback_pre_s146_small_fix_fastlane_20260511.md` (full eligibility check + 3-section template + worked examples). Ratify anchor: `project_s186_v2_velocity_ratify_20260511.md`.
+
+---
+
+## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL · AMENDED with harness-mechanism-auth sub-clause 2026-05-10 ~16:14 IST)
+
+Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to apply all your recommendations for me."*
+
+**Rule:** When generating a recommendation that passes the autonomous-eligibility gates (Q1 V2-aligned · Q2 info-complete · Q3 not canonical-boundary · V2-transport not broken · not Captain-stake), AUTO-APPLY. Do NOT surface options A/B/C/D for selection when one path is clearly autonomous-eligible. Banned closures unless gate fires: "Stand by for direction" / "Let me know if you want me to..." / "Your call on A/B/C/D" / "Want me to do X or Y?" (when both Q3-cleared).
+
+**Genuine Captain-asks remain** — Q3 canonical-boundary touches / §5 boundary surfaces / V2-transport-broken paths / pre-existing-dirt of unknown provenance / Class B/C outbound / doctrine changes not yet commissioned / Path B Captain-pending. These use clear operational questions, not options-tables.
+
+**Bilateral:** applies to both pilots. AMPLIFIER reviews check rule compliance — substrate that surfaces options-tables when clearly autonomous-eligible = AGREE-WITH-CAVEATS at minimum.
+
+**Harness-mechanism-auth sub-clause (AMENDMENT 2026-05-10 ~16:14 IST · Captain ratified via "Proceed with your recommendations on Captain Decisions"):** Application to each pilot's harness self-mod surfaces (CLAUDE.md / settings.json / hooks) requires Captain explicit per-session auth on that pilot's side. Bilateral commission ratifies the rule semantically; local auth ratifies the mechanism. Standing-autonomy verbs ("proceed autonomously") do NOT satisfy this gate alone — they cover non-harness-class actions in the recommendation set. Verbatim Captain-stake test for harness self-mod: "Has Captain explicitly authorized this self-mod action on this pilot's harness in this session?" If no, halt and ask. If yes, proceed. Empirical anchors: bono G9 #2 2026-05-10 ~14:48 IST harness classifier denied 3rd hook wire-in under standing-rule interpretation; james-side parallel msg=36011 same class. Composes-with: Q3 third-question boundary 1 (harness self-mod) + boundary 5 (autonomy-class definitions).
+
+**Empirical anchors:** (1) earlier same session 13:15 IST surfaced 4 options when 1 was autonomous-eligible; Captain commissioned standing rule 13:18 IST. Rule promotes to ACTIVE without 30-day CANDIDATE-N1 trial via explicit standing-rule directive. (2) 14:48 IST harness classifier soft-block on 3rd hook wire-in → harness-mechanism-auth amendment authored same-session. (3) Captain ratification 16:14 IST of 4-decision queue including amendment formalization.
+
+**Master memory:** `/root/.claude/projects/-root/memory/feedback_apply_recommendations_autonomously_20260510.md` · **V2-COMPLETION-AUTONOMOUS-PROCESS §3.2** integration · **comms-link/CLAUDE.md** mirror.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
@@ -48,7 +159,7 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 | **H2** | Completion claims | Fix and verify in SEPARATE messages |
 | **H3** | Before "done/fixed/PASS" | Exact behavior + raw output + WHERE (must match user-specified targets) + NOT TESTED list. Proxies NOT evidence. **Observations not verdicts:** report what you saw, not PASS/FAIL — contradictions are obvious without labels, labels hide them. |
 | **H4** | Before "all/everywhere" | Grep + per-target list BEFORE assertion |
-| **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0 |
+| **H5** | User correction | Mandatory G9: root cause + structural fix. Target: 0. **CANDIDATE-N1 (v4.6, 2026-05-01):** memory-rule fixes tag as CANDIDATE-N1, promote to active only after N=2 within 30d; code-enforced hooks exempt. |
 
 **Backlog Gate (v4.3):** `backlog-enforce.js` scans memory every prompt for undeployed/pending work. WIP >= 3 blocks new features. COMMITTED ≠ SHIPPED — must be deployed + verified. "Next session" banned as disposition.
 
@@ -87,7 +198,7 @@ Full definition + trigger examples: `.claude/projects/C--Users-bono/CLAUDE.md` (
 | Pod 8 | 192.168.31.91 | 30-56-0F-05-46-C5 | Tailscale: sim8 / 100.98.67.67 |
 | Server | 192.168.31.23 | 10-FF-E0-80-B1-A7 | Racing-Point-Server, 64GB RAM, Tailscale: 100.125.108.37 (james@ node), Node v24.14.0 |
 | James | 192.168.31.27 | D8-BB-C1-CD-B3-CF | RTX 4070, static IP, Ollama :11434, Node v22.22.0, go2rtc :1984 |
-| POS PC | 192.168.31.130 | 10-4A-7D-5B-C4-DA | WiFi, Tailscale: pos1/100.95.211.1 |
+| POS PC | 192.168.31.130 | 50-0A-52-07-C9-DF | Ethernet, Tailscale: pos1/100.95.211.1 (10-4A-7D-5B-C4-DA = Wi-Fi 2 adapter, currently disconnected) |
 | Spectator | 192.168.31.200 | 00-E0-4C-77-77-DF | WiFi, DeskIn: 712 906 402 |
 | Router | 192.168.31.1 | | |
 | NVR | 192.168.31.18 | | Dahua 13x cameras |
@@ -309,12 +420,32 @@ Cross-AI decisions use the layered PACT cascade. **Canonical specs live in `comm
 - **`comms-link/PACT-VOCAB.md`** (linguistic primitive) — 9-tag compact envelope (PACT-011)
 - **`comms-link/PACT-CHARTER.md`** (L1 fast-path) — 4 pre-authorized classes (`diagnostic-only`, `restart-storm-mitigation`, `zombie-cleanup`, `known-bug-hotfix`); in-class PACT proceeds on initiator vote alone
 - **`comms-link/JAMES-PROFILE.md` + `comms-link/BONO-PROFILE.md`** (L2 vote-drift) — when partner offline, online AI runs meta-prompt prediction; ≥0.85 confidence (in-class) / ≥0.90 (unclassified) / ≥0.92 (provisional James-profile) → emit `DRIFTED-VOTE-PENDING-CONFIRM`; partner CONFIRMs/CHALLENGEs on return
+- **L2.5 MMA-Substitute-Pilot** (Captain G33-LEVEL-B 2026-05-05 ~07:55 IST) — when partner offline + bilateral class OR pilot stuck-after-first-attempt OR knowledge-gap, online pilot runs MMA per ratified Protocol v4.0 (≥5 models / ≥3 vendor families via OpenRouter); MMA consensus stands in for partner AMPLIFIER vote; substitute has FULL authority during substitution; partner returns → INFORMED via NOTIFY (Q-OP3 substitute-pilot model). Class boundary: applies to doctrine + customer-impact + cross-pilot-affecting; does NOT apply to bono-internal substrate hygiene (literal-reading 30d freeze carve-out). Decider vote guaranteed by odd-N config (Q-OP2). Standard 24h CHALLENGE-AMEND window applies forward.
 - **L3 burst-duplex** — deferred until L2 calibration (7-day window, review 2026-05-02)
 - **L4 Uday escalation** — always-available G33 sync-engaged override
 
-**CGP gates always apply on L1 fast-path PACTs** — H1–H5 enforcement is independent of vote requirement. Charter relaxes vote, not discipline.
+**CGP gates always apply on L1 fast-path AND L2.5 MMA-substitute PACTs** — H1–H5 enforcement is independent of vote requirement. Charter/MMA-substitute relaxes vote, not discipline.
+
+**Attribution discipline (L2.5)**: when MMA-substitute interprets Captain doctrine into specific PACT cascade dispositions, the ledger entries (`pact-slots.jsonl` / `PACTS.md`) MUST attribute to the substitute pilot (`ai:"james"` or `ai:"bono"`), NOT to Captain. Captain ratified the DOCTRINE, not each downstream PACT under the cascade. Anti-pattern: substituting "Captain ratified the doctrine (Q1)" → "Captain ratified each downstream PACT in the ledger" — captured as META-class C sub-class N=26 (Captain-attribution-substitution; bono PART 34 §S-48.10).
 
 Full meta-prompt template + class definitions: `comms-link/CLAUDE.md` § PACT framework. When initiating a PACT, MUST add `CHARTER-CLASS:` field to proposal header (or `unclassified` for default dual-vote).
+
+### Security Debt — Open-by-Default Flagged-to-Close (Captain Q2 2026-05-05)
+
+**Captain G33-LEVEL-B 2026-05-05 ~07:55 IST verbatim Q2**: "Open by default but flagged to close later even when venue is up and running"
+
+V2 ships with V1 trust intact. Every grandfathered open path (auth gap, credential storage, policy gap, audit gap) MUST be logged in `comms-link/data/security-debt-ledger.jsonl` (append-only, one JSON per line) with explicit closure-Phase commitment. Closures hot-swap (no venue downtime). Transforms HARD-BLOCKER security gaps into debt-track that resolves progressively in subsequent phases.
+
+**Schema parity** to `openrouter-spend-{bono,james}.jsonl` discipline: append-only / inline comment at surface / closure-PACT auto-marks `closed: true` with PACT ID reference. Companion README at `comms-link/data/security-debt-ledger.README.md`.
+
+**Initial seeds (3 entries, bono PART 34 §S-48.4)**:
+1. PACT-026 §A direct racecontrol M2M paths — class=auth-gap; closure_phase=Post-V2.0-AUTH-Sprint
+2. PACT-018 staff.pin raw V1 contract — class=credential-storage; closure_phase=Phase-0.5c-AUTH (sibling sub-PACT for bcrypt-hardening; PACT-018 AMEND-1 RATIFIED 2026-05-05 09:43 IST absorbs CAVEAT-3 inline schema comment for this debt)
+3. Q4-3 dynamic pricing discount ceiling — class=policy-gap; closure_phase=Post-V2.0-Pricing-Calibration
+
+**Bilateral writers**: both pilots append entries when encountering open-by-default paths during V2 work. Bono parity-trips entries on V2.0 milestone audit.
+
+**Composes-with**: PACT-026 §A NO-direct-heart-narrow-carve-out (CAVEAT-C3 transforms BLOCKER → debt-track); §S-48.6 Universal Sync rule; Captain "loophole-vs-saintly" calibration substrate (V2-MASTER-STATE §S-30.1).
 
 ### Code Quality
 
@@ -370,6 +501,10 @@ Full meta-prompt template + class definitions: `comms-link/CLAUDE.md` § PACT fr
   _Why: Single-crate updates leave other components speaking a different protocol version. Cloud sync broke for 3+ hours because venue had new migrations but cloud DB was on an old binary with missing columns._
 - **DB migrations must cover ALL consumers.** `CREATE TABLE IF NOT EXISTS` won't alter existing tables. If a column is used in sync/query code, the migration must `ALTER TABLE ADD COLUMN` for it — even if the CREATE TABLE already includes it. Old databases won't have columns added after initial creation.
   _Why: `updated_at` was in 10 CREATE TABLE statements but only 2 had ALTER migrations. Cloud and venue DBs created by different binary versions had different schemas. Required manual ALTER on 8 tables to fix._
+- **`sqlx::migrate!` macro embeds migrations at compile-time — adding new .sql files requires explicit cache invalidation.** Cargo's incremental cache treats migration .sql files as opaque; touching them does NOT invalidate the binary's embedded migration set. Symptoms: tests that exercise the new migration fail with schema errors (`no such table`, `no such column`, dangling FK to a renamed-then-dropped table) despite the migration file being on disk. Fix: `cargo clean -p <crate>` then re-run tests. Lighter alternative: `touch crates/<crate>/src/lib.rs` to force the build script to re-evaluate without nuking the entire `target/`. Applies to any `migrations/` directory consumed by `sqlx::migrate!()` (e.g. `crates/v2-db/migrations/`).
+  _Why: 2026-05-08 V2 Wave 1 W1-S2 — added `crates/v2-db/migrations/20260508000001_wallet_redemptions_fk_repair.sql` (NF-james-4 schema bug repair). Three `reconcile_redemption` tests failed with `no such table: main.sessions_old_pact018` despite the new migration explicitly fixing the FK. Root cause: `migrate!()` embedded migrations into the compiled artifact at the previous compile boundary; cargo incremental did not invalidate when the new .sql appeared. `cargo clean -p v2-db && cargo test -p v2-db` cleared the embedding and tests passed 43/43._
+- **SQLite `ALTER TABLE RENAME` rewrites foreign-key references in OTHER tables.** With `PRAGMA legacy_alter_table=0` (SQLite default since 3.25), renaming a table also rewrites every `REFERENCES <old_name>(col)` clause in every other table to point at the new name. The recreate-table pattern (RENAME → CREATE NEW → INSERT → DROP) therefore leaves dangling FKs in any sibling table that referenced the original — those FKs end up pointing at the transient renamed-then-dropped table. Migration authors must include sibling-table rebuild in the same migration if any other table has a FK to the renamed table. Audit: after writing a recreate-table migration, `grep -rn "REFERENCES <renamed_table>" crates/<crate>/migrations/` and rebuild every match.
+  _Why: 2026-05-08 NF-james-4 — `crates/v2-db/migrations/20260503000003_staff_table_and_fk.sql` used the recreate-table pattern on `sessions` (FK to staff). It rebuilt `wallet_topups` (also pointed at sessions indirectly via staff) but missed `wallet_redemptions.session_id REFERENCES sessions(id)` from the initial schema. Rename rewrote that FK to `sessions_old_pact018`; subsequent DROP left it dangling. INSERT into wallet_redemptions tripped `no such table: main.sessions_old_pact018` 5 days after migration 003 landed (was invisible until first behavior-consumer in W1-S2)._
 - **Review parallel session commits against standing rules before deploying.** Code from other sessions may not follow current rules (bat parentheses, missing verification, stale references). Always `git show <hash>` and check against standing rules before accepting.
   _Why: Parallel session commit `a948569` used parentheses in bat if/else blocks — caught during standing rule review, fixed before deploy._
 - **Convert timestamps before counting events.** Racecontrol logs are UTC; all operations are IST. Before reporting "N events happened," convert every timestamp and exclude your own actions (deploys, restarts, test kills). An audit that reports its own deploys as "unexplained restarts" wastes investigation time and erodes trust in findings.
@@ -732,10 +867,39 @@ Before investigating from scratch, consult `docs/`:
 
 ## Brand Identity
 
+_Canonical sources: colors → `packages/shared-tokens/tokens.css` (`--rp-*` tokens, both web and kiosk import this). Fonts → `kiosk/src/app/globals.css` `@theme inline` block (kiosk = unified-theme reference). Logos → `brand-assets/logos/` (Racing Point lockup PNG preserved 2026-05-08 from Emergent CDN; future variants land here; see `brand-assets/README.md`). Full V2 design substrate → `comms-link/v2-skeleton/10-ui-design-system.md`. RATIFIED 2026-05-08 IST per Captain disposition; supersedes May 2 design brief._
+
 - Racing Red: `#E10600` | Asphalt Black: `#1A1A1A` | Gunmetal Grey: `#5A5A5A`
-- Card: `#222222` | Border: `#333333`
-- Fonts: Montserrat (body), Enthocentric (headers)
+- Card: `#222222` | Border: `#333333` | Surface (elevated): `#2A2A2A` | Red-hover: `#FF1A1A`
+- Fonts: Montserrat (body, 400/500/600/700), Orbitron (display, 500/700/900)
+- Tailwind utility prefix: `rp-*` (e.g. `bg-rp-red`, `text-rp-grey`, `border-rp-border`)
 - OLD orange `#FF4400` is DEPRECATED — do not use
+- Enthocentric (display) DEPRECATED 2026-05-08 — never shipped, replaced by Orbitron canonical in kiosk
+
+---
+
+## Doctrine Conventions
+
+### Substrate-Pointer Convention (extends comms-link/CLAUDE.md Network Identity precedent)
+
+**When this CLAUDE.md cites a fact that has a code/file source-of-truth, the citation MUST include `(canonical: <path>)` — or be wrapped in an italicized "Canonical sources:" line above the fact list.**
+
+Existing applications:
+- Brand Identity → `(canonical: packages/shared-tokens/tokens.css for colors; kiosk/src/app/globals.css for fonts; comms-link/v2-skeleton/10-ui-design-system.md for full V2 substrate)` — applied 2026-05-08
+- Network Identity → `comms-link/CLAUDE.md` "Network Identity" section (already enforced; original precedent 2026-05-03 G9 #3 IP-drift class)
+
+Candidate applications (annotate as the surface arises; do not pre-annotate speculatively per kaizen-discipline):
+- Crate Names → `(canonical: workspace Cargo.toml)`
+- Service Ports → `(canonical: <relevant config file>)`
+- Billing rates → `(canonical: <pricing source-of-truth>)`
+
+**Why:** This CLAUDE.md is loaded into every session as system prompt context. Without a substrate pointer, the agent treats the summary as authoritative and produces derived artifacts (briefs, plans, config) using the summary's vocabulary — which may diverge from canonical. Pattern observed 8-9 times within 24h across two sessions on 2026-05-08, all same META class (passive-memory-vs-environment in derived-artifact authoring). See `~/.claude/projects/C--Users-bono/memory/feedback_emergent_directed_spend_protocol.md` META-class extension for analysis.
+
+**Composes with:** Verify-Before-Generate (2026-04-11) · Rule 0 — Enumerate Before Asserting (v4.4) · directed-spend Rules 1-4 · `comms-link/CLAUDE.md` Network Identity (sibling pattern, IP-class-specific).
+
+**Scope:** Documentation convention. Not hook-enforced (yet). If recurrence persists, escalate to hook enforcement (Recommendation #2 in protocol META-class extension).
+
+**Stale-at:** Re-evaluate after 10 sessions or 2026-05-22 (whichever first). If META class continues to fire ≥1×/session despite this convention, escalate to hook enforcement.
 
 ---
 

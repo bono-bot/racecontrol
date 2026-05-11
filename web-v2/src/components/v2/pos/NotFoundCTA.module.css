@@ -1,0 +1,70 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.25rem;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: 8px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--rp-text-primary);
+}
+
+.body {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--rp-text-muted);
+  line-height: 1.5;
+}
+
+.code {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, monospace;
+  font-size: 0.875rem;
+  background: var(--rp-asphalt-black);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  color: var(--rp-text-primary);
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.btnPrimary,
+.btnSecondary {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+}
+
+.btnPrimary {
+  background: var(--rp-racing-red);
+  color: var(--rp-text-primary);
+}
+
+.btnPrimary:hover {
+  background: var(--rp-racing-red-hover);
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--rp-text-primary);
+  border: 1.5px solid var(--rp-border);
+}
+
+.btnSecondary:hover {
+  border-color: var(--rp-text-muted);
+}

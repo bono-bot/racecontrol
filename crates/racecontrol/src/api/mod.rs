@@ -36,6 +36,7 @@ pub mod billing_start_validate;
 pub mod billing_views;
 pub mod bot_routes;
 pub mod bot_routes_query;
+pub mod cirs_lookup;
 pub mod customer_auth;
 pub mod customer_booking;
 pub mod customer_data_retention;

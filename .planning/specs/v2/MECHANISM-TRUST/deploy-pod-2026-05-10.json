@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "deploy-pod",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:23.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "CF-1: scripts/deploy-pod.sh uses 3 separate /exec roundtrips for kill/copy/move; watchdog wins race; OLD binary respawns. Empirical anchor \u00a7S-174 + MMA-DEPLOY-RCA-DIAGNOSE/CONSENSUS.md CF-1."
+    },
+    "ttl_sentinels": {
+      "answer": "NO",
+      "evidence": "CF-2: OTA_DEPLOYING sentinel has no TTL, managed external to swap, prone to omission; Pod 1 manual atomic chain failure when sentinel absent."
+    },
+    "behavioral_verify": {
+      "answer": "NO",
+      "evidence": "G9-class #4: 'SWAPPED echoed' but binary stayed OLD on Pod 1; no binary hash post-swap; no mtime advance check."
+    },
+    "single_target_dry_run": {
+      "answer": "NO",
+      "evidence": "G9-class #1: burned 7 pods cycling same SHA filter failure; no --canary flag; no staging-server preflight (CF-3)."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "CF-4: rc-sentry BLOCKED_PATTERNS deny-first regex with no allowlist; '\" | \"' in scripts/deploy-pod.sh:138 silently rejected for days."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "Empirical anchor surface for \u00a7S-174. All 5 NO. PR #66 fleet rollout broke 7 pods on this V1-shape; CF-1+CF-2 bundle PR is the V2-aligned remediation path (BLOCKED at MMA Step 4 VERIFY pending Captain G33 v6/v7 disposition)."
+}

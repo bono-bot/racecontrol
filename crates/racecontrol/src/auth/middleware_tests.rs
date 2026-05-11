@@ -11,7 +11,8 @@ mod tests {
     use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
     use tower::ServiceExt;
     use crate::auth::middleware::{
-        create_staff_jwt, create_staff_jwt_with_role, require_role, require_staff_jwt, StaffClaims,
+        create_staff_jwt, create_staff_jwt_with_role, is_idle_expired, require_role, require_staff_jwt,
+        StaffClaims,
     };
     use crate::state::AppState;
 
@@ -29,7 +30,7 @@ mod tests {
             .expect("in-memory sqlite pool");
 
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new(config, pool, field_cipher))
+        Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher))
     }
 
     /// Build a test router: a single GET /test behind require_staff_jwt middleware.
@@ -292,5 +293,75 @@ mod tests {
         let app_s = test_router_with_role(state, &["superadmin"]);
         let resp2 = app_s.oneshot(make_authed_request(&token2)).await.unwrap();
         assert_eq!(resp2.status(), StatusCode::OK);
+    }
+
+    // ─── Idle-timeout (Captain §S-82 Q3 sliding window) ───────────────────
+
+    fn make_claims_with_iat(secs_ago: i64) -> StaffClaims {
+        let now = chrono::Utc::now();
+        StaffClaims {
+            sub: "cashier_1".to_string(),
+            role: "cashier".to_string(),
+            iat: (now - chrono::Duration::seconds(secs_ago)).timestamp() as usize,
+            exp: (now + chrono::Duration::hours(24)).timestamp() as usize,
+        }
+    }
+
+    #[test]
+    fn is_idle_expired_fresh_token_returns_false() {
+        // iat = now → 0s elapsed < 1800s window → not expired
+        let claims = make_claims_with_iat(0);
+        assert!(!is_idle_expired(&claims, 1800));
+    }
+
+    #[test]
+    fn is_idle_expired_token_within_window_returns_false() {
+        // 1500s elapsed < 1800s window → not expired
+        let claims = make_claims_with_iat(1500);
+        assert!(!is_idle_expired(&claims, 1800));
+    }
+
+    #[test]
+    fn is_idle_expired_token_beyond_window_returns_true() {
+        // 1801s > 1800s default window → expired
+        let claims = make_claims_with_iat(1801);
+        assert!(is_idle_expired(&claims, 1800));
+    }
+
+    #[test]
+    fn is_idle_expired_zero_secs_disables_idle_check() {
+        // idle_timeout_secs = 0 → idle check disabled, only `exp` matters
+        let claims = make_claims_with_iat(100_000);
+        assert!(!is_idle_expired(&claims, 0));
+    }
+
+    #[test]
+    fn is_idle_expired_future_iat_clock_skew_returns_false() {
+        // Clock skew: iat is in the future. Saturating subtraction yields 0 elapsed → not expired.
+        let claims = make_claims_with_iat(-1000);
+        assert!(!is_idle_expired(&claims, 1800));
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_idle_expired_jwt() {
+        // Token's `exp` is hours in the future, but `iat` is older than the
+        // configured idle window. Captain §S-82 Q3 contract: re-PIN required.
+        let state = test_state().await;
+        let now = chrono::Utc::now();
+        let claims = StaffClaims {
+            sub: "cashier_1".to_string(),
+            role: "cashier".to_string(),
+            iat: (now - chrono::Duration::seconds(3600)).timestamp() as usize, // 1h ago
+            exp: (now + chrono::Duration::hours(23)).timestamp() as usize,     // still valid by `exp`
+        };
+        let token = jsonwebtoken::encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+        )
+        .unwrap();
+        let app = test_router(state);
+        let resp = app.oneshot(make_request(Some(&token))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 }

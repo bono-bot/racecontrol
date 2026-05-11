@@ -159,12 +159,24 @@ pub fn allow_cloud_venue_write() -> bool {
 // ─── JWT Secret Resolution ──────────────────────────────────────────────────
 
 /// Resolve JWT signing secret: env var > config value > auto-generate.
+/// Phase 0.5a (PACT-20260503-017 Q2 AGREE-B): RC_JWT_SECRET is canonical;
+/// RACECONTROL_JWT_SECRET is legacy fallback with deprecation warn (removal in V2.1).
+/// Mirrors PACT-20260503-010 OPENROUTER_KEY dual-read canonicalize pattern.
 /// The dangerous default "racingpoint-jwt-change-me-in-production" is treated as unset.
 fn resolve_jwt_secret(config_value: &str) -> String {
-    // 1. Environment variable takes priority
+    // 1. Canonical env var (Phase 0.5a)
+    if let Ok(key) = std::env::var("RC_JWT_SECRET")
+        && !key.is_empty() {
+            tracing::info!("Using JWT secret from RC_JWT_SECRET env var (canonical)");
+            return key;
+        }
+    // 1b. Legacy env var fallback — emit deprecation warn
     if let Ok(key) = std::env::var("RACECONTROL_JWT_SECRET")
         && !key.is_empty() {
-            tracing::info!("Using JWT secret from RACECONTROL_JWT_SECRET env var");
+            tracing::warn!(
+                "Using JWT secret from legacy RACECONTROL_JWT_SECRET env var. \
+                 Migrate to RC_JWT_SECRET — legacy var will be removed in V2.1."
+            );
             return key;
         }
     // 2. Config file value (if not the dangerous default and not empty)
@@ -178,7 +190,7 @@ fn resolve_jwt_secret(config_value: &str) -> String {
     tracing::warn!(
         "No JWT secret configured — generated random key. \
          Tokens will be invalidated on restart. \
-         Set RACECONTROL_JWT_SECRET env var for persistence."
+         Set RC_JWT_SECRET env var for persistence."
     );
     hex_key
 }

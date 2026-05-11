@@ -370,7 +370,16 @@ function callModel(modelId, systemPrompt, userPrompt, retries = 0, keyRecovered 
   if (!config) return Promise.reject(new Error(`Unknown model: ${modelId}`));
 
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
+    // PACT-25 §2 mirror (bilateral parity): reasoning_effort default for known-thinking-models
+    // prevents silent-loss class where 8000-token max-out is consumed by encrypted reasoning
+    // chunks before message.content is flushed (empirical anchor: 3/5 silent-failure on
+    // gpt-5.5-pro / kimi-k2.6 / deepseek-v4-pro 2026-05-04 ~03:30 IST; $1.57 spend with
+    // content_len=0). Conservative subset of PACT-25 §2 spec: Q1-a default low + Q2-a
+    // pattern-match (Q2-c hybrid catalog override + Q3-c live regression test deferred to
+    // bono PACT-025a → james diff-apply per Q5-c discipline). Q4-a pure addition (no
+    // breaking change to existing callsites; non-thinking models unaffected).
+    const isThinkingModel = /-pro\b|-thinking\b|-r1\b|deepseek-v\d+\b|-speciale\b/.test(modelId);
+    const bodyObj = {
       model: modelId,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -378,7 +387,11 @@ function callModel(modelId, systemPrompt, userPrompt, retries = 0, keyRecovered 
       ],
       max_tokens: config.maxOut,
       temperature: 0.2
-    });
+    };
+    if (isThinkingModel) {
+      bodyObj.reasoning_effort = 'low';
+    }
+    const body = JSON.stringify(bodyObj);
 
     const options = {
       hostname: 'openrouter.ai',

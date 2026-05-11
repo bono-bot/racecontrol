@@ -1,0 +1,16 @@
+{
+  "surface": "MMA-PR54-RCA-DIAGNOSE-bono-2026-05-11",
+  "elapsed_total_ms": 273736,
+  "total_cost_usd": 0.07516683,
+  "models_ok": 4,
+  "models_failed": [
+    "nvidia/nemotron-3-super-120b-a12b"
+  ],
+  "result_files": [
+    "/tmp/mma-pr54-results/deepseek.md",
+    "/tmp/mma-pr54-results/qwen.md",
+    "/tmp/mma-pr54-results/nvidia.md",
+    "/tmp/mma-pr54-results/google.md",
+    "/tmp/mma-pr54-results/moonshot.md"
+  ]
+}

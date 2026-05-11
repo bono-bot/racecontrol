@@ -120,6 +120,20 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database
     let pool = db::init_pool(&config.database.path).await?;
 
+    // PACT-20260506-001 Phase 1 wire-up Session 2: open V2-native v2-db pool +
+    // run migrations. Path derived from `config.database.path` by inserting
+    // `-v2` before the extension (e.g. racecontrol.db -> racecontrol-v2.db).
+    // Separate file keeps V1 + V2 schemas independent per PACT-20260503-003
+    // Phase 0.2 cutover semantics.
+    let v2_db_path = derive_v2_db_path(&config.database.path);
+    tracing::info!("Opening v2-db at {}", v2_db_path);
+    let v2db = v2_db::open(&v2_db_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("v2-db open failed at {v2_db_path}: {e}"))?;
+    v2_db::migrate(&v2db)
+        .await
+        .map_err(|e| anyhow::anyhow!("v2-db migrate failed: {e}"))?;
+
     // Extract monitoring/email config before config is moved into AppState
     let error_rate_email_enabled = config.monitoring.error_rate_email_enabled;
     let email_script_for_alerter = config.watchdog.email_script_path.clone();
@@ -137,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Build application state
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
-    let mut state = Arc::new(AppState::new(config, pool, field_cipher));
+    let mut state = Arc::new(AppState::new(config, pool, v2db, field_cipher));
 
     // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
     init_telemetry(&mut state).await;
@@ -351,6 +365,59 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Derive v2-db path from the main racecontrol.db path. Inserts `-v2` before
+/// the extension. Mirrors `telemetry_store::telemetry_db_path` convention
+/// (sibling DB file in the same directory) but per-file naming so the V1 and
+/// V2 substrates are visually distinguishable on disk.
+///
+/// Examples:
+/// - `./data/racecontrol.db` -> `./data/racecontrol-v2.db`
+/// - `C:\RacingPoint\racecontrol.db` -> `C:\RacingPoint\racecontrol-v2.db`
+/// - `racecontrol` (no extension) -> `racecontrol-v2`
+fn derive_v2_db_path(main_db_path: &str) -> String {
+    let path = std::path::Path::new(main_db_path);
+    let parent = path.parent();
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("racecontrol");
+    let ext = path.extension().and_then(|s| s.to_str());
+    let new_name = match ext {
+        Some(e) => format!("{stem}-v2.{e}"),
+        None => format!("{stem}-v2"),
+    };
+    match parent {
+        Some(p) if !p.as_os_str().is_empty() => p.join(new_name).to_string_lossy().to_string(),
+        _ => new_name,
+    }
+}
+
+#[cfg(test)]
+mod v2_db_path_tests {
+    use super::derive_v2_db_path;
+    #[test]
+    fn unix_relative_with_ext() {
+        // Path separator is platform-native (`\` on Windows, `/` on Unix);
+        // assert by suffix + parent component to stay portable.
+        let out = derive_v2_db_path("./data/racecontrol.db");
+        assert!(out.ends_with("racecontrol-v2.db"), "got {out}");
+        assert!(out.contains("data"), "got {out}");
+    }
+    #[test]
+    fn windows_absolute_with_ext() {
+        // Path::new normalises separators; assert by suffix to stay portable
+        let out = derive_v2_db_path("C:/RacingPoint/racecontrol.db");
+        assert!(out.ends_with("racecontrol-v2.db"), "got {out}");
+    }
+    #[test]
+    fn no_extension() {
+        assert_eq!(derive_v2_db_path("racecontrol"), "racecontrol-v2");
+    }
+    #[test]
+    fn nested_dir() {
+        let out = derive_v2_db_path("./data/sub/racecontrol.db");
+        assert!(out.ends_with("racecontrol-v2.db"));
+        assert!(out.contains("sub"));
+    }
 }
 
 /// Initialize telemetry.db (separate from main racecontrol.db).

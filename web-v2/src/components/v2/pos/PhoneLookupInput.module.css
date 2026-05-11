@@ -1,0 +1,74 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: 8px;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--rp-text-primary);
+  margin: 0;
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  font-size: 1.5rem;
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, monospace;
+  letter-spacing: 0.06em;
+  background: var(--rp-asphalt-black);
+  color: var(--rp-text-primary);
+  border: 2px solid var(--rp-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--rp-racing-red);
+}
+
+.input.warn {
+  border-color: var(--rp-warning);
+}
+
+.submit {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--rp-racing-red);
+  color: var(--rp-text-primary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.submit:hover {
+  background: var(--rp-racing-red-hover);
+}
+
+.submit:disabled {
+  background: var(--rp-gunmetal-grey);
+  cursor: not-allowed;
+}
+
+.warnBanner {
+  font-size: 0.875rem;
+  color: var(--rp-warning);
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 3px solid var(--rp-warning);
+  border-radius: 4px;
+}

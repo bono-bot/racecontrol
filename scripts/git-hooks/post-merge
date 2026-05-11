@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Wrapper: forwards git's canonical hook name (post-merge) to the
+# descriptive-named implementation. Use a wrapper instead of `ln -sf`
+# because `ln -sf` on Git Bash for Windows silently creates a COPY
+# (verified 2026-05-05 on James .27 — both files showed -rwxr-xr-x mode
+# with identical 4497 bytes, not lrwxrwxrwx). A copy diverges from the
+# canonical script across updates; a wrapper always exec's the latest.
+exec "$(dirname "$0")/post-merge-memory-autolog.sh" "$@"

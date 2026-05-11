@@ -691,6 +691,46 @@ async fn main() -> Result<()> {
     // Clean up old log files (>30 days) before initializing tracing
     cleanup_old_logs(&log_dir);
 
+    // ─── SILENT-LOOP-DEATH DETECTOR (Part 4 fix; Pod 1 incident 2026-05-09) ───
+    // Two pre-tracing-init mechanisms ensure observability survives:
+    //   (1) tracing pipeline death (WorkerGuard worker thread dies → events dropped silently)
+    //   (2) tokio runtime starvation (single-thread reactor wedged by blocking syscall)
+    //   (3) silent unhandled panic anywhere in async stack (no panic hook = no forensic trail)
+    //   (4) post-kick crash-loop where process dies before tracing init even runs
+    //
+    // Both must be installed BEFORE tracing init so they catch panics during init too.
+    // Both bypass tracing (raw fs writes) and tokio (real OS thread) entirely.
+    // Watchdogs (rc-sentry, racecontrol fleet_health) read these artifacts to self-heal.
+
+    // Panic hook → forensic trail in C:\RacingPoint\rc-agent-panic.log
+    let panic_log_path = log_dir.join("rc-agent-panic.log");
+    std::panic::set_hook(Box::new(move |info| {
+        let ts = chrono::Utc::now().to_rfc3339();
+        let bt = std::backtrace::Backtrace::force_capture();
+        let entry = format!("=== PANIC at {} ===\n{}\nbacktrace:\n{}\n\n", ts, info, bt);
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&panic_log_path)
+        {
+            let _ = f.write_all(entry.as_bytes());
+        }
+        eprintln!("{}", entry);
+    }));
+
+    // Heartbeat → C:\RacingPoint\rc-agent-heartbeat.txt updated every 30s.
+    // Real OS thread (not tokio task) so it survives runtime stall.
+    // Raw std::fs (no tracing) so it survives WorkerGuard death.
+    // External readers infer wedge: file mtime > 60s old = silent-loop-death.
+    let heartbeat_path = log_dir.join("rc-agent-heartbeat.txt");
+    std::thread::Builder::new()
+        .name("rc-agent-heartbeat".into())
+        .spawn(move || loop {
+            let ts = chrono::Utc::now().to_rfc3339();
+            let _ = std::fs::write(&heartbeat_path, format!("{}\n", ts));
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        })
+        .ok();
+
     println!(r#"
   RaceControl Agent
   Pod Telemetry Bridge

@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "rc-agent",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "NO",
+      "evidence": "PR #66 d6c623d7 added pre-tracing-init panic hook (atomic at signal level) + heartbeat thread; outer reconnect loop in main.rs:2105 not panic-contained (MMA-DEPLOY-RCA-DIAGNOSE outer-loop convergent finding)."
+    },
+    "ttl_sentinels": {
+      "answer": "NO",
+      "evidence": "MAINTENANCE_MODE sentinel has no TTL, no auto-clear (CLAUDE.md Debugging: 'silent pod killer'). OTA_DEPLOYING managed externally not in rc-agent."
+    },
+    "behavioral_verify": {
+      "answer": "YES",
+      "evidence": "PR #66 heartbeat-thread writes rc-agent-heartbeat.txt with mtime advance every 30s as behavioral health signal; ws_reconnect_count proxy is the audit-blind layer being replaced."
+    },
+    "single_target_dry_run": {
+      "answer": "NO",
+      "evidence": "No --canary mode in rc-agent itself; Pod 8 canary deploy was ad-hoc out-of-band (Pod 8 stayed on 8e378f4d 5.7h+ stable while Pods 1-7 stayed on c5f94e31)."
+    },
+    "guard_contracts": {
+      "answer": "NO",
+      "evidence": "No formal contract between rc-agent and rc-watchdog/rc-sentry; rollback semantics implicit in service.rs:288 SF-05 skip-restart logic."
+    }
+  },
+  "overall": "FAIL",
+  "notes": "PR #66 fixed the silent-loop-death class with 5-section RCA + MMA Step 1; remaining V1-shape lives in delivery mechanism (deploy-pod), not rc-agent itself."
+}

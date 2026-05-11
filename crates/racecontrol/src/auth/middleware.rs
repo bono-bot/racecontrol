@@ -100,7 +100,37 @@ fn extract_staff_claims<B>(state: &Arc<AppState>, req: &Request<B>) -> Result<St
         return Err(());
     }
 
+    // PACT-20260506-001 §AMEND-1.F + Captain §S-82 Q3 idle-session-timeout.
+    // V2.0 ships fixed-window-from-iat (token re-issued at `iat`, expires
+    // `iat + idle_timeout_secs`). Captain §S-82 Q3 originally specified
+    // sliding-window; gap was disclosed as K5 in PR #64 DEPLOY MANIFEST §3
+    // and dispositioned 2026-05-08 ~13:50 IST as Path A: ship fixed-window
+    // for V2.0; sliding-window refresh on activity (token re-issuance) is
+    // scope-pinned to V2.1 — see memory file
+    // project_v2_1_sliding_window_idle_timeout_pact_pin.md.
+    let idle_timeout = state.config.auth.idle_timeout_secs;
+    if is_idle_expired(&data.claims, idle_timeout) {
+        return Err(());
+    }
+
     Ok(data.claims)
+}
+
+/// Returns `true` when the token has aged beyond the configured idle window.
+///
+/// Reads the wall clock once via `chrono::Utc::now()`. Tokens issued in the
+/// future (clock skew) treat as not-expired (saturating subtraction).
+///
+/// Per Captain §S-82 Q3 disposition (2026-05-07 ~05:30 IST): default 30 min
+/// sliding window via `idle_timeout_secs = 1800` in `[auth]` config.
+pub(crate) fn is_idle_expired(claims: &StaffClaims, idle_timeout_secs: u64) -> bool {
+    if idle_timeout_secs == 0 {
+        return false;
+    }
+    let now = chrono::Utc::now().timestamp();
+    let iat = claims.iat as i64;
+    let elapsed = now.saturating_sub(iat);
+    elapsed > idle_timeout_secs as i64
 }
 
 // ─── Strict middleware (rejects unauthenticated requests) ─────────────────

@@ -1,0 +1,31 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "billing",
+  "date": "2026-05-10",
+  "audited_at": "2026-05-09T20:34:24.000Z",
+  "auditor": "bono",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "YES",
+      "evidence": "billing_pricing.rs:327 Strategy trait + per-strategy compute_session_cost; transactional billing tx in billing.rs callers; F25a substrate at 9f1c0a37."
+    },
+    "ttl_sentinels": {
+      "answer": "N/A",
+      "evidence": "No sentinels in billing layer; orthogonal."
+    },
+    "behavioral_verify": {
+      "answer": "YES",
+      "evidence": "F25a HISTORICAL block + behavior parity tests; Vivek canonical regression covered at strategy impl level (F25b RCA flag pre-merge customer-impact comparison required)."
+    },
+    "single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "cargo test 858/858 PASS at last check; per-strategy unit tests + per-customer fixtures."
+    },
+    "guard_contracts": {
+      "answer": "YES",
+      "evidence": "F25a \u00a7AMEND-3 V2 Way A default + V1-era SnapPricing preserved with HISTORICAL block; explicit V1\u2194V2 boundary contract; F25a sub-PACT codification candidate (F-05 anti-pattern lint)."
+    }
+  },
+  "overall": "PASS",
+  "notes": "Strongest V2-aligned surface in this audit. F25a refactor produced clean V1\u2194V2 boundary; F25b (Way A flip) adds tighter live-rate alignment. PASS verdict."
+}

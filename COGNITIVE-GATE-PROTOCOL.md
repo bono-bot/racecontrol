@@ -58,10 +58,14 @@ _Why: 2026-04-16 — 5 fixes applied in overnight autonomous session. Completion
 ### H5: User Corrections Are Mandatory Retrospectives
 **What:** Every user correction ("good catch," "you missed," "that's wrong") triggers:
 1. **Why** the error happened (root cause, not excuse)
-2. **What structural change** prevents recurrence (not "I'll remember next time" — that's the bias talking)
+2. **What structural change** prevents recurrence (not "I'll remember next time" — that's the bias talking) — see CANDIDATE-N1 disposition below
 3. **Session G9 counter** — target: 0. Report in every gate summary.
 
 **Why it works:** Turns errors into protocol improvements. The counter creates accountability.
+
+**CANDIDATE-N1 doctrine (v4.6, 2026-05-01 IST — Captain G33-CONFIRM ratify):**
+Every G9 produces (a) WHY root cause + (b) **candidate** structural fix tagged `CANDIDATE-N1` + (c) defer-active condition (default: second independent firing of same root-class within 30 days). Promote to active rule only after N=2 confirmation. **Code-enforced hooks are exempt** — they ship at N=1 because their false-positive cost is bounded by an explicit BYPASS escape verb.
+_Why: 2026-05-01 — same session produced G9 #1 + G9 #2 within 30 minutes; G9 #1 over-broad rule (`recipient-already-monitoring`) was applied immediately and triggered the harness denial that produced G9 #2. Pattern: H5's "structural change" requirement, applied at N=1 evidence, manufactures over-broad rules from one ambiguous signal. Memory-resident rules from N=1 evidence add noise faster than they remove errors. Code-enforced hooks remain exempt because they have an explicit BYPASS escape verb (e.g. `BYPASS_AXIS_CLASSIFICATION=1`) that bounds their false-positive cost. Anchor: Captain Uday verbatim-quote of proposed amendment text mapped to G33-CONFIRM verb per autonomous-PACT-operation directive. Master memory: `feedback_g9_candidate_n1_doctrine_h5_amendment_20260501.md`._
 
 ---
 
@@ -232,6 +236,115 @@ Before investigating any production issue, consult the debugging reference docs 
 **Order:** ERROR-CATALOG (known issue?) → LOG-LOCATIONS (find evidence) → SERVICE-REFERENCE (understand the binary) → DATA-FLOW-DIAGRAMS (trace the flow). Architecture/API are reference, not debugging entry points.
 
 _Why: Same class as "check LOGBOOK/git/memory BEFORE investigating" (feedback_diagnostic_order.md). These docs capture the accumulated knowledge from 34 shipped milestones, 60-phase audits, and 14-model MMA runs. Investigating from scratch when the answer is already documented wastes session time and rediscovers known issues._
+
+---
+
+## Standing Rule #19 — V2-only forward path (v4.3, 2026-05-01, refined post-G9 #2)
+
+**Captain directive 2026-05-01 IST: V2 is the only forward architectural path for the RacingPoint ecosystem. Every new session must be geared toward supporting and building V2.**
+
+**V2 incorporates V1 modules** per `comms-link/v2-skeleton/05-definition-of-done.md` keep/mold/discard filter. Explicit carry-forwards: currency unit (rupee=credit) · top-up bonus-credit ladder · kiosk-staff launch first iteration · V1 organs (racecontrol, comms-link, admin, whatsapp-bot, kiosk, pods, POS — V2 adds the skeleton layer atop). What V2 closes is **V1-shaped antipatterns** (organ silos without skeleton, point-to-point ad-hoc connections, manual operations bypassing ratified flows), NOT V1 components categorically.
+
+**Pre-action V2-transport check** (mandatory for prod-touch — Server .23 / Pods 1-8 / POS .130 / Cloud apps / comms-link prod / Bono VPS prod):
+1. **Q1** — Is the target classified as production?
+2. **Q2** — Grep `reference_local_capabilities.md` for ratified V2 transport: bono comms-link relay `localhost:8766/relay/exec/run`, `/rp-bono-exec` skill, `/rp-james-exec` skill, `ssh server` alias, rc-sentry `:8091/exec` pod-side.
+3. **Q3** — Use it. If no V2 transport exists, halt and ask Captain — **never invent a V1 fallback.**
+
+**Why:** Direct host-shell from a pilot to prod bypasses ratified relay, skips substrate-immutability, ignores transport-channel doctrine. V1-shaped operations are not authorized even when faster.
+
+**Composes with:** Rule 0 (Enumerate Before Asserting) · H4 (target enumeration) · PACT-027 §10 (PACT-discipline hooks) · AMEND-1 bundle-of-8 RATIFIED 2026-05-01 ~06:05 IST (substrate-immutability active). Charter doctrine: `comms-link/PACT-CHARTER.md` §V2.0. Master memory: `feedback_v2_only_forward_path.md`.
+
+**Empirical anchors:**
+- james G9 #1 2026-05-01 IST — direct `ssh racing-point-server-1` for PACT-086 §5.2 evidence-pull denied by harness production-classifier; correct V2 path was bono-relay
+- james G9 #2 2026-05-01 IST — initial doctrine wording "V1 is closed" over-broad, contradicting V2 spec; refined via spec-grep on `v2-skeleton/05-definition-of-done.md`
+
+**Sibling-PACT candidate:** `pre-prod-touch-transport-check.js` + `pre-doctrine-codification-check.js` (PreToolUse Bash + Edit/Write hooks composing with PACT-027 §10 hook bundle).
+
+---
+
+## Standing Rule #20 — Wall-clock environment-fetched (v4.3, 2026-05-06, james PART 46 self-G9 + Captain H5 trigger)
+
+**Captain H5-trigger 2026-05-06 ~12:25 IST: structural fix mandatory after destructive temporal-mental-arithmetic action.**
+
+Before any temporal-elapsed claim ("X hours stuck", "Y minutes ago", "way past expected", "session has been going for"), the wall-clock value MUST come from environment — either the `[wall-clock]` line injected by the `wall-clock-inject.js` hook on every UserPromptSubmit, OR a fresh `date -u` invocation in the same turn. NEVER project mentally over session-start markers, earlier hook timestamps, or memory of session-elapsed.
+
+**Hook:** `wall-clock-inject.js` (UserPromptSubmit) — emits `[wall-clock] <UTC> (<DOW> <IST>) — fetched from environment, not memory-projected` line in every prompt's additionalContext block. Always-on availability of current time.
+
+**Why:** james 2026-05-06 PART 46 self-G9 #1 — saw `IN_PROGRESS` status on bono PR #62 CI checks at session-start, mentally projected "5 hours stuck" without running `date -u`, canceled 4 healthy CI runs as collateral (run IDs 25420136647, 25420136645, 25420315150, 25420315146). Actual elapsed at cancel-time: ~16 minutes — well within PR #61 baseline 33min build. Real cost: ~10min wall-clock + runner-minutes + 06:31:30Z PR-event run set permanently lost (cancellation irreversible). Self-G9 #2 same session: `kaizen-N=1-as-shield-from-structural-fix` — cited kaizen-correction-triage to defer the structural fix; Captain H5-triggered demand corrected the deferral. Class: foundational Verify-Before-Generate violation on temporal claims; time is environment, fetch don't project.
+
+**Composes with:** Verify-Before-Generate principle (CLAUDE.md foundation) · `cgp-session-inject.js` (paired UserPromptSubmit hook) · H3 evidence-before-claims (temporal anchor is part of WHERE+WHEN claim discipline) · Rule 0 enumerate-before-asserting (time-claim is knowledge-coverage assertion requiring environment enumeration) · `kaizen-correction-triage` (this rule's escalation is the empirical demonstration that kaizen-N=1 deferral is not a license to skip H5 when destructive action already shipped).
+
+**Universal Sync targets:** james `~/.claude/hooks/wall-clock-inject.js` SHIPPED + `settings.json` registered + verified harness pickup ✓ · bono `/root/.claude/hooks/wall-clock-inject.js` PENDING via comms-link git mirror · bono `~/.claude/settings.json` registration PENDING bono-session-side · CGP doc this entry · MEMORY.md index `feedback_wall_clock_mental_arithmetic_as_truth_g9_n1.md` SHIPPED · V2-MASTER-STATE §S-70 PENDING post-PR-#62-CI-settle.
+
+---
+
+## Standing Rule #21 — V1-dependent V2 sections require RCA + past-bug review BEFORE proceeding (v4.3, 2026-05-09, Captain directive + bilateral H5 trigger)
+
+**For any change to a deployed V2 section that inherits, calls into, reuses, or shares schema/state with V1 parts: produce a written 5-section root-cause analysis (RCA) BEFORE H1 PLAN. Skipping = "patch V1 forward" anti-pattern; same root causes propagate, V2 doctrine drifts.**
+
+**5-section RCA (mandatory pre-action):**
+1. **Boundary map** — exact files / DB tables / IPC seams / API routes / config keys where V2 crosses into V1. Cite paths + line numbers.
+2. **Inherited-issue catalogue** — V1 bugs / footguns / races / doctrine deviations touching the same boundary. Sources: `session_notes_20260506_v1_process_mess_audit_for_v2_blockers.md` (10 candidate categories A-J) · §S-61 PART 41 V1 failure-mode investigation (14 mapped) · LOGBOOK.md grep · V2-MASTER-STATE §S-N · component G9/UCA tags.
+3. **Past-bug review** — for each: `ROOT-CAUSED-AND-FIXED` / `PATCHED-ONLY` (open) / `UNRESOLVED` (open) / `NOT-APPLICABLE-TO-V2` (justified). Cite commits / PRs / §S-N.
+4. **V2-alignment delta** — what the boundary should look like under V2 doctrine (V2-MASTER-STATE canonical-source ledger + customer workflows + Wallet Framing C + Pod state-channel premise + foundation/strategy/config separation §AMEND-3.II D12). Name the gap.
+5. **Proposed change V2-framed, not V1-inertia** — change moves boundary toward V2 alignment OR explicit kaizen-justified temporary V1 retention with written follow-up trigger that retires V1 path.
+
+**Triggers:** editing file with both V1+V2 paths · touching pre-2026-05-01 DB tables/migrations · V1↔V2 cross-module call · V2 surface reading/writing V1-era data · "fix"/"improve"/"change" verb on V1-flagged section · feature on top of V1 ancestor in `v1_process_mess_audit_for_v2_blockers.md` categories A-J.
+
+**Foundational-boundary escalation:** boundary in {billing / wallet / auth / pod-state-channel / WhatsApp identity / DB schema} → run MMA Step 1 DIAGNOSE (5-model consensus on root causes) BEFORE PLAN; per-PR Captain merge auth required (sibling SR `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md`); standing-autonomy verbs do NOT satisfy.
+
+**Required commit/PR statement:** "V2 doctrine alignment: <which V2 anchor — V2-MASTER-STATE §S-N / customer workflow / Wallet Framing C / etc.>".
+
+**Why:** V1 failed and venue is closed because V1-era code carried compounding unresolved root causes (broadcast storm class, schema drift, audit-blind proxy checking, recovery cascades — §S-61 14 mapped failure modes). V2 reuse propagates them silently unless RCA surfaces them. F25a billing-strategy substrate succeeded specifically because it root-caused V1 SnapPricing first → preserved as known strategy with HISTORICAL block (intentional, not accidental fall-through) + behavior parity tests. Q-PRICE-1 dispositioned via timeline reframing only worked because Captain knew April-16 snap-pricing was V1-era patch (RCA, not assumption). Fleet Uniformity Phase 1 (2026-05-06) succeeded because Captain demanded "root-cause analysis instead of fixing each pod one-by-one". Skipping = patch-V1-forward = same bug, new branch, V2 doctrine drift.
+
+**Anti-patterns blocked:** quick-fix on V2 surface inheriting V1 race · V2 feature on V1 schema without naming what V1 schema assumptions are now V2 contracts · treating V1-era code in V2 file as "already-working baseline" (V1 failed; baseline conditional on RCA) · symptom-patching V2 when root cause is in V1 part being called · "I'll RCA later" (RCA is precondition, not follow-up).
+
+**Bilateral:** applies to james AND bono. Both pilots produce 5-section RCA before V1↔V2 boundary work. Cross-pilot AMPLIFIER review checks RCA presence before voting on PACT. Captain G33-CONFIRM checks RCA section in proposals.
+
+**Composes with:** Verify-Before-Generate (V1↔V2 seam = high-value verify zone) · SR #19 V2-only forward path (this rule operationalizes #19 at code-touch time) · `feedback_kaizen_discipline_dont_complicate.md` (RCA detail high; change stays smallest invariant) · `feedback_autonomy_principle_v2_compass.md` (V2 = compass; RCA exposes divergence) · `feedback_pr_merge_pending_captain_auth_is_per_pr_gate.md` (foundational boundaries → per-PR auth) · H1 PROBLEM/PLAN (RCA informs PLAN; PLAN does not substitute for RCA).
+
+**Universal Sync targets:** james `~/.claude/CLAUDE.md` Key Operational Rules ✓ · james `~/.claude/projects/C--Users-bono/CLAUDE.md` mirror ✓ · racecontrol/CLAUDE.md V1-dependent V2 sections doctrine block ✓ · this CGP entry ✓ · comms-link/CLAUDE.md PENDING-this-session · bono `/root/.claude/CLAUDE.md` + bono memory PENDING via comms-link git mirror this session · MEMORY.md index `feedback_v1_dependent_v2_root_cause_before_proceeding.md` ✓ · briefings/bono/memory/MEMORY.md index PENDING · bono-side V2-MASTER-STATE §S-N entry PENDING.
+
+**Master memory:** `~/.claude/projects/C--Users-bono/memory/feedback_v1_dependent_v2_root_cause_before_proceeding.md`.
+
+---
+
+## Standing Rule #22 — Mechanism-trust-check upstream of fix RCA — extends SR #21 (v4.3, 2026-05-10, bono-LEAD bilateral)
+
+**For any V2 fix that depends on shared infrastructure (delivery / transport / supervision / guard / observability / schema): run a 5-question mechanism trust check on the infrastructure surface BEFORE authoring the fix RCA. V1-shaped delivery chains propagate V1 mistake-class to V2 fixes regardless of how clean the fix's diff looks.**
+
+**5-question trust check (cheap, <60s elapsed, ALL 5 must answer YES):**
+
+1. **Atomic primitives?** Single /exec atomic sequence (canonical CLAUDE.md pattern), not multi-step pipelined operations that race against the watchdog?
+2. **TTL-bounded sentinels?** `OTA_DEPLOYING`-class sentinels TTL-bounded, integrated with the atomic primitive (cannot be omitted), bilateral-mutex with the watchdog?
+3. **Behavioral-verify success?** Binary hash post-swap / mtime advance / ws_uptime>0 — not echo-string ("SWAPPED echoed") or exit code?
+4. **Single-target dry-run?** `--canary` flag / staging endpoint / behavioral test harness before fleet rollout?
+5. **Guard contracts?** rc-sentry BLOCKED_PATTERNS / rc-watchdog rollback_manager / comms-link relay PSK auth — written contracts with delivery script? Parser-not-regex with explicit allowlist?
+
+**Triggers:** any V2 fix where proposed change is shipped via shared infrastructure. Surface list: `scripts/deploy*.sh` · atomic-chain primitives · `/exec` endpoints · comms-link relay · send-message.js · comms.db + WS · rc-watchdog · rollback_manager · MAINTENANCE_MODE sentinel · rc-sentry BLOCKED_PATTERNS · validateMmaStep / validateRoleAssignment · fleet_health_api.rs · tracing-appender · LOGBOOK · `migrations/` · `sqlx::migrate!` consumers.
+
+**Workflow:** Before fix RCA → run trust check. PASS (5/5 YES) → proceed to §S-146 fix RCA. FAIL → write §S-146 5-section RCA on the delivery chain FIRST; fix RCA gates on it; both ship together OR delivery fix ships first as upstream PR. Cache result at `.planning/specs/v2/MECHANISM-TRUST/<surface>-<date>.json` with 30-day validity. Override env `V2_RCA_BYPASS=1` for kaizen-correct V1-retention exemptions, logged to sentinel for audit.
+
+**Cross-pilot AMPLIFIER discipline:** bilateral. AMPLIFIER vote MUST check both fix RCA AND mechanism trust check on shared-infrastructure-dependent V1↔V2 PACTs. Trust-check-absent proposals → AGREE-WITH-CAVEATS at minimum, requesting trust-check before substrate-ship.
+
+**Why:** Empirical anchor — PR #66 silent-loop-death fix (2026-05-09) was V2-clean (full §S-146 5-section RCA + MMA Step 1 DIAGNOSE + Captain merge auth + CI 5/5 + MERGED `d6c623d7` 11:10 IST + Pod 8 canary `8e378f4d` deployed cleanly + held stable 5.7h+). But fleet rollout to Pods 1-7 broke on V1-shaped delivery mechanism. MMA-DEPLOY-RCA-STEP1 found 9 consensus findings; every CF item maps onto a V1 anti-pattern class (non-atomic = manual ops bypassing ratified flows · sentinel-no-TTL = audit-blind proxy · BLOCKED_PATTERNS deny-first = organ silos · EPERM-as-success = audit-blind proxy · orphan bg = recovery cascades · burned 7 pods = fleet-uniformity-violation). Same V1 root causes shifted one layer left in the pipeline. §S-146 already caught this on its 4th application same day — but **retroactively**, after the failure. The gap is *velocity of recursive trigger*. Mechanism trust check upstream of fix RCA closes that gap.
+
+**Enforcement RCA on §S-146 itself** (`~/.claude/projects/-root/memory/project_s146_enforcement_rca_20260510.md` bono-LEAD): empirical pattern across this ecosystem — every text-only rule (§S-146, Universal Sync, V2-only forward path, location-inference, canonical-vs-mirror, STALE-MEMORY-CITE timeline-verify) carries at least one repeat-violation in last 30d; every hook-enforced rule (cgp-enforce.js, pre-mma-duplicate-check.js, conflict-marker-pre-git-add.js, validateStepSequence, validateRoleAssignment) carries zero. 4-phase plan in flight:
+
+- **Phase 1**: `pre-v2-edit-rca-check.js` PreToolUse Edit/Write matcher hook on V2-foundational-boundary surfaces. BLOCKS unless RCA artifact exists OR mechanism-trust-check log within 30 days OR `V2_RCA_BYPASS=1` env override (sibling of §S-159 pre-mma-duplicate-check pattern).
+- **Phase 2**: `mechanism-trust-check.sh` 5-question interactive prompt with JSON output.
+- **Phase 3**: `pre-universal-sync-write-check.js` — closes §S-146.4-class G9 forever (PreToolUse Write matcher on `feedback_*.md` with `bilateral: true` frontmatter; blocks unless 10-target enumeration emitted same session).
+- **Phase 4 (parallel)**: bilateral-hook-parity-check on SessionStart. Shared registry `.planning/hooks-bilateral/MANIFEST.json`. Diffs each pilot's `~/.claude/hooks/` against the manifest. Closes the meta-gap that hook portability between pilots is currently manual + slow.
+
+**Anti-patterns blocked:** authoring fix RCA on a V2 fix without auditing the delivery chain · treating shared infrastructure as "already-working baseline" (the deploy mechanism IS V1-shaped infrastructure even when its filename looks new) · "I'll trust-check the mechanism after the fix lands" (trust-check is precondition, not follow-up) · text-only rule about V1↔V2 boundary work without hook enforcement (rule-without-enforcement is the rule's own anti-pattern; §S-146 enforcement RCA is the recursive proof).
+
+**Composes with:** SR #21 V1↔V2 RCA (this rule fires upstream) · §S-146 V2-MASTER-STATE entry · §S-159 pre-mma-duplicate-check enforcement-pattern reference · Universal Sync 10-target sub-rule (same mode of failure: text-rule-without-hook).
+
+**Bilateral:** applies to james AND bono. Cross-pilot AMPLIFIER review of any V1↔V2 boundary PACT MUST check both fix RCA AND mechanism trust check.
+
+**Universal Sync targets (bono-LEAD authoring 2026-05-10 ~01:00 IST):** bono `~/.claude/CLAUDE.md` ✓ · racecontrol/CLAUDE.md V1-dependent doctrine block extension ✓ · this CGP SR #22 entry ✓ · comms-link/CLAUDE.md "Mechanism-trust-check" section ✓ · briefings/james/memory/feedback_*.md mirror ✓ · briefings/james/memory/MEMORY.md index ✓ · canonical memory `feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` ✓ · §S-172 V2-MASTER-STATE entry ✓ · comms-link git push ✓ · NOTIFY james via send-message.js ✓.
+
+**Master memory:** bono-side canonical `/root/.claude/projects/-root/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` + james-side mirror `briefings/james/memory/feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md`. Enforcement RCA at `project_s146_enforcement_rca_20260510.md` (bono-LEAD).
 
 ---
 

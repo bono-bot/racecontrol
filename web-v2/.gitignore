@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.env
+.env.local
+.env.production.local
+*.log
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
