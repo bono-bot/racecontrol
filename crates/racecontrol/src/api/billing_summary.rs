@@ -113,6 +113,7 @@ pub(crate) async fn billing_session_summary(
             "driver_id": session.1,
             "driver_name": session.2,
             "pod_id": session.3,
+            "pod_number": rc_common::pod_id::pod_id_to_number(&session.3),
             "track": track,
             "car": car,
             "allocated_seconds": session.4,
