@@ -104,6 +104,45 @@ test.describe("FLAG-2-Kaizen-A11y-AAA bundle", () => {
     expect(foundSkipLink).toBe(true);
   });
 
+  test("FLAG-2c-followup — /v2/ root .skipLink has white outline on focus-visible (no red-on-red collision)", async ({ page }) => {
+    await page.goto("/v2/");
+    const skipLink = page.locator("a[class*='skipLink']").first();
+    // Use keyboard Tab to trigger :focus-visible (programmatic .focus() doesn't always match).
+    await page.keyboard.press("Tab");
+    await expect(skipLink).toBeFocused();
+
+    const outlineColor = await skipLink.evaluate(
+      (el) => window.getComputedStyle(el).outlineColor,
+    );
+    expect(outlineColor).toBe("rgb(255, 255, 255)");
+
+    const outlineWidth = await skipLink.evaluate(
+      (el) => window.getComputedStyle(el).outlineWidth,
+    );
+    expect(outlineWidth).toBe("2px");
+
+    await page.screenshot({
+      path: "tests/screenshots/flag2c-followup-skiplink-white-outline.png",
+      fullPage: false,
+    });
+  });
+
+  test("FLAG-2c-followup — served /v2/ page CSS chunk contains skipLink:focus-visible white outline", async ({ request }) => {
+    const root = await request.get("/v2/");
+    const html = await root.text();
+    const cssMatch = html.match(/\/v2\/_next\/static\/chunks\/[a-f0-9_-]+\.css/g);
+    expect(cssMatch).not.toBeNull();
+
+    let foundSkipLinkOutline = false;
+    for (const path of cssMatch!) {
+      const css = await (await request.get(path)).text();
+      if (/skipLink[^{]*:focus-visible\{[^}]*outline:2px solid #fff/.test(css)) {
+        foundSkipLinkOutline = true;
+      }
+    }
+    expect(foundSkipLinkOutline).toBe(true);
+  });
+
   test("FLAG-3 regression — disabled submit still labeled 'Please confirm consent'", async ({ page }) => {
     await page.goto("/v2/");
     const submit = page.locator("button[type='submit'].page-module___8aEwW__optInSubmit, button[type='submit'][class*='optInSubmit']");

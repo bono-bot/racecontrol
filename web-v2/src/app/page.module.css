@@ -22,6 +22,12 @@
 .skipLink:focus {
   left: 0;
 }
+/* FLAG-2c-followup §S-209: white outline override prevents red-on-red collision
+ * with global a:focus-visible (globals.css). Mirrors .rp-skip-link:focus-visible. */
+.skipLink:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
 
 /* ---------- Header ---------- */
 
