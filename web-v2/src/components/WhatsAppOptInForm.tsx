@@ -28,8 +28,11 @@ export function WhatsAppOptInForm() {
   const [state, setState] = useState<SubmitState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // E.164-compatible: optional `+`, 10-15 digits. Catches sub-10-digit strings
+  // that would fail at WhatsApp Business API level (AMPLIFIER NIT-2 close).
+  const PHONE_REGEX = /^\+?\d{10,15}$/;
   const canSubmit =
-    consent && phone.trim().length >= 8 && state !== "submitting";
+    consent && PHONE_REGEX.test(phone.trim()) && state !== "submitting";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
