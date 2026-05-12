@@ -285,23 +285,25 @@ STALE-DISPOSITIONED breakdown:
 
 ## §11 — Layer 11: Bilateral AMPLIFIER queue (bono ↔ james cross-pilot)
 
-**Source-of-truth:** V2-MASTER-STATE tail since last james §S-N (§S-189 = 2026-05-10 ~03:30 IST)
+**Source-of-truth:** V2-MASTER-STATE tail; refreshed 2026-05-12 ~22:58 IST post-sweep against §S-189 + §S-201 + §S-210 + §S-211 for hidden ACKs.
 
 | # | Bono §S-N entry | AMPLIFIER ask | Status |
 |---|---|---|---|
-| 11.1 | §S-186 PACT-DRAFT-F-05 RATIFIED-PENDING-FILE-EVENT | james substantive on F-05 ratify file-event | PENDING |
-| 11.2 | §S-188 PACT-DRAFT §S-158 V2 Audit-Log Doctrine AMPLIFIER | james AMPLIFIER on bono's CONCUR+3-NITs | PENDING |
-| 11.3 | §S-191 pre-vms-duplicate-check.js installed | james mirror disposition | PENDING |
-| 11.4 | §S-193 scoreMessage v0.4.0 calibration | james parallel calibration / disposition | PENDING |
-| 11.5 | §S-194 MMA-AUTONOMY iter1+iter2 hook bundle | james AMPLIFIER on harness rule-floor design | PENDING |
-| 11.6 | §S-195 §S-121 v0.3 Step 3 timeline-verify gate | james AMPLIFIER on stale-cite class | PENDING |
+| 11.1 | §S-186 PACT-DRAFT-F-05 RATIFIED-PENDING-FILE-EVENT | james substantive on F-05 ratify file-event | ⚠️ **AMPLIFIER-CLOSED-VIA-§S-189-ITEM-6** (CONCUR-OBSERVED-SHIPPED 2026-05-10 ~03:30 IST); row's residual gate is the distinct FILE-EVENT trigger (still pending separately) |
+| 11.2 | §S-188 PACT-DRAFT §S-158 V2 Audit-Log Doctrine AMPLIFIER | james AMPLIFIER on bono's CONCUR+3-NITs | ✅ **CLOSED-§S-189-ITEM-7** (CONCUR-OBSERVED-SHIPPED with η.1/η.2/η.3 NITs absorbed as structural-fix-class non-blocking) |
+| 11.3 | §S-191 pre-vms-duplicate-check.js installed | james mirror disposition | ⚠️ **BONO-INSTALL-AMPLIFIER-CLOSED-VIA-§S-189-ITEM-1** (CONCUR Wave 0 prereq cleared); james-side hook-mirror install separately gated by harness-mech-auth on james-side (still pending — not bono-actionable) |
+| 11.4 | §S-193 scoreMessage v0.4.0 calibration | james parallel calibration / disposition | PENDING (no AMPLIFIER signal in §S-189/§S-201/§S-210/§S-211 sweep) |
+| 11.5 | §S-194 MMA-AUTONOMY iter1+iter2 hook bundle | james AMPLIFIER on harness rule-floor design | PENDING (sibling-touch in §S-201.3 `pre-s-n-assignment-check.js` concept; not direct AMPLIFIER on §S-194's iter1+iter2 design) |
+| 11.6 | §S-195 §S-121 v0.3 Step 3 timeline-verify gate | james AMPLIFIER on stale-cite class | PENDING (sibling-touch in §S-201.3 PROMOTE-NOW-ACTIVE eligible on `feedback_grep_all_behavior_paths`; not direct AMPLIFIER on §S-195) |
 | 11.7 | §S-196 customer-facing nginx vhost blockers cleared | james AMPLIFIER on sub-class | PENDING |
 | 11.8 | §S-197 V2 customer-entry frontpage v0 SHIPPED-STAGED | james AMPLIFIER on UI-SPEC v0.1 | PENDING |
 | 11.9 | §S-198 V2 customer-entry frontpage LIVE | james AMPLIFIER on production deploy | PENDING |
 | 11.10 | §S-199 nginx vhost edit Captain-authorized + applied | james AMPLIFIER on N=3 sub-class close | PENDING |
 | 11.11 | §S-200 V2-LIVE SCOPE BASELINE RATIFY + 4 substrate ships | james AMPLIFIER on POE baseline + §S-170.16/17 + UI-SPEC v0.2 + PACT-DRAFT 2-F | PENDING (queued in msg=36168) |
 
-**Layer 11 totals: 10-11 bono-substantive entries awaiting james AMPLIFIER.** Class: DISCIPLINE / bilateral-hygiene (closes bilateral doctrine debt; not strictly customer-blocking).
+**Layer 11 totals (refreshed 2026-05-12 ~22:58 IST post-sweep): 11 entries → 1 FULLY CLOSED (11.2) + 2 PARTIAL-CLOSED-WITH-RESIDUAL-GATE (11.1 FILE-EVENT / 11.3 james-harness-auth) + 8 GENUINELY-PENDING (11.4-11.11).** Class: DISCIPLINE / bilateral-hygiene (closes bilateral doctrine debt; not strictly customer-blocking).
+
+**Sweep finding sub-rule (composes-with §6 sub-rule 2026-05-12 ~22:55 IST):** §11 entries should auto-close when a subsequent §S-N entry contains an item-level CONCUR / AGREE-WITH-CAVEATS disposition naming the row's §S-N anchor. §S-189 item-by-item table was the closure signal for 11.1+11.2+11.3; the §11 row status didn't reflect this for ~2 days — pure row-staleness. Sweep cadence candidate: weekly grep-pass on each §11 row against V2-MASTER-STATE entries dated after row's §S-N publish. If pattern recurs, formalize as cron sweep (sibling to §6 Q-DEC migration cron concept).
 
 ---
 
