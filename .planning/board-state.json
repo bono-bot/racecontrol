@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-20 21:41 IST",
+  "generated_at": "2026-05-12 16:24 IST",
   "generator_version": 1,
   "source_root": "crates/racecontrol/src/db",
   "tables": [
@@ -150,9 +150,9 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_game.rs:269",
-        "crates/racecontrol/src/db/migrate_game.rs:319",
-        "crates/racecontrol/src/db/migrate_game.rs:323",
-        "crates/racecontrol/src/db/migrate_game.rs:327"
+        "crates/racecontrol/src/db/migrate_game.rs:329",
+        "crates/racecontrol/src/db/migrate_game.rs:333",
+        "crates/racecontrol/src/db/migrate_game.rs:337"
       ]
     },
     {
@@ -220,7 +220,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:405"
+        "crates/racecontrol/src/db/migrate_billing.rs:411"
       ]
     },
     {
@@ -671,10 +671,18 @@
           "nullable": true,
           "pk": false,
           "unique": false
+        },
+        {
+          "name": "created_by_agent",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:10"
+        "crates/racecontrol/src/db/migrate_config.rs:10",
+        "crates/racecontrol/src/db/migrate_config.rs:34"
       ]
     },
     {
@@ -752,7 +760,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:36"
+        "crates/racecontrol/src/db/migrate_config.rs:41"
       ]
     },
     {
@@ -1034,7 +1042,8 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_policy.rs:21",
-        "crates/racecontrol/src/db/migrate_policy.rs:64"
+        "crates/racecontrol/src/db/migrate_policy.rs:56",
+        "crates/racecontrol/src/db/migrate_policy.rs:74"
       ]
     },
     {
@@ -1441,7 +1450,7 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_billing.rs:39",
-        "crates/racecontrol/src/db/migrate_billing.rs:594"
+        "crates/racecontrol/src/db/migrate_billing.rs:600"
       ]
     },
     {
@@ -1827,46 +1836,46 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_billing.rs:94",
-        "crates/racecontrol/src/db/migrate_billing.rs:227",
-        "crates/racecontrol/src/db/migrate_billing.rs:231",
-        "crates/racecontrol/src/db/migrate_billing.rs:257",
-        "crates/racecontrol/src/db/migrate_billing.rs:261",
-        "crates/racecontrol/src/db/migrate_billing.rs:265",
-        "crates/racecontrol/src/db/migrate_billing.rs:269",
-        "crates/racecontrol/src/db/migrate_billing.rs:274",
-        "crates/racecontrol/src/db/migrate_billing.rs:278",
-        "crates/racecontrol/src/db/migrate_billing.rs:282",
-        "crates/racecontrol/src/db/migrate_billing.rs:336",
-        "crates/racecontrol/src/db/migrate_billing.rs:340",
-        "crates/racecontrol/src/db/migrate_billing.rs:344",
-        "crates/racecontrol/src/db/migrate_billing.rs:348",
-        "crates/racecontrol/src/db/migrate_billing.rs:352",
-        "crates/racecontrol/src/db/migrate_billing.rs:356",
+        "crates/racecontrol/src/db/migrate_billing.rs:233",
+        "crates/racecontrol/src/db/migrate_billing.rs:237",
+        "crates/racecontrol/src/db/migrate_billing.rs:263",
+        "crates/racecontrol/src/db/migrate_billing.rs:267",
+        "crates/racecontrol/src/db/migrate_billing.rs:271",
+        "crates/racecontrol/src/db/migrate_billing.rs:275",
+        "crates/racecontrol/src/db/migrate_billing.rs:280",
+        "crates/racecontrol/src/db/migrate_billing.rs:284",
+        "crates/racecontrol/src/db/migrate_billing.rs:288",
+        "crates/racecontrol/src/db/migrate_billing.rs:342",
+        "crates/racecontrol/src/db/migrate_billing.rs:346",
+        "crates/racecontrol/src/db/migrate_billing.rs:350",
+        "crates/racecontrol/src/db/migrate_billing.rs:354",
+        "crates/racecontrol/src/db/migrate_billing.rs:358",
         "crates/racecontrol/src/db/migrate_billing.rs:362",
-        "crates/racecontrol/src/db/migrate_billing.rs:366",
-        "crates/racecontrol/src/db/migrate_billing.rs:370",
-        "crates/racecontrol/src/db/migrate_billing.rs:374",
-        "crates/racecontrol/src/db/migrate_billing.rs:568",
-        "crates/racecontrol/src/db/migrate_billing.rs:572",
-        "crates/racecontrol/src/db/migrate_billing.rs:576",
-        "crates/racecontrol/src/db/migrate_billing.rs:580",
-        "crates/racecontrol/src/db/migrate_billing.rs:587",
-        "crates/racecontrol/src/db/migrate_billing.rs:635",
-        "crates/racecontrol/src/db/migrate_billing.rs:639",
-        "crates/racecontrol/src/db/migrate_billing.rs:654",
-        "crates/racecontrol/src/db/migrate_billing.rs:670",
-        "crates/racecontrol/src/db/migrate_billing.rs:711",
+        "crates/racecontrol/src/db/migrate_billing.rs:368",
+        "crates/racecontrol/src/db/migrate_billing.rs:372",
+        "crates/racecontrol/src/db/migrate_billing.rs:376",
+        "crates/racecontrol/src/db/migrate_billing.rs:380",
+        "crates/racecontrol/src/db/migrate_billing.rs:574",
+        "crates/racecontrol/src/db/migrate_billing.rs:578",
+        "crates/racecontrol/src/db/migrate_billing.rs:582",
+        "crates/racecontrol/src/db/migrate_billing.rs:586",
+        "crates/racecontrol/src/db/migrate_billing.rs:593",
+        "crates/racecontrol/src/db/migrate_billing.rs:641",
+        "crates/racecontrol/src/db/migrate_billing.rs:645",
+        "crates/racecontrol/src/db/migrate_billing.rs:660",
+        "crates/racecontrol/src/db/migrate_billing.rs:676",
         "crates/racecontrol/src/db/migrate_billing.rs:717",
         "crates/racecontrol/src/db/migrate_billing.rs:723",
         "crates/racecontrol/src/db/migrate_billing.rs:729",
-        "crates/racecontrol/src/db/migrate_billing.rs:804",
-        "crates/racecontrol/src/db/migrate_billing.rs:808",
-        "crates/racecontrol/src/db/migrate_billing.rs:812",
-        "crates/racecontrol/src/db/migrate_billing.rs:816",
-        "crates/racecontrol/src/db/migrate_billing.rs:820",
-        "crates/racecontrol/src/db/migrate_billing.rs:824",
-        "crates/racecontrol/src/db/migrate_billing.rs:829",
-        "crates/racecontrol/src/db/migrate_billing.rs:834",
+        "crates/racecontrol/src/db/migrate_billing.rs:735",
+        "crates/racecontrol/src/db/migrate_billing.rs:810",
+        "crates/racecontrol/src/db/migrate_billing.rs:814",
+        "crates/racecontrol/src/db/migrate_billing.rs:818",
+        "crates/racecontrol/src/db/migrate_billing.rs:822",
+        "crates/racecontrol/src/db/migrate_billing.rs:826",
+        "crates/racecontrol/src/db/migrate_billing.rs:830",
+        "crates/racecontrol/src/db/migrate_billing.rs:835",
+        "crates/racecontrol/src/db/migrate_billing.rs:840",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:153",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:169",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:174"
@@ -2868,8 +2877,8 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:225",
-        "crates/racecontrol/src/db/migrate_config.rs:310"
+        "crates/racecontrol/src/db/migrate_config.rs:230",
+        "crates/racecontrol/src/db/migrate_config.rs:315"
       ]
     },
     {
@@ -2926,7 +2935,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:210"
+        "crates/racecontrol/src/db/migrate_config.rs:215"
       ]
     },
     {
@@ -3360,7 +3369,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_policy.rs:80"
+        "crates/racecontrol/src/db/migrate_policy.rs:90"
       ]
     },
     {
@@ -3449,7 +3458,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:604"
+        "crates/racecontrol/src/db/migrate_billing.rs:610"
       ]
     },
     {
@@ -3527,7 +3536,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:103"
+        "crates/racecontrol/src/db/migrate_config.rs:108"
       ]
     },
     {
@@ -3570,7 +3579,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:90"
+        "crates/racecontrol/src/db/migrate_config.rs:95"
       ]
     },
     {
@@ -3627,7 +3636,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:134"
+        "crates/racecontrol/src/db/migrate_config.rs:139"
       ]
     },
     {
@@ -3790,7 +3799,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:681"
+        "crates/racecontrol/src/db/migrate_billing.rs:687"
       ]
     },
     {
@@ -4592,7 +4601,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:196"
+        "crates/racecontrol/src/db/migrate_config.rs:201"
       ]
     },
     {
@@ -4835,7 +4844,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_game.rs:337"
+        "crates/racecontrol/src/db/migrate_game.rs:347"
       ]
     },
     {
@@ -4906,7 +4915,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_game.rs:362"
+        "crates/racecontrol/src/db/migrate_game.rs:372"
       ]
     },
     {
@@ -5462,7 +5471,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:552"
+        "crates/racecontrol/src/db/migrate_billing.rs:558"
       ]
     },
     {
@@ -5569,7 +5578,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:521"
+        "crates/racecontrol/src/db/migrate_billing.rs:527"
       ]
     },
     {
@@ -5676,7 +5685,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:469"
+        "crates/racecontrol/src/db/migrate_billing.rs:475"
       ]
     },
     {
@@ -5727,7 +5736,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:493"
+        "crates/racecontrol/src/db/migrate_billing.rs:499"
       ]
     },
     {
@@ -5973,7 +5982,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_policy.rs:135"
+        "crates/racecontrol/src/db/migrate_policy.rs:145"
       ]
     },
     {
@@ -6249,11 +6258,19 @@
           "nullable": true,
           "pk": false,
           "unique": false
+        },
+        {
+          "name": "created_by_agent",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
         }
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_game.rs:29",
-        "crates/racecontrol/src/db/migrate_game.rs:309"
+        "crates/racecontrol/src/db/migrate_game.rs:309",
+        "crates/racecontrol/src/db/migrate_game.rs:320"
       ]
     },
     {
@@ -6782,7 +6799,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:66"
+        "crates/racecontrol/src/db/migrate_config.rs:71"
       ]
     },
     {
@@ -7488,7 +7505,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:245"
+        "crates/racecontrol/src/db/migrate_config.rs:250"
       ]
     },
     {
@@ -7835,7 +7852,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_policy.rs:116"
+        "crates/racecontrol/src/db/migrate_policy.rs:126"
       ]
     },
     {
@@ -7920,7 +7937,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_policy.rs:97"
+        "crates/racecontrol/src/db/migrate_policy.rs:107"
       ]
     },
     {
@@ -8315,10 +8332,18 @@
           "nullable": false,
           "pk": false,
           "unique": false
+        },
+        {
+          "name": "created_by_agent",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:193"
+        "crates/racecontrol/src/db/migrate_billing.rs:193",
+        "crates/racecontrol/src/db/migrate_billing.rs:221"
       ]
     },
     {
@@ -8464,8 +8489,8 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:386",
-        "crates/racecontrol/src/db/migrate_billing.rs:663"
+        "crates/racecontrol/src/db/migrate_billing.rs:392",
+        "crates/racecontrol/src/db/migrate_billing.rs:669"
       ]
     },
     {
@@ -9777,7 +9802,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_config.rs:185"
+        "crates/racecontrol/src/db/migrate_config.rs:190"
       ]
     },
     {
@@ -10742,9 +10767,9 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:305",
-        "crates/racecontrol/src/db/migrate_billing.rs:658",
-        "crates/racecontrol/src/db/migrate_billing.rs:751"
+        "crates/racecontrol/src/db/migrate_billing.rs:311",
+        "crates/racecontrol/src/db/migrate_billing.rs:664",
+        "crates/racecontrol/src/db/migrate_billing.rs:757"
       ]
     },
     {
@@ -10812,10 +10837,10 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:288",
-        "crates/racecontrol/src/db/migrate_billing.rs:736",
-        "crates/racecontrol/src/db/migrate_billing.rs:741",
-        "crates/racecontrol/src/db/migrate_billing.rs:746"
+        "crates/racecontrol/src/db/migrate_billing.rs:294",
+        "crates/racecontrol/src/db/migrate_billing.rs:742",
+        "crates/racecontrol/src/db/migrate_billing.rs:747",
+        "crates/racecontrol/src/db/migrate_billing.rs:752"
       ]
     }
   ],
@@ -10825,7 +10850,7 @@
       "src_column": "parent_id",
       "dst_table": "accounts",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:405",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:411",
       "enforced": true
     },
     {
@@ -10889,7 +10914,7 @@
       "src_column": "visit_id",
       "dst_table": "visits",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:723",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:729",
       "enforced": false
     },
     {
@@ -10977,7 +11002,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:604",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:610",
       "enforced": true
     },
     {
@@ -11089,7 +11114,7 @@
       "src_column": "billing_session_id",
       "dst_table": "billing_sessions",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:521",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:527",
       "enforced": true
     },
     {
@@ -11097,7 +11122,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:521",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:527",
       "enforced": true
     },
     {
@@ -11105,7 +11130,7 @@
       "src_column": "account_id",
       "dst_table": "accounts",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:493",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:499",
       "enforced": true
     },
     {
@@ -11113,7 +11138,7 @@
       "src_column": "journal_entry_id",
       "dst_table": "journal_entries",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:493",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:499",
       "enforced": true
     },
     {
@@ -11233,7 +11258,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:386",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:392",
       "enforced": true
     },
     {
@@ -11433,7 +11458,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:305",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:311",
       "enforced": true
     },
     {
@@ -11441,7 +11466,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:288",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:294",
       "enforced": true
     }
   ],
