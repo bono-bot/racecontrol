@@ -193,9 +193,9 @@
 | 7.6 | auth-debt | V2 staff session-cookie (no PIN per lookup) | Post-V2.0-OperationalCalibration | NO (staff-internal) |
 | 7.7 | auth-debt | POST /api/v1/cirs/lookup CSRF + SameSite=Lax | Post-V2.0-Multi-Origin | YES (lookup surface) |
 | 7.8 | privacy-debt | cirs_lookup_handler phone leak via format!("{e}") | Wave 1 billing-engine | YES |
-| 7.9 | auth-debt | /api/v1/cirs/lookup no rate-limit | Wave 1 billing-engine | YES |
+| 7.9 | auth-debt | /api/v1/cirs/lookup no rate-limit | Wave 1 billing-engine | YES | **CLOSED 2026-05-12 ~16:02 IST via PR #68 squash-merge to main as 61999f58; Server .23 deploy parity 16:15 IST; Bono VPS pending session pickup. Sec-debt-ledger.jsonl closure ts=2026-05-12T10:55:00Z references_prior_ts=2026-05-08T04:15:02Z** |
 
-**Layer 7 totals: 9 OPEN.** Classification: rows 1-3 + 6 = LIVE-BLOCKING (auth/cred/policy on customer-touching boundaries); rows 4-5 = AMBIGUOUS (privacy-debt; DPDP not strictly V2-live-blocking operationally); rows 7-9 = LIVE-BLOCKING (lookup-endpoint exposure).
+**Layer 7 totals (post 2026-05-12 closures): 9 enumerated · 3 CLOSED (7.5 SRL email-hash CLOSED-BY-DESIGN 2026-05-12 ~13:00 IST · 7.7 CSRF-Bearer-only structural protection CLOSED 2026-05-12 ~05:37 UTC · 7.9 rate-limit CLOSED 2026-05-12 ~16:02 IST via PR #68) · 6 OPEN.** Classification (post-closures): rows 1-3 + 6 = LIVE-BLOCKING (auth/cred/policy on customer-touching boundaries); row 4 = AMBIGUOUS (WhatsApp transactional consent — DPDP); row 8 = LIVE-BLOCKING (cirs_lookup phone-leak via format!("{e}") still open, Wave 1 billing-engine sub-PACT scope).
 
 ---
 
