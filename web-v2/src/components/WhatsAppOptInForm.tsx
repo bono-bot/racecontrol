@@ -34,6 +34,16 @@ export function WhatsAppOptInForm() {
   const canSubmit =
     consent && PHONE_REGEX.test(phone.trim()) && state !== "submitting";
 
+  // Labeled disabled-visual per UI-SPEC v0.2 §9 Q-CUST-7 disposition (a):
+  // "submit button renders in 'Please confirm consent' disabled-visual state"
+  // when checkbox unchecked. Closes UI-REVIEW FLAG-3 conversion-impact gap.
+  const buttonLabel =
+    state === "submitting"
+      ? "Sending…"
+      : !consent
+        ? "Please confirm consent"
+        : "Get racing updates";
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -111,7 +121,7 @@ export function WhatsAppOptInForm() {
         disabled={!canSubmit}
         aria-disabled={!canSubmit}
       >
-        {state === "submitting" ? "Sending…" : "Get racing updates"}
+        {buttonLabel}
       </button>
 
       {state === "error" && errorMsg && (
