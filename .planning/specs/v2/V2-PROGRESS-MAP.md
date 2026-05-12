@@ -162,7 +162,7 @@
 | 6.1 | Q-DEC-AUDIT-5 | HALO-MI design-skeleton sign-off | doctrine | §S-179.8 carryforward | **ACTIVE** (HIGH leverage — unblocks Wave 4 MI scope + composes-with 6.12) |
 | 6.2 | Q-DEC-AUDIT-2 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 | **ACTIVE** |
 | 6.3 | Q-DEC-AUDIT-4 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 | **ACTIVE** |
-| 6.4 | Q-DEC-CONVENTION | PROVISIONAL marking discipline ratify | doctrine | §S-200.6 AXIS-3 | **ACTIVE** |
+| 6.4 | Q-DEC-CONVENTION | PROVISIONAL marking discipline ratify | doctrine | §S-200.6 AXIS-3 | ⚠️ **STALE-AMPLIFIER-ABSORBED** — §S-200.6 AXIS-3 disposition "AGREE-WITH-CAVEATS-1" absorbed PROVISIONAL marking convention as de-facto in-force; formal Q-DEC-CONVENTION Captain-ratify is the lone caveat (LOW priority — not in §S-204 batch; convention operating without it; no V2-progression blocker). Re-classify out of Q-DEC active queue. |
 | 6.5 | Q-CUST-1 hero photo source | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 Captain G33 batch RATIFY 2026-05-12 ~11:05 IST verbatim "all bono recommendations" |
 | 6.6 | Q-CUST-3 pricing display | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch |
 | 6.7 | Q-CUST-4 WhatsApp opt-in target | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch (legal-AMPLIFIER on wording queued non-blocking) |
@@ -170,23 +170,27 @@
 | 6.9 | Q-CUST-7 DPDP consent banner | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch (legal-AMPLIFIER on wording queued non-blocking) |
 | 6.10 | Q-2F-1..7 (×7) | PACT-DRAFT 2-F Campaign Object | substrate | §S-200.9 | ✅ **DISPOSITIONED Captain-side** §S-204; bono dispatched AMPLIFIER-ASK msg=36341 2026-05-12 ~16:58 IST; **james AMPLIFIER round-trip PENDING** (~1h 22min as of refresh) |
 | 6.11 | sites-enabled (a)/(b)/(c) | nginx drift reconcile strategy | ops-hygiene | §S-200.7 | ✅ **CLOSED** — Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed (§0 Δ 2026-05-11) |
-| 6.12 | halo-pact-map JSON extension delegation | 16→36 mapping path | bilateral-mech | §S-200.4 | **ACTIVE** (composes-with 6.1) |
+| 6.12 | halo-pact-map JSON extension delegation | 16→36 mapping path | bilateral-mech | §S-200.4 | ✅ **DELEGATION SETTLED, EXEC PENDING-james** (parallel to row 6.10 shape) — §S-200.4 24h L1 silent-AGREE elapsed; doctrine + delegation (james holds canonical halo-pact-map.json; bono drafts kaiju-class→probe-class mapping table per §S-170.5 charter) RATIFIED; bono-side `comms-link/data/halo-pact-map-ext-draft.json` filed 2026-05-12 07:16 IST with 20 new SK-1..SK-12 + BK-1..BK-8 mappings; canonical-file physical extension on james-machine remains; Q-DEC (delegation question) CLOSED — execution belongs in Layer 11 bilateral-execution queue, not Layer 6 Q-DEC queue. Composes-with 6.1 HALO-MI sign-off. |
 | 6.13 | pm2 restart timing (whatsapp-bot + racingpoint-bot) | Phase 446 deploy slice | infrastructure | entry #18 | **ACTIVE** (HIGH leverage — single Captain Class B/C decision unblocks Phase 446 final ship + Phase 447/448/449/450/451/452 cascade per Layer 3) |
 | 6.14 | Standing-rule amendment (b) harness-mechanism-auth ratify | doctrine | §S-200 wraps; partial-ratified via msg=36014 | ✅ **RATIFIED + ENFORCED** Captain "Proceed with your recommendations on Captain Decisions" 2026-05-10 ~16:14 IST + enforcement hooks landed iter1 (`pre-harness-auth-gate.js` v0.1.0) + iter2 (v0.2.0 composite-surface + bypass TTL + transcript verify + Bash AST + multi-line JSON tolerance) |
 | 6.15 | james ~/.claude/CLAUDE.md self-mod auth (a) | harness-Captain auth | Captain-pending | **ACTIVE** (james-side; **NOT bono-actionable** — harness self-mod auth must be granted by Captain to james directly per harness-mechanism-auth sub-clause) |
 | 6.16 | 3 untracked /root hook files (commit / review / leave) | g9-4 disposition | infrastructure | entry #29 | **ACTIVE** (LOW; bono-side disposition, quick-win class) |
 
-**Layer 6 totals (refreshed 2026-05-12 ~18:25 IST): 16 items → 8 ACTIVE / 8 STALE-DISPOSITIONED.**
+**Layer 6 totals (refreshed 2026-05-12 ~22:55 IST post-STALE-re-eval cascade on 6.4 + 6.12): 16 items → 6 ACTIVE / 10 STALE-DISPOSITIONED.**
 
 ACTIVE breakdown by leverage:
 - **HIGH leverage (cascade unblocking)**: 6.13 pm2 timing → Phase 446-452 cascade · 6.1 HALO-MI sign-off → Wave 4 MI scope
-- **MEDIUM leverage**: 6.2/6.3 Wave 0 audit reversal · 6.12 halo-pact-map extension
-- **LOW leverage**: 6.4 PROVISIONAL marking · 6.16 untracked /root hooks
+- **MEDIUM leverage**: 6.2/6.3 Wave 0 audit reversal
+- **LOW leverage**: 6.16 untracked /root hooks
 - **NOT bono-actionable**: 6.15 james harness self-mod auth
 
 STALE-DISPOSITIONED breakdown:
 - **§S-204 Captain batch RATIFY 2026-05-12 ~11:05 IST** dispositioned 6.5/6.6/6.7/6.8/6.9 + 6.10 Captain-side (6.10 awaits james AMPLIFIER for full round-trip closure)
 - **§0 Δ 2026-05-11 nginx LIVE-BLOCKING closures** dispositioned 6.11 (Layer 12.1 + 12.2 CLOSED)
+- **§S-200 AMPLIFIER cascade RATIFY** dispositioned 6.12 (§S-200.4 doctrine+delegation RATIFIED; execution queued Layer 11 james-side) + 6.4 (§S-200.6 AXIS-3 AMPLIFIER absorbed PROVISIONAL marking convention de-facto)
+- **Captain "Proceed with your recommendations on Captain Decisions" 2026-05-10 ~16:14 IST** dispositioned 6.14 (harness-mech-auth RATIFIED + enforcement hooks ENFORCED iter1/iter2)
+
+**Sub-rule surfaced 2026-05-12 ~22:55 IST (STALE re-eval finding):** Layer 6 Q-DEC queue conflates **decision-pending** vs **decision-made-execution-pending**. Once a Q-DEC is dispositioned (Captain, AMPLIFIER absorption, or 24h silent-AGREE), it leaves Layer 6 even if downstream execution is queued — migrates to Layer 10 (PACT-DRAFT) or Layer 11 (bilateral-execution). Row 6.10 + 6.12 are the two ratified examples of this shape. If queue starts re-accumulating execution-pending rows, formalize migration as cron sweep.
 - **Captain ratify + enforcement-hooks-landed 2026-05-10 ~16:14 IST** dispositioned 6.14 (harness-mech-auth sub-clause RATIFIED + mechanically enforced)
 
 ---
