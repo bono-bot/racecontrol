@@ -14,10 +14,9 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// Brand display font per `racecontrol/CLAUDE.md` Brand Identity (canonical:
-// kiosk/src/app/globals.css). Exposes --rp-font-display applied to
-// .heroHeading + section h2s in page.module.css. UI-REVIEW FLAG-A close-out
-// 2026-05-12 (row 1.4 closure cascade).
+// Brand display font per `racecontrol/CLAUDE.md` Brand Identity (Orbitron
+// 500/700/900). Exposes CSS var --rp-font-display consumed by page.module.css
+// hero h1 + section h2 selectors. Closes UI-REVIEW FLAG-1 (Orbitron-missing).
 const orbitron = Orbitron({
   subsets: ["latin"],
   variable: "--rp-font-display",

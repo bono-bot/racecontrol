@@ -20,6 +20,10 @@ interface OptInPayload {
   source?: unknown;
 }
 
+// E.164-compatible: optional `+`, 10-15 digits. Server-side defense-in-depth
+// mirroring WhatsAppOptInForm client validation (AMPLIFIER NIT-2 close).
+const PHONE_REGEX = /^\+?\d{10,15}$/;
+
 function isValidPayload(body: OptInPayload): body is {
   phone: string;
   consent_text: string;
@@ -28,7 +32,7 @@ function isValidPayload(body: OptInPayload): body is {
 } {
   return (
     typeof body.phone === "string" &&
-    body.phone.trim().length >= 8 &&
+    PHONE_REGEX.test(body.phone.trim()) &&
     typeof body.consent_text === "string" &&
     body.consent_text.length > 0 &&
     typeof body.consent_ts === "string" &&

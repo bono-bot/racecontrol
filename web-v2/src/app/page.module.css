@@ -163,11 +163,12 @@
   margin: 0 0 1.25rem;
 }
 .heroHeading {
-  font-family: var(--rp-font-display, var(--rp-font-body, system-ui));
+  /* Brand display font Orbitron 900 per UI-SPEC v0.2 §4 (FLAG-1 close). */
+  font-family: var(--rp-font-display, var(--rp-font-body, sans-serif));
   font-size: clamp(2.25rem, 7vw, 4.75rem);
   line-height: 1.04;
   letter-spacing: -0.02em;
-  font-weight: 700;
+  font-weight: 900;
   margin: 0 0 1.5rem;
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.6);
 }
@@ -264,7 +265,8 @@
   text-align: center;
 }
 .sectionHeader h2 {
-  font-family: var(--rp-font-display, var(--rp-font-body, system-ui));
+  /* Brand display font Orbitron 700 per UI-SPEC v0.2 §4 (FLAG-1 close). */
+  font-family: var(--rp-font-display, var(--rp-font-body, sans-serif));
   font-size: clamp(1.75rem, 4vw, 2.5rem);
   margin: 0 0 0.75rem;
   letter-spacing: -0.015em;
@@ -434,7 +436,8 @@
   color: var(--rp-text-muted);
 }
 .cafeText h2 {
-  font-family: var(--rp-font-display, var(--rp-font-body, system-ui));
+  /* Brand display font Orbitron 700 per UI-SPEC v0.2 §4 (FLAG-1 close). */
+  font-family: var(--rp-font-display, var(--rp-font-body, sans-serif));
   font-size: clamp(1.75rem, 4vw, 2.5rem);
   margin: 0 0 1rem;
   letter-spacing: -0.015em;
@@ -466,7 +469,8 @@
   text-align: center;
 }
 .whatsappInner h2 {
-  font-family: var(--rp-font-display, var(--rp-font-body, system-ui));
+  /* Brand display font Orbitron 700 per UI-SPEC v0.2 §4 (FLAG-1 close). */
+  font-family: var(--rp-font-display, var(--rp-font-body, sans-serif));
   font-size: clamp(1.5rem, 3.5vw, 2rem);
   margin: 0 0 0.75rem;
   letter-spacing: -0.015em;
