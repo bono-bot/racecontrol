@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Montserrat } from "next/font/google";
+import { Montserrat, Orbitron } from "next/font/google";
 import "./globals.css";
 import RpToaster from "@/components/Toaster";
 
@@ -7,6 +7,12 @@ const montserrat = Montserrat({
   variable: "--font-montserrat",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
+});
+
+const orbitron = Orbitron({
+  variable: "--font-orbitron",
+  subsets: ["latin"],
+  weight: ["500", "700", "900"],
 });
 
 export const metadata: Metadata = {
@@ -45,7 +51,7 @@ export default function RootLayout({
           } catch(e) {}
         `}} />
       </head>
-      <body className={`${montserrat.variable} min-h-screen bg-rp-dark text-white antialiased font-sans`}>
+      <body className={`${montserrat.variable} ${orbitron.variable} min-h-screen bg-rp-dark text-white antialiased font-sans`}>
         <RpToaster />
         {children}
       </body>
