@@ -155,27 +155,39 @@
 ## §6 — Layer 6: Captain Q-DECISION queue
 
 **Source-of-truth:** V2-MASTER-STATE §S-176 + §S-179.8 + §S-197.9 + §S-200 new additions
+**Last refresh:** 2026-05-12 ~18:25 IST (bono Layer 6 review post-§S-204→§S-211 cascade closures)
 
-| # | Q-DEC ID | Topic | Class | Anchor |
-|---|---|---|---|---|
-| 6.1 | Q-DEC-AUDIT-5 | HALO-MI design-skeleton sign-off | doctrine | §S-179.8 carryforward |
-| 6.2 | Q-DEC-AUDIT-2 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 |
-| 6.3 | Q-DEC-AUDIT-4 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 |
-| 6.4 | Q-DEC-CONVENTION | PROVISIONAL marking discipline ratify | doctrine | §S-200.6 AXIS-3 |
-| 6.5 | Q-CUST-1 hero photo source | UI-SPEC v0.2 | customer | §S-200.8 |
-| 6.6 | Q-CUST-3 pricing display | UI-SPEC v0.2 | customer | §S-200.8 |
-| 6.7 | Q-CUST-4 WhatsApp opt-in target | UI-SPEC v0.2 | customer | §S-200.8 |
-| 6.8 | Q-CUST-5 multilingual | UI-SPEC v0.2 | customer | §S-200.8 |
-| 6.9 | Q-CUST-7 DPDP consent banner | UI-SPEC v0.2 | customer | §S-200.8 |
-| 6.10 | Q-2F-1..7 (×7) | PACT-DRAFT 2-F Campaign Object | substrate | §S-200.9 |
-| 6.11 | sites-enabled (a)/(b)/(c) | nginx drift reconcile strategy | ops-hygiene | §S-200.7 |
-| 6.12 | halo-pact-map JSON extension delegation | 16→36 mapping path | bilateral-mech | §S-200.4 |
-| 6.13 | pm2 restart timing (whatsapp-bot + racingpoint-bot) | Phase 446 deploy slice | infrastructure | entry #18 |
-| 6.14 | Standing-rule amendment (b) harness-mechanism-auth ratify | doctrine | §S-200 wraps; partial-ratified via msg=36014 |
-| 6.15 | james ~/.claude/CLAUDE.md self-mod auth (a) | harness-Captain auth | Captain-pending |
-| 6.16 | 3 untracked /root hook files (commit / review / leave) | g9-4 disposition | infrastructure | entry #29 |
+| # | Q-DEC ID | Topic | Class | Anchor | Status |
+|---|---|---|---|---|---|
+| 6.1 | Q-DEC-AUDIT-5 | HALO-MI design-skeleton sign-off | doctrine | §S-179.8 carryforward | **ACTIVE** (HIGH leverage — unblocks Wave 4 MI scope + composes-with 6.12) |
+| 6.2 | Q-DEC-AUDIT-2 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 | **ACTIVE** |
+| 6.3 | Q-DEC-AUDIT-4 reversal | Wave 0 audit reversal disposition | doctrine | §S-182 | **ACTIVE** |
+| 6.4 | Q-DEC-CONVENTION | PROVISIONAL marking discipline ratify | doctrine | §S-200.6 AXIS-3 | **ACTIVE** |
+| 6.5 | Q-CUST-1 hero photo source | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 Captain G33 batch RATIFY 2026-05-12 ~11:05 IST verbatim "all bono recommendations" |
+| 6.6 | Q-CUST-3 pricing display | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch |
+| 6.7 | Q-CUST-4 WhatsApp opt-in target | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch (legal-AMPLIFIER on wording queued non-blocking) |
+| 6.8 | Q-CUST-5 multilingual | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch |
+| 6.9 | Q-CUST-7 DPDP consent banner | UI-SPEC v0.2 | customer | §S-200.8 | ✅ **DISPOSITIONED** §S-204 same batch (legal-AMPLIFIER on wording queued non-blocking) |
+| 6.10 | Q-2F-1..7 (×7) | PACT-DRAFT 2-F Campaign Object | substrate | §S-200.9 | ✅ **DISPOSITIONED Captain-side** §S-204; bono dispatched AMPLIFIER-ASK msg=36341 2026-05-12 ~16:58 IST; **james AMPLIFIER round-trip PENDING** (~1h 22min as of refresh) |
+| 6.11 | sites-enabled (a)/(b)/(c) | nginx drift reconcile strategy | ops-hygiene | §S-200.7 | ✅ **CLOSED** — Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed (§0 Δ 2026-05-11) |
+| 6.12 | halo-pact-map JSON extension delegation | 16→36 mapping path | bilateral-mech | §S-200.4 | **ACTIVE** (composes-with 6.1) |
+| 6.13 | pm2 restart timing (whatsapp-bot + racingpoint-bot) | Phase 446 deploy slice | infrastructure | entry #18 | **ACTIVE** (HIGH leverage — single Captain Class B/C decision unblocks Phase 446 final ship + Phase 447/448/449/450/451/452 cascade per Layer 3) |
+| 6.14 | Standing-rule amendment (b) harness-mechanism-auth ratify | doctrine | §S-200 wraps; partial-ratified via msg=36014 | ✅ **RATIFIED + ENFORCED** Captain "Proceed with your recommendations on Captain Decisions" 2026-05-10 ~16:14 IST + enforcement hooks landed iter1 (`pre-harness-auth-gate.js` v0.1.0) + iter2 (v0.2.0 composite-surface + bypass TTL + transcript verify + Bash AST + multi-line JSON tolerance) |
+| 6.15 | james ~/.claude/CLAUDE.md self-mod auth (a) | harness-Captain auth | Captain-pending | **ACTIVE** (james-side; **NOT bono-actionable** — harness self-mod auth must be granted by Captain to james directly per harness-mechanism-auth sub-clause) |
+| 6.16 | 3 untracked /root hook files (commit / review / leave) | g9-4 disposition | infrastructure | entry #29 | **ACTIVE** (LOW; bono-side disposition, quick-win class) |
 
-**Layer 6 totals: ~16 items** (matches §S-200.2 estimate). Many composed-with each other (Q-CUST-1..7 = single Captain G33 batch ask).
+**Layer 6 totals (refreshed 2026-05-12 ~18:25 IST): 16 items → 8 ACTIVE / 8 STALE-DISPOSITIONED.**
+
+ACTIVE breakdown by leverage:
+- **HIGH leverage (cascade unblocking)**: 6.13 pm2 timing → Phase 446-452 cascade · 6.1 HALO-MI sign-off → Wave 4 MI scope
+- **MEDIUM leverage**: 6.2/6.3 Wave 0 audit reversal · 6.12 halo-pact-map extension
+- **LOW leverage**: 6.4 PROVISIONAL marking · 6.16 untracked /root hooks
+- **NOT bono-actionable**: 6.15 james harness self-mod auth
+
+STALE-DISPOSITIONED breakdown:
+- **§S-204 Captain batch RATIFY 2026-05-12 ~11:05 IST** dispositioned 6.5/6.6/6.7/6.8/6.9 + 6.10 Captain-side (6.10 awaits james AMPLIFIER for full round-trip closure)
+- **§0 Δ 2026-05-11 nginx LIVE-BLOCKING closures** dispositioned 6.11 (Layer 12.1 + 12.2 CLOSED)
+- **Captain ratify + enforcement-hooks-landed 2026-05-10 ~16:14 IST** dispositioned 6.14 (harness-mech-auth sub-clause RATIFIED + mechanically enforced)
 
 ---
 
