@@ -13,13 +13,13 @@
 | Class | Total | DONE | IN-FLIGHT | BLOCKED | NOT-STARTED | % closed |
 |---|---|---|---|---|---|---|
 | **V2-LIVE-BLOCKING** (gates customer-day §4 14:00→14:56) | **~78** | **22** | 13 | 11 | 32 | **28%** |
-| **V2-DISCIPLINE / POST-LIVE** (some explicitly post-live by design) | **~32** | 8 | 5 | 3 | 16 | **25%** |
-| **AMBIGUOUS** (Captain-framing-dependent) | **~12** | 2 | 3 | 1 | 6 | **17%** |
+| **V2-DISCIPLINE / POST-LIVE** (some explicitly post-live by design) | **~41** | 8 | 7 | 4 | 22 | **20%** |
+| **AMBIGUOUS** (Captain-framing-dependent) | **~3** | 2 | 1 | 0 | 0 | **67%** |
 | **TOTAL** | **~122** | **32** | 21 | 15 | 54 | **26%** |
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
 >
-> **What this number means:** ~71% of V2-LIVE-BLOCKING items remain. **Δ 2026-05-11: +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Δ 2026-05-12 LBAC discovery: PR #17 merged 2026-05-11 11:39 IST (commit ab9d867f, ~4min after this map was authored — see RCA/PR17-disposition-20260512.md); Layer 4 row 4.1 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed retroactively. Δ 2026-05-12 post-LBAC-activation: PR #54 (PACT-013 billing_paused via config_push_queue) MERGED 2026-05-12 03:38 UTC (commit 51bf4637, bono-bot squash-merge via gh pr merge); Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST via /health build_id flip 5cba7fb4→51bf4637 post-pm2 restart (uptime cleared min_uptime=60s gate, 0 unstable_restarts); Layer 4 row 4.2 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed. Closure rate: 24%→27% (2026-05-11) → 28% (2026-05-12 PR #17 retroactive) → 29% (2026-05-12 PR #54 close).** Capacity-weighted velocity TBD.
+> **What this number means:** ~71% of V2-LIVE-BLOCKING items remain. **Δ 2026-05-11: +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Δ 2026-05-12 LBAC discovery: PR #17 merged 2026-05-11 11:39 IST (commit ab9d867f, ~4min after this map was authored — see RCA/PR17-disposition-20260512.md); Layer 4 row 4.1 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed retroactively. Δ 2026-05-12 post-LBAC-activation: PR #54 (PACT-013 billing_paused via config_push_queue) MERGED 2026-05-12 03:38 UTC (commit 51bf4637, bono-bot squash-merge via gh pr merge); Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST via /health build_id flip 5cba7fb4→51bf4637 post-pm2 restart (uptime cleared min_uptime=60s gate, 0 unstable_restarts); Layer 4 row 4.2 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed. Closure rate: 24%→27% (2026-05-11) → 28% (2026-05-12 PR #17 retroactive) → 29% (2026-05-12 PR #54 close). Δ 2026-05-12 ~12:46 IST W5 cluster reclassification: Captain ratify Option A (all of Wave 5 = post-V2.0 DISCIPLINE); Layer 2 W5 + Layer 7.4 + Layer 10.20 cascade AMBIGUOUS → DISCIPLINE/POST-LIVE; AMBIGUOUS ~12→~3; DISCIPLINE ~32→~41; TOTAL ~122 unchanged; V2.0 launch scope shrinks by 4 schema tables (whatsapp_consent + wa_send_audit + whatsapp_delivery_health + wa_message_templates) + 9 trigger sub-items + evolution-api integration + helpdesk@ forwarder + Captain WA approval inbox; AMBIGUOUS ~67% closed % is small-sample artifact (only 7.5 SRL email-hash + 10.18 venue-CPE + 1 buffer remain pre-disposition).** Capacity-weighted velocity TBD.
 
 ---
 
@@ -75,7 +75,7 @@
 | W4 | MI Ingestion (mesh_kb.db) | NOT-STARTED | james | HALO-as-substrate §S-170.16 reduces scope to ingestion-pipeline only |
 | W4 | kaiju_classification_log schema | NOT-STARTED | james | depends on Wave 4 schema patch queue |
 | W4 | campaign_effectiveness table | NOT-STARTED | both | gates G-2 (4-week post-live soak) |
-| W5 | WhatsApp framework (Captain-curated) | IN-FLIGHT | bono | PACT-DRAFT-wave-5 present; AMBIGUOUS class (some customer-touching, some not) |
+| W5 | WhatsApp framework (Captain-curated) | DEFERRED-POST-V2.0 | bono | **CLASS DISCIPLINE/POST-LIVE per Captain ratify 2026-05-12 ~12:46 IST Option A** — all 9 triggers (T1-T9) post-V2.0; PWA balance widget substitutes T7 wallet-low; V2 customer-entry frontpage substitutes T4 welcome-pack; activation_trigger remains "post-Wave-4 land" per PACT-DRAFT-wave-5 §14 |
 | W5 | Instagram outbound | DEFERRED-POST-LIVE | bono | v2.1 deferral §10 deferral roadmap |
 
 **Layer 2 totals:** 2 DONE · 5 IN-FLIGHT · 3 BLOCKED · 5 NOT-STARTED · 1 DEFERRED = **16 items** (§S-200.2 said 18; -2 because Phase 2-A NOT-STARTED collapsed to IN-FLIGHT and Phase 2-F NEW)
@@ -195,7 +195,7 @@
 | 7.8 | privacy-debt | cirs_lookup_handler phone leak via format!("{e}") | Wave 1 billing-engine | YES |
 | 7.9 | auth-debt | /api/v1/cirs/lookup no rate-limit | Wave 1 billing-engine | YES |
 
-**Layer 7 totals: 9 OPEN.** Classification: rows 1-3 + 6 = LIVE-BLOCKING (auth/cred/policy on customer-touching boundaries); rows 4-5 = AMBIGUOUS (privacy-debt; DPDP not strictly V2-live-blocking operationally); rows 7-9 = LIVE-BLOCKING (lookup-endpoint exposure).
+**Layer 7 totals: 9 OPEN.** Classification: rows 1-3 + 6 = LIVE-BLOCKING (auth/cred/policy on customer-touching boundaries); row 4 = DISCIPLINE/POST-LIVE (WhatsApp transactional consent — cascade per W5 = post-V2.0 Captain ratify 2026-05-12 ~12:46 IST Option A; consent gate gates T7 wallet-low which is itself post-V2.0); row 5 = AMBIGUOUS (SRL email-hash one-way share; pending separate disposition); rows 7-9 = LIVE-BLOCKING (lookup-endpoint exposure).
 
 ---
 
@@ -261,9 +261,9 @@
 | 10.17 | PACT-DRAFT-systemic-coupling-doctrine-v2-design | NO | DISCIPLINE/foundational |
 | 10.18 | PACT-DRAFT-venue-infrastructure-procurement-v2-resilience | partial | AMBIGUOUS (CPE upgrade composes with v2; quick-win deferred §project_cpe_router_conntrack_mitigation_deferred_20260509) |
 | 10.19 | PACT-DRAFT-wake-hydration-pattern | NO | DISCIPLINE |
-| 10.20 | PACT-DRAFT-wave-5-whatsapp-workflow-framework-captain-curated | partial | AMBIGUOUS |
+| 10.20 | PACT-DRAFT-wave-5-whatsapp-workflow-framework-captain-curated | partial | DISCIPLINE/POST-LIVE (W5 cluster post-V2.0 per Captain ratify 2026-05-12 ~12:46 IST Option A) |
 
-**Layer 10 totals: 20 PACT-DRAFTs.** 1 CLOSED + 7 LIVE-BLOCKING + 9 DISCIPLINE + 3 AMBIGUOUS.
+**Layer 10 totals: 20 PACT-DRAFTs.** 1 CLOSED + 7 LIVE-BLOCKING + 10 DISCIPLINE + 2 AMBIGUOUS.
 
 ---
 
@@ -395,6 +395,7 @@
 | Date | Author | Δ | Net Δ V2-LIVE-BLOCKING closed |
 |---|---|---|---|
 | 2026-05-11 11:35 IST | bono | INITIAL VERSION — §S-200 baseline + 9 open PRs · 14 in-flight · 9 sec-debt · 5 MI gates · 20 PACT-DRAFTs · 16 Q-DEC · 10 V1-mess cats · 10 AMPLIFIER · 8 ops · 5 §S-N ratify queue | baseline established |
+| 2026-05-12 12:46 IST | james | **W5 cluster reclassification** — Captain ratify Option A 2026-05-12 ~12:46 IST: all of Wave 5 = post-V2.0 DISCIPLINE/POST-LIVE. Cascade flips Layer 2 W5 (IN-FLIGHT→DEFERRED-POST-V2.0) + Layer 7.4 (AMBIGUOUS→DISCIPLINE) + Layer 10.20 (AMBIGUOUS→DISCIPLINE). §0 rollup: AMBIGUOUS ~12→~3 (lose ~9 W5 cluster); DISCIPLINE ~32→~41; TOTAL ~122 unchanged. V2.0 launch scope shrinks: 4 schema tables + 9 trigger sub-items + evolution-api + helpdesk@ forwarder + Captain WA approval inbox. PWA balance widget substitutes T7 wallet-low; V2 customer-entry frontpage substitutes T4 welcome-pack. Reversibility: T7 or T4 promote back to LIVE-BLOCKING in V2.1 sprint if post-V2.0 customer feedback shows confusion | 0 net LIVE-BLOCKING change (W5 was not LIVE-BLOCKING; was AMBIGUOUS). LIVE-BLOCKING ~78 stays. |
 
 ---
 
