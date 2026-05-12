@@ -573,7 +573,8 @@
   transition: border-color 0.15s ease;
 }
 .optInField input[type="tel"]:focus-visible {
-  outline: none;
+  outline: 2px solid var(--rp-racing-red);
+  outline-offset: 1px;
   border-color: var(--rp-racing-red);
 }
 

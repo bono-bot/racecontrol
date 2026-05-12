@@ -62,8 +62,45 @@ a {
   border-bottom: 1px solid currentColor;
 }
 
-a:hover,
+a:hover {
+  color: #ff3b2d;
+}
+
 a:focus-visible {
   color: #ff3b2d;
-  outline: none;
+  outline: 2px solid var(--rp-racing-red);
+  outline-offset: 2px;
+}
+
+/* Global skip-to-content link — used by routes without their own page.module.css
+ * skip-link (e.g. /v2/privacy). Matches the visual pattern of page.module.css
+ * .skipLink but adds explicit focus-visible outline for WCAG 2.2 SC 2.4.11+1.4.11
+ * contrast against the red background. FLAG-2a (UI-AUDIT-FLAG2-REAUDIT §S-208). */
+.rp-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--rp-racing-red);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  z-index: 1000;
+  border-bottom: none;
+}
+.rp-skip-link:focus-visible {
+  left: 0;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* WCAG 2.2 SC 2.3.3 (AAA) — respect prefers-reduced-motion for vestibular-disorder
+ * users. Disables transitions / animations / transforms when OS-level
+ * `prefers-reduced-motion: reduce` is set. FLAG-2d (UI-AUDIT-FLAG2-REAUDIT §S-208). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    transform: none !important;
+  }
 }

@@ -20,7 +20,11 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicyPage() {
   return (
-    <main>
+    <>
+      <a href="#main" className="rp-skip-link">
+        Skip to content
+      </a>
+      <main id="main">
       <h1>Privacy Policy</h1>
       <p>
         <strong>Last updated:</strong> 12 May 2026 — initial v0 publication.
@@ -113,6 +117,7 @@ export default function PrivacyPolicyPage() {
       <p style={{ marginTop: "3rem", fontSize: "0.875rem", color: "#a0a0a0" }}>
         <a href="/v2/">← Back to RacingPoint</a>
       </p>
-    </main>
+      </main>
+    </>
   );
 }
