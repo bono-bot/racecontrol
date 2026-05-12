@@ -839,7 +839,17 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/pricing/engine/recommendations", get(crate::pricing_engine::recommendations_handler))
         .route("/pricing/engine/apply", post(crate::pricing_engine::apply_recommendation_handler))
         // PACT-20260506-001 Phase 1 — CIRS lookup (Wave 0 customer surface; staff-JWT-gated, non-privileged per §AMEND-1.E + Q5-A)
-        .route("/cirs/lookup", post(cirs_lookup::cirs_lookup_handler))
+        // Security-debt-ledger row 9 (2026-05-08): tower_governor per-IP rate-limit
+        // mirrors auth_rate_limit_layer() pattern (20 burst / 1/3s replenish ≈ 20/min/IP).
+        // Wrapped in a sub-router so the layer applies ONLY to /cirs/lookup, not to
+        // sibling staff routes which have their own throughput characteristics.
+        // require_non_pod_source + require_staff_jwt still apply via the outer
+        // staff_routes .layer() calls below.
+        .merge(
+            Router::new()
+                .route("/cirs/lookup", post(cirs_lookup::cirs_lookup_handler))
+                .layer(auth::rate_limit::auth_rate_limit_layer()),
+        )
         // Apply strict staff JWT middleware (rejects unauthenticated with 401)
         .layer(axum::middleware::from_fn(require_non_pod_source))
         .layer(axum::middleware::from_fn_with_state(state, require_staff_jwt))
