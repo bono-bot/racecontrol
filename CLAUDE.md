@@ -100,6 +100,33 @@ When a V2 fix depends on shared infrastructure (delivery / transport / supervisi
 
 ---
 
+## §S-186 pre-§S-146 small-fix fast-lane — narrows RCA scope (Captain ratify 2026-05-11 IST · BILATERAL)
+
+**Applies to both James and Bono.** §S-146 carve-out for one specific class — pre-§S-146 stale small bug fixes. Bug-fix PRs created < 2026-05-09 (date §S-146 ratified) with **ALL** of {≤200 LOC, single-boundary, no schema change, no protocol change, bug-fix only} get a **3-section short-RCA** (what / why-still-needed / V2-compat-check) instead of full 5-section + MMA Step 1 DIAGNOSE. Captain per-PR auth for rebase + merge **still required** — carve-out narrows the RCA-process burden only, not the merge gate.
+
+**Eligibility check (ALL six must hold):**
+1. PR created < 2026-05-09
+2. Diff ≤ 200 LOC
+3. Touches a single foundational boundary
+4. No schema change (DB migration, JSON field rename in persisted state)
+5. No protocol change (WebSocket message types, config_push routes, IPC contracts)
+6. Bug fix only (not feature add, not refactor)
+
+**Short-RCA template (3 sections, posted as PR comment):**
+1. **What** — files + LOC + change summary
+2. **Why still needed** — grep main for change semantics; cite grep output
+3. **V2-compat check** — cite V2 docs read; explicit "no conflict" or "conflict at X — mitigation Y"
+
+**NOT eligible (full §S-146 still required):** PRs created ≥ 2026-05-09 · schema/protocol changes regardless of size · multi-boundary touches · refactors / feature adds.
+
+**Why:** Literal §S-146 application to pre-§S-146 stale small bug fixes was over-broad (empirical anchor: PR #17 "Pod undefined" admin display bug, 193 LOC, sitting 19 days at 2026-05-11). The doctrine was scoped for active-development V1↔V2 boundary pushes, not historical small fixes. Throughput collapse on customer-visible fix class is a worse outcome than the marginal RCA risk this carve-out accepts.
+
+**Composes with:** §S-146 V1↔V2 RCA (parent — carve-out narrows scope only) · §S-186 V2-VELOCITY RATIFY (parent ratify) · §S-186 mechanism-trust-check (sibling extension) · Layer 4 Captain per-PR auth (retained) · CGP H1 (still required for rebase action).
+
+**Master memory:** james-side `~/.claude/projects/C--Users-bono/memory/feedback_pre_s146_small_fix_fastlane_20260511.md` (full eligibility check + 3-section template + worked examples). Ratify anchor: `project_s186_v2_velocity_ratify_20260511.md`.
+
+---
+
 ## Apply recommendations autonomously — STANDING RULE (Captain 2026-05-10 IST · BILATERAL · AMENDED with harness-mechanism-auth sub-clause 2026-05-10 ~16:14 IST)
 
 Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to apply all your recommendations for me."*
@@ -115,6 +142,52 @@ Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to 
 **Empirical anchors:** (1) earlier same session 13:15 IST surfaced 4 options when 1 was autonomous-eligible; Captain commissioned standing rule 13:18 IST. Rule promotes to ACTIVE without 30-day CANDIDATE-N1 trial via explicit standing-rule directive. (2) 14:48 IST harness classifier soft-block on 3rd hook wire-in → harness-mechanism-auth amendment authored same-session. (3) Captain ratification 16:14 IST of 4-decision queue including amendment formalization.
 
 **Master memory:** `/root/.claude/projects/-root/memory/feedback_apply_recommendations_autonomously_20260510.md` · **V2-COMPLETION-AUTONOMOUS-PROCESS §3.2** integration · **comms-link/CLAUDE.md** mirror.
+
+---
+
+## V2-LBAC v0.1 ACTIVE — V2-Live-Blocking Autonomous Completion (Captain RATIFIED 2026-05-12 ~07:23 IST · BILATERAL)
+
+Both pilots close V2-LIVE-BLOCKING items as closed loops following the V2-LBAC v0.1 protocol. Per-item: OPEN (customer-day symptom) → DESCEND (6-layer trace) → H1 PROBLEM/PLAN → FIX (smallest reversible, atomic commit) → CLOSE (H3 evidence with raw output) → SWEEP (H4 per-target enumeration) → SYNC (universal-sync rule) → BILATERAL (4-leg close-loop). WIP-cap 3 per pilot; compact-readiness check every 5 closures.
+
+**Eligibility classifier (Q3 gate):** AUTO-BONO / AUTO-JAMES / AUTO-BILATERAL = pickup-eligible. CAPTAIN-GATED-MERGE = author + stage. CAPTAIN-GATED-Q-DEC = surface to queue. Q3-BOUNDARY-HALT (harness self-mod / bilateral canonical / foundational PRs / Class B-C outbound / autonomy-class doctrine) = halt and ask. DEPENDS-ON / INFRA-CLOSED tags defer pickup until upstream clears.
+
+**Backlog ordering:** customer-day proximity descending · blast-radius ascending · upstream-clear · Q3-cleared · bilateral parallelism (non-conflicting surfaces). Backlog Gate: WIP ≥ 3 blocks new pickup. Source-of-truth baseline = `.planning/specs/v2/V2-PROGRESS-MAP.md` §0 (~78 LIVE-BLOCKING + ~32 DISCIPLINE + ~12 AMBIGUOUS = ~122 atomic items as of activation).
+
+**Background primitives (bono-side asymmetry):** `Bash run_in_background:true` for builds/tests · `Monitor` tail-watch · `CronCreate` for scheduled refresh · `ScheduleWakeup` self-pacing · `Agent` for parallel research/code-review/test authoring. James-side: smaller sequenced units (no Monitor/Bash equivalent — harness asymmetry per `project_harness_asymmetry_bono_james_20260510.md`). When bilateral parallelism is sought, route long-running compute to bono-side.
+
+**Compact/clear discipline:** every 5 closures run `/root/.claude/state/compact-readiness-check.sh`. READY=continue · NEEDS-PREP=drain to ledger first · NOT-READY=finish current item then recommend compact. Pre-compact: in-flight ledger MUST reflect every WIP state. SessionStart [in-flight-commitments] hook surfaces resume points across compact/clear boundaries.
+
+**Activation contract:** This protocol IS autonomy-class doctrine (Q3 boundary 5). VALID activation phrases per V2-LBAC §11: "I authorize V2-LBAC v0.1 activation" / "Activate LBAC" / "Ratify the autonomous completion plan" / "Yes, run LBAC" / "authorize LBAC activation" (Captain's actual ratification phrase 2026-05-12 ~07:23 IST). Standing-autonomy verbs alone do NOT activate.
+
+**Anti-patterns blocked:** "I'll RCA later" · memory-projection of source-of-truth · tree-claim conflated with runtime-claim · stand-by closure when Q3-cleared · background spawn without lifecycle logs · WIP ≥ 3 with new pickup · "done" in same message as last fix (H2) · multi-source evidence summarized rather than each-source-pasted · harness self-mod under standing-autonomy verbs · autonomy-class doctrine activation without explicit Captain ratification.
+
+**Canonical source:** `.planning/specs/v2/V2-LBAC-PROTOCOL.md` (v0.1 ACTIVE). **Bono memory:** `/root/.claude/projects/-root/memory/feedback_v2_lbac_v0.1_active.md`. **V2-MASTER-STATE anchor:** §S-203 ratification entry. **Composes-with:** Apply-Recommendations-Autonomously (parent doctrine; LBAC operationalizes per-item) · Q3 third-question boundary self-test (eligibility classifier IS Q3 gate) · In-Flight Commitments Ledger (state mechanism for closed-loop survival across compact/clear) · §S-146 V1↔V2 RCA gate · §S-186 pre-§S-146 small-fix fast-lane · CLD v1.0 · CGP H1-H5 · §S-121 v0.3 Step 3 Timeline-Verify · Bilateral mechanism close-loop · Compact/Clear Autonomous Discipline · Mechanism-trust-check upstream of fix RCA · V2-PROGRESS-MAP baseline.
+
+**Verify-by (LBAC self-test):** V-LBAC-1 (≥3 LIVE-BLOCKING closures with full evidence chain within 7d of activation) · V-LBAC-2 (≥1 compact-cycle survival with WIP correctly resumed via SessionStart hook) · V-LBAC-3 (≥1 bilateral AMPLIFIER round-trip within concurrent-session cadence <30min) · V-LBAC-4 (G9 count = 0 over verify window). All PASS → promote v0.1 → v0.2 with refinements; any FAIL → root-cause + structural amendment via §S-N+. Stale-at 2026-08-12.
+
+---
+
+## §S-N close-anchor + V2-PROGRESS-MAP refresh push — STANDING RULE (Captain 2026-05-12 IST · BILATERAL)
+
+Captain commission verbatim 2026-05-12 ~11:28 IST: *"Standing-rule: bono autonomous push to main for §S-N close-anchor commits + V2-PROGRESS-MAP refresh commits — broader standing extension"*
+
+**Rule:** Bono pushes `comms-link/V2-MASTER-STATE.md` §S-N close-anchor commits AND `racecontrol/.planning/specs/v2/V2-PROGRESS-MAP.md` refresh commits directly to `main` on both repos without per-action Captain auth. This narrows the Q3 boundary 2 (bilateral canonical surface) push gate for these two specific commit classes; it does NOT extend to: doctrine changes (CLAUDE.md / COGNITIVE-GATE-PROTOCOL.md / UNIFIED-MMA-PROTOCOL.md) · foundational PR merges · schema/protocol changes · harness self-mod (~/.claude/CLAUDE.md / settings.json / hooks).
+
+**Scope IN:**
+- `comms-link/V2-MASTER-STATE.md` §S-N append-only ledger entries (close-anchors, ratification anchors, slot-collision yields, AMPLIFIER receipts)
+- `racecontrol/.planning/specs/v2/V2-PROGRESS-MAP.md` refresh commits (row status flips, §0 rollup updates, §19 change-log appends)
+
+**Scope OUT (still require Captain auth per Q3):**
+- CLAUDE.md doctrine changes (rule additions/amendments) — Q3 boundary 5 (autonomy-class definitions)
+- Schema/protocol/migration changes — §5 boundary
+- PR merges to main (any repo) — Layer 4 per-PR auth retained
+- Harness self-mod surfaces — separate harness-mechanism-auth sub-clause governs
+
+**Composes-with:** Apply-Recommendations-Autonomously (parent doctrine; narrows Q3 boundary 2 for these classes) · V2-LBAC §3 step 7 Universal Sync · V2-LBAC §3 step 8 Bilateral close-loop · Bilateral mechanism close-loop (4-leg checklist; push is leg-2 partner-publish) · §S-121 v0.4 stale-cite class (live-read before §S-N assignment retained).
+
+**Empirical anchor:** Captain explicit per-session auth (Option A) granted at 2026-05-12 ~11:28 IST for "this session's closure-cascade commits" + STANDING-RULE extension (Option B) granted same turn. Anchor: §S-204 cascade pushed under both auths; this section ratifies the standing-rule scope for forward sessions.
+
+**Universal Sync targets:** racecontrol/CLAUDE.md (this section) ✓ · comms-link/CLAUDE.md mirror DEFERRED (pre-existing dirt in working tree gate) · bono memory `feedback_sn_close_anchor_push_standing_rule_20260512.md` (this turn) · MEMORY.md index entry (this turn) · ~/.claude/CLAUDE.md DEFERRED-PENDING-EXPLICIT-HARNESS-AUTH per harness-mechanism-auth sub-clause · V2-MASTER-STATE §S-205 ratification ledger entry DEFERRED next bono session.
 
 ---
 
@@ -382,8 +455,8 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
   _Why: SSH requires Tailscale up and leaves no audit trail; relay is always-on and returns structured results._
 - **Standing Rules Sync:** After modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
   _Why: Rules drift between AIs causes inconsistent behavior and contradictory decisions in multi-agent tasks._
-- **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools), NOT OpenRouter API / direct HTTP. Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
-  _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono uses Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality._
+- **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools) for non-MMA work; **for MMA Bono uses OpenRouter as default per Captain directive 2026-05-01 IST** (Phase 2 OpenRouter migration in flight; Perplexity MCP is degraded-fallback during Phase 2 with explicit DEGRADED-MMA-PERPLEXITY-FALLBACK log tag). James uses OpenRouter API + Node.js scripts (already on OpenRouter for both MMA + non-MMA). Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
+  _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono used Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality. Captain 2026-05-01 IST flipped MMA default to OpenRouter (both pilots) after Bono's pplx_council 403 token-expired empirically demonstrated Perplexity MCP as fragile-MMA-transport; OpenRouter unified path is more robust + composable with james-side `shared/openrouter.js` v4.0 enforcement helpers._
 
 ### PACT framework (L0/L1/L2 cascade — ratified 2026-04-25 PACT-20260425-004)
 
@@ -896,8 +969,8 @@ Candidate applications (annotate as the surface arises; do not pre-annotate spec
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.6 — 10 gates + lifecycle phases + emergency/debug/audit + ecosystem-wide scope |
-| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
+| `COGNITIVE-GATE-PROTOCOL.md` | CGP v4.3 "Backlog Gate" — 5 hard gates (H1-H5, hook-enforced) + 5 soft gates + 15 Standing Rules + ecosystem-wide scope (consolidated from v3.6's 10 gates / 147 standing rules) |
+| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v4.0 — full spec: 4-step convergence engine (DIAGNOSE/PLAN/EXECUTE/VERIFY) ≥5 models per step / ≥3 vendor families / max 2 per vendor / $5/session cap; v4.0 adds machine-enforced step sequencing via shared/openrouter.js validateMmaStep() / validateStepSequence() |
 | `.cargo\config.toml` | Static CRT build config |
 
 ---

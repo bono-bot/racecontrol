@@ -395,7 +395,8 @@ pub(crate) async fn list_billing_sessions(
                 .map(|s| {
                     json!({
                         "id": s.0, "driver_id": s.1, "driver_name": s.2,
-                        "pod_id": s.3, "pricing_tier_name": s.4,
+                        "pod_id": s.3, "pod_number": rc_common::pod_id::pod_id_to_number(&s.3),
+                        "pricing_tier_name": s.4,
                         "allocated_seconds": s.5, "driving_seconds": s.6,
                         "status": s.7, "price_paise": s.8,
                         "started_at": s.9, "ended_at": s.10, "created_at": s.11,
@@ -429,7 +430,8 @@ pub(crate) async fn get_billing_session(
     match row {
         Ok(Some(s)) => Json(json!({
             "id": s.0, "driver_id": s.1, "driver_name": s.2,
-            "pod_id": s.3, "pricing_tier_name": s.4,
+            "pod_id": s.3, "pod_number": rc_common::pod_id::pod_id_to_number(&s.3),
+            "pricing_tier_name": s.4,
             "allocated_seconds": s.5, "driving_seconds": s.6,
             "status": s.7, "price_paise": s.8,
             "started_at": s.9, "ended_at": s.10,

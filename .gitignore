@@ -140,3 +140,11 @@ pwa/public/build-info.json
 # Runtime-generated rc-sentry exec payload files (created during pod deploy sessions)
 scripts/deploy/pod4-*.json
 tmp/
+
+# Cross-platform path leak — process_guard_server hardcodes r"C:\RacingPoint\..."
+# which on Linux deploy creates literal-named files in cwd. PACT filed for cfg(target_os) fix.
+# Until source fix, suppress in git status so real changes aren't masked.
+C:\\RacingPoint\\*.log
+C:\\RacingPoint\\*.jsonl
+C:\\RacingPoint\\*.json
+"C:\\RacingPoint\\*"

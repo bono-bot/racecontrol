@@ -1,0 +1,55 @@
+{
+  "version": "0.1.0-bono",
+  "surface": "config-push-queue",
+  "subclass": "server-to-agent-control-plane",
+  "date": "2026-05-11",
+  "audited_at": "2026-05-11T12:32:00Z",
+  "auditor": "bono",
+  "trigger_pr": "racecontrol#54",
+  "trigger_pact": "PACT-20260429-013 Phase 1+2",
+  "doctrine_anchor": "§S-172 mechanism-trust-check upstream of fix RCA — extends §S-146",
+  "questions": {
+    "atomic_primitives": {
+      "answer": "YES",
+      "evidence": "config_push_queue write is single SQL INSERT (atomic per-row); status='pending'→'delivered' is single UPDATE WHERE pod_id+seq_num; ConfigAck round-trip is single WS frame; AppState.config_push_seq is AtomicU64 fetch_add (no read-modify-write race). Phase 177 substrate at 1fc92867 + this PR's set_billing_status callsite at billing_session_lifecycle.rs +88/-20."
+    },
+    "ttl_sentinels": {
+      "answer": "N/A",
+      "evidence": "Not a sentinel-class surface — no MAINTENANCE_MODE/OTA_DEPLOYING-class semaphore involved. config_push_queue rows persist until acked (or replayed on reconnect via CP-02). Watchdog-mutex orthogonal to this substrate."
+    },
+    "behavioral_verify": {
+      "answer": "YES",
+      "evidence": "Phase 177 substrate has DB row state machine (pending→delivered) + ConfigAck round-trip (agent→server with sequence + accepted flag) + config_audit_log row per push. Not echo-string — actual state change persisted to DB. PR #54 callsite uses these primitives correctly: INSERT (line +213 set_billing_status), UPDATE on Ok (line +247 set_billing_status), INSERT audit_log (line +262 set_billing_status)."
+    },
+    "single_target_dry_run": {
+      "answer": "PARTIAL",
+      "evidence": "Phase 177 config_push_queue supports single-pod targeting natively (per-pod row, not broadcast). However: no documented --canary flag or staging endpoint for set_billing_status pre-fleet rollout. Mitigation: behavioral test on Pod 8 canary post-deploy verifies row→delivery→agent-state flow before fleet roll. NOT BLOCKING — PR rollout sequence in PACT-013 §EVIDENCE explicitly calls for Pod 8 canary."
+    },
+    "guard_contracts": {
+      "answer": "YES",
+      "evidence": "HOT_RELOAD_FIELDS allowlist on agent side acts as explicit field-allowlist parser (string match against const &[&str]) — parser-not-regex. NON_RELOAD_FIELDS allowlist enforces structural rejection of port/ws_url/pod_number/pod_id (rejected at parse with warn). Unknown fields warn+ignore (graceful version skew) — explicit contract not implicit serde-decode-failure. PR #54 extends HOT_RELOAD_FIELDS with 'billing_paused' — single point of contract update."
+    }
+  },
+  "overall": "PASS",
+  "validity_days": 30,
+  "expires_at": "2026-06-10",
+  "notes": "Phase 177 V2-P1-CONFIG-SERVICE substrate passes 4/5 with 1 PARTIAL (single-target dry-run — substrate has it; this PR's callsite doesn't have explicit --canary flag but PACT-013 rollout sequence covers via Pod 8 canary). Strictly stronger than PR #49 (PACT-008) wire-protocol path on every axis comparable to billing-2026-05-10.json (which audited the billing strategy layer). PR #54 closes the §S-172 gap that PR #49 / PACT-008 unknowingly left open (config push was Phase 177 substrate already; PR #49 just didn't route through it).",
+  "composes_with": [
+    "billing-2026-05-10.json (downstream consumer audit — strategy layer)",
+    "deploy-pod-2026-05-10.json (orthogonal — deploy mechanism vs runtime delivery substrate)",
+    "rc-agent-2026-05-10.json (downstream consumer audit — agent process Session 1 + watch-channel + watchdog)",
+    "comms-link-exec-protocol-2026-05-10.json (sibling control-plane — orthogonal)"
+  ],
+  "links": {
+    "phase_0_triage": "comms-link/docs/PACT-013-PHASE-0-TRIAGE.md",
+    "pact_proposal": "comms-link/proposals/PACT-20260429-013-billing-pause-via-config-push-queue-redesign.md",
+    "rca": "racecontrol/.planning/specs/v2/RCA/PR54-PACT-013-billing-paused-config-push-queue-20260511.md",
+    "phase_177_substrate": "racecontrol commit 1fc92867 (V2-P1-CONFIG-SERVICE, 2026-03-24)"
+  },
+  "captain_disposition_pending": [
+    "Per-PR merge auth on racecontrol#54",
+    "MMA Step 1 DIAGNOSE auth (~$0.05-0.10 OpenRouter spend; foundational-boundary escalation)",
+    "Fleet-roll sequence (.23 first or atomic deploy-pipeline)",
+    "Replacement integration test timing (pre-merge or post-merge)"
+  ]
+}

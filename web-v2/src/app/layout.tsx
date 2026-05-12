@@ -14,9 +14,14 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
+// Customer-facing default metadata. "V2" / "V2.0" is internal-only
+// nomenclature per Captain 2026-05-11 ~09:28 IST: "The V2.0 title is for
+// us not customer". Page-specific routes (e.g. page.tsx) override these
+// defaults with more specific titles + descriptions.
 export const metadata: Metadata = {
-  title: "RacingPoint V2",
-  description: "RacingPoint V2 — dedicated Next.js host (Phase 0.1 substrate)",
+  title: "RacingPoint",
+  description:
+    "Pro-grade racing simulators · cafe · venue in Hyderabad.",
 };
 
 export default function RootLayout({

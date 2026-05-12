@@ -1,9 +1,11 @@
 # Unified MMA Protocol v3.0
 
+> **NOTE (Captain refinement 2026-05-01 IST):** Transport layer DEFAULT for MMA is now **OpenRouter for both pilots** (James already operates this; Bono migration Phase 2 deferred substrate work; Perplexity MCP retained for non-MMA + degraded-fallback during Phase 2 with explicit DEGRADED-MMA-PERPLEXITY-FALLBACK log tag). Canonical v4.0 doctrine + transport spec lives in `comms-link/CLAUDE.md` § "Unified MMA Protocol v4.0 (BOTH AIs)" + § "Verify recipient infrastructure before sending instructions". This v3.0 spec retains 4-step convergence engine + model pool + cost discipline content; transport-layer rules are now sourced from comms-link/CLAUDE.md per UNIVERSAL SYNC rule. Empirical anchor: Bono pplx_council 403 token-expired 2026-05-01 ~08:25 IST demonstrated Perplexity MCP as fragile-MMA-transport.
+
 **Author:** Bono + Uday + James (MMA-researched: 10 models, 2 iterations + 26-gap meta-audit)
-**Date:** 2026-03-31
-**Version:** v3.0 (merges MMA-First Protocol infrastructure + v2.0 reasoning engine into single complete spec)
-**Status:** SPEC — approved by Uday
+**Date:** 2026-03-31 (v3.0 base spec); 2026-05-01 IST (transport refinement to OpenRouter-default)
+**Version:** v3.0 (merges MMA-First Protocol infrastructure + v2.0 reasoning engine into single complete spec); transport-layer doctrine canonical v4.0 in comms-link/CLAUDE.md
+**Status:** SPEC — approved by Uday; transport-layer refined per Captain directive 2026-05-01 IST
 **Affects:** v31.0 Phases 268-272, tier_engine.rs, openrouter.rs, knowledge_base.rs, mma_engine.rs, budget_tracker.rs
 **Supersedes:** MMA-FIRST-PROTOCOL.md (fully absorbed), Unified MMA Protocol v1.0, v2.0
 
