@@ -19,7 +19,7 @@
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
 >
-> **What this number means:** ~72% of V2-LIVE-BLOCKING items remain. **Δ 2026-05-11: +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Δ 2026-05-12 LBAC discovery: PR #17 merged 2026-05-11 11:39 IST (commit ab9d867f, ~4min after this map was authored — see RCA/PR17-disposition-20260512.md); Layer 4 row 4.1 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed retroactively. Closure rate: 24%→27% (2026-05-11) → 28% (2026-05-12).** Capacity-weighted velocity TBD.
+> **What this number means:** ~71% of V2-LIVE-BLOCKING items remain. **Δ 2026-05-11: +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Δ 2026-05-12 LBAC discovery: PR #17 merged 2026-05-11 11:39 IST (commit ab9d867f, ~4min after this map was authored — see RCA/PR17-disposition-20260512.md); Layer 4 row 4.1 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed retroactively. Δ 2026-05-12 post-LBAC-activation: PR #54 (PACT-013 billing_paused via config_push_queue) MERGED 2026-05-12 03:38 UTC (commit 51bf4637, bono-bot squash-merge via gh pr merge); Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST via /health build_id flip 5cba7fb4→51bf4637 post-pm2 restart (uptime cleared min_uptime=60s gate, 0 unstable_restarts); Layer 4 row 4.2 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed. Closure rate: 24%→27% (2026-05-11) → 28% (2026-05-12 PR #17 retroactive) → 29% (2026-05-12 PR #54 close).** Capacity-weighted velocity TBD.
 
 ---
 
@@ -110,7 +110,7 @@
 | # | Repo | PR | Title | Author | Days open | Status | Class |
 |---|---|---|---|---|---|---|---|
 | 4.1 | racecontrol | #17 | fix(billing): add pod_number to session response — closes 'Pod undefined' | james | 19d | **MERGED 2026-05-11 11:39 IST (ab9d867f)** — deploy parity pending Server .23 + Bono VPS (LBAC task #7) | LIVE-BLOCKING-CLOSED |
-| 4.2 | racecontrol | #54 | feat(billing): route billing_paused via config_push_queue (PACT-013 Phase 1+2) | bono | 12d | OPEN | LIVE-BLOCKING |
+| 4.2 | racecontrol | #54 | feat(billing): route billing_paused via config_push_queue (PACT-013 Phase 1+2) | bono | 12d | **MERGED 2026-05-12 03:38 UTC (51bf4637)** — Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST (build_id flipped 5cba7fb4→51bf4637) | LIVE-BLOCKING-CLOSED |
 | 4.3 | comms-link | #8 | PACT-20260429-005 venue-stability-state.sh implementation | james | 12d | OPEN | DISCIPLINE |
 | 4.4 | comms-link | #9 | PACT-20260503-016 handoff schema head-at-write-time | james | 8d | OPEN | DISCIPLINE |
 | 4.5 | comms-link | #10 | PACT-20260503-012 deploy-server.sh SWAPLOG-append path bug fix | james | 8d | OPEN | DISCIPLINE |
@@ -119,7 +119,7 @@
 | 4.8 | comms-link | #13 | PACT-20260503-015 V2.0 #20 failure-detection event schema | james | 8d | OPEN | LIVE-BLOCKING |
 | 4.9 | comms-link | #14 | PACT-20260504-027 Presence-detection wire-in + Z2 deadline | james | 7d | OPEN | LIVE-BLOCKING |
 
-**Layer 4 totals:** **8 OPEN PRs** = 5 LIVE-BLOCKING + 3 DISCIPLINE. PR #17 MERGED 2026-05-11 11:39 IST (ab9d867f) — deploy parity verification ongoing. All remaining james-authored except #54 (bono). **Captain disposition needed on remaining 8.**
+**Layer 4 totals:** **7 OPEN PRs** = 4 LIVE-BLOCKING + 3 DISCIPLINE. PR #17 MERGED 2026-05-11 11:39 IST (ab9d867f) — deploy parity verification ongoing. PR #54 MERGED 2026-05-12 03:38 UTC (51bf4637) — Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST. All remaining james-authored. **Captain disposition needed on remaining 7.**
 
 ---
 
