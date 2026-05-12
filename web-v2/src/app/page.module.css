@@ -533,3 +533,154 @@
   font-size: 0.875rem;
   color: var(--rp-text-muted);
 }
+
+
+/* ---------- WhatsApp opt-in form (Q-CUST-4 + Q-CUST-7) ---------- */
+
+.optInForm {
+  display: grid;
+  gap: 1rem;
+  text-align: left;
+  margin: 1.5rem auto 0;
+  max-width: 26rem;
+}
+.optInField {
+  display: grid;
+  gap: 0.375rem;
+}
+.optInField span {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--rp-text-primary);
+  letter-spacing: 0.02em;
+}
+.optInField input[type="tel"] {
+  background: var(--rp-asphalt-black);
+  color: var(--rp-text-primary);
+  border: 1px solid var(--rp-border);
+  border-radius: 4px;
+  padding: 0.75rem 0.875rem;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+.optInField input[type="tel"]:focus-visible {
+  outline: none;
+  border-color: var(--rp-racing-red);
+}
+
+.optInConsent {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.625rem;
+  align-items: flex-start;
+  background: var(--rp-card);
+  border: 1px solid var(--rp-border);
+  border-radius: 4px;
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+}
+.optInConsent input[type="checkbox"] {
+  margin-top: 0.2rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--rp-racing-red);
+}
+.optInConsent span {
+  font-size: 0.9375rem;
+  color: var(--rp-text-primary);
+  line-height: 1.45;
+}
+
+.optInSubmit {
+  display: inline-block;
+  padding: 0.875rem 1.5rem;
+  background: var(--rp-racing-red);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 4px;
+  border: 1px solid var(--rp-racing-red);
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+.optInSubmit:hover:not(:disabled),
+.optInSubmit:focus-visible:not(:disabled) {
+  background: var(--rp-racing-red-hover);
+  border-color: var(--rp-racing-red-hover);
+  transform: translateY(-1px);
+}
+.optInSubmit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.optInError {
+  color: var(--rp-error);
+  font-size: 0.9375rem;
+  margin: 0;
+  text-align: left;
+}
+
+.optInFinePrint {
+  font-size: 0.8125rem;
+  color: var(--rp-text-muted);
+  text-align: left;
+  margin: 0;
+  line-height: 1.5;
+}
+.optInFinePrint a {
+  color: var(--rp-text-muted);
+  border-bottom: 1px solid var(--rp-border);
+}
+.optInFinePrint a:hover,
+.optInFinePrint a:focus-visible {
+  color: var(--rp-racing-red);
+  border-bottom-color: var(--rp-racing-red);
+}
+
+.optInSuccess {
+  background: var(--rp-card);
+  border: 1px solid var(--rp-success);
+  border-left: 3px solid var(--rp-success);
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  margin: 1.5rem auto 0;
+  max-width: 26rem;
+  text-align: left;
+}
+.optInSuccess strong {
+  display: block;
+  color: var(--rp-success);
+  font-size: 1.0625rem;
+  margin-bottom: 0.375rem;
+}
+.optInSuccess p {
+  margin: 0;
+  color: var(--rp-text-primary);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.whatsappFallback {
+  margin-top: 1.5rem !important;
+  font-size: 0.875rem;
+  color: var(--rp-text-muted);
+}
+
+/* ---------- Footer additions (Q-CUST-7 Privacy Policy link) ---------- */
+
+.footerLinks {
+  font-size: 0.875rem;
+}
+.footerLinks a {
+  color: var(--rp-text-muted);
+  border-bottom: 1px solid var(--rp-border);
+}
+.footerLinks a:hover,
+.footerLinks a:focus-visible {
+  color: var(--rp-racing-red);
+  border-bottom-color: var(--rp-racing-red);
+}

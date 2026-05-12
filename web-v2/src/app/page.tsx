@@ -1,5 +1,20 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import styles from "./page.module.css";
+import { WhatsAppOptInForm } from "../components/WhatsAppOptInForm";
+
+/*
+ * V2 Customer Entry Page — racingpoint.cloud apex landing.
+ *
+ * Source: racecontrol/.planning/specs/v2/V2-CUSTOMER-ENTRY/UI-SPEC-v0.2.md
+ *   - §1–§8 inherited from UI-SPEC v0.1 (Goal · Segments · Page structure · Visual · Responsive · A11y · Perf · Composes-with)
+ *   - §9 Q-CUST-1..7 dispositions: 2 AUTONOMOUS-LOCKED + 5 CAPTAIN-RATIFIED 2026-05-12 ~11:05 IST verbatim "all bono recommendations" (V2-MASTER-STATE §S-204 close-anchor)
+ *
+ * Returning-customer cookie (`rp_returning`) set by middleware.ts on first visit; read here to swap Hero CTA.
+ *
+ * Note on V2 nomenclature: "V2" / "V2.0" is internal-only per Captain 2026-05-11 ~09:28 IST.
+ * Customer-facing copy never says "V2" — this is just the canonical RacingPoint landing.
+ */
 
 const SITE_TITLE = "RacingPoint — Real cars. Real circuits. Real you.";
 const SITE_DESCRIPTION =
@@ -24,13 +39,11 @@ export const metadata: Metadata = {
   },
 };
 
-// Venue-specific values sourced verbatim from canonically-deployed apex site
-// (racingpoint-website pm2 service @ racingpoint.cloud, 5d uptime).
-// Single source of truth lives at the apex footer; copied here to keep the
-// V2 entry page content-parity with apex until apex itself is migrated.
+// Venue-specific values sourced from canonically-deployed apex (racingpoint-website pm2 service).
 const VENUE_WHATSAPP_PHONE = "917981264279";
 const VENUE_WHATSAPP_LINK = `https://wa.me/${VENUE_WHATSAPP_PHONE}`;
 const PWA_BOOK_LINK = "https://app.racingpoint.cloud/book";
+const PWA_DASHBOARD_LINK = "https://app.racingpoint.cloud";
 const VENUE_ADDRESS_LINE_1 = "Bandlaguda, Hyderabad";
 const VENUE_ADDRESS_LINE_2 = "Telangana, India";
 const VENUE_MAPS_PIN = "https://share.google/nufGoHR5BectU5NFh";
@@ -38,21 +51,28 @@ const VENUE_EMAIL = "info@racingpoint.in";
 const VENUE_INSTAGRAM = "https://www.instagram.com/racingpoint.in/";
 const VENUE_HOURS = "Open daily · 12:00 – 24:00 IST";
 
-export default function Home() {
+// Q-CUST-2 server-side cookie read. Async because Next.js 16 cookies() returns a Promise.
+async function isReturningCustomer(): Promise<boolean> {
+  const cookieStore = await cookies();
+  return cookieStore.get("rp_returning")?.value === "1";
+}
+
+export default async function Home() {
+  const returning = await isReturningCustomer();
   return (
     <>
       <a href="#main" className={styles.skipLink}>
         Skip to content
       </a>
 
-      <Header />
+      <Header returning={returning} />
       <main id="main">
-        <Hero />
+        <Hero returning={returning} />
         <TrustBand />
         <Experiences />
         <CreditsExplainer />
         <Cafe />
-        <ContactWhatsApp />
+        <WhatsAppOptIn />
         <LocationHours />
       </main>
       <Footer />
@@ -60,7 +80,7 @@ export default function Home() {
   );
 }
 
-function Header() {
+function Header({ returning }: { returning: boolean }) {
   return (
     <header className={styles.header}>
       <div className={styles.headerInner}>
@@ -78,8 +98,11 @@ function Header() {
           <a href="#location" className={styles.navLink}>
             Visit
           </a>
-          <a href={PWA_BOOK_LINK} className={styles.navCta}>
-            Book
+          <a
+            href={returning ? PWA_DASHBOARD_LINK : PWA_BOOK_LINK}
+            className={styles.navCta}
+          >
+            {returning ? "Dashboard" : "Book"}
           </a>
         </nav>
       </div>
@@ -87,9 +110,16 @@ function Header() {
   );
 }
 
-function Hero() {
+function Hero({ returning }: { returning: boolean }) {
   return (
     <section className={styles.hero} aria-labelledby="hero-heading">
+      {/*
+       * Q-CUST-1 hero photography — brand-assets/photos/ directory not present at
+       * authoring time 2026-05-12; CAPTAIN-RATIFIED fallback (b) per §S-204:
+       *   Asphalt-Black gradient-overlay placeholder + CSS speed-streaks texture,
+       *   no broken-image state, no blank box. Replace with real photography at
+       *   next venue reopen + photography session.
+       */}
       <div className={styles.heroBackdrop} aria-hidden="true" />
       <div className={styles.heroContent}>
         <p className={styles.eyebrow}>RacingPoint · Hyderabad</p>
@@ -105,12 +135,25 @@ function Hero() {
           drivers — from first-timers to league regulars.
         </p>
         <div className={styles.heroCtaRow}>
-          <a href={PWA_BOOK_LINK} className={styles.ctaPrimary}>
-            Book your first sim time
-          </a>
-          <a href="#experiences" className={styles.ctaSecondary}>
-            See what you can race
-          </a>
+          {returning ? (
+            <>
+              <a href={PWA_DASHBOARD_LINK} className={styles.ctaPrimary}>
+                Continue to your dashboard
+              </a>
+              <a href="#experiences" className={styles.ctaSecondary}>
+                See what is on this week
+              </a>
+            </>
+          ) : (
+            <>
+              <a href={PWA_BOOK_LINK} className={styles.ctaPrimary}>
+                Book your first sim time
+              </a>
+              <a href="#experiences" className={styles.ctaSecondary}>
+                See what you can race
+              </a>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -138,12 +181,19 @@ function TrustBand() {
   );
 }
 
+/*
+ * Q-CUST-3 EXPERIENCES pricing — CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+(c):
+ *   - Static hardcoded values (a): ₹700 / 30 min · ₹900 / 60 min — no API fetch, no latency
+ *   - GST-INCLUSIVE framing (b): displayed price IS the final price; 18% GST already inside
+ *   - No pricing-page navigation alternative (c): inline disclosure in Experiences strip
+ * v1 path gates on Wave 2 Dynamic Pricing (server-side fetch with v0 fallback on failure).
+ */
 const EXPERIENCES = [
   {
     title: "Solo Sim Session",
     description:
       "Pick your car, pick your circuit, drive. Coaching telemetry on every lap.",
-    priceLine: "30 min · 700 credits",
+    priceLine: "₹700 / 30 min · GST inclusive",
     cta: "Book solo",
     href: PWA_BOOK_LINK,
   },
@@ -151,7 +201,7 @@ const EXPERIENCES = [
     title: "Multi-player Race",
     description:
       "Two to eight drivers, same grid, same race. Sprints, leagues, league championships.",
-    priceLine: "60 min · 900 credits",
+    priceLine: "₹900 / 60 min · GST inclusive",
     cta: "Book group",
     href: PWA_BOOK_LINK,
   },
@@ -192,8 +242,9 @@ function Experiences() {
         ))}
       </div>
       <p className={styles.priceNote}>
-        Prices shown in <strong>credits</strong>. 1 credit = ₹1. Top-ups
-        carry an 18% GST charge at purchase.
+        Prices shown above are <strong>final</strong> — 18% GST is already
+        included. 1 credit = ₹1 in your wallet; the wallet redeems for sim
+        time only. Cafe is always separate.
       </p>
     </section>
   );
@@ -213,8 +264,8 @@ function CreditsExplainer() {
       <ol className={styles.creditsList}>
         <li>
           <strong>You top up credits</strong> at the counter or on the app.
-          GST (18%) is applied at the top-up moment, not at every session
-          — what you see on the wallet is what you spend.
+          GST (18%) is built into the price you see — what you pay for the
+          top-up is what you spend.
         </li>
         <li>
           <strong>Credits redeem for sim time and console gaming</strong>.
@@ -253,21 +304,34 @@ function Cafe() {
   );
 }
 
-function ContactWhatsApp() {
+/*
+ * Q-CUST-4 + Q-CUST-7 — WhatsApp opt-in with inline DPDP consent.
+ *   - Q-CUST-4 (a): POST to /api/v2/marketing/whatsapp-optin (Next.js route → api-gateway proxy in future)
+ *   - Q-CUST-4 (b): payload schema { phone, consent_text, consent_ts, source: "v2-landing" } per §S-158 audit-log
+ *   - Q-CUST-4 (c stub): revocation page stub at /privacy (footer link); full implementation tracked as launch-gate
+ *   - Q-CUST-7 (a): inline-with-WhatsApp-opt-in checkbox (unchecked default; submit gated until checked)
+ *   - Q-CUST-7 (b): standalone Privacy Policy footer link (covers browse-without-opt-in visitors)
+ *   - Q-CUST-7 (c): at-arrival modal REJECTED for v0
+ * Legal-AMPLIFIER queued for wording finalization (non-blocking on ship; entry
+ * `legal-amplifier-queue-qcust4-qcust7-wording-20260512-1110-IST`).
+ */
+function WhatsAppOptIn() {
   return (
     <section
       className={styles.whatsapp}
       aria-labelledby="whatsapp-heading"
     >
       <div className={styles.whatsappInner}>
-        <h2 id="whatsapp-heading">Questions? Reach us on WhatsApp.</h2>
+        <h2 id="whatsapp-heading">Stay in the loop on WhatsApp</h2>
         <p>
-          The fastest way to ask about bookings, events, or group rates.
-          We reply during venue hours.
+          Get session reminders, new track unlocks, and league invites
+          straight on WhatsApp. We only message about racing — never spam.
         </p>
-        <a href={VENUE_WHATSAPP_LINK} className={styles.ctaPrimary}>
-          Message us on WhatsApp
-        </a>
+        <WhatsAppOptInForm />
+        <p className={styles.whatsappFallback}>
+          Prefer a one-off question?{" "}
+          <a href={VENUE_WHATSAPP_LINK}>Message us on WhatsApp</a>.
+        </p>
       </div>
     </section>
   );
@@ -337,9 +401,16 @@ function Footer() {
     <footer className={styles.footer}>
       <div className={styles.footerInner}>
         <p>© {new Date().getFullYear()} RacingPoint · Hyderabad</p>
+        <p className={styles.footerLinks}>
+          <a href="/v2/privacy">Privacy Policy</a>
+          {" · "}
+          <a href={VENUE_WHATSAPP_LINK}>WhatsApp</a>
+          {" · "}
+          <a href={`mailto:${VENUE_EMAIL}`}>{VENUE_EMAIL}</a>
+        </p>
         <p className={styles.muted}>
-          By contacting us you agree to our messaging policy. We only send
-          you what you ask for.
+          DPDP-compliant. We only send what you ask for. Opt out via Privacy
+          Policy or message us on WhatsApp.
         </p>
       </div>
     </footer>
