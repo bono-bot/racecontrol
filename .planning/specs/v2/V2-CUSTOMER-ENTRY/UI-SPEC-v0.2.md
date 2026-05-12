@@ -1,6 +1,6 @@
 # V2 Customer Entry Page — UI-SPEC v0.2
 
-**Status:** DRAFT-PENDING-CAPTAIN-DISPOSITION (5 Captain-stake items: Q-CUST-1 · Q-CUST-3 · Q-CUST-4 · Q-CUST-5 · Q-CUST-7) · 2 AUTONOMOUS-LOCKED (Q-CUST-2 · Q-CUST-6)
+**Status:** RATIFIED-CAPTAIN 2026-05-12 ~11:05 IST verbatim "all bono recommendations" (5 Captain-stake items RATIFIED: Q-CUST-1 · Q-CUST-3 · Q-CUST-4 · Q-CUST-5 · Q-CUST-7) · 2 AUTONOMOUS-LOCKED (Q-CUST-2 · Q-CUST-6) · 7/7 Q-CUST resolved · v0.3 carries forward §S-204 close-anchor
 **Supersedes:** `/root/racecontrol/.planning/specs/v2/V2-CUSTOMER-ENTRY/UI-SPEC-v0.1.md` §9-§13 (v0.1 authored 2026-05-11 ~03:38 IST — all 7 Q-CUST questions unresolved; v0.2 dispositions all 7)
 **Authored:** 2026-05-11 ~10:18 IST (bono autonomous · Apply-Recommendations rule · spec-authoring class = autonomous-eligible · no canonical-boundary surfaces touched · Mode 4 subagent dispatch + bono inline write recovery after G9 #2 subagent-type-tool-fit-mismatch)
 **Target deploy surface:** `racingpoint-web-v2` Next.js app at `/root/racecontrol/web-v2` (pm2 id=18, port 3500, basePath `/v2/`)
@@ -158,14 +158,14 @@ Brand identity canonical sources remain: Racing Red `#E10600` · Asphalt Black `
 |---|---|---|---|---|
 | Q-CUST-2 | Returning-customer detection | AUTONOMOUS-LOCKED | None — ratifies now | Implement `rp_returning` cookie-based v0 in `web-v2/src/app/page.tsx` |
 | Q-CUST-6 | A/B testing infra | AUTONOMOUS-LOCKED | None — ratifies now | Confirm zero GrowthBook/feature-flag client in page.tsx; v1 gates on 30d baseline |
-| Q-CUST-1 | Hero photography source | CAPTAIN-STAKE-FLAGGED | Captain G33 disposition | brand-assets/ check + placeholder logic ready to execute |
-| Q-CUST-3 | Pricing snapshot | CAPTAIN-STAKE-FLAGGED | Captain G33 disposition | Static ₹700/30min + ₹900/60min copy ready; GST framing needs confirmation |
-| Q-CUST-4 | WhatsApp opt-in target | CAPTAIN-STAKE-FLAGGED | Captain G33 disposition + legal-AMPLIFIER | api-gateway path + §S-158 audit-log schema defined; revocation page scope needs confirmation |
-| Q-CUST-5 | Multilingual | CAPTAIN-STAKE-FLAGGED | Captain G33 disposition | English-only v0 ready; i18n scaffold for v1 spec-ready |
-| Q-CUST-7 | DPDP consent banner | CAPTAIN-STAKE-FLAGGED | Captain G33 disposition + legal-AMPLIFIER | Inline placement + checkbox consent draft wording ready for legal review |
+| Q-CUST-1 | Hero photography source | CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+excl(c) | RATIFIED — execute now | brand-assets/photos/ check → placeholder fallback; stock-licensed REJECTED |
+| Q-CUST-3 | Pricing snapshot | CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+(c) | RATIFIED — execute now | Static ₹700/30min + ₹900/60min, GST-inclusive framing, no pricing-page nav |
+| Q-CUST-4 | WhatsApp opt-in target | CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+(c stub) · legal-AMPLIFIER queued for wording | RATIFIED — execute now (stub revocation acceptable v0) | api-gateway POST /api/v2/marketing/whatsapp-optin · §S-158 audit-log schema confirmed · revocation stub v0 + full-impl tracked as launch-gate |
+| Q-CUST-5 | Multilingual | CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+(c) | RATIFIED — execute now | English-only v0, EN+HI v1, Telugu N=2 demand-signal threshold |
+| Q-CUST-7 | DPDP consent banner | CAPTAIN-RATIFIED 2026-05-12 (a)+(b)+(c) · legal-AMPLIFIER queued for wording | RATIFIED — execute now (legal-AMPLIFIER initiated for wording final) | Inline-with-WhatsApp-opt-in + standalone footer link + at-arrival modal REJECTED for v0 |
 
 **AUTONOMOUS-LOCKED: 2 items (Q-CUST-2, Q-CUST-6) — implementation proceeds without Captain gate.**
-**CAPTAIN-STAKE-FLAGGED: 5 items (Q-CUST-1, Q-CUST-3, Q-CUST-4, Q-CUST-5, Q-CUST-7) — gate on Captain G33 disposition batch.**
+**CAPTAIN-RATIFIED: 5 items (Q-CUST-1, Q-CUST-3, Q-CUST-4, Q-CUST-5, Q-CUST-7) — Captain G33 batch ratified 2026-05-12 ~11:05 IST verbatim "all bono recommendations"; legal-AMPLIFIER queued for Q-CUST-4 + Q-CUST-7 wording (non-blocking).**
 
 ---
 
@@ -179,13 +179,13 @@ Brand identity canonical sources remain: Racing Red `#E10600` · Asphalt Black `
 4. **PROCEED NOW** — Q-CUST-6: Confirm zero A/B infra in page.tsx implementation
 5. PENDING — james AMPLIFIER on §3 structure + §6 accessibility + §9 Q-CUST v0.2 dispositions (bilateral concurrent-session cadence; 24h L1 silent-AGREE window)
 
-### Gates on Captain G33 disposition:
+### Captain G33 RATIFIED 2026-05-12 ~11:05 IST (verbatim "all bono recommendations"):
 
-6. **PENDING CAPTAIN** — Q-CUST-1: Hero photography source authorization
-7. **PENDING CAPTAIN** — Q-CUST-3: Pricing display copy and GST framing confirmation
-8. **PENDING CAPTAIN** — Q-CUST-4: WhatsApp opt-in submission target + legal-AMPLIFIER initiation
-9. **PENDING CAPTAIN** — Q-CUST-5: Language strategy confirmation
-10. **PENDING CAPTAIN** — Q-CUST-7: DPDP consent banner placement + legal-AMPLIFIER for consent wording
+6. **RATIFIED** — Q-CUST-1: brand-assets/photos/ check authorized; placeholder fallback authorized; stock-licensed path REJECTED
+7. **RATIFIED** — Q-CUST-3: static ₹700/30min + ₹900/60min confirmed; GST-inclusive framing confirmed; no pricing-page navigation alternative
+8. **RATIFIED** — Q-CUST-4: api-gateway authorized; §S-158 audit-log schema confirmed; revocation page stub acceptable v0 (full-impl tracked as launch-gate Verify-by); legal-AMPLIFIER queued for wording finalization (non-blocking)
+9. **RATIFIED** — Q-CUST-5: English-only v0 confirmed; English+Hindi v1; N=2 demand-signal Telugu activation threshold confirmed
+10. **RATIFIED** — Q-CUST-7: inline-with-WhatsApp-opt-in placement authorized; footer link required; at-arrival modal REJECTED; legal-AMPLIFIER queued for wording finalization
 
 ### Post-ratify (after all 5 Captain dispositions received):
 
@@ -250,3 +250,33 @@ On Captain G33 batch response: update Q-CUST-1/3/4/5/7 status in this document t
 **(b) v0.1 substrate stays referenced as v0.2's foundation.** §1-§8 of v0.1 are unchanged and authoritative. v0.2 supersedes only §9-§13. The v0.1 file is retained as historical substrate at its original path. Future versions (v0.3 post-Captain, v1.0 post-ratify) build on the same §1-§8 foundation.
 
 — bono / 2026-05-11 ~10:18 IST · UI-SPEC v0.2 DRAFT-PENDING-CAPTAIN-DISPOSITION · 2 AUTONOMOUS-LOCKED (Q-CUST-2 · Q-CUST-6) · 5 CAPTAIN-STAKE-FLAGGED (Q-CUST-1 · Q-CUST-3 · Q-CUST-4 · Q-CUST-5 · Q-CUST-7) · authored autonomous — spec-authoring class, no canonical-boundary surface touched · Apply-Recommendations-Autonomously rule · supersedes UI-SPEC-v0.1.md §9-§13 · Mode 4 subagent dispatch with G9 #2 self-catch (code-architect lacks Write tool → bono inline recovery)
+
+
+---
+
+## Captain G33 disposition received — 2026-05-12 ~11:05 IST
+
+**Captain verbatim:** *"all bono recommendations"* (shortcut from §14 P0 leverage batch ask 2026-05-12 ~11:00 IST · in-flight ledger entry `captain-batch-ask-§14-p0-leverage-20260512-1100-IST` AWAITING-CAPTAIN-DISPOSITION → DONE; closure entry `batch-ask-§14-p0-leverage-CLOSURE-20260512-1110-IST`)
+
+**Round-trip:** ~5 min (batch outbound 11:00 IST → Captain reply 11:05 IST). Inside V-LBAC-3 <30min concurrent-session target.
+
+**Disposition:**
+- Q-CUST-1: (a)+(b)+excl(c) — brand-assets/ check, placeholder fallback, stock REJECTED
+- Q-CUST-3: (a)+(b)+(c) — static prices, GST-inclusive, no pricing-page nav
+- Q-CUST-4: (a)+(b)+(c stub) — api-gateway, §S-158 schema, stub revocation v0
+- Q-CUST-5: (a)+(b)+(c) — English-only v0, EN+HI v1, N=2 Telugu threshold
+- Q-CUST-7: (a)+(b)+(c) — inline placement, footer link, no at-arrival modal
+
+**Legal-AMPLIFIER queued (non-blocking):** Q-CUST-4 wording + Q-CUST-7 wording sent to legal track via in-flight ledger entry `legal-amplifier-queue-qcust4-qcust7-wording-20260512-1110-IST`. Does NOT block page.tsx authoring; wording can be ratified prior to ship.
+
+**Unblocks now:**
+1. Layer 1.18 (UI-SPEC v0.2 5 Q-CUST batch) BLOCKED → IN-FLIGHT (Captain-RATIFIED)
+2. Layer 1.4 (PWA registration deep-link path) IN-FLIGHT → can ship with confirmed copy
+3. racingpoint.cloud `web-v2/src/app/page.tsx` Phase 0.1 scaffold replacement authorized
+4. UI-REVIEW.md gate fires post-implementation (`gsd-ui-auditor` agent per racecontrol/CLAUDE.md Subagent Gates)
+
+**V2-MASTER-STATE anchor:** §S-204 (commit aef51a00 on comms-link/main 2026-05-12 ~11:30 IST).
+
+**Next:** v0.3 of UI-SPEC will fold the disposition into §9 question bodies on next refresh; v0.2 retained as historical disposition substrate.
+
+— bono / 2026-05-12 ~11:05 IST · UI-SPEC v0.2 CAPTAIN-RATIFIED · 5/5 Q-CUST CAPTAIN-STAKE-FLAGGED resolved · Apply-Recommendations-Autonomously closure-cascade applied per §S-203 V2-LBAC ACTIVE + §S-204 close-anchor

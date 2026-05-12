@@ -47,7 +47,7 @@
 | 1.15 | Walk-in fallback | 2 named Walk-In Guest accounts (discount_ineligible) | NOT-STARTED | james | Captain-locked design; needs DB seed + POS flow |
 | 1.16 | All-beat | Source-tagging completeness (PWA/POS/Kiosk × UPI/card/cash) | PARTIAL | james | enum locked in DoD §3.3; implementation drift unverified |
 | 1.17 | All-beat | Cross-surface consistency (2s tolerance) | NOT-STARTED | both | acceptance test missing |
-| 1.18 | All-beat | UI-SPEC v0.2 5 Q-CUST batch (hero photo / pricing / WA opt-in / multilingual / DPDP) | BLOCKED | bono | Captain G33 batch ask pending |
+| 1.18 | All-beat | UI-SPEC v0.2 5 Q-CUST batch (hero photo / pricing / WA opt-in / multilingual / DPDP) | IN-FLIGHT | bono | **CAPTAIN-RATIFIED 2026-05-12 ~11:05 IST verbatim "all bono recommendations" (§S-204 commit aef51a00)**; page.tsx authoring unblocked; legal-AMPLIFIER queued non-blocking for Q-CUST-4+7 wording |
 | 1.19 | All-beat | Operating window 12:00-24:00 IST + iRacing extension | PARTIAL | james | window logic V1-era; cross-tz extension unverified V2 |
 | 1.20 | All-beat | Top-up bonus ladder + iRacing 20% (cap 20%, deeper-of) | PARTIAL | james | spec locked; engine wire-up gated by Phase 2-A/2-F |
 
@@ -256,7 +256,7 @@
 | 10.12 | PACT-DRAFT-phase-2-a-rate-table-service | YES | LIVE-BLOCKING |
 | 10.13 | PACT-DRAFT-phase-2-dynamic-pricing-engine | YES | LIVE-BLOCKING |
 | 10.14 | PACT-DRAFT-phase-2-e-combo-offer-primitive | YES | LIVE-BLOCKING |
-| 10.15 | PACT-DRAFT-phase-2-f-campaign-object | YES | LIVE-BLOCKING (NEW §S-200.9) |
+| 10.15 | PACT-DRAFT-phase-2-f-campaign-object | YES | **AMPLIFIER-READY 2026-05-12 (§S-204 — Q-2F-1..7 CAPTAIN-RATIFIED 11:05 IST; james AMPLIFIER round-trip remaining for FILE-readiness)** |
 | 10.16 | PACT-DRAFT-session-start-staleness-probe | NO | DISCIPLINE |
 | 10.17 | PACT-DRAFT-systemic-coupling-doctrine-v2-design | NO | DISCIPLINE/foundational |
 | 10.18 | PACT-DRAFT-venue-infrastructure-procurement-v2-resilience | partial | AMBIGUOUS (CPE upgrade composes with v2; quick-win deferred §project_cpe_router_conntrack_mitigation_deferred_20260509) |

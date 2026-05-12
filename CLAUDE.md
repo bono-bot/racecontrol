@@ -167,6 +167,30 @@ Both pilots close V2-LIVE-BLOCKING items as closed loops following the V2-LBAC v
 
 ---
 
+## §S-N close-anchor + V2-PROGRESS-MAP refresh push — STANDING RULE (Captain 2026-05-12 IST · BILATERAL)
+
+Captain commission verbatim 2026-05-12 ~11:28 IST: *"Standing-rule: bono autonomous push to main for §S-N close-anchor commits + V2-PROGRESS-MAP refresh commits — broader standing extension"*
+
+**Rule:** Bono pushes `comms-link/V2-MASTER-STATE.md` §S-N close-anchor commits AND `racecontrol/.planning/specs/v2/V2-PROGRESS-MAP.md` refresh commits directly to `main` on both repos without per-action Captain auth. This narrows the Q3 boundary 2 (bilateral canonical surface) push gate for these two specific commit classes; it does NOT extend to: doctrine changes (CLAUDE.md / COGNITIVE-GATE-PROTOCOL.md / UNIFIED-MMA-PROTOCOL.md) · foundational PR merges · schema/protocol changes · harness self-mod (~/.claude/CLAUDE.md / settings.json / hooks).
+
+**Scope IN:**
+- `comms-link/V2-MASTER-STATE.md` §S-N append-only ledger entries (close-anchors, ratification anchors, slot-collision yields, AMPLIFIER receipts)
+- `racecontrol/.planning/specs/v2/V2-PROGRESS-MAP.md` refresh commits (row status flips, §0 rollup updates, §19 change-log appends)
+
+**Scope OUT (still require Captain auth per Q3):**
+- CLAUDE.md doctrine changes (rule additions/amendments) — Q3 boundary 5 (autonomy-class definitions)
+- Schema/protocol/migration changes — §5 boundary
+- PR merges to main (any repo) — Layer 4 per-PR auth retained
+- Harness self-mod surfaces — separate harness-mechanism-auth sub-clause governs
+
+**Composes-with:** Apply-Recommendations-Autonomously (parent doctrine; narrows Q3 boundary 2 for these classes) · V2-LBAC §3 step 7 Universal Sync · V2-LBAC §3 step 8 Bilateral close-loop · Bilateral mechanism close-loop (4-leg checklist; push is leg-2 partner-publish) · §S-121 v0.4 stale-cite class (live-read before §S-N assignment retained).
+
+**Empirical anchor:** Captain explicit per-session auth (Option A) granted at 2026-05-12 ~11:28 IST for "this session's closure-cascade commits" + STANDING-RULE extension (Option B) granted same turn. Anchor: §S-204 cascade pushed under both auths; this section ratifies the standing-rule scope for forward sessions.
+
+**Universal Sync targets:** racecontrol/CLAUDE.md (this section) ✓ · comms-link/CLAUDE.md mirror DEFERRED (pre-existing dirt in working tree gate) · bono memory `feedback_sn_close_anchor_push_standing_rule_20260512.md` (this turn) · MEMORY.md index entry (this turn) · ~/.claude/CLAUDE.md DEFERRED-PENDING-EXPLICIT-HARNESS-AUTH per harness-mechanism-auth sub-clause · V2-MASTER-STATE §S-205 ratification ledger entry DEFERRED next bono session.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**
