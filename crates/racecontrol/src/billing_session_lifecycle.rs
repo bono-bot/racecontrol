@@ -746,7 +746,7 @@ mod set_billing_status_config_push_tests {
         let pool = setup_test_pool().await;
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        let state = Arc::new(AppState::new(config, pool, field_cipher));
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
 
         let session_id = "test-pact-013-session";
         let pod_id = "test-pod-1";
@@ -852,7 +852,7 @@ mod set_billing_status_config_push_tests {
         let pool = setup_test_pool().await;
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        let state = Arc::new(AppState::new(config, pool, field_cipher));
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
 
         let session_id = "offline-pod-session";
         let pod_id = "offline-pod-7";
