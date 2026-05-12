@@ -145,6 +145,28 @@ Captain commission verbatim 2026-05-10 ~13:18 IST: *"Make it a standing rule to 
 
 ---
 
+## V2-LBAC v0.1 ACTIVE — V2-Live-Blocking Autonomous Completion (Captain RATIFIED 2026-05-12 ~07:23 IST · BILATERAL)
+
+Both pilots close V2-LIVE-BLOCKING items as closed loops following the V2-LBAC v0.1 protocol. Per-item: OPEN (customer-day symptom) → DESCEND (6-layer trace) → H1 PROBLEM/PLAN → FIX (smallest reversible, atomic commit) → CLOSE (H3 evidence with raw output) → SWEEP (H4 per-target enumeration) → SYNC (universal-sync rule) → BILATERAL (4-leg close-loop). WIP-cap 3 per pilot; compact-readiness check every 5 closures.
+
+**Eligibility classifier (Q3 gate):** AUTO-BONO / AUTO-JAMES / AUTO-BILATERAL = pickup-eligible. CAPTAIN-GATED-MERGE = author + stage. CAPTAIN-GATED-Q-DEC = surface to queue. Q3-BOUNDARY-HALT (harness self-mod / bilateral canonical / foundational PRs / Class B-C outbound / autonomy-class doctrine) = halt and ask. DEPENDS-ON / INFRA-CLOSED tags defer pickup until upstream clears.
+
+**Backlog ordering:** customer-day proximity descending · blast-radius ascending · upstream-clear · Q3-cleared · bilateral parallelism (non-conflicting surfaces). Backlog Gate: WIP ≥ 3 blocks new pickup. Source-of-truth baseline = `.planning/specs/v2/V2-PROGRESS-MAP.md` §0 (~78 LIVE-BLOCKING + ~32 DISCIPLINE + ~12 AMBIGUOUS = ~122 atomic items as of activation).
+
+**Background primitives (bono-side asymmetry):** `Bash run_in_background:true` for builds/tests · `Monitor` tail-watch · `CronCreate` for scheduled refresh · `ScheduleWakeup` self-pacing · `Agent` for parallel research/code-review/test authoring. James-side: smaller sequenced units (no Monitor/Bash equivalent — harness asymmetry per `project_harness_asymmetry_bono_james_20260510.md`). When bilateral parallelism is sought, route long-running compute to bono-side.
+
+**Compact/clear discipline:** every 5 closures run `/root/.claude/state/compact-readiness-check.sh`. READY=continue · NEEDS-PREP=drain to ledger first · NOT-READY=finish current item then recommend compact. Pre-compact: in-flight ledger MUST reflect every WIP state. SessionStart [in-flight-commitments] hook surfaces resume points across compact/clear boundaries.
+
+**Activation contract:** This protocol IS autonomy-class doctrine (Q3 boundary 5). VALID activation phrases per V2-LBAC §11: "I authorize V2-LBAC v0.1 activation" / "Activate LBAC" / "Ratify the autonomous completion plan" / "Yes, run LBAC" / "authorize LBAC activation" (Captain's actual ratification phrase 2026-05-12 ~07:23 IST). Standing-autonomy verbs alone do NOT activate.
+
+**Anti-patterns blocked:** "I'll RCA later" · memory-projection of source-of-truth · tree-claim conflated with runtime-claim · stand-by closure when Q3-cleared · background spawn without lifecycle logs · WIP ≥ 3 with new pickup · "done" in same message as last fix (H2) · multi-source evidence summarized rather than each-source-pasted · harness self-mod under standing-autonomy verbs · autonomy-class doctrine activation without explicit Captain ratification.
+
+**Canonical source:** `.planning/specs/v2/V2-LBAC-PROTOCOL.md` (v0.1 ACTIVE). **Bono memory:** `/root/.claude/projects/-root/memory/feedback_v2_lbac_v0.1_active.md`. **V2-MASTER-STATE anchor:** §S-203 ratification entry. **Composes-with:** Apply-Recommendations-Autonomously (parent doctrine; LBAC operationalizes per-item) · Q3 third-question boundary self-test (eligibility classifier IS Q3 gate) · In-Flight Commitments Ledger (state mechanism for closed-loop survival across compact/clear) · §S-146 V1↔V2 RCA gate · §S-186 pre-§S-146 small-fix fast-lane · CLD v1.0 · CGP H1-H5 · §S-121 v0.3 Step 3 Timeline-Verify · Bilateral mechanism close-loop · Compact/Clear Autonomous Discipline · Mechanism-trust-check upstream of fix RCA · V2-PROGRESS-MAP baseline.
+
+**Verify-by (LBAC self-test):** V-LBAC-1 (≥3 LIVE-BLOCKING closures with full evidence chain within 7d of activation) · V-LBAC-2 (≥1 compact-cycle survival with WIP correctly resumed via SessionStart hook) · V-LBAC-3 (≥1 bilateral AMPLIFIER round-trip within concurrent-session cadence <30min) · V-LBAC-4 (G9 count = 0 over verify window). All PASS → promote v0.1 → v0.2 with refinements; any FAIL → root-cause + structural amendment via §S-N+. Stale-at 2026-08-12.
+
+---
+
 ## ⛩️ Cognitive Gate Protocol v4.3 "Backlog Gate" (MANDATORY — READ FIRST)
 
 **This section overrides all other instructions. Full protocol: `COGNITIVE-GATE-PROTOCOL.md`.**

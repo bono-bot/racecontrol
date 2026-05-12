@@ -12,14 +12,14 @@
 
 | Class | Total | DONE | IN-FLIGHT | BLOCKED | NOT-STARTED | % closed |
 |---|---|---|---|---|---|---|
-| **V2-LIVE-BLOCKING** (gates customer-day §4 14:00→14:56) | **~78** | **21** | 14 | 11 | 32 | **27%** |
+| **V2-LIVE-BLOCKING** (gates customer-day §4 14:00→14:56) | **~78** | **22** | 13 | 11 | 32 | **28%** |
 | **V2-DISCIPLINE / POST-LIVE** (some explicitly post-live by design) | **~32** | 8 | 5 | 3 | 16 | **25%** |
 | **AMBIGUOUS** (Captain-framing-dependent) | **~12** | 2 | 3 | 1 | 6 | **17%** |
-| **TOTAL** | **~122** | **31** | 22 | 15 | 54 | **25%** |
+| **TOTAL** | **~122** | **32** | 21 | 15 | 54 | **26%** |
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
 >
-> **What this number means:** ~73% of V2-LIVE-BLOCKING items remain. **Δ this session (2026-05-11): +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Closure rate: 24%→27% in ~1h session.** Capacity-weighted velocity TBD (close-rate metric kicks in over next 7 sessions per §S-200.1 verify-by-3).
+> **What this number means:** ~72% of V2-LIVE-BLOCKING items remain. **Δ 2026-05-11: +2 LIVE-BLOCKING closed (Layer 12.1 racingpoint.cloud nginx vhost reconcile via D4 + Layer 12.2 sites-enabled-not-symlink class fully closed). Δ 2026-05-12 LBAC discovery: PR #17 merged 2026-05-11 11:39 IST (commit ab9d867f, ~4min after this map was authored — see RCA/PR17-disposition-20260512.md); Layer 4 row 4.1 flipped OPEN→MERGED; +1 LIVE-BLOCKING closed retroactively. Closure rate: 24%→27% (2026-05-11) → 28% (2026-05-12).** Capacity-weighted velocity TBD.
 
 ---
 
@@ -109,7 +109,7 @@
 
 | # | Repo | PR | Title | Author | Days open | Status | Class |
 |---|---|---|---|---|---|---|---|
-| 4.1 | racecontrol | #17 | fix(billing): add pod_number to session response — closes 'Pod undefined' | james | 19d | OPEN | LIVE-BLOCKING |
+| 4.1 | racecontrol | #17 | fix(billing): add pod_number to session response — closes 'Pod undefined' | james | 19d | **MERGED 2026-05-11 11:39 IST (ab9d867f)** — deploy parity pending Server .23 + Bono VPS (LBAC task #7) | LIVE-BLOCKING-CLOSED |
 | 4.2 | racecontrol | #54 | feat(billing): route billing_paused via config_push_queue (PACT-013 Phase 1+2) | bono | 12d | OPEN | LIVE-BLOCKING |
 | 4.3 | comms-link | #8 | PACT-20260429-005 venue-stability-state.sh implementation | james | 12d | OPEN | DISCIPLINE |
 | 4.4 | comms-link | #9 | PACT-20260503-016 handoff schema head-at-write-time | james | 8d | OPEN | DISCIPLINE |
@@ -119,20 +119,20 @@
 | 4.8 | comms-link | #13 | PACT-20260503-015 V2.0 #20 failure-detection event schema | james | 8d | OPEN | LIVE-BLOCKING |
 | 4.9 | comms-link | #14 | PACT-20260504-027 Presence-detection wire-in + Z2 deadline | james | 7d | OPEN | LIVE-BLOCKING |
 
-**Layer 4 totals:** **9 OPEN PRs** = 6 LIVE-BLOCKING + 3 DISCIPLINE. None merged. All james-authored except #54 (bono). **Captain disposition needed on all 9.**
+**Layer 4 totals:** **8 OPEN PRs** = 5 LIVE-BLOCKING + 3 DISCIPLINE. PR #17 MERGED 2026-05-11 11:39 IST (ab9d867f) — deploy parity verification ongoing. All remaining james-authored except #54 (bono). **Captain disposition needed on remaining 8.**
 
 ---
 
 ## §5 — Layer 5: In-Flight Commitments Ledger
 
-**Source-of-truth:** `/root/.claude/state/in-flight-commitments.jsonl` (30 entries total; v2 schema)
+**Source-of-truth:** `/root/.claude/state/in-flight-commitments.jsonl` (52 entries total as of 2026-05-12 ~08:14 IST; v2 schema; +22 in 2026-05-12 LBAC-activation session: ws-exec discharge + axis-3-rule verify + phase-446 supersede + 3 LBAC universal-sync + multiple WIP transitions)
 
 ### 5.1 Actively open (state ∈ {OPEN, AWAITING-EVIDENCE, AWAITING-PARTNER-ACK, BLOCKED, AWAITING-CAPTAIN-DISPOSITION, G9-OWNED-CAPTAIN-ASK-PENDING})
 
 | # | ID | Class | State | Owner | Blocking on |
 |---|---|---|---|---|---|
 | 5.1 | axis-3-pilot-symmetry-james-side-leg | deferred-verification | AWAITING-PARTNER-ACK | both | james next session-start |
-| 5.2 | axis-3-rule-file-correction | self-promised | AWAITING-EVIDENCE | bono | H2 next-turn verify |
+| 5.2 | axis-3-rule-file-correction | self-promised | **BILATERAL-CLOSED 2026-05-12 ~08:12 IST** (H2 verify via commit ecb085a + line 91-97 content match) | bono | — moved to §5.2 |
 | 5.3 | loop-boundary-surface-stress-test | Captain-pending | OPEN | bono | Captain commission |
 | 5.4 | ws-exec-routing-bug-investigation | self-promised | AWAITING-EVIDENCE | bono | Captain auth on PR-1/PR-2 |
 | 5.5 | ws-exec-s146-rca-authoring | self-promised | AWAITING-EVIDENCE | bono | james AMPLIFIER + H2 verify |
@@ -140,15 +140,15 @@
 | 5.7 | rule-amendment-harness-mechanism-auth-subclause | Captain-pending | OPEN | captain | Captain ratify (a)+(b) |
 | 5.8 | pre-existing-root-mods-orientation | Captain-pending | OPEN | captain | Captain orientation |
 | 5.9 | hook-enforcement-standing-rule | self-promised | OPEN | bono | author 3 hooks + wire to settings.json |
-| 5.10 | phase-446-openrouter-canonical-watch | self-promised | OPEN | bono | superseded by entry #18 PARTIAL-VERIFIED |
+| 5.10 | phase-446-openrouter-canonical-watch | self-promised | **SUPERSEDED 2026-05-12 ~08:12 IST** (administrative transition; pointer to update entry PARTIAL-VERIFIED 2026-05-10T16:08) | bono | — moved to §5.2 |
 | 5.11 | g9-2-harness-self-mod-under-standing-autonomy | self-promised | AWAITING-CAPTAIN-DISPOSITION | both | Captain 4-ask disposition |
 | 5.12 | multi-source-evidence-paste-rule-candidate-n1 | self-promised | OPEN | both | PROMOTE-N=2 watch ≤2026-06-09 |
 | 5.13 | auto-reply-attribution-distinct-from-substantive-candidate-n1 | self-promised | OPEN | both | hook enhancement (Captain-pending auth) |
 | 5.14 | g9-4-bono-2026-05-03-batch-enumeration-miss | self-promised | G9-OWNED-CAPTAIN-ASK-PENDING | bono | Captain disposition on 3 untracked files |
 
-**Actively open: 14 items** (§S-200.2 said 11; **+3**).
+**Actively open: 12 items** (was 14; **−2 this turn**: 5.2 axis-3-rule BILATERAL-CLOSED + 5.10 phase-446 SUPERSEDED). §S-200.2 said 11.
 
-### 5.2 Discharged / closed / superseded (states ∈ {DONE, DISCHARGED-PENDING-BILATERAL, BILATERAL-CLOSED, SUBSTRATE-LANDED-MODE-4-PASS-1, DISCHARGED-CAPTAIN-RATIFIED, SUPERSEDED, G9-OWNED-RETRACTED, OBSERVATION, PARTIAL-VERIFIED, INDEPENDENT-VERIFIED-TRIPLE-EVIDENCE-H2-DEFER, BILATERAL-EVIDENCE-RECEIVED-H2-DEFER}): 16 items.
+### 5.2 Discharged / closed / superseded (states ∈ {DONE, DISCHARGED-PENDING-BILATERAL, BILATERAL-CLOSED, SUBSTRATE-LANDED-MODE-4-PASS-1, DISCHARGED-CAPTAIN-RATIFIED, SUPERSEDED, G9-OWNED-RETRACTED, OBSERVATION, PARTIAL-VERIFIED, INDEPENDENT-VERIFIED-TRIPLE-EVIDENCE-H2-DEFER, BILATERAL-EVIDENCE-RECEIVED-H2-DEFER}): **18 items** (was 16; **+2 this turn**).
 
 ---
 
