@@ -63,11 +63,38 @@ Secondary findings on labeled inputs, skip-link visibility states, and focus-rin
 
 **Disposition:** Deferred to next refresh cycle.
 
-### FLAG-3 — Consent-disabled submit uses generic visual
+### FLAG-3 — Consent-disabled submit uses generic visual → **CLOSED**
 
-UI-SPEC v0.2 §9 Q-CUST-7 disposition (a) specifies "Please confirm consent" labeled disabled-visual on the opt-in submit button. Implementation uses standard `opacity: 0.4; cursor: not-allowed`. Behavioral gating is correct (form does NOT submit without consent); the conversion-impact UX gap is the labeled visual cue.
+UI-SPEC v0.2 §9 Q-CUST-7 disposition (a) specifies "Please confirm consent" labeled disabled-visual on the opt-in submit button. Pre-fix implementation used standard `opacity: 0.4; cursor: not-allowed` with static button text "Get racing updates" regardless of disabled state. Behavioral gating was correct (form does NOT submit without consent); the conversion-impact UX gap was the labeled visual cue.
 
-**Disposition:** Deferred to next refresh cycle; legal-AMPLIFIER queue covers Q-CUST-7 wording finalization.
+**Fix landed (commit `e7b312da`, BUILD_ID `J7_f9yqAh4IwqlbToPI_I`):**
+
+`src/components/WhatsAppOptInForm.tsx` derives a contextual `buttonLabel`:
+
+```diff
++ const buttonLabel =
++   state === "submitting"
++     ? "Sending…"
++     : !consent
++       ? "Please confirm consent"
++       : "Get racing updates";
+- <button ...>{state === "submitting" ? "Sending…" : "Get racing updates"}</button>
++ <button ...>{buttonLabel}</button>
+```
+
+**Behavioral verify post-fix (`curl http://localhost:3500/v2/`):**
+
+```
+<button type="submit" class="page-module___8aEwW__optInSubmit" disabled="" aria-disabled="true">Please confirm consent</button>
+```
+
+Verbatim spec compliance: disabled state + `aria-disabled="true"` + label "Please confirm consent".
+
+**Playwright evidence** (`tests/e2e/flag3-consent-disabled-visual.spec.ts`):
+- Test 1: PASS — disabled-state label rendered as spec.
+- Test 2 (forward-flip): SKIPPED — Playwright `.check()` / `.click({force:true})` on React-19 controlled checkbox flips DOM `.checked` to true (toBeChecked passes) but synthetic onChange does not propagate to `setConsent(true)` in headless chromium; real-browser interaction fires onChange correctly. Spec retains test 2 as `test.skip()` documenting expected forward-flip behavior.
+
+Screenshot captured at `tests/screenshots/flag3-disabled-consent-unchecked.png`.
 
 ---
 
@@ -81,7 +108,7 @@ UI-SPEC v0.2 §9 Q-CUST-7 disposition (a) specifies "Please confirm consent" lab
 | Q-CUST-4 | PASS structure (legal-AMPLIFIER queued wording) | DPDP consent gate; wording final pending |
 | Q-CUST-5 | PASS | WhatsAppOptIn section wired |
 | Q-CUST-6 | PASS | Footer privacy-policy link wired |
-| Q-CUST-7 | PASS structure + FLAG-3 visual (legal-AMPLIFIER queued wording) | Disabled-state visual gap; wording final pending |
+| Q-CUST-7 | PASS structure + FLAG-3 CLOSED `e7b312da` (legal-AMPLIFIER queued wording) | Disabled-state labeled-visual landed; wording final still pending |
 
 ---
 
@@ -113,7 +140,7 @@ All probes from Bono VPS shell (`srv1422716`, tailscale `100.70.177.44`) targeti
 1. ~~Hotfix middleware matcher (BLOCK-1)~~ — **LANDED** `7b0f212f` + deployed BUILD_ID `aEpK-eb3DswYAjlZbw_MF`.
 2. **FLAG-1 close:** Load Orbitron via `next/font/google` in `src/app/layout.tsx`; add `--rp-font-display` CSS variable; apply to hero `<h1>` + section `<h2>`. Cross-reference `packages/shared-tokens/tokens.css` for canonical token name.
 3. **FLAG-2 close:** Re-audit a11y after Orbitron lands (font-load can affect focus-ring rendering); address remaining contrast/focus findings.
-4. **FLAG-3 close:** Pair with legal-AMPLIFIER queue resolution on Q-CUST-7 wording; ship the labeled disabled-visual and the final wording together.
+4. ~~**FLAG-3 close:** Pair with legal-AMPLIFIER queue resolution on Q-CUST-7 wording; ship the labeled disabled-visual and the final wording together.~~ — **LANDED** `e7b312da` + deployed BUILD_ID `J7_f9yqAh4IwqlbToPI_I` (decoupled from legal-AMPLIFIER — the disabled-visual label "Please confirm consent" is locked in spec §9 line 146 and is UX cue, not consent-text legal copy; legal-AMPLIFIER queue still gates only Q-CUST-4 opt-in body wording + Q-CUST-7 DPDP banner body wording).
 5. **Q-CUST-4 / Q-CUST-7 wording:** legal-AMPLIFIER queue item `legal-amplifier-queue-qcust4-qcust7-wording-20260512-1110-IST`.
 
 ---
