@@ -4,13 +4,15 @@
 //! Sub-modules handle start, end, extend/upgrade operations.
 //! Re-exports all public items so existing `use crate::billing_session_lifecycle::*` continues to work.
 
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
 use rc_common::pod_id::normalize_pod_id;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardCommand, DashboardEvent};
-use rc_common::types::{BillingSessionStatus, DrivingState};
+use rc_common::types::{BillingSessionStatus, ConfigPushPayload, DrivingState};
 
 use crate::activity_log::log_pod_activity;
 use crate::billing::{BillingTimer, PauseReason};
@@ -196,26 +198,92 @@ async fn set_billing_status(
 
     drop(timers);
 
-    // PACT-20260428-008: notify the affected pod so the agent can flip its
-    // `billing_paused` flag. Without this, `billing_guard`'s SESSION-01 orphan
-    // auto-end will fire ~5 min after the customer closes their game during a
-    // manual pause — destroying the very session the pause was meant to preserve.
-    let agent_sender = {
-        let agent_senders = state.agent_senders.read().await;
-        agent_senders.get(&pod_id).cloned()
+    // PACT-20260429-013 Phase 1: route billing_paused state to the agent via
+    // Phase 177 config_push_queue substrate (V2-P1-CONFIG-SERVICE), replacing
+    // the PR #49 BillingPaused/BillingResumed wire-protocol variants. Same
+    // behavior on the agent side (`failure_monitor.billing_paused = bool`),
+    // but with stronger delivery semantics: per-pod row + seq_num + ack
+    // tracking + audit_log + graceful version skew (old agents log+ignore
+    // unknowns instead of failing serde decode). On the agent side, the
+    // ConfigPush handler at ws_handler.rs routes `billing_paused` field to
+    // `failure_monitor_tx.send_modify` (see PACT-20260429-013 Phase 2).
+    let billing_paused_value: Option<bool> = match new_status {
+        BillingSessionStatus::PausedManual => Some(true),
+        BillingSessionStatus::Active => Some(false),
+        _ => None,
     };
-    if let Some(sender) = agent_sender {
-        let agent_msg = match new_status {
-            BillingSessionStatus::PausedManual => Some(CoreToAgentMessage::BillingPaused {
-                billing_session_id: session_id.to_string(),
-            }),
-            BillingSessionStatus::Active => Some(CoreToAgentMessage::BillingResumed {
-                billing_session_id: session_id.to_string(),
-            }),
-            _ => None,
-        };
-        if let Some(msg) = agent_msg {
-            let _ = sender.send(CoreMessage::wrap(msg)).await;
+
+    if let Some(paused) = billing_paused_value {
+        let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
+        fields.insert("billing_paused".to_string(), serde_json::json!(paused));
+
+        let seq_num = state.config_push_seq.fetch_add(1, Ordering::SeqCst);
+        let payload_json =
+            serde_json::to_string(&fields).unwrap_or_else(|_| "{}".to_string());
+
+        // Insert into config_push_queue (per-pod row, status='pending')
+        let insert_result = sqlx::query(
+            "INSERT INTO config_push_queue (pod_id, payload, seq_num, status) VALUES (?, ?, ?, 'pending')",
+        )
+        .bind(&pod_id)
+        .bind(&payload_json)
+        .bind(seq_num as i64)
+        .execute(&state.db)
+        .await;
+
+        if let Err(e) = insert_result {
+            tracing::error!(
+                "PACT-013: failed to insert config_push_queue billing_paused={} for pod {}: {}",
+                paused, pod_id, e
+            );
+        } else {
+            // Deliver via WS if pod is connected
+            let sender = {
+                let agent_senders = state.agent_senders.read().await;
+                agent_senders.get(&pod_id).cloned()
+            };
+            if let Some(tx) = sender {
+                let push_payload = ConfigPushPayload {
+                    fields: fields.clone(),
+                    schema_version: 1,
+                    sequence: seq_num,
+                };
+                match tx
+                    .send(CoreMessage::wrap(CoreToAgentMessage::ConfigPush(
+                        push_payload,
+                    )))
+                    .await
+                {
+                    Ok(_) => {
+                        let _ = sqlx::query(
+                            "UPDATE config_push_queue SET status = 'delivered' WHERE pod_id = ? AND seq_num = ?",
+                        )
+                        .bind(&pod_id)
+                        .bind(seq_num as i64)
+                        .execute(&state.db)
+                        .await;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "PACT-013: failed to send ConfigPush billing_paused to pod {} (seq={}): {}",
+                            pod_id, seq_num, e
+                        );
+                    }
+                }
+            }
+            // If pod is offline, status stays 'pending' (CP-02) — pod will pick up
+            // on its next subscription/replay tick once it reconnects.
+
+            // Audit log entry (mirrors push_config handler pattern)
+            let _ = sqlx::query(
+                "INSERT INTO config_audit_log \
+                 (action, entity_type, entity_name, old_value, new_value, pushed_by, pods_acked, seq_num) \
+                 VALUES ('config_push', 'config', 'billing_paused', NULL, ?, 'set_billing_status', '[]', ?)",
+            )
+            .bind(serde_json::json!(paused).to_string())
+            .bind(seq_num as i64)
+            .execute(&state.db)
+            .await;
         }
     }
 
@@ -540,4 +608,273 @@ pub async fn resume_billing_from_disconnect(
     tracing::info!("Billing session {} resumed from disconnect pause", session_id);
 
     Ok(())
+}
+
+// ─── PACT-20260429-013 Phase 1+2 tests ──────────────────────────────────────
+//
+// Replacement for `test_billing_paused_resumed_roundtrip` (rc-common protocol.rs)
+// which was removed when the `CoreToAgentMessage::BillingPaused`/`BillingResumed`
+// wire variants retired in this PR. Tests live here (not billing_tests.rs)
+// because `set_billing_status` is private to this module — direct access via
+// `super::*` keeps the function's surface narrow and avoids a `pub(crate)`
+// widening just for tests.
+
+#[cfg(test)]
+mod set_billing_status_config_push_tests {
+    use super::*;
+    use crate::billing::BillingTimer;
+    use chrono::Utc;
+    use rc_common::types::DrivingState;
+
+    /// Bootstrap an in-memory SQLite pool with the three tables `set_billing_status`
+    /// writes to under the PACT-013 path. Fire-and-forget writes (billing_events,
+    /// billing_sessions, pod_activity_log) are also created so the function's
+    /// secondary INSERTs don't surface as `tracing::error!` and pollute test logs.
+    async fn setup_test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+
+        // PACT-013 primary write surfaces (assertions read these)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS config_push_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pod_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                seq_num INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT DEFAULT (datetime('now')),
+                acked_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create config_push_queue");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS config_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT DEFAULT (datetime('now')),
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                pushed_by TEXT,
+                pods_acked TEXT,
+                seq_num INTEGER
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create config_audit_log");
+
+        // Fire-and-forget secondary surfaces (the function logs errors but proceeds)
+        for ddl in &[
+            "CREATE TABLE IF NOT EXISTS billing_events (
+                id TEXT PRIMARY KEY,
+                billing_session_id TEXT,
+                event_type TEXT,
+                driving_seconds_at_event INTEGER,
+                venue_id TEXT
+            )",
+            "CREATE TABLE IF NOT EXISTS billing_sessions (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                last_paused_at TEXT
+            )",
+            "CREATE TABLE IF NOT EXISTS pod_activity_log (
+                id TEXT PRIMARY KEY,
+                pod_id TEXT,
+                category TEXT,
+                action TEXT,
+                details TEXT,
+                source TEXT,
+                billing_session_id TEXT,
+                created_at TEXT,
+                previous_hash TEXT,
+                entry_hash TEXT
+            )",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.expect("create aux table");
+        }
+        pool
+    }
+
+    fn make_active_timer(session_id: &str, pod_id: &str) -> BillingTimer {
+        BillingTimer {
+            session_id: session_id.into(),
+            driver_id: "test-driver".into(),
+            driver_name: "Test Driver".into(),
+            pod_id: pod_id.into(),
+            pricing_tier_name: "30 Minutes".into(),
+            allocated_seconds: 1800,
+            driving_seconds: 0,
+            status: BillingSessionStatus::Active,
+            driving_state: DrivingState::Active,
+            started_at: Some(Utc::now()),
+            warning_5min_sent: false,
+            warning_1min_sent: false,
+            offline_since: None,
+            split_count: 1,
+            split_duration_minutes: None,
+            current_split_number: 1,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            last_paused_at: None,
+            max_pause_duration_secs: 600,
+            elapsed_seconds: 0,
+            pause_seconds: 0,
+            max_session_seconds: 1800,
+            sim_type: None,
+            recovery_pause_seconds: 0,
+            pause_reason: PauseReason::None,
+            nonce: String::new(),
+            ..Default::default()
+        }
+    }
+
+    /// PACT-20260429-013 Phase 1+2 — `set_billing_status(PausedManual)` writes a
+    /// `billing_paused=true` row to `config_push_queue` (per-pod + seq_num) + an
+    /// audit row to `config_audit_log` instead of firing the retired
+    /// `CoreToAgentMessage::BillingPaused` wire variant. `set_billing_status(Active)`
+    /// writes the inverse row with monotonically-incremented seq_num. This test
+    /// closes §6 NOT TESTED #3 of the PR #54 §S-146 RCA + MMA Step 1 amendment #1.
+    #[tokio::test]
+    async fn test_billing_paused_via_config_push_roundtrip() {
+        let pool = setup_test_pool().await;
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
+
+        let session_id = "test-pact-013-session";
+        let pod_id = "test-pod-1";
+        {
+            let mut timers = state.billing.active_timers.write().await;
+            timers.insert(pod_id.to_string(), make_active_timer(session_id, pod_id));
+        }
+
+        // ── PAUSE: Active → PausedManual ──
+        set_billing_status(&state, session_id, BillingSessionStatus::PausedManual).await;
+
+        // Assert config_push_queue row exists with billing_paused=true
+        let pause_row: (String, String, i64, String) = sqlx::query_as(
+            "SELECT pod_id, payload, seq_num, status FROM config_push_queue ORDER BY seq_num ASC LIMIT 1",
+        )
+        .fetch_one(&state.db)
+        .await
+        .expect("config_push_queue row must exist after pause");
+
+        assert_eq!(pause_row.0, pod_id, "pod_id must match");
+        assert!(
+            pause_row.1.contains("\"billing_paused\":true"),
+            "payload must contain billing_paused:true — got: {}",
+            pause_row.1
+        );
+        assert_eq!(
+            pause_row.2, 1,
+            "seq_num must be 1 (AtomicU64::new(1).fetch_add(1) returns 1)"
+        );
+        assert_eq!(
+            pause_row.3, "pending",
+            "status must remain 'pending' when no agent_sender registered (offline-pod path)"
+        );
+
+        // Assert config_audit_log row exists with entity_name='billing_paused' and new_value=true
+        let pause_audit: (String, String, String) = sqlx::query_as(
+            "SELECT entity_name, new_value, pushed_by FROM config_audit_log \
+             WHERE entity_name='billing_paused' ORDER BY id ASC LIMIT 1",
+        )
+        .fetch_one(&state.db)
+        .await
+        .expect("config_audit_log row must exist after pause");
+
+        assert_eq!(pause_audit.0, "billing_paused");
+        assert!(
+            pause_audit.1.contains("true"),
+            "audit_log new_value must record true — got: {}",
+            pause_audit.1
+        );
+        assert_eq!(pause_audit.2, "set_billing_status");
+
+        // ── RESUME: PausedManual → Active ──
+        set_billing_status(&state, session_id, BillingSessionStatus::Active).await;
+
+        // Assert second config_push_queue row with billing_paused=false + seq_num=2
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT payload, seq_num FROM config_push_queue ORDER BY seq_num ASC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .expect("query config_push_queue rows");
+
+        assert_eq!(
+            rows.len(),
+            2,
+            "must have 2 rows in config_push_queue after pause+resume"
+        );
+        assert!(
+            rows[0].0.contains("\"billing_paused\":true"),
+            "row 1 (pause) must carry billing_paused=true"
+        );
+        assert_eq!(rows[0].1, 1, "row 1 seq_num must be 1");
+        assert!(
+            rows[1].0.contains("\"billing_paused\":false"),
+            "row 2 (resume) must carry billing_paused=false"
+        );
+        assert_eq!(
+            rows[1].1, 2,
+            "row 2 seq_num must be 2 (monotonic +1 from row 1)"
+        );
+
+        // Assert second config_audit_log row exists with new_value=false
+        let audit_rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT entity_name, new_value FROM config_audit_log \
+             WHERE entity_name='billing_paused' ORDER BY id ASC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .expect("query config_audit_log rows");
+
+        assert_eq!(audit_rows.len(), 2, "must have 2 audit rows after pause+resume");
+        assert!(audit_rows[0].1.contains("true"), "audit row 1 (pause) records true");
+        assert!(audit_rows[1].1.contains("false"), "audit row 2 (resume) records false");
+    }
+
+    /// PACT-20260429-013 invariant: when there is no agent_sender for the pod
+    /// (offline pod), the config_push_queue row is created with status='pending'
+    /// (not 'delivered'). On agent reconnect, CP-02 replay flips status to
+    /// 'delivered'. This test asserts the offline-pod state machine starts
+    /// correctly; the reconnect-replay leg is owned by config_push_replay tests.
+    #[tokio::test]
+    async fn test_billing_paused_offline_pod_leaves_pending() {
+        let pool = setup_test_pool().await;
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
+
+        let session_id = "offline-pod-session";
+        let pod_id = "offline-pod-7";
+        {
+            let mut timers = state.billing.active_timers.write().await;
+            timers.insert(pod_id.to_string(), make_active_timer(session_id, pod_id));
+        }
+        // Deliberately do NOT register an agent_sender → exercises offline path.
+
+        set_billing_status(&state, session_id, BillingSessionStatus::PausedManual).await;
+
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM config_push_queue WHERE pod_id = ? ORDER BY seq_num DESC LIMIT 1",
+        )
+        .bind(pod_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("config_push_queue row must exist");
+
+        assert_eq!(
+            status, "pending",
+            "offline pod must leave row as 'pending' (CP-02 reconnect-replay will flip to 'delivered')"
+        );
+    }
 }

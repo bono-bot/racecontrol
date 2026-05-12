@@ -409,8 +409,8 @@ _Why: 233 phases shipped with 0 UI reviews, 0 integration checks, 0 test audits.
   _Why: SSH requires Tailscale up and leaves no audit trail; relay is always-on and returns structured results._
 - **Standing Rules Sync:** After modifying CLAUDE.md standing rules, always sync to Bono via comms-link so both AIs operate under the same rules.
   _Why: Rules drift between AIs causes inconsistent behavior and contradictory decisions in multi-agent tasks._
-- **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools), NOT OpenRouter API / direct HTTP. Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
-  _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono uses Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality._
+- **Verify recipient infrastructure before sending instructions.** Before writing ANY instructions, docs, protocols, or runbooks addressed to Bono or Uday, STOP and verify: what tools/access does the RECIPIENT actually have? Bono uses **Perplexity MCP** (`pplx_*` tools) for non-MMA work; **for MMA Bono uses OpenRouter as default per Captain directive 2026-05-01 IST** (Phase 2 OpenRouter migration in flight; Perplexity MCP is degraded-fallback during Phase 2 with explicit DEGRADED-MMA-PERPLEXITY-FALLBACK log tag). James uses OpenRouter API + Node.js scripts (already on OpenRouter for both MMA + non-MMA). Uday uses WhatsApp + phone. Never assume the recipient has the same tools as James. This check applies to: INBOX.md entries, protocol docs, deploy runbooks, audit instructions — ANY artifact that tells someone else what to do.
+  _Why: Multi-Model Audit Protocol v1.0 told Bono to run OpenRouter scripts directly. Bono used Perplexity MCP — completely different. The error was in the system-reminder context the entire time but never checked. Same class as "health passes but blanking is broken" — verifying YOUR view instead of the TARGET's reality. Captain 2026-05-01 IST flipped MMA default to OpenRouter (both pilots) after Bono's pplx_council 403 token-expired empirically demonstrated Perplexity MCP as fragile-MMA-transport; OpenRouter unified path is more robust + composable with james-side `shared/openrouter.js` v4.0 enforcement helpers._
 
 ### PACT framework (L0/L1/L2 cascade — ratified 2026-04-25 PACT-20260425-004)
 
@@ -923,8 +923,8 @@ Candidate applications (annotate as the surface arises; do not pre-annotate spec
 | `C:\Users\bono\racingpoint\comms-link\INBOX.md` | James→Bono comms channel |
 | `D:\pod-deploy\` | Pendrive deploy kit (install.bat v5) |
 | `LOGBOOK.md` | Incident + commit log at repo root |
-| `COGNITIVE-GATE-PROTOCOL.md` | CGP v3.6 — 10 gates + lifecycle phases + emergency/debug/audit + ecosystem-wide scope |
-| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v3.0 — full spec: Q1-Q4 decision gate, 4-step convergence, domain rosters, KB schema |
+| `COGNITIVE-GATE-PROTOCOL.md` | CGP v4.3 "Backlog Gate" — 5 hard gates (H1-H5, hook-enforced) + 5 soft gates + 15 Standing Rules + ecosystem-wide scope (consolidated from v3.6's 10 gates / 147 standing rules) |
+| `.planning/specs/UNIFIED-MMA-PROTOCOL.md` | Unified MMA Protocol v4.0 — full spec: 4-step convergence engine (DIAGNOSE/PLAN/EXECUTE/VERIFY) ≥5 models per step / ≥3 vendor families / max 2 per vendor / $5/session cap; v4.0 adds machine-enforced step sequencing via shared/openrouter.js validateMmaStep() / validateStepSequence() |
 | `.cargo\config.toml` | Static CRT build config |
 
 ---
