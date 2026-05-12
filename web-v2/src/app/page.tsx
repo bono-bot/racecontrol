@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import styles from "./page.module.css";
 import { WhatsAppOptInForm } from "../components/WhatsAppOptInForm";
+import { SiteHeader } from "../components/SiteHeader";
+import { SiteFooter } from "../components/SiteFooter";
 
 /*
  * V2 Customer Entry Page — racingpoint.cloud apex landing.
@@ -65,7 +67,7 @@ export default async function Home() {
         Skip to content
       </a>
 
-      <Header returning={returning} />
+      <SiteHeader returning={returning} />
       <main id="main">
         <Hero returning={returning} />
         <TrustBand />
@@ -75,38 +77,8 @@ export default async function Home() {
         <WhatsAppOptIn />
         <LocationHours />
       </main>
-      <Footer />
+      <SiteFooter />
     </>
-  );
-}
-
-function Header({ returning }: { returning: boolean }) {
-  return (
-    <header className={styles.header}>
-      <div className={styles.headerInner}>
-        <span className={styles.brand} aria-label="RacingPoint">
-          <span className={styles.brandMark}>RP</span>
-          <span className={styles.brandWord}>RacingPoint</span>
-        </span>
-        <nav aria-label="Primary">
-          <a href="#experiences" className={styles.navLink}>
-            Experiences
-          </a>
-          <a href="#credits" className={styles.navLink}>
-            Credits
-          </a>
-          <a href="#location" className={styles.navLink}>
-            Visit
-          </a>
-          <a
-            href={returning ? PWA_DASHBOARD_LINK : PWA_BOOK_LINK}
-            className={styles.navCta}
-          >
-            {returning ? "Dashboard" : "Book"}
-          </a>
-        </nav>
-      </div>
-    </header>
   );
 }
 
@@ -396,23 +368,3 @@ function LocationHours() {
   );
 }
 
-function Footer() {
-  return (
-    <footer className={styles.footer}>
-      <div className={styles.footerInner}>
-        <p>© {new Date().getFullYear()} RacingPoint · Hyderabad</p>
-        <p className={styles.footerLinks}>
-          <a href="/v2/privacy">Privacy Policy</a>
-          {" · "}
-          <a href={VENUE_WHATSAPP_LINK}>WhatsApp</a>
-          {" · "}
-          <a href={`mailto:${VENUE_EMAIL}`}>{VENUE_EMAIL}</a>
-        </p>
-        <p className={styles.muted}>
-          DPDP-compliant. We only send what you ask for. Opt out via Privacy
-          Policy or message us on WhatsApp.
-        </p>
-      </div>
-    </footer>
-  );
-}

@@ -18,9 +18,11 @@
   background: #1a1a1a;
   color: #f5f5f5;
 
-  /* Brand tokens — sourced from racecontrol/CLAUDE.md "Brand Identity" */
-  --rp-racing-red: #e10600;
-  --rp-racing-red-hover: #ff3b2d;
+  /* Brand tokens — sourced from racecontrol/CLAUDE.md "Brand Identity"
+   * (canonical: packages/shared-tokens/tokens.css). UI-REVIEW FLAG-C close-out
+   * 2026-05-12: hover red corrected #ff3b2d → #FF1A1A per canonical token. */
+  --rp-racing-red: #E10600;
+  --rp-racing-red-hover: #FF1A1A;
   --rp-asphalt-black: #1a1a1a;
   --rp-gunmetal-grey: #5a5a5a;
   --rp-card: #222222;
@@ -57,13 +59,13 @@ h1 {
 }
 
 a {
-  color: #e10600;
+  color: var(--rp-racing-red);
   text-decoration: none;
   border-bottom: 1px solid currentColor;
 }
 
 a:hover,
 a:focus-visible {
-  color: #ff3b2d;
+  color: var(--rp-racing-red-hover);
   outline: none;
 }

@@ -37,7 +37,7 @@ for (const vp of VIEWPORTS) {
     await expect(bookCta).toBeVisible();
     await expect(bookCta).toHaveAttribute(
       "href",
-      "https://app.racingpoint.cloud/"
+      "https://app.racingpoint.cloud/book"
     );
 
     // Full-page screenshot for visual evidence.
