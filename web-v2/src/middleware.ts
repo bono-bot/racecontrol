@@ -24,6 +24,9 @@ export function middleware(req: NextRequest) {
 }
 
 // Run on page routes only — skip Next.js internals, API routes, static assets.
+// `/` listed explicitly because the negative-lookahead pattern requires ≥1 char
+// after `/`, leaving the V2 root uncovered (the highest-traffic surface).
+// Anchor: UI-REVIEW.md §Q-CUST-2 BLOCK-1, 2026-05-12.
 export const config = {
-  matcher: ["/((?!_next|api|favicon\\.ico|.*\\.png|.*\\.jpg|.*\\.svg).*)"],
+  matcher: ["/", "/((?!_next|api|favicon\\.ico|.*\\.png|.*\\.jpg|.*\\.svg).*)"],
 };
