@@ -301,10 +301,10 @@
 | 12.4 | Capability manifest age (>7 days warn) | DISCIPLINE | re-scan recommended |
 | 12.5 | Pre-existing /root tracked mods (5 hook files + court-queue.json + 1 deleted backup) | DISCIPLINE | Captain orientation pending (entry 5.8) |
 | 12.6 | Cert SAN expansion www-racingpoint.cloud | LIVE-BLOCKING (customer-facing) | DONE §S-199 |
-| 12.7 | HTTP-canonical redirect partial | DISCIPLINE | §S-199 finding |
+| 12.7 | HTTP-canonical redirect partial | DISCIPLINE | **DONE 2026-05-12 ~10:39 IST — §S-199.4 finding 2 closed via option (b): removed www HTTP port-80 block from `/etc/nginx/sites-available/racingpoint.cloud` (lines 264-285), unmasking apex vhost's www→HTTPS 301. Verified all 4 paths: HTTP-www→301 (was 200), HTTPS-www→301, HTTP-apex→301, HTTPS-apex→200. nginx conflict warning cleared. Backup `racingpoint.cloud.pre-12.7-closure-20260512T103620Z` retained. Captain auth verbatim: "I authorize edit to /etc/nginx/sites-enabled/racingpoint.cloud".** |
 | 12.8 | 3 untracked /root hooks (g9-auto-detect, knowledge-graph-lookup, g9-trend-report) | DISCIPLINE | g9-4 Captain ask pending entry 5.14 |
 
-**Layer 12 totals: 8 items** (§S-200.2 said 4; **+4** — i counted things §S-200 collapsed). 4 LIVE-BLOCKING / 4 DISCIPLINE. **3 DONE (12.1 D4 reconcile + 12.2 sites-enabled class closed + 12.6 cert SAN); 5 open.**
+**Layer 12 totals: 8 items** (§S-200.2 said 4; **+4** — i counted things §S-200 collapsed). 4 LIVE-BLOCKING / 4 DISCIPLINE. **4 DONE (12.1 D4 reconcile + 12.2 sites-enabled class closed + 12.6 cert SAN + 12.7 HTTP-canonical www closure); 4 open.**
 
 ---
 
