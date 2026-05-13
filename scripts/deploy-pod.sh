@@ -131,12 +131,15 @@ deploy_pod() {
     pass "$POD_NAME: Downloaded (${DL_SIZE} bytes)"
 
     # SHA256 verification: compare staged binary hash with downloaded binary on pod
+    # NOTE: cmd-side `| findstr` is BLOCKED by rc-sentry BLOCKED_PATTERNS (`"| "` pipe-space)
+    # at crates/rc-sentry/src/main.rs:724. Send raw certutil output, parse on bash side via grep.
     info "$POD_NAME: Verifying SHA256..."
-    REMOTE_HASH=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
+    RAW_CERT_RESPONSE=$(curl -s --max-time 30 "http://${POD_IP}:${SENTRY_PORT}/exec" \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
-        -d '{"cmd":"certutil -hashfile C:/RacingPoint/rc-agent-new.exe SHA256 | findstr /v hash | findstr /v Cert"}' 2>/dev/null || echo "")
-    REMOTE_HASH=$(echo "$REMOTE_HASH" | tr -d '[:space:]' | head -c 64)
+        -d '{"cmd":"certutil -hashfile C:/RacingPoint/rc-agent-new.exe SHA256"}' 2>/dev/null || echo "")
+    # certutil output contains lines like "780d8b1a234fc314...07fbbea" — extract first 64-char hex run.
+    REMOTE_HASH=$(echo "$RAW_CERT_RESPONSE" | grep -oE '[0-9a-f]{64}' | head -1)
     if [ -n "$LOCAL_SHA256" ] && [ -n "$REMOTE_HASH" ] && [ "$LOCAL_SHA256" != "$REMOTE_HASH" ]; then
         fail "$POD_NAME: SHA256 mismatch! Local=${LOCAL_SHA256:0:12}... Remote=${REMOTE_HASH:0:12}..."
         # Clean up bad download

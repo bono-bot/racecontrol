@@ -1,5 +1,8 @@
 pub mod admin;
 mod game_helpers;
+// PR-A W1-S6 PIN-LOCKOUT publisher (Phase 1 scaffold; impl in Phases 2-3).
+// Captain Option C hybrid 2026-05-09 ~20:28 IST → cascade #8 PR-A authoring.
+pub mod lockout;
 pub mod middleware;
 pub mod otp;
 pub mod privileged_actions;
@@ -9,6 +12,7 @@ mod token_manage;
 mod token_validation;
 
 pub use admin::{admin_login, hash_admin_pin, verify_admin_pin};
+pub use lockout::{LockoutError, LockoutManager, LockoutPredicate};
 pub use game_helpers::{check_pod_has_game, parse_sim_type};
 pub(crate) use game_helpers::launch_or_assist;
 pub use middleware::{StaffClaims, require_staff_jwt, create_staff_jwt};

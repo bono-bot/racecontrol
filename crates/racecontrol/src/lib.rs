@@ -34,6 +34,7 @@ pub mod billing_timer_stale;
 pub mod billing_game_status;
 pub mod billing_orphan;
 pub mod billing_session_lifecycle;
+pub mod billing_session_service;
 pub mod billing_session_start;
 pub mod billing_session_end;
 pub mod billing_session_extend;

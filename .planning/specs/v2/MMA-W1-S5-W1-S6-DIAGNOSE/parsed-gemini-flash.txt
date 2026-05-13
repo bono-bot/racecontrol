@@ -1,0 +1,112 @@
+```json
+{
+  "w1_s5": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "V1-era cross-system clients snapshotting `iat`",
+        "reasoning": "The RCA correctly identifies that `iat` semantics shift from 'issuance time, never updated' to 'last activity time, refreshed on each authenticated request.' It flags that 'V1-era cross-system clients that snapshot `iat` for any purpose other than idle-expiry computation are at risk.' However, it only states 'Need to grep callers' and doesn't explicitly list this as an inherited issue or propose a concrete action beyond a grep. This is a critical data integrity risk if V1 systems rely on `iat` for non-idle-timeout purposes (e.g., session start time, audit trail, billing period start).",
+        "suggested_action": "Elevate 'V1-era cross-system clients snapshotting `iat`' to a P0 inherited issue. Mandate a comprehensive audit of all V1 systems and external integrations that consume `StaffClaims` JWTs to identify and mitigate reliance on `iat` as a static issuance timestamp. This audit should be a blocker for W1-S5 merge if any such systems are found."
+      },
+      {
+        "severity": "P1",
+        "title": "Cookie name collision with existing `staff_pin` cookie",
+        "reasoning": "The RCA notes 'New idle-refresh cookie may collide or compose with PIN cookie. Need to re-read `crates/racecontrol/src/auth/admin.rs` cookie helpers and confirm no cookie-name collision.' While Q-S5-1 disposes to `staff_jwt` overwrite, it doesn't explicitly address the potential for collision with a *separate* `staff_pin` cookie, which is a distinct V1-era artifact. If `staff_pin` exists and `staff_jwt` overwrites it, this could break PIN-based authentication flows. If `staff_pin` is still in use, the `staff_jwt` overwrite strategy might be problematic.",
+        "suggested_action": "Add an inherited issue for potential `staff_jwt` vs `staff_pin` cookie collision. Explicitly verify the lifecycle and purpose of the `staff_pin` cookie in `auth/admin.rs` and ensure the `staff_jwt` overwrite strategy does not inadvertently break existing PIN-based flows. If `staff_pin` is still active and distinct, Q-S5-1 should be re-evaluated to consider a new cookie name or a clear deprecation path for `staff_pin`."
+      },
+      {
+        "severity": "P2",
+        "title": "Impact of `iat` change on `exp` (expiration time)",
+        "reasoning": "The RCA states that `exp = now + 24h` will be preserved. However, if `iat` is now a sliding window, and `exp` is always `iat + 24h`, then the effective session duration is extended indefinitely as long as activity occurs. While this is the intent of a sliding window, it means the `exp` field itself is no longer a fixed 'hard expiry' from the *original* issuance. This might have implications for external systems that rely on `exp` as a hard limit for a token's total lifetime, regardless of activity. The RCA doesn't explicitly address this shift in `exp`'s meaning or potential downstream impact.",
+        "suggested_action": "Add a note to the 'JWT contract' schema surface about the change in `exp` semantics. While intended, it's a subtle shift that might impact external systems or audit requirements. Consider if a separate 'absolute_exp' field is needed for hard token lifetime limits, or if existing systems are robust to `exp` being continually extended."
+      },
+      {
+        "severity": "P3",
+        "title": "Observability gap for sliding window refresh failures",
+        "reasoning": "The RCA focuses on logging idle-expiry rejections but explicitly recommends *not* logging routine re-issuances (Q-S5-2). While this is good for audit log volume, it creates an observability gap if the token re-issuance mechanism itself fails silently (e.g., due to an unexpected error during JWT minting or cookie writing). Staff might experience unexpected logouts without clear telemetry.",
+        "suggested_action": "Consider adding metrics for successful token re-issuances and, critically, for *failed* token re-issuances. This would provide observability into the health of the new sliding-window mechanism without generating high-volume audit logs."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "`iat as i64` cast at line 131",
+        "current_label": "NOT-APPLICABLE",
+        "correct_label": "P3-INFORMATIONAL",
+        "reasoning": "While the year 2262 is far off, marking it 'NOT-APPLICABLE' dismisses it entirely. It's a valid, albeit long-term, overflow concern for a timestamp. It should be acknowledged as an informational item, perhaps with a note about the `chrono` crate's `Timestamp` type handling this more robustly, or a 'future-proofing' flag."
+      },
+      {
+        "item": "JWT secret rotation grace period (`extract_staff_claims:84-95`)",
+        "current_label": "NOT-APPLICABLE-TO-V2",
+        "correct_label": "RESOLVED-V1-ONLY",
+        "reasoning": "The RCA correctly splits this into a past-bug aspect and a forward-looking one. However, labeling the past-bug aspect as 'NOT-APPLICABLE-TO-V2' implies it's irrelevant. It's more accurate to say it was 'RESOLVED-V1-ONLY' or 'V1-BEHAVIOR-ACCEPTABLE', acknowledging its V1 context without dismissing its historical relevance or the fact that it was a 'thing' that worked in V1."
+      }
+    ],
+    "completeness_score": 4
+  },
+  "w1_s6": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "Race condition between `PinLockoutTracker` in-memory state and `change_staff_pin_safe` persistence",
+        "reasoning": "Q-S6-6 disposes to 'In-memory HashMap (kaizen-min; restart-after-5-wrong acceptable)'. However, the `execute_lockout` function orchestrates multiple steps: generate new PIN, persist via `change_staff_pin_safe`, *then* increment per-staff-id reset-counter (which is in-memory). If the service restarts *after* `change_staff_pin_safe` succeeds but *before* the in-memory `PinLockoutTracker` updates, the system could be in an inconsistent state. A staff member might have a new PIN in the DB but the in-memory counter for resets is lost, potentially allowing them to immediately trigger another lockout/reset without the rate limit applying correctly. This is a critical consistency issue for a security-sensitive feature.",
+        "suggested_action": "Re-evaluate Q-S6-6. If in-memory state is chosen, a clear strategy for maintaining consistency with the persistent store is needed (e.g., `PinLockoutTracker` state should be updated *before* or *transactionally with* `change_staff_pin_safe`, or be recoverable from the persistent store on restart). This is a P0 for a security feature."
+      },
+      {
+        "severity": "P1",
+        "title": "Security implications of `refund_attempt_context` in PIN reset email",
+        "reasoning": "The email body schema includes `refund_attempt_context`. While this might be useful for helpdesk, including potentially sensitive context from a failed refund attempt in an email (even to helpdesk) could be a security/privacy risk, especially if the context contains PII or sensitive transaction details. The RCA doesn't discuss the contents or sanitization of this context.",
+        "suggested_action": "Add a security review of `refund_attempt_context` to ensure no sensitive PII or financial data is included in the email. If it must be included, ensure it is appropriately redacted or hashed. This should be an explicit design consideration."
+      },
+      {
+        "severity": "P1",
+        "title": "Lack of explicit error handling/fallback for `whatsapp_send`",
+        "reasoning": "The RCA mentions 'WhatsApp Captain freeze dispatch' and 'reuses A3 RATIFIED Evolution API'. However, it doesn't detail error handling if the WhatsApp dispatch fails. What happens if the Evolution API is down or returns an error? Does the account still freeze? Is there an alternative notification? This is a critical failure path for a 'Captain freeze' event.",
+        "suggested_action": "Explicitly define error handling for WhatsApp dispatch. If WhatsApp fails, should there be a fallback (e.g., email to Captain, critical alert)? Ensure the account freeze still occurs even if the notification fails, and log the notification failure prominently."
+      },
+      {
+        "severity": "P2",
+        "title": "Impact of `pos_terminal_id` in email on multi-terminal venues",
+        "reasoning": "The email body schema includes `pos_terminal_id`. If a staff member attempts PINs from multiple terminals (e.g., moving between registers), which `pos_terminal_id` will be included in the email? The last one? The first one? This could lead to confusion for helpdesk if the context isn't clear, or if the staff member is genuinely locked out across multiple terminals.",
+        "suggested_action": "Clarify how `pos_terminal_id` is determined in the context of multiple failed attempts from different terminals. Consider if a list of terminal IDs or a 'last known' terminal ID is more appropriate."
+      },
+      {
+        "severity": "P3",
+        "title": "Unclear definition of 'freeze account flag'",
+        "reasoning": "The RCA mentions 'freeze account flag' when the reset-counter exceeds 3/hr. It's unclear what this 'freeze account flag' entails. Does it prevent further login attempts? Does it invalidate existing sessions? Is it persisted? How is it cleared? This is a critical security state that needs clear definition.",
+        "suggested_action": "Define the 'freeze account flag' more explicitly: its state, persistence, impact on authentication, and how it is cleared (e.g., manual intervention by Captain/helpdesk, or automatic after a period)."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "AL-1 `audit_log.action_type` write amplification",
+        "current_label": "NOT-APPLICABLE",
+        "correct_label": "RESOLVED-BOUNDED-VOLUME",
+        "reasoning": "While the volume is bounded and not a concern, marking it 'NOT-APPLICABLE' dismisses the consideration. It's more accurate to state it was considered and deemed acceptable due to bounded volume, effectively 'RESOLVED' as a non-issue."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "cross_rca_interactions": [
+    {
+      "severity": "P0",
+      "title": "Interaction between W1-S5's sliding-window refresh and W1-S6's PIN-LOCKOUT logic",
+      "reasoning": "W1-S5 introduces a sliding-window JWT refresh on activity. W1-S6 introduces PIN-LOCKOUT logic that increments a counter on wrong PIN attempts. If a staff member is logged in via a W1-S5-refreshed JWT, and then attempts to perform an action requiring a PIN (e.g., refund), and enters the wrong PIN, how does this interact? Does the W1-S5 refresh still occur in the background, potentially masking the lockout? Or does the lockout take precedence? The RCA for W1-S6 states 'PIN-attempt counter is NOT in JWT — it's persisted server-side keyed by `staff_id`', implying it's independent. However, the *user experience* and *security implications* of these two features interacting are not discussed. A staff member could be continually refreshing their JWT via W1-S5 while simultaneously failing PIN attempts, potentially leading to a lockout that isn't immediately apparent or handled gracefully by the UI, or even a race condition if the JWT refresh logic interferes with the PIN validation flow.",
+      "suggested_action": "Mandate an explicit cross-RCA review of the interaction between W1-S5's JWT refresh and W1-S6's PIN-LOCKOUT. Define the precedence and expected user experience. Ensure that a PIN lockout immediately invalidates any active JWT for that staff member, preventing further activity even if the JWT was recently refreshed by W1-S5. This is a critical security interaction."
+    },
+    {
+      "severity": "P1",
+      "title": "Shared `auth/admin.rs` cookie helpers and potential for unintended side effects",
+      "reasoning": "W1-S5 explicitly states it 'must use the same cookie helpers (httpOnly + Secure + SameSite=Strict) per V2.1 PACT pin §2' from `auth/admin.rs`. W1-S6 lists `auth/admin.rs` as 'NOT directly called by W1-S6 PIN-rotate logic itself; consumed indirectly via `auth/middleware.rs::require_staff_jwt` for the privileged action gate'. This implies both modules rely on `auth/admin.rs` for cookie handling, but their changes are being considered somewhat independently. Any modification to `auth/admin.rs` (e.g., for W1-S5) could have unintended consequences for W1-S6's indirect usage, or vice-versa if W1-S6 were to introduce new cookie-related logic.",
+      "suggested_action": "Ensure `auth/admin.rs` is treated as a shared, critical dependency. Any changes to it (or any new cookie-related logic in W1-S5 or W1-S6) must be reviewed against both RCAs to prevent regressions or unexpected behavior."
+    },
+    {
+      "severity": "P2",
+      "title": "Combined audit log volume from W1-S5 and W1-S6",
+      "reasoning": "W1-S5 disposes to 'NO routine logging on refresh; YES on idle-expiry 401'. W1-S6 disposes to 'Every PIN-reset writes audit-log row' and 'bounded volume'. While individually these decisions are sound, the combined impact on audit log volume and storage should be considered. If there's a high rate of idle-expiry 401s *and* PIN resets (e.g., during an incident), the audit log could still see spikes. The RCA doesn't consider the aggregate load.",
+      "suggested_action": "Add a cross-RCA consideration for aggregate audit log volume. While individual decisions are made, the combined impact should be monitored post-deployment. Consider shared metrics for audit log writes."
+    }
+  ],
+  "blocker_disposition": "BLOCK",
+  "blocker_reasoning": "Both RCAs have critical missed items, particularly regarding security and data consistency. W1-S5 has a P0 risk of breaking V1 systems relying on `iat` and a P1 risk of cookie collision. W1-S6 has a P0 race condition risk between in-memory state and persistent storage for PIN lockouts, which is a severe security flaw. Furthermore, the cross-RCA interaction between W1-S5's JWT refresh and W1-S6's PIN-LOCKOUT is a P0 security concern that is not adequately addressed. These issues must be resolved before proceeding to MMA Step 1 DIAGNOSE or any implementation planning."
+}
+```

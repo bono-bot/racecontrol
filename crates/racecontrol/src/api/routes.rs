@@ -90,6 +90,7 @@ use super::pod_mgmt::*;
 use super::pod_queue::*;
 use super::pricing_routes::*;
 use super::psychology_routes::*;
+use super::refund_routing::*;
 use super::staff_crud::*;
 use super::sync_actions::*;
 use super::sync_cloud::*;
@@ -539,6 +540,13 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/{id}/discount", post(apply_billing_discount))
         .route("/billing/{id}/refund", post(refund_billing_session))
         .route("/billing/{id}/refunds", get(get_billing_refunds))
+        // V2 W1-S3+S4: 3-band refund routing (Captain Q2; PACT-001-Wave-1).
+        // Band A `<₹1000` PIN-only / B `₹1000-2999` PIN+reason /
+        // C `≥₹3000` PrivilegedAction::ApproveRefundOverThreshold (manager-mode).
+        // Wrapper-NOT-replacement: dispatches to existing primitives + persists
+        // reason-code via `accounting_audit::log_admin_action` (action_type
+        // sibling column per PACT-091; bypasses audit_log.action CHECK CRUD-only).
+        .route("/refund/3band", post(route_refund))
         // billing/report GET + billing/rates GET: staff-readable for POS dashboard.
         // Write operations (POST/PUT/DELETE rates) remain manager+ gated.
         .route("/billing/report/daily", get(daily_billing_report))

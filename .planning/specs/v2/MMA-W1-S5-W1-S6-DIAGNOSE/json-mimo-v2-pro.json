@@ -1,0 +1,241 @@
+We are reviewing two RCA documents: W1-S5 (sliding-window idle-timeout) and W1-S6 (PIN-LOCKOUT auto-rotate).
+ We are to identify what the RCA author MISSED, focusing on:
+  1. Missed root causes / inherited issues / risk surfaces
+  2. Misclassified items
+  3. Implementation hazards (concurrency, race conditions, error paths, observability gaps, cleanup paths)
+  4. Cross-cutting concerns (security, deployment, rollback, audit, data integrity)
+  5. Cross-RCA interactions (does W1-S5's sliding-window-refresh interact with W1-S6's PIN-rotate path?)
+
+ We are to output in strict JSON format.
+
+ Let's analyze each RCA separately and then look for cross-RCA interactions.
+
+ For W1-S5 (sliding-window idle-timeout):
+   - The RCA is detailed and has been amended by bono and Captain.
+   - We are to look for what's missing.
+
+ For W1-S6 (PIN-LOCKOUT auto-rotate):
+   - Similarly, we look for missing items.
+
+ We are not to critique the Q-DECISION outcomes (they are already ratified).
+
+ We are to output:
+   - For each RCA: missed items (with severity, title, reasoning, suggested_action), misclassified items, and a completeness score (1-5).
+   - Cross-RCA interactions.
+   - Blocker disposition (PASS, REVISE, BLOCK) and reasoning.
+
+ Let's start with W1-S5.
+
+ W1-S5 missed items:
+
+ 1. The RCA mentions the JWT `iat` semantics shift from "issuance time" to "last activity time". 
+    However, it does not consider the impact on existing sessions that were issued with the old semantics.
+    Specifically, when the new code is deployed, existing tokens with `iat` set to the original issuance time will be treated as having last activity at issuance, which might cause them to expire prematurely if the idle timeout is 30 minutes and the token was issued more than 30 minutes ago but has been active recently.
+    This is a critical migration issue.
+
+ 2. The RCA does not address the scenario where the sliding-window refresh fails (e.g., due to a transient error in the JWT minting or cookie write). 
+    The middleware must not break the request flow if the refresh fails. The user should still be authenticated for the current request, but the token might not be refreshed.
+
+ 3. The RCA does not consider the performance impact of re-issuing a JWT on every authenticated request. 
+    JWT minting involves cryptographic operations (signing) which are CPU intensive. Under high load, this could become a bottleneck.
+
+ 4. The RCA does not mention the need to handle clock skew between servers in a distributed environment. 
+    However, note that the current implementation uses `Utc::now()` and the JWT validation already has clock skew tolerance (via `saturating_sub`). 
+    But the re-issuance might be affected if the server's clock is off relative to the JWT validation server (if they are different). 
+    Since the same server is likely issuing and validating, this might be low risk.
+
+ 5. The RCA does not discuss the cleanup of old cookies. If the sliding-window refresh writes a new cookie on every request, the client will accumulate multiple cookies with the same name? 
+    Actually, the Set-Cookie header with the same name and path will overwrite the old one. But note that the client might have multiple cookies with the same name if the path or domain differs. 
+    The RCA should specify the cookie path and domain to avoid this.
+
+ 6. The RCA does not consider the case where the user has multiple tabs open. Each tab might be making requests, and each request might refresh the token. 
+    This could lead to race conditions where two tabs refresh the token at the same time, and the second refresh might overwrite the first, but both are valid. 
+    However, this is acceptable because the last refresh will be the one that sticks. But note that the first tab's response might have a Set-Cookie that is then overwritten by the second tab's response. 
+    This is not a problem because the token is still valid and the last one is the most recent.
+
+ 7. The RCA does not mention the need to update the V2.1 PACT pin file and the middleware.rs comment as part of the implementation. 
+    Actually, it does in the amendment log and in the implementation sketch, but we are to look for what's missing in the RCA itself. 
+    The RCA does have a section on memory-file updates, so this is covered.
+
+ 8. The RCA does not consider the interaction with the V1 JWT secret rotation grace period. 
+    It is mentioned in the inherited issues and in the past-bug disposition, but the RCA does not specify how the sliding-window refresh will behave during a secret rotation. 
+    The RCA says: "JWT secret rotation grace + sliding-window interaction (FORWARD-looking-RCA-item)" and recommends explicit-document-the-choice. 
+    However, the RCA does not actually make a choice or document it. It leaves it as an open item.
+
+ 9. The RCA does not consider the impact on the `require_role` middleware. 
+    The `require_role` middleware must be used after `require_staff_jwt`. 
+    The sliding-window refresh is added as a post-handler in `require_staff_jwt`, so the order is preserved. 
+    But the RCA does not explicitly state that the `require_role` middleware will not be affected by the token refresh (since it runs before the handler and the refresh runs after). 
+    This is acceptable, but the RCA should note that the refreshed token (with a new `iat`) does not affect the role check because the role is in the JWT and the refresh does not change the role.
+
+ 10. The RCA does not consider the case where the idle timeout configuration is changed (e.g., from 30 minutes to 15 minutes). 
+     How does the sliding-window handle tokens that were issued with the old timeout? 
+     The `idle_timeout_secs` is read from the config at the time of the request, so the new timeout will apply immediately. 
+     This might cause tokens that were issued with a 30-minute timeout to now be evaluated with a 15-minute timeout, which could cause them to expire sooner than expected. 
+     This is a configuration change management issue.
+
+ 11. The RCA does not consider the need to log or monitor the rate of token refreshes. 
+     This could be an operational concern if the refresh rate is abnormally high (indicating a misconfiguration or attack).
+
+ 12. The RCA does not consider the impact on the JWT `exp` claim. 
+     Currently, the JWT is issued with a 24-hour expiration. 
+     The sliding-window refresh does not change the `exp` claim (it only updates `iat`). 
+     This means that even if the token is refreshed, it will still expire 24 hours after the original issuance. 
+     This might not be the intended behavior. The intended behavior might be to extend the expiration by 24 hours on each refresh? 
+     The RCA does not specify.
+
+ 13. The RCA does not consider the case where the JWT is used for long-running operations (e.g., a WebSocket connection). 
+     The idle timeout is based on HTTP requests, but a WebSocket connection might be idle for longer than 30 minutes without an HTTP request. 
+     This is out of scope for the current middleware, but the RCA should note that the idle timeout does not apply to WebSocket connections.
+
+ 14. The RCA does not consider the need to handle the `idle_refresh_grace_secs` configuration knob. 
+     It is mentioned in the Q-DECISIONs (Q-S5-5) and deferred. 
+     The RCA should note that without this configuration, the grace window is hardcoded and might need to be adjusted in the future.
+
+ 15. The RCA does not consider the impact on the audit log. 
+     It is mentioned in the inherited issues and in the Q-DECISIONs (Q-S5-2) that routine re-issuance will not be logged. 
+     However, the RCA does not specify what will be logged for idle-expiry rejections. 
+     It should be explicit about the audit log entry for idle-expiry.
+
+ Now, let's look for misclassified items in W1-S5:
+
+ 1. The RCA classifies `iat as i64` cast at line 131 as NOT-APPLICABLE. 
+    However, if the system is expected to run until the year 2262, this could be a problem. 
+    But given the context, it is indeed not a practical concern. 
+    We can leave it as is.
+
+ 2. The RCA classifies the JWT secret rotation grace window as NOT-APPLICABLE-TO-V2 as a "bug", but then adds a forward-looking RCA item. 
+    This is acceptable.
+
+ 3. The RCA classifies the audit_log write amplification as NEW-FROM-RCA. 
+    This is correct.
+
+ 4. The RCA classifies the W1-S3+S4 substrate dependency as INDIRECT and then says it is ROOT-CAUSED-AND-FIXED. 
+    This is acceptable.
+
+ 5. The RCA classifies the PLAN-1 "7-min" inconsistency as OPEN-PLAN-AUTHOR-DISPOSITION. 
+    This is acceptable.
+
+ Now, let's look at W1-S6 missed items:
+
+ 1. The RCA does not consider the scenario where the helpdesk@ email is not delivered (due to SMTP failure, DKIM/SPF issues, or the email being marked as spam). 
+    The RCA mentions the need for a Session 5 entry probe, but does not specify a fallback mechanism if the email fails. 
+    The staff member might be locked out and not receive the new PIN.
+
+ 2. The RCA does not consider the case where the staff member's email address is not helpdesk@ but a personal email. 
+    The RCA assumes the email is sent to helpdesk@, but the staff member might not have access to that email. 
+    The Captain's disposition says helpdesk@ is the secondary auth channel, but what if the staff member cannot access it?
+
+ 3. The RCA does not consider the need to notify the staff member via the POS terminal that the PIN has been rotated and that they should check their email. 
+    The RCA says the response is 401 with a message, but the POS terminal might not display the message clearly.
+
+ 4. The RCA does not consider the impact of the rate-limit on legitimate staff members who might have forgotten their PIN and are trying multiple times. 
+    The rate-limit is 3 resets per hour, which might be too restrictive for a staff member who is having trouble.
+
+ 5. The RCA does not consider the need to handle the case where the staff member's account is frozen (by the Captain) and then unfrozen. 
+    How does the system handle an unfreeze? Is there an API to unfreeze? Or does the Captain have to manually reset the PIN?
+
+ 6. The RCA does not consider the need to handle the case where the staff member's PIN is rotated while they are in the middle of a transaction. 
+    This could cause the transaction to fail if the PIN is required for the transaction.
+
+ 7. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is not delivered (email fails, WhatsApp fails). 
+    The staff member is locked out and cannot get the new PIN. There must be a manual override (e.g., Captain can set a new PIN).
+
+ 8. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is the same as the old one. 
+    The CSPRNG might generate the same PIN. The system should check and regenerate if the new PIN is the same as the old one.
+
+ 9. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN does not meet the format requirements. 
+    The RCA says the CSPRNG must pass `validate_pin_format`, but what if the format requirements change in the future? 
+    The CSPRNG must be updated accordingly.
+
+ 10. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is written to the cloud, but the cloud sync fails. 
+     The venue might have the new PIN, but the cloud does not. This could cause issues if the staff member tries to log in at another terminal.
+
+ 11. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the audit log write fails. 
+     The system should still proceed with the rotation, but the audit log entry might be missing.
+
+ 12. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the WhatsApp message fails to send. 
+     The Captain might not be notified of the freeze.
+
+ 13. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the email is sent, but the staff member does not check the email. 
+     The staff member might be locked out until they check the email.
+
+ 14. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the email is intercepted. 
+     The PIN is sent in plain text in the email, which is a security risk.
+
+ 15. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via WhatsApp, but the WhatsApp message is intercepted. 
+     Similarly, a security risk.
+
+ 16. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the email is delayed. 
+     The staff member might be locked out for a longer period.
+
+ 17. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the email is bounced. 
+     The staff member might never receive the new PIN.
+
+ 18. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the email is marked as spam and the staff member does not check the spam folder.
+
+ 19. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the staff member's email inbox is full.
+
+ 20. The RCA does not consider the need to handle the case where the staff member's PIN is rotated and the new PIN is sent via email, but the staff member's email account is compromised.
+
+ Now, let's look for misclassified items in W1-S6:
+
+ 1. The RCA classifies EA-1 (unbounded HashMap) as PATCHED-ONLY (open RCA item). 
+    This is acceptable.
+
+ 2. The RCA classifies EA-2 (cooldown semantics conflict) as NOT-APPLICABLE-TO-V2. 
+    This is acceptable.
+
+ 3. The RCA classifies EA-3 (transport unverified) as UNRESOLVED. 
+    This is acceptable.
+
+ 4. The RCA classifies EA-4 (DKIM/SPF) as UNRESOLVED. 
+    This is acceptable.
+
+ 5. The RCA classifies RL-1 (IP-keyed not staff-keyed) as NOT-APPLICABLE-TO-V2. 
+    This is acceptable.
+
+ 6. The RCA classifies SP-1 (cloud-sync race) as ROOT-CAUSED-AND-FIXED. 
+    This is acceptable.
+
+ 7. The RCA classifies SP-2 (PIN format validation) as ROOT-CAUSED-AND-FIXED. 
+    This is acceptable.
+
+ 8. The RCA classifies AL-1 (audit write amplification) as NOT-APPLICABLE. 
+    This is acceptable.
+
+ 9. The RCA classifies AL-2 (action vs action_type column) as ROOT-CAUSED-AND-FIXED. 
+    This is acceptable.
+
+ 10. The RCA classifies WS-1 (WhatsApp transport) as ROOT-CAUSED-AND-FIXED. 
+     This is acceptable.
+
+ Now, let's look for cross-RCA interactions:
+
+ 1. W1-S5's sliding-window refresh might interact with W1-S6's PIN-rotate path. 
+    Specifically, if a staff member's PIN is rotated (and thus the JWT is invalidated) and then the staff member tries to use the old JWT, the middleware will reject it. 
+    However, the sliding-window refresh might have already refreshed the token before the PIN rotation. 
+    This is acceptable because the token is invalidated by the PIN rotation (the JWT contains the PIN hash? No, the JWT contains the staff_id and role, but the PIN is used for authentication). 
+    Actually, the JWT is issued after PIN validation. If the PIN is rotated, the old JWT is still valid until it expires (or until the idle timeout). 
+    But the staff member will not be able to use the old PIN to get a new JWT. 
+    However, the old JWT might still be used for sliding-window refresh until it expires. 
+    This is a security concern: if the PIN is rotated due to a compromise, the old JWT should be invalidated immediately.
+
+ 2. W1-S5's sliding-window refresh might write a new cookie, and W1-S6's PIN-rotate might also write a new cookie (if the PIN rotation leads to a new JWT). 
+    The two cookies might conflict if they have the same name. 
+    The RCA for W1-S5 specifies the cookie name as `staff_jwt` (overwrite). 
+    W1-S6 does not specify a cookie name for the new JWT after PIN rotation. 
+    It should use the same cookie name to avoid multiple cookies.
+
+ 3. W1-S5's sliding-window refresh might be triggered by a request that is part of the PIN-rotate flow (e.g., the request that triggers the PIN rotation). 
+    This is acceptable because the PIN rotation is a one-time event and the refresh is idempotent.
+
+ 4. W1-S5's sliding-window refresh might be affected by the rate-limit in W1-S6. 
+    The rate-limit is per staff-id for PIN resets, not for general requests. 
+    So the refresh should not be rate-limited.
+
+ 5. W1-S5's sliding-window refresh might be affected by the lockout in W1-S6. 
+    If the staff member's account is frozen, then the JWT might be invalidated. 
+    The middleware should reject the JWT if the account is frozen.
+
+ Now,

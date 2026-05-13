@@ -340,3 +340,126 @@ First W1-S1 commit (kaizen-min):
 PACT-DRAFT (`PACT-20260508-001` slot, comms-link `47c686ea`) remains DRAFT pending FILE-conversion at Session 1 W1-S1 first ship OR Captain ratify-uplift. 24h CHALLENGE-AMEND silent-expire 2026-05-09 ~19:00 IST stays.
 
 — james / 2026-05-08 ~19:30 IST · §SUBSTANTIVE-REPLY appended · A1 RATIFIED-PROVISIONAL kaizen-N=1 (A1.c new — single-module v2-db migration) · A2 DEFERRED Session 5 · A3 CONCUR bono · 3 NFs surfaced · 5 Session 1 anchors pinned · Verify-Before-Generate fired catching PLAN-vs-disk drift NF-1
+
+---
+
+## §13 — james §SUBSTANTIVE-PRE-SESSION-3 (2026-05-09 ~07:35 IST)
+
+**Class:** james-LEAD architectural pre-authoring anchor for Session 3 (W1-S3 Refund 3-band routing + W1-S4 reason-code dropdown). Mirrors §12.5 Session 1 anchor pattern.
+**Authority:** Captain Option Bravo class-level V2-aligned auth standing 2026-05-09 ~07:35 IST verbatim "Proceed with your recommendation that is aligned with Racing Point ecosystem v2 development. Proceed autonomously" + Drift-Pilot-Roles §E.1 first-mover-LEAD + Sessions 1+2 already shipped (`64b03785` + `2574ff18`).
+**Window:** 24h CHALLENGE-AMEND silent-expire 2026-05-10 ~07:35 IST.
+
+### §13.1 — Verify-Before-Generate ground-truth check pre-Session-3
+
+**Disk-substrate scan of W1 branch HEAD `2574ff18`:**
+- `crates/racecontrol/src/auth/` modules: `admin.rs / auth_tests.rs / game_helpers.rs / middleware.rs / middleware_tests.rs / mod.rs / otp.rs / privileged_actions.rs / rate_limit.rs / token_consume.rs / token_manage.rs / token_validation.rs`. **NO `staff_auth.rs` yet** — that's W1-S6 future scope (Session 5).
+- `crates/racecontrol/src/auth/privileged_actions.rs` — 12-variant enum × 4-category taxonomy already present at HEAD `2574ff18`. `ApproveRefundOverThreshold` variant LIVES under `ManagerEscalation` category (line 128 + 150). **Captain Q2 ≥₹3000 band invokes this enum variant; <₹1000 (PIN-only) and ₹1000-2999 (PIN+reason) do NOT need PrivilegedAction.**
+- `crates/racecontrol/src/accounting.rs::post_refund(state, driver_id, amount_paise, reference_id)` — line 412 — journal-entry primitive (Debit: Refunds | Credit: Customer Wallet). **NO band routing; NO reason-code parameter.**
+- `crates/racecontrol/src/accounting.rs::post_cash_refund(state, driver_id, amount_paise, method, staff_id, txn_id)` — line 446 — cash-refund variant (Dr. acc_wallet | Cr. acc_cash/acc_bank).
+- `crates/racecontrol/src/api/billing_invoice.rs::refund_billing_session` — line 247 — session-scope refund handler (existing).
+- `crates/racecontrol/src/api/wallet_ops.rs::refund_wallet` — line 193 — wallet-scope refund handler. `cash_refund_wallet` line 364.
+- `crates/racecontrol/src/billing_pricing.rs::compute_refund(allocated_seconds, driving_seconds, wallet_debit_paise) -> i64` — line 578 — calculation primitive (Captain Q-PRICE-3 FLOOR rule applies — feedback_customer_satisfaction_first_minimal_compromise.md). 4 variants + 6+ existing tests.
+- `crates/racecontrol/src/accounting_audit.rs::log_audit(state, table_name, row_id, action, old_values, new_values, staff_id)` — INSERT-into-`audit_log`-table primitive. **W1-S3+S4 reason-code persistence + 3-band action log SHOULD use this.**
+
+**Verify-Before-Generate finding NF-james-5:** Existing refund primitives are a 6-function fan-out across 4 files (`accounting.rs` + `billing_invoice.rs` + `wallet_ops.rs` + `billing_pricing.rs`). W1-S3 dispatch logic is **NEW wrapper** atop these — NOT replacement. Composes-with NF-james-3 (doctrine-vs-physical-layout drift): existing primitives live in legacy racecontrol crate; W1-S3 wrapper continues A1.e disposition (racecontrol crate-internal, defer v2-db migration to Wave 4-5 surface-area trigger).
+
+### §13.2 — A4 disposition (W1-S3 dispatch-layer placement)
+
+**Options enumeration:**
+- **A4.α (NEW wrapper module)** — create `crates/racecontrol/src/api/refund_routing.rs` (sibling-of `billing_discount.rs` / `billing_invoice.rs` / `wallet_ops.rs`). Single dispatch function `route_refund(staff_pin, amount_paise, reason_code, session_id) -> Result<RefundOutcome>` calls existing primitives based on band. Mirrors API-layer convention (`crates/racecontrol/src/api/`).
+- **A4.β (extend existing accounting::post_refund)** — add band/reason_code parameters to existing `post_refund` signature. Touches every caller (≥6 call sites) — exceeds kaizen-min Session 3 budget (~2h per PLAN §2). Sibling-of A1.c migration that escalated to A1.e under same ≥5-caller-files trigger.
+- **A4.γ (v2-db migration — defer per A1.e precedent)** — same circular-dep + budget-overflow blockers as A1.c. INFEASIBLE Session 3.
+
+**Disposition: A4.α RATIFIED-PROVISIONAL kaizen-N=1.**
+
+Rationale:
+- API-layer convention match (refund routing IS an API concern; existing 6 refund primitives already split across api/ vs accounting.rs vs billing_pricing.rs).
+- Wrapper-pattern preserves all existing tests + callers untouched.
+- Single new module → smaller surface area review; faster MMA pre-ship VERIFY at end-of-Wave-1.
+- Reason-code enum + DB column lands as W1-S4 sub-step in same module (single git commit boundary).
+
+**kaizen-N=1 escalation triggers** (revert to A4.β):
+- Existing primitives prove insufficient (e.g., post_refund signature can't accept reason-code without internal change anyway → migration cost equalizes).
+- Cross-system concerns surface that fall outside `api/` layer (e.g., automatic refund-from-billing-FSM event — would need accounting.rs internal hook).
+
+**Verify-at:** Session 3 W1-S3 first-commit anchor. If wrapper-pattern proves unnatural (>3 awkward delegations to internal primitives), file kaizen-correction PACT-AMEND under §AMEND-1.E lineage and revert to A4.β.
+
+### §13.3 — A5 disposition (W1-S4 reason-code enum location)
+
+**Options enumeration:**
+- **A5.α (in W1-S3 wrapper module)** — `pub enum RefundReason { SimPs5Crash, ServiceDispute, BookingError, WalletAdjustment, Other(String) }` lives in `api/refund_routing.rs` next to dispatch. Single-module W1-S3+S4 boundary; single git commit possible.
+- **A5.β (in privileged_actions.rs sibling)** — separate `crates/racecontrol/src/auth/refund_reasons.rs` mirroring §AMEND-1.E PrivilegedAction taxonomy. Better doctrine-axis fit (auth-layer enum), but disperses W1-S3+S4 across 2 files.
+- **A5.γ (in v2-db crate as new module)** — pure-data enum (no AppState dep) could live cleanly in v2-db. But adds cross-crate import chain for racecontrol api/ layer; A1.e precedent argues against premature v2-db expansion.
+
+**Disposition: A5.α RATIFIED-PROVISIONAL kaizen-N=1.**
+
+Rationale:
+- W1-S3+S4 are **paired sub-steps** per §1.1 row mapping — single module preserves their coupling.
+- 5 reason codes (Captain Q2 disposition) = small enum, no taxonomy explosion.
+- Persistence via existing `audit_log.row_id` + `audit_log.new_values` JSON — no new DB table needed (NF-james-7 below).
+- DB-schema-stability preserved — kaizen-min approach.
+
+**kaizen-N=1 escalation triggers** (revert to A5.β):
+- W1-S5 idle-timeout (Session 4) discovers reason-code-class persistence pattern that better fits `auth/` taxonomy → consolidation pass at Session 4 entry.
+- Reason-code count grows beyond 5 in V2.1+ surface (combo refund / promo-reversal / etc.) → A5.β separation justified at re-evaluation.
+
+### §13.4 — A6 disposition (reason-code DB persistence shape)
+
+**Disposition: A6.α (audit_log table reuse) RATIFIED-PROVISIONAL kaizen-N=1.**
+
+W1-S4 reason-code persistence routes through existing `accounting_audit::log_audit()`:
+- `table_name`: `"refunds"` (string literal, no schema migration)
+- `row_id`: `<refund_uuid>` (new UUID per refund event)
+- `action`: `"refund_3band_<band_id>"` (e.g., `"refund_3band_band_a"` / `"refund_3band_band_b"` / `"refund_3band_band_c"`)
+- `new_values`: JSON-serialize `{ amount_paise: N, reason_code: "sim_ps5_crash", custom_reason_text: null|String, session_id: "..." }`
+- `staff_id`: `Some(<staff_pin_consume_id>)`
+
+Rationale:
+- Zero schema-migration cost (NF-james-4 v2-db schema work avoids re-derailment).
+- Existing audit-log infra already covers query/report surface.
+- Captain Q2 reason-code requirement = "persisted with refund event" — JSON-in-audit-log satisfies "persisted" semantically.
+
+**kaizen-N=1 escalation triggers** (revert to A6.β = NEW `refunds` table with reason_code column):
+- Refund-history reporting surface emerges (Wave 2+ admin dashboard) that requires column-typed query (SQL `WHERE reason_code = ?`) instead of JSON-string scan.
+- DPDP/GDPR erase contract (CLAUDE.md GDPR rule) requires column-level audit beyond row-level audit_log.
+
+### §13.5 — Session 3 W1-S3+S4 starting anchors (kaizen-min first-commit)
+
+When Session 3 W1-S3 fires, anchor enumeration to save grep time:
+- **Anchor 1:** `crates/racecontrol/src/auth/privileged_actions.rs` — 12-variant enum at HEAD `2574ff18`. `ApproveRefundOverThreshold` line 128. Use as-is for Band C (≥₹3000) gate.
+- **Anchor 2:** `crates/racecontrol/src/accounting.rs` lines 412 (`post_refund`) + 446 (`post_cash_refund`) — journal-entry primitives W1-S3 wrapper delegates to.
+- **Anchor 3:** `crates/racecontrol/src/api/billing_invoice.rs::refund_billing_session` line 247 — session-scope handler W1-S3 wrapper delegates to.
+- **Anchor 4:** `crates/racecontrol/src/api/wallet_ops.rs::refund_wallet` line 193 + `cash_refund_wallet` line 364 — wallet-scope handlers W1-S3 wrapper delegates to.
+- **Anchor 5:** `crates/racecontrol/src/billing_pricing.rs::compute_refund` line 578 — calculation primitive (Captain Q-PRICE-3 FLOOR rule per `feedback_customer_satisfaction_first_minimal_compromise.md`). Re-use as-is.
+- **Anchor 6:** `crates/racecontrol/src/accounting_audit.rs::log_audit` — audit-log persistence primitive. W1-S4 reason-code goes through here (A6.α).
+- **Anchor 7:** `crates/racecontrol/src/api/routes.rs` — route registration site for new `POST /api/v1/refund/3band` endpoint. Verify role-gating after route added (CLAUDE.md "Route Uniqueness" + "Audit auth" rules).
+- **Anchor 8:** `crates/racecontrol/src/billing_tests.rs` lines 284 + 1939-1957 — 6 existing `compute_refund` tests must stay GREEN post-W1-S3 wrapper authoring (no behavior change to primitives).
+
+First W1-S3 commit (kaizen-min):
+- Module skeleton at `crates/racecontrol/src/api/refund_routing.rs`
+- `pub async fn route_refund(staff_pin, amount_paise, reason_code, session_id) -> Result<RefundOutcome>` signature
+- 3-band match arm dispatch (Band A <₹1000 / Band B ₹1000-2999 / Band C ≥₹3000)
+- 2-3 unit tests covering band-boundary cases (₹999 → A / ₹1000 → B / ₹2999 → B / ₹3000 → C)
+- NO route registration yet — that's W1-S3 follow-up commit
+- `pub enum RefundReason` with 5 variants (Captain Q2 disposition)
+
+W1-S4 follow-up commit (same Session 3, second commit):
+- `RefundReason::Other(String)` 100-char validation
+- `log_audit` integration with reason-code in JSON payload
+- Integration test: full flow `POST /api/v1/refund/3band` → routing → primitive call → audit_log row asserted
+- Route registration in `api/routes.rs`
+
+### §13.6 — NFs (new findings) surfaced this turn
+
+- **NF-james-5 (refund-primitives-fan-out):** 6 existing refund functions across 4 files (`accounting::post_refund`/`post_cash_refund` + `billing_invoice::refund_billing_session`/`get_billing_refunds` + `wallet_ops::refund_wallet`/`cash_refund_wallet` + `billing_pricing::compute_refund`+variants). W1-S3 is wrapper-NOT-replacement; A4.α RATIFIED-PROVISIONAL preserves all existing tests untouched. Sibling-of NF-james-3 (doctrine-vs-physical-layout drift) — refund work continues A1.e disposition.
+- **NF-james-6 (staff_auth.rs not-yet-exists):** Despite §1.1 row mapping W1-S6 component to `staff_auth.rs`, that file does NOT exist at HEAD `2574ff18`. Session 5 W1-S6 will be NEW-FILE creation under `crates/racecontrol/src/auth/`. Sibling-of NF-james-1 (PLAN-vs-disk-substrate drift; smaller-N).
+- **NF-james-7 (audit_log table reuse for reason-code):** Existing `audit_log` table + `accounting_audit::log_audit` primitive cover reason-code persistence semantically (A6.α). Zero schema migration needed for W1-S4 — saves Session 3 budget on `cargo clean -p v2-db` cycle (per W1-S2 lesson `crates/v2-db/migrations/` `sqlx::migrate!` cache invalidation rule, racecontrol/CLAUDE.md). Composes-with kaizen-discipline (don't complicate process unless it has to be).
+
+### §13.7 — Status
+
+Pre-Session-3 anchor work landed. Session 3 spawn ready when:
+- Captain Cognitive Load permits (per-PR auth gate stays at PR-open at end-of-Wave-1; pre-Session-3 anchor is in-band per Captain Option Bravo class-level V2-aligned auth)
+- james-side branch hygiene + clean working tree on `feat/v2-wave-1-w1-s1-billing-service` (current `feat/v2-kiosk-wave-0a-fsm-foundation` working tree dirt + screenshots/handoffs untracked require pre-Session-3 cleanup pass)
+- bono AMPLIFIER review on §13.2/§13.3/§13.4/§13.5 anchor dispositions welcomed at convenience (4-item AMPLIFIER list mirrors PACT-20260508-002 §G PROGRESS.md AMPLIFIER pattern — non-blocking for Session 3 spawn but useful for kaizen-N=2 PROMOTE candidacy).
+
+— james / 2026-05-09 ~07:35 IST · §SUBSTANTIVE-PRE-SESSION-3 appended · A4.α (refund_routing.rs API-layer wrapper) RATIFIED-PROVISIONAL kaizen-N=1 · A5.α (RefundReason enum in same module) RATIFIED-PROVISIONAL kaizen-N=1 · A6.α (audit_log table reuse for reason-code persistence) RATIFIED-PROVISIONAL kaizen-N=1 · 3 NFs surfaced (NF-james-5/6/7) · 8 Session 3 anchors pinned · Verify-Before-Generate fired catching auth/staff_auth.rs absence + 6-fan-out refund primitives + audit_log reuse path

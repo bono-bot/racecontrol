@@ -1,0 +1,98 @@
+{
+  "w1_s5": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "Concurrency race in token re-issuance under high load",
+        "reasoning": "The RCA assumes token re-issuance is atomic and side-effect-free, but does not consider concurrent requests from the same staff member. If two requests arrive simultaneously after the idle threshold, both may trigger re-issuance, leading to multiple Set-Cookie headers with different JWTs. This creates a race where the final cookie state is non-deterministic and could result in session inconsistency or invalidation. The middleware does not use any synchronization mechanism (e.g., per-staff-id lock) to serialize re-issuance.",
+        "suggested_action": "Introduce a per-staff-id synchronization guard (e.g., `tokio::sync::Mutex` in a shared state map) to ensure only one re-issuance occurs per staff session at a time. Alternatively, make re-issuance idempotent by binding the new token to the same logical session epoch."
+      },
+      {
+        "severity": "P1",
+        "title": "Clock drift between services invalidates sliding-window logic",
+        "reasoning": "The sliding-window check relies on `iat` and server-local `now`. If the racecontrol instance's clock is skewed relative to other services (e.g., POS frontend, audit log), tokens may be incorrectly marked as expired or refreshed. The RCA does not address clock synchronization (e.g., via NTP) or tolerance thresholds in the idle check.",
+        "suggested_action": "Implement a bounded clock skew tolerance (e.g., ±5s) in `is_idle_expired` and enforce NTP sync in deployment docs. Log warnings on observed skew > threshold."
+      },
+      {
+        "severity": "P2",
+        "title": "No cleanup path for stale re-issued JWTs",
+        "reasoning": "The design re-issues tokens on every active request but provides no mechanism to expire or revoke old valid tokens. This increases the attack surface: a leaked token remains valid until its natural 24h expiry, even after re-issuance. The RCA does not consider shortening token lifetime or introducing a token revocation list (TRL).",
+        "suggested_action": "Reduce JWT `exp` from 24h to 1h to limit exposure. Consider future TRL integration in V2.1 for immediate revocation."
+      },
+      {
+        "severity": "P2",
+        "title": "Observability gap: no metric for re-issuance rate per staff",
+        "reasoning": "While audit logging is addressed, the RCA omits telemetry. Without metrics like `auth_token_reissued_total{staff_id}` or `auth_idle_refresh_rate`, operational teams cannot detect anomalous behavior (e.g., a bot triggering constant refreshes). This hampers incident response and capacity planning.",
+        "suggested_action": "Add Prometheus counters and histograms for re-issuance events, labeled by staff_id and outcome. Include in DEPLOY PARITY scope."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "`iat as i64` cast at line 131",
+        "current_label": "NOT-APPLICABLE",
+        "correct_label": "RESOLVED",
+        "reasoning": "While the overflow is not practical today, the cast is unsafe and could be exploited in a time-travel scenario (e.g., test environments with future timestamps). It should be marked RESOLVED with a defensive `saturating_add` or bounds check, not dismissed."
+      },
+      {
+        "item": "audit_log write amplification",
+        "current_label": "NEW",
+        "correct_label": "UNRESOLVED",
+        "reasoning": "This is not a new issue — any prior token refresh mechanism would have faced it. It was simply latent due to absence of refresh. Marking it NEW misrepresents it as emergent rather than inherited."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "w1_s6": {
+    "missed": [
+      {
+        "severity": "P0",
+        "title": "No defense against PIN reset replay or enumeration",
+        "reasoning": "The RCA assumes `change_staff_pin_safe` is atomic and secure, but does not consider that an attacker could replay the reset request or enumerate staff IDs to trigger mass resets. The per-staff-id rate limit only applies after 5 wrong attempts, not on the reset itself. This allows a DoS on helpdesk@ via targeted resets.",
+        "suggested_action": "Add a secondary rate limit on `execute_lockout` per staff_id (e.g., max 1 reset every 10 minutes) independent of wrong-attempt count. Log and alert on high-frequency reset attempts across staff."
+      },
+      {
+        "severity": "P1",
+        "title": "EmailAlerter shell-out lacks timeout and retry logic",
+        "reasoning": "The design reuses `send-email.js` but does not specify timeout or retry behavior. A hanging SMTP connection could block the entire middleware chain under load. This creates a critical availability risk not surfaced in the RCA.",
+        "suggested_action": "Wrap `EmailAlerter::send_pin_rotation` in a timeout (e.g., 10s) and implement non-blocking retry with exponential backoff. Fail open (allow auth flow) if email fails."
+      },
+      {
+        "severity": "P2",
+        "title": "In-memory reset counter lost on restart enables bypass",
+        "reasoning": "The Captain-approved in-memory reset counter (Q-S6-6) is ephemeral. After a restart, a staff member can trigger 3 more resets immediately, circumventing the 3/hr cap. This undermines the security model during rolling deploys or crashes.",
+        "suggested_action": "Document this as a known limitation and plan for DB-backed storage in V2.1. Add metric `pin_reset_counter_lost_on_restart` to monitor impact."
+      },
+      {
+        "severity": "P3",
+        "title": "No redaction of new PIN in logs or error traces",
+        "reasoning": "The audit log and potential error traces may include the new PIN in plaintext (e.g., in `log_admin_action` payload or panic traces). This violates data protection policies and risks exposure in log aggregation systems.",
+        "suggested_action": "Ensure `new_pin` is redacted in all logs and traces. Use structured logging with explicit `sensitive` markers. Hash PINs in audit records if traceability is needed."
+      }
+    ],
+    "misclassified": [
+      {
+        "item": "EA-2 cooldown semantics conflict",
+        "current_label": "NOT-APPLICABLE-TO-V2",
+        "correct_label": "OPEN-FORWARD-LOOKING",
+        "reasoning": "The conflict is not resolved — it's bypassed. Future event-class email uses will face the same issue. Marking it NOT-APPLICABLE ignores the technical debt; it should be OPEN-FORWARD-LOOKING with a plan to refactor EmailAlerter."
+      },
+      {
+        "item": "RL-1 IP-keyed not staff-keyed",
+        "current_label": "NOT-APPLICABLE-TO-V2 (as a bug)",
+        "correct_label": "UNRESOLVED",
+        "reasoning": "The V1 design is fundamentally flawed for any per-user rate limiting. This is not a non-applicable bug but an unresolved architectural limitation that W1-S6 works around. It should be marked UNRESOLVED to acknowledge the debt."
+      }
+    ],
+    "completeness_score": 3
+  },
+  "cross_rca_interactions": [
+    {
+      "severity": "P0",
+      "title": "Sliding-window refresh may interfere with PIN lockout state",
+      "reasoning": "W1-S5's token re-issuance resets the `iat`, which could reset the idle timer and allow a locked-out staff member to bypass PIN verification via a valid refreshed token. The PIN lockout state (W1-S6) is not integrated with the auth middleware's session state (W1-S5), creating a privilege escalation vector.",
+      "reasoning": "The two features operate on separate state: W1-S6 tracks PIN attempts, W1-S5 manages token lifetime. If a staff member has a valid token (not yet idle-expired) but is PIN-locked, the middleware will still grant access. The lockout must invalidate or block re-issuance of tokens."
+    }
+  ],
+  "blocker_disposition": "REVISE",
+  "blocker_reasoning": "Critical cross-RCA interaction (P0) allows privilege escalation by bypassing PIN lockout via token refresh. Additionally, both RCAs miss P0 concurrency and security hazards that could lead to session inconsistency or DoS. These must be addressed before implementation proceeds."
+}
