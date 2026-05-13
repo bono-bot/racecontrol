@@ -174,7 +174,7 @@
 | 6.13 | pm2 restart timing (whatsapp-bot + racingpoint-bot) | Phase 446 deploy slice | infrastructure | entry #18 | **ACTIVE** (HIGH leverage — single Captain Class B/C decision unblocks Phase 446 final ship + Phase 447/448/449/450/451/452 cascade per Layer 3) |
 | 6.14 | Standing-rule amendment (b) harness-mechanism-auth ratify | doctrine | §S-200 wraps; partial-ratified via msg=36014 | ✅ **RATIFIED + ENFORCED** Captain "Proceed with your recommendations on Captain Decisions" 2026-05-10 ~16:14 IST + enforcement hooks landed iter1 (`pre-harness-auth-gate.js` v0.1.0) + iter2 (v0.2.0 composite-surface + bypass TTL + transcript verify + Bash AST + multi-line JSON tolerance) |
 | 6.15 | james ~/.claude/CLAUDE.md self-mod auth (a) | harness-Captain auth | Captain-pending | **ACTIVE** (james-side; **NOT bono-actionable** — harness self-mod auth must be granted by Captain to james directly per harness-mechanism-auth sub-clause) |
-| 6.16 | 3 untracked /root hook files (commit / review / leave) | g9-4 disposition | infrastructure | entry #29 | **ACTIVE** (LOW; bono-side disposition, quick-win class) |
+| 6.16 | 55 untracked /root/.claude/hooks/ files (drift since row authored — was "3"; 103 files in dir / 15 registered in settings.json) — **CAPTAIN-STAKE POLICY Q: does /root/.claude/ track in git or not?** | inventory-drift disposition | infrastructure | entry #29 | **ACTIVE** (LOW; row-text refreshed 2026-05-13 ~09:45 IST loop-tick #4; was "quick-win class" pre-drift, now policy-class pending Captain inventory rule) |
 
 **Layer 6 totals (refreshed 2026-05-12 ~22:55 IST post-STALE-re-eval cascade on 6.4 + 6.12): 16 items → 6 ACTIVE / 10 STALE-DISPOSITIONED.**
 
