@@ -76,9 +76,26 @@ pub enum FleetHealerError {
     #[error("SSH timeout on {pod_id} after {timeout_secs}s")]
     SshTimeout { pod_id: String, timeout_secs: u64 },
 
+    /// SAFETY: `error: String` reaches Display via `#[error(...)]`. The construction site at
+    /// `fleet_healer_diagnosis.rs:80` currently passes `e.to_string()` where `e` is `std::io::Error`
+    /// from the tokio Command `.output()` future — that is an OS/spawn-level error (low PII risk on
+    /// its own; e.g., "No such file or directory", "Connection refused"). The ACTUAL remote SSH stderr
+    /// lives in `SshCommandResult.stderr` (Ok path return value, `fleet_healer_diagnosis.rs:90`) and
+    /// is NOT currently funneled into this variant — but future callers MAY do so. Today's reach is
+    /// INTERNAL ONLY (FleetHealerOrchestrator has no HTTP response surface; audit-log + tracing only
+    /// per `fleet_healer_repair.rs:141`). Future HTTP wire-up MUST redact or hash-prefix the `error`
+    /// field IF (a) future code passes `SshCommandResult.stderr` into this variant, OR (b) any
+    /// `result.stderr` value reaches a JSON response body via `format!("{e}")`. Same shape class as
+    /// §S-241 cirs.rs PII-leak (commit `cbf5b995`). Audit trail: §S-241 Agent-2 recommendation #3;
+    /// §S-244 iter6 defensive comment-contract (MAOR Tier-1 finding #1 DISPOSITIONED-INLINE — corrects
+    /// initial mischaracterization of stderr source).
     #[error("SSH execution failed on {pod_id}: {error}")]
     SshExecFailed { pod_id: String, error: String },
 
+    /// SAFETY: same shape class as `SshExecFailed` above — `error: String` interpolates SSH stderr from
+    /// `fleet_healer_repair.rs:322`. Today's reach is INTERNAL ONLY (no HTTP response surface). Future
+    /// HTTP wire-up MUST redact or hash-prefix the `error` field. Audit trail: §S-241 Agent-2
+    /// recommendation #3; §S-244 iter6 defensive comment-contract.
     #[error("Pod isolation failed on {pod_id}: {error}")]
     IsolationFailed { pod_id: String, error: String },
 
