@@ -227,16 +227,16 @@ STALE-DISPOSITIONED breakdown:
 |---|---|---|---|
 | 8.1 | A. Process model hygiene (Session 0 vs Session 1, schtasks vs HKLM Run, bat encoding) | infrastructure-foundational | YES (boot model) |
 | 8.2 | B. Boot resilience: single-fetch-at-boot without retry | infrastructure-foundational | YES (pod boot path) |
-| 8.3 | C. Frontend deploy gaps (outputFileTracingRoot, NEXT_PUBLIC_, basePath rewrite, static-404, login-page middleware) | foundational | YES (3.1, 3.2, 3.6 phases cover most) |
+| 8.3 | C. Frontend deploy gaps (outputFileTracingRoot, NEXT_PUBLIC_, basePath rewrite, static-404, login-page middleware) | foundational | YES (3.1, 3.2, 3.6 phases cover most) — **RCA-AUTHORED §S-225 2026-05-13 ~12:50 IST** (9 V1 anchors / 8 ROOT-CAUSED-AND-FIXED / 1 PATCHED-ONLY NEXT_PUBLIC_ grep) |
 | 8.4 | D. Schema/config drift (kiosk JSON ≠ Rust struct, OpenAPI ≠ handler, CREATE without ALTER, GDPR FK) | foundational | YES (W1-S2 covered one slice; rest open) |
 | 8.5 | E. Recovery-cascade/restart-war (self_monitor + rc-sentry + pod_monitor + WoL + Watchdog + MAINTENANCE_MODE) | mechanism-trust | YES (PR #66 fleet-rollout broke on this) |
-| 8.6 | F. Audit blind spots (checking proxies not behavior; checking the monitored not the monitor) | discipline | NO (discipline) |
+| 8.6 | F. Audit blind spots (checking proxies not behavior; checking the monitored not the monitor) | discipline | NO (discipline) — **RCA-AUTHORED §S-228 2026-05-13 ~13:40 IST** (11 V1 anchors / 8 ROOT-CAUSED-AND-FIXED / 2 PATCHED-ONLY first-run-after-enable + cross-channel WARN parity / 1 STRUCTURAL-FIX-IN-PROGRESS MAOR v0.1 forward-watch; V2 three-layer defense = MAOR §14.1 + F1 §14.2 + F3 §14.3) |
 | 8.7 | G. Comms-link discipline (git push without WS notify, INBOX without WS, Bono not auto-pull) | discipline | NO (discipline) |
 | 8.8 | H. Authentication drift (login-page middleware-blocking, allowlist GET requiring auth) | foundational | YES |
 | 8.9 | I. Config persistence + permanence (manual-server-edits, registry tweaks, OS settings without code-enforcement) | foundational | YES (Phase 449 CI drift detector covers ~70%) |
 | 8.10 | J. Layer-2/3 broadcast hygiene (fleet-wide class) | foundational | YES |
 
-**Layer 8 totals: 10 categories.** 8 LIVE-BLOCKING / 2 DISCIPLINE. None have full V2-RCA per category (per "V1-dependent V2 RCA + past-bug review" rule); piecemeal RCAs exist for E (PR #66 §S-146) and a few D-class items.
+**Layer 8 totals: 10 categories.** 8 LIVE-BLOCKING / 2 DISCIPLINE. **2 of 10 categories have full V2-RCA** per "V1-dependent V2 RCA + past-bug review" rule: **C (§S-225 frontend deploy gaps)** + **F (§S-228 audit blind spots — META class mapped to MAOR+F1+F3 three-layer defense)**. Piecemeal RCAs exist for E (PR #66 §S-146) and a few D-class items. 8 categories pending RCA: bono-autonomous-eligible queue continues with **G** (comms-link discipline — non-foundational) and **I** (config permanence — non-foundational); foundational A/B/D/E/H/J remain Captain-gated MMA Step 1.
 
 ---
 
