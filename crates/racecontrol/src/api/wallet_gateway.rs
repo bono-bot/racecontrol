@@ -1,4 +1,15 @@
 //! FATM-11: Payment gateway webhook handler — extracted from wallet_staff.rs.
+//!
+//! §S-260 Atom 2 — HMAC-SHA256 verification + timestamp drift/replay guard.
+//! Cluster RCA I-3 HIGH BLOCKING pre-merge fix. MMA Step 1 4/4 unanimous flagged
+//! the pre-fix "secret-is-set" structural-only guard as insufficient.
+//!
+//! Canonical signing input (per-field concatenation; avoids JSON canonicalization
+//! ambiguity flagged by MMA Kimi as "signature wrapping" vulnerability):
+//!   `{transaction_id}|{driver_id}|{amount_paise}|{status}|{timestamp_unix_secs}`
+//!
+//! Compose with real gateways (Razorpay/Cashfree/etc.): adapt this canonical
+//! string to match the chosen gateway's HMAC documentation.
 
 use axum::{
     Json,
@@ -7,6 +18,14 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+type HmacSha256 = Hmac<Sha256>;
+
+const HMAC_MAX_DRIFT_SECS: i64 = 300; // ±5 min — replay-window beyond idempotency_key
 
 use crate::state::AppState;
 use crate::wallet;
@@ -78,7 +97,7 @@ pub(crate) async fn payment_gateway_webhook(
             }));
         }
     };
-    // Secret is set — require the signature header
+    // Secret is set — require the signature + timestamp headers
     let provided_sig = headers
         .get("x-webhook-signature")
         .and_then(|v| v.to_str().ok())
@@ -90,10 +109,87 @@ pub(crate) async fn payment_gateway_webhook(
         );
         return Json(json!({ "ok": false, "error": "missing webhook signature" }));
     }
-    // NOTE: Full HMAC-SHA256 verification requires raw body bytes.
-    // When a real gateway is integrated, replace this with proper verification using the raw request body.
-    let _ = webhook_secret; // reference to avoid unused warning until HMAC is wired
-    tracing::debug!("FATM-11: Webhook signature present (full HMAC check pending gateway integration)");
+    let provided_ts = headers
+        .get("x-webhook-timestamp")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided_ts.is_empty() {
+        tracing::warn!(
+            transaction_id = %req.transaction_id,
+            "FATM-11: Gateway webhook rejected — missing X-Webhook-Timestamp header"
+        );
+        return Json(json!({ "ok": false, "error": "missing webhook timestamp" }));
+    }
+
+    // §S-260 Atom 2 — Timestamp drift guard (replay-prevention beyond idempotency_key).
+    // Reject if |now - provided_ts| > 5min. Bounds the replay window for an attacker
+    // who has captured a valid (signature, timestamp) pair.
+    let now_unix: i64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let ts_unix: i64 = match provided_ts.parse::<i64>() {
+        Ok(v) => v,
+        Err(_) => {
+            tracing::warn!(
+                transaction_id = %req.transaction_id,
+                "FATM-11: Gateway webhook rejected — X-Webhook-Timestamp must be Unix seconds integer"
+            );
+            return Json(json!({ "ok": false, "error": "webhook timestamp must be unix seconds" }));
+        }
+    };
+    if ts_unix <= 0 || (now_unix - ts_unix).abs() > HMAC_MAX_DRIFT_SECS {
+        tracing::warn!(
+            transaction_id = %req.transaction_id,
+            now_unix = now_unix,
+            ts_unix = ts_unix,
+            drift_secs = (now_unix - ts_unix).abs(),
+            "FATM-11: Gateway webhook rejected — timestamp drift > 5min (replay-prevention)"
+        );
+        return Json(json!({ "ok": false, "error": "webhook timestamp stale or out of range" }));
+    }
+
+    // §S-260 Atom 2 — Canonical signing input (per-field concatenation; avoids
+    // JSON canonicalization ambiguity per MMA Kimi finding). Real gateways will
+    // dictate their own format; adapt this line when integrating.
+    let canonical = format!(
+        "{}|{}|{}|{}|{}",
+        req.transaction_id, req.driver_id, req.amount_paise, req.status, provided_ts
+    );
+
+    // §S-260 Atom 2 — Compute expected HMAC-SHA256 + constant-time compare.
+    let provided_sig_bytes = match hex::decode(provided_sig) {
+        Ok(b) => b,
+        Err(_) => {
+            tracing::warn!(
+                transaction_id = %req.transaction_id,
+                "FATM-11: Gateway webhook rejected — signature must be hex-encoded"
+            );
+            return Json(json!({ "ok": false, "error": "signature must be hex-encoded" }));
+        }
+    };
+    let mut mac = match HmacSha256::new_from_slice(webhook_secret.as_bytes()) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(
+                transaction_id = %req.transaction_id,
+                "FATM-11: HMAC init failed: {}", e
+            );
+            return Json(json!({ "ok": false, "error": "internal HMAC init error" }));
+        }
+    };
+    mac.update(canonical.as_bytes());
+    if mac.verify_slice(&provided_sig_bytes).is_err() {
+        tracing::warn!(
+            transaction_id = %req.transaction_id,
+            "FATM-11: Gateway webhook rejected — HMAC signature mismatch"
+        );
+        return Json(json!({ "ok": false, "error": "invalid webhook signature" }));
+    }
+    tracing::debug!(
+        transaction_id = %req.transaction_id,
+        "FATM-11: HMAC-SHA256 verification passed (Atom 2)"
+    );
 
     // Basic field validation
     if req.transaction_id.is_empty() || req.driver_id.is_empty() {

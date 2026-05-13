@@ -165,6 +165,21 @@ pub(crate) async fn apply_billing_discount(
                             "MAX_DISCOUNT_PCT ceiling clamped discount for session {}: original_pct={:.4} clamped_pct={:.4} original_total_paise={:?} clamped_total_paise={:?} cap_source={} new_incremental={}",
                             session_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source, new_incremental
                         );
+                        // §S-260 Atom 5 — audit-log stamp on clamp event. Fire-and-forget
+                        // (log_admin_action returns unit). Composes with existing audit_log
+                        // pattern at billing_discount.rs:243-258 admin_actions logging.
+                        let details = format!(
+                            "{{\"session_id\":\"{}\",\"original_pct\":{:.4},\"clamped_pct\":{:.4},\"original_total_paise\":{:?},\"clamped_total_paise\":{:?},\"cap_source\":\"{}\",\"new_incremental\":{},\"path\":\"billing_discount\"}}",
+                            session_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source, new_incremental
+                        );
+                        accounting::log_admin_action(
+                            &state,
+                            "discount_clamped",
+                            &details,
+                            Some(&claims.sub),
+                            None,
+                        )
+                        .await;
                         new_incremental
                     }
                 }

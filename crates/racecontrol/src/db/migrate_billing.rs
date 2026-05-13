@@ -307,22 +307,26 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
     // the app-level guard in debit_in_tx() WHERE balance_paise >= amount is the enforcement layer.)
 
 
+    // §S-260 Atom 4 — narrow CHECK constraint DROPPED per Captain D-CLUSTER-1
+    // (2026-05-13 ~18:23 IST). Old CHECK rejected `gateway_topup` / `refund_cash` /
+    // `bonus_registration` / `bonus_review` / `bonus_follow` etc. Audit columns
+    // (discount_clamped/original_pct/clamped_pct) inlined for fresh DBs; existing DBs
+    // get them via ALTER ADD COLUMN below (idempotent). Cluster RCA I-7 disposition
+    // = CAPTAIN-DECISION-D-CLUSTER-1.
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS wallet_transactions (
             id TEXT PRIMARY KEY,
             driver_id TEXT NOT NULL REFERENCES drivers(id),
             amount_paise INTEGER NOT NULL,
             balance_after_paise INTEGER NOT NULL,
-            txn_type TEXT NOT NULL CHECK(txn_type IN (
-                'topup_cash','topup_card','topup_upi','topup_online',
-                'debit_session','debit_cafe','debit_merchandise','debit_penalty',
-                'refund_session','refund_manual',
-                'bonus','adjustment'
-            )),
+            txn_type TEXT NOT NULL,
             reference_id TEXT,
             notes TEXT,
             staff_id TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            discount_clamped BOOLEAN DEFAULT 0,
+            original_pct REAL,
+            clamped_pct REAL
         )",
     )
     .execute(pool)
@@ -870,6 +874,22 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await;
+
+    // §S-260 Atom 4 — wallet_transactions audit columns for MAX_DISCOUNT_PCT ceiling
+    // forensic capability. Captain D-CLUSTER-1 disposition 2026-05-13 ~18:23 IST:
+    // V1 ALTER (not V2-db NEW migration). Idempotent via `let _ =`. Existing DBs lack the
+    // narrow CHECK constraint per migrate_billing.rs:305-307 inline comment; new fresh DBs
+    // get the column subset via updated inline CREATE TABLE at line 311. Sibling-FK rebuild
+    // risk = NONE (grep `REFERENCES wallet_transactions` returns 0 results 2026-05-13).
+    let _ = sqlx::query("ALTER TABLE wallet_transactions ADD COLUMN discount_clamped BOOLEAN DEFAULT 0")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE wallet_transactions ADD COLUMN original_pct REAL")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE wallet_transactions ADD COLUMN clamped_pct REAL")
+        .execute(pool)
+        .await;
 
     // Hide legacy package tiers from customer display — per-minute is the only model now.
     // These rows remain for snap-pricing reference (best_rate_for_minutes uses hardcoded prices).

@@ -234,7 +234,17 @@ pub(crate) async fn refund_wallet(
                 if session_driver_id != driver_id {
                     return Json(json!({ "error": "Billing session does not belong to this driver" }));
                 }
-                session_cost_paise = custom_price.unwrap_or(0).max(cost.unwrap_or(0)).max(MAX_MANUAL_REFUND_PAISE);
+                // §S-260 Atom 3 — cap formula fix: removed `.max(MAX_MANUAL_REFUND_PAISE)` from
+                // the chain. The MAX-inflation made the cumulative-refund cap effectively
+                // ₹5,000 floor regardless of session cost (50× actual ₹100 session per cluster
+                // RCA I-4). Per-transaction ₹5,000 absolute cap is still enforced at line 207.
+                // Cluster RCA + MMA Step 1 BLOCKING finding (2/3 substantive models flagged this).
+                session_cost_paise = custom_price.unwrap_or(0).max(cost.unwrap_or(0));
+                if session_cost_paise <= 0 {
+                    // MMA-finding cost<=0 explicit guard: prevent refunds on sessions
+                    // with no recorded cost; caller can use unreferenced refund (₹500 cap).
+                    return Json(json!({ "error": "Referenced session has no recorded cost; use unreferenced refund (subject to ₹500 cap)" }));
+                }
             }
             Ok(None) => {
                 return Json(json!({ "error": "Referenced billing session not found" }));
@@ -287,41 +297,40 @@ pub(crate) async fn refund_wallet(
             return Json(json!({ "error": format!("Refund would exceed session cost. Already refunded: {}p, max remaining: {}p", total_refunded, remaining) }));
         }
 
-        // Perform the credit within the same transaction
+        // §S-260 Atom 3 — route Path E refund through wallet::credit_in_tx abstraction.
+        // Pre-fix: raw UPDATE wallets + raw INSERT wallet_transactions bypassed the
+        // currency_type / idempotency_key / venue_id / tracking-columns discipline (cluster
+        // RCA I-4 HIGH BLOCKING; MMA Step 1 4/4 unanimous wallet-credit-bypass class).
         wallet::ensure_wallet(&state, &driver_id).await.ok();
-        let txn_id = uuid::Uuid::new_v4().to_string();
 
-        if let Err(e) = sqlx::query(
-            "UPDATE wallets SET balance_paise = balance_paise + ?, total_credited_paise = total_credited_paise + ?, updated_at = datetime('now') WHERE driver_id = ?"
+        let (_new_balance_in_tx, _txn_id) = match wallet::credit_in_tx(
+            &mut tx,
+            &driver_id,
+            req.amount_paise,
+            "refund_manual",
+            Some(ref_id.as_str()),
+            req.notes.as_deref(),
+            staff_id.as_deref(),
+            None, // idempotency_key — manual refund has no upstream gateway key
+            &state.config.venue.venue_id,
         )
-        .bind(req.amount_paise)
-        .bind(req.amount_paise)
-        .bind(&driver_id)
-        .execute(&mut *tx)
-        .await {
-            return Json(json!({ "error": format!("DB error: {}", e) }));
-        }
-
-        if let Err(e) = sqlx::query(
-            "INSERT INTO wallet_transactions (id, driver_id, amount_paise, balance_after_paise, txn_type, reference_id, notes, staff_id, venue_id) \
-             VALUES (?, ?, ?, (SELECT balance_paise FROM wallets WHERE driver_id = ?), 'refund_manual', ?, ?, ?, ?)"
-        )
-        .bind(&txn_id)
-        .bind(&driver_id)
-        .bind(req.amount_paise)
-        .bind(&driver_id)
-        .bind(ref_id.as_str())
-        .bind(req.notes.as_deref())
-        .bind(staff_id.as_deref())
-        .bind(&state.config.venue.venue_id)
-        .execute(&mut *tx)
-        .await {
-            return Json(json!({ "error": format!("DB error: {}", e) }));
-        }
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                drop(tx);
+                return Json(json!({ "error": format!("Wallet credit failed: {}", e) }));
+            }
+        };
 
         if let Err(e) = tx.commit().await {
             return Json(json!({ "error": format!("DB commit error: {}", e) }));
         }
+
+        // §S-260 Atom 3 — add accounting::post_refund call (was MISSING on referenced
+        // path pre-fix). Posts double-entry journal entry for the refund. Fire-and-forget
+        // per signature; failure logs internally without unwinding the refund.
+        accounting::post_refund(&state, &driver_id, req.amount_paise, Some(ref_id.as_str())).await;
 
         // Get new balance after commit
         let new_balance = wallet::get_balance(&state, &driver_id).await.unwrap_or(0);
