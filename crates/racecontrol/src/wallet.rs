@@ -126,6 +126,10 @@ pub async fn credit_in_tx(
         return Err("Credit amount must be positive".to_string());
     }
 
+    // D-CLUSTER-9 — Rust-side allow-list gate (defense-in-depth replacement for
+    // the narrow DB CHECK dropped in §S-260 atom 4 / D-CLUSTER-1 disposition).
+    crate::wallet_txn_type::validate_txn_type_string_err(txn_type)?;
+
     let txn_id = Uuid::new_v4().to_string();
 
     // Determine which tracking column to increment (per D-01, D-02, D-03)
@@ -302,6 +306,11 @@ pub async fn credit_wallet(
     if amount_paise <= 0 {
         return Err("Credit amount must be positive".to_string());
     }
+
+    // D-CLUSTER-9 — Rust-side allow-list gate (defense-in-depth replacement for
+    // the narrow DB CHECK dropped in §S-260 atom 4 / D-CLUSTER-1 disposition).
+    crate::wallet_txn_type::validate_txn_type_string_err(txn_type)?;
+
     // Ensure wallet exists
     let _ = sqlx::query(
         "INSERT OR IGNORE INTO wallets (driver_id, balance_paise, venue_id) VALUES (?, 0, ?)",
@@ -382,6 +391,10 @@ pub async fn debit_in_tx(
     if amount_paise <= 0 {
         return Err("Debit amount must be positive".to_string());
     }
+
+    // D-CLUSTER-9 — Rust-side allow-list gate (defense-in-depth replacement for
+    // the narrow DB CHECK dropped in §S-260 atom 4 / D-CLUSTER-1 disposition).
+    crate::wallet_txn_type::validate_txn_type_string_err(txn_type)?;
 
     // Atomic debit: UPDATE only if balance is sufficient (prevents TOCTOU race — FATM-03)
     // The WHERE balance_paise >= amount means only one concurrent debit can succeed
