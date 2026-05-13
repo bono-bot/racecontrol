@@ -290,8 +290,15 @@ pub(crate) async fn payment_gateway_webhook(
                 // MAOR-T1 POLISH-2 — propagate DB errors explicitly. Previous
                 // `.ok().flatten()` swallowed sqlx::Error, masking transient DB
                 // outages as misleading "cached row missing" responses.
-                let cached_result = sqlx::query_as::<_, (i64, i64)>(
-                    "SELECT amount_paise, balance_after_paise FROM wallet_transactions WHERE idempotency_key = ?",
+                //
+                // MMA-Step2 Edge-case-2 (nvidia+qwen 2-of-2 consensus) — also
+                // SELECT driver_id from the cached row. On UNIQUE-conflict, the
+                // cached row may carry a DIFFERENT driver_id (gateway integration
+                // bug: same transaction_id reused across drivers). Returning the
+                // cached balance would expose the wrong driver's wallet state.
+                // Reject with bad-request if driver_id mismatches.
+                let cached_result = sqlx::query_as::<_, (i64, i64, String)>(
+                    "SELECT amount_paise, balance_after_paise, driver_id FROM wallet_transactions WHERE idempotency_key = ?",
                 )
                 .bind(&req.transaction_id)
                 .fetch_optional(&state.db)
@@ -309,7 +316,22 @@ pub(crate) async fn payment_gateway_webhook(
                 };
 
                 return match cached {
-                    Some((cached_amount, balance_after)) => {
+                    Some((cached_amount, balance_after, cached_driver_id)) => {
+                        // MMA-Step2 Edge-case-2 — driver_id mismatch check
+                        // (defends against gateway integration bug reusing
+                        // transaction_id across drivers).
+                        if cached_driver_id != req.driver_id {
+                            tracing::warn!(
+                                transaction_id = %req.transaction_id,
+                                cached_driver_id = %cached_driver_id,
+                                requested_driver_id = %req.driver_id,
+                                "FATM-11: idempotency_key reused with different driver_id — rejecting (gateway integration bug?)"
+                            );
+                            return Json(json!({
+                                "ok": false,
+                                "error": "idempotency_key reused with different driver_id"
+                            }));
+                        }
                         // D-PHASE-γ-8 amount-validation on cached-row match.
                         if cached_amount != req.amount_paise {
                             tracing::warn!(
