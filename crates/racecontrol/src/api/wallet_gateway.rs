@@ -224,29 +224,29 @@ pub(crate) async fn payment_gateway_webhook(
         }));
     }
 
-    // FATM-11: Idempotency check — check if this transaction_id was already processed
-    let existing = sqlx::query_as::<_, (i64, i64)>(
-        "SELECT amount_paise, balance_after_paise FROM wallet_transactions WHERE idempotency_key = ?",
-    )
-    .bind(&req.transaction_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-
-    if let Some((_amount, balance_after)) = existing {
-        tracing::info!(
-            transaction_id = %req.transaction_id,
-            "FATM-11: Gateway webhook duplicate — returning original result"
-        );
-        return Json(json!({
-            "ok": true,
-            "duplicate": true,
-            "new_balance_paise": balance_after
-        }));
-    }
-
-    // Credit wallet within a transaction (atomic, idempotent via idempotency_key)
+    // §S-281 D-PHASE-γ-1 Atom 7 — INSERT-then-handle-conflict idempotency pattern.
+    //
+    // Replaces the prior pre-flight SELECT-OUTSIDE-tx pattern (I-13 race class):
+    // two concurrent webhooks with the same idempotency_key both used to SELECT
+    // (finding no row) → both proceeded to credit_in_tx → second one's INSERT
+    // failed on UNIQUE constraint and returned 500 → caller had to retry to get
+    // the duplicate-response 200. Wallet balance was already race-safe via the
+    // UNIQUE INDEX + rollback, but the caller-visible retry-required symptom
+    // was the I-13 idempotency persistence retry-race surface.
+    //
+    // New pattern: BEGIN tx → credit_in_tx (which INSERTs wallet_transactions
+    // with idempotency_key) → on Err detected as UNIQUE-conflict, ROLLBACK +
+    // re-SELECT cached row + return duplicate-response 200 immediately (no
+    // retry required, no caller-visible race).
+    //
+    // D-PHASE-γ-5 NO-MIGRATION — UNIQUE INDEX `idx_wallet_txn_idempotency` is
+    // already present at `crates/racecontrol/src/db/migrate_billing.rs:865-868`
+    // (Phase 252 FATM-02 family · james §S-274 C1 VERIFIED). Pure-code refactor.
+    //
+    // D-PHASE-γ-8 amount-validation — on UNIQUE-conflict + cached-row fetch,
+    // reject if `req.amount_paise != cached_amount` (closes the
+    // idempotency_key-reuse-with-different-amount false-positive class flagged
+    // by MMA Step 1 NVIDIA Q2 and ratified in §S-280 D-PHASE-γ-8).
     let mut tx = match state.db.begin().await {
         Ok(t) => t,
         Err(e) => {
@@ -273,7 +273,88 @@ pub(crate) async fn payment_gateway_webhook(
     {
         Ok(result) => result,
         Err(e) => {
+            let is_conflict = is_idempotency_conflict(&e);
+            // MAOR-T1 IMPORTANT-2 — `drop(tx)` triggers ROLLBACK via sqlx::Transaction's
+            // Drop impl; the pool connection is returned synchronously before the
+            // post-conflict SELECT below borrows a new connection. The wallet UPDATE
+            // executed inside `credit_in_tx` (step 1 before the failing INSERT) is
+            // reversed by this rollback, so the loser tx leaves wallet state unchanged.
             drop(tx);
+
+            if is_conflict {
+                // D-PHASE-γ-1 conflict-handling: UNIQUE-conflict means another
+                // tx committed the same idempotency_key first. Fetch cached
+                // row deterministically (now guaranteed visible outside tx
+                // after rollback) + amount-validate + return duplicate-response.
+                //
+                // MAOR-T1 POLISH-2 — propagate DB errors explicitly. Previous
+                // `.ok().flatten()` swallowed sqlx::Error, masking transient DB
+                // outages as misleading "cached row missing" responses.
+                let cached_result = sqlx::query_as::<_, (i64, i64)>(
+                    "SELECT amount_paise, balance_after_paise FROM wallet_transactions WHERE idempotency_key = ?",
+                )
+                .bind(&req.transaction_id)
+                .fetch_optional(&state.db)
+                .await;
+
+                let cached = match cached_result {
+                    Ok(opt) => opt,
+                    Err(db_err) => {
+                        tracing::error!(
+                            transaction_id = %req.transaction_id,
+                            "FATM-11: post-conflict cached-row SELECT failed: {}", db_err
+                        );
+                        return Json(json!({ "ok": false, "error": "DB error — please retry" }));
+                    }
+                };
+
+                return match cached {
+                    Some((cached_amount, balance_after)) => {
+                        // D-PHASE-γ-8 amount-validation on cached-row match.
+                        if cached_amount != req.amount_paise {
+                            tracing::warn!(
+                                transaction_id = %req.transaction_id,
+                                cached_amount = cached_amount,
+                                requested_amount = req.amount_paise,
+                                "FATM-11: idempotency_key reused with different amount_paise — rejecting"
+                            );
+                            return Json(json!({
+                                "ok": false,
+                                "error": "idempotency_key reused with different amount_paise"
+                            }));
+                        }
+                        tracing::info!(
+                            transaction_id = %req.transaction_id,
+                            "FATM-11: Gateway webhook duplicate (via INSERT-conflict) — returning cached result"
+                        );
+                        Json(json!({
+                            "ok": true,
+                            "duplicate": true,
+                            "new_balance_paise": balance_after
+                        }))
+                    }
+                    None => {
+                        // Unexpected race: UNIQUE-conflict but no row visible
+                        // post-rollback. Structurally possible only via concurrent
+                        // DELETE on wallet_transactions, which is not permitted by
+                        // any V2 code path. Reaching here indicates server-side
+                        // inconsistency requiring operator investigation, not a
+                        // retryable client error.
+                        //
+                        // MAOR-T1 POLISH-1 — message corrected from misleading
+                        // "please retry" (would infinite-loop) to operator-investigate.
+                        tracing::error!(
+                            transaction_id = %req.transaction_id,
+                            "FATM-11: UNIQUE-conflict but cached row not found post-rollback — unexpected race, operator investigate"
+                        );
+                        Json(json!({
+                            "ok": false,
+                            "error": "idempotency conflict but cached row missing — unexpected server error, contact support"
+                        }))
+                    }
+                };
+            }
+
             tracing::error!(
                 transaction_id = %req.transaction_id,
                 driver_id = %req.driver_id,
@@ -305,4 +386,69 @@ pub(crate) async fn payment_gateway_webhook(
         "new_balance_paise": new_balance,
         "txn_id": txn_id
     }))
+}
+
+/// §S-281 D-PHASE-γ-1 Atom 7 — detect UNIQUE-constraint violation on
+/// `wallet_transactions.idempotency_key` from `wallet::credit_in_tx` error.
+///
+/// `credit_in_tx` returns `Result<_, String>` where the formatted error
+/// embeds the sqlx-rendered SQLite error message (per `wallet.rs:190`:
+/// `format!("DB error recording transaction: {}", e)`). SQLite emits
+/// `UNIQUE constraint failed: wallet_transactions.idempotency_key` on the
+/// idempotency_key UNIQUE INDEX (`migrate_billing.rs:865-868`).
+///
+/// MAOR-T1 IMPORTANT-1 nuance — the index is **partial**:
+/// `WHERE idempotency_key IS NOT NULL`. NULL keys bypass the UNIQUE
+/// constraint entirely and will NEVER produce this error. Callers that
+/// pass `Some(non_empty_str)` (the only correct call shape for
+/// `payment_gateway_webhook`) are unaffected; callers that pass `None`
+/// MUST NOT rely on this helper as a deduplication signal.
+///
+/// We accept either the canonical sqlx message or a partial column-name
+/// match for resilience against minor sqlx-error-format changes. False-
+/// positive risk is negligible: no other table has `idempotency_key` in
+/// the wallet_transactions namespace; the qualified column name keeps
+/// this check tight.
+fn is_idempotency_conflict(err_str: &str) -> bool {
+    err_str.contains("UNIQUE constraint failed: wallet_transactions.idempotency_key")
+        || err_str.contains("wallet_transactions.idempotency_key")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// §S-281 D-PHASE-γ-1 — confirms the canonical sqlx UNIQUE-constraint
+    /// error message format triggers conflict-detection.
+    #[test]
+    fn is_idempotency_conflict_matches_sqlx_canonical_message() {
+        let canonical = "DB error recording transaction: error returned from database: \
+                         UNIQUE constraint failed: wallet_transactions.idempotency_key";
+        assert!(is_idempotency_conflict(canonical), "canonical sqlx UNIQUE-conflict message MUST trigger");
+    }
+
+    /// §S-281 D-PHASE-γ-1 — confirms partial column-name match works as
+    /// resilience fallback (sqlx error-format minor changes don't break detection).
+    #[test]
+    fn is_idempotency_conflict_matches_partial_column_name() {
+        let partial = "some future sqlx wrapper: wallet_transactions.idempotency_key duplicate";
+        assert!(is_idempotency_conflict(partial), "partial column-name match MUST trigger");
+    }
+
+    /// §S-281 D-PHASE-γ-1 — confirms unrelated DB errors do NOT trigger
+    /// conflict-detection (would cause false-positive duplicate-response
+    /// instead of error propagation).
+    #[test]
+    fn is_idempotency_conflict_rejects_unrelated_errors() {
+        let cases = [
+            "DB error updating wallet: connection refused",
+            "DB error reading balance: timeout",
+            "UNIQUE constraint failed: wallets.driver_id", // different table
+            "txn_type 'unknown' is not in the allow-list", // D-CLUSTER-9 error
+            "",
+        ];
+        for case in cases {
+            assert!(!is_idempotency_conflict(case), "unrelated error MUST NOT trigger: {}", case);
+        }
+    }
 }
