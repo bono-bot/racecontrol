@@ -1,0 +1,33 @@
+{
+  "model": "kwaipilot/kat-coder-pro-v2",
+  "short": "kat-coder-pro",
+  "role": "code_expert",
+  "vendor": "kwai",
+  "status": 200,
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 12192,
+    "completion_tokens": 3474,
+    "total_tokens": 15666,
+    "cost": 0.0078264,
+    "is_byok": false,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "audio_tokens": 0,
+      "video_tokens": 0
+    },
+    "cost_details": {
+      "upstream_inference_cost": 0.0078264,
+      "upstream_inference_prompt_cost": 0.0036576,
+      "upstream_inference_completions_cost": 0.0041688
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "image_tokens": 0,
+      "audio_tokens": 0
+    }
+  },
+  "wall_ms": 51998,
+  "cost": 0.0078264
+}

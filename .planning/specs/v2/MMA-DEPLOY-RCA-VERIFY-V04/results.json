@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-05-13T09:43:59.011Z",
+  "pilot": "james",
+  "session_purpose": "MMA Step 4 VERIFY Round 4 — adversarial gate on v0.4 hardened-script deploy-mechanism PLAN (substrate-evolved Option Y)",
+  "mma_step": "VERIFY-V04",
+  "models": [
+    {
+      "model": "z-ai/glm-5",
+      "short": "glm-5",
+      "role": "reasoner",
+      "vendor": "zhipu",
+      "status": "OK",
+      "finish_reason": "length",
+      "tokens_in": 11565,
+      "tokens_out": 6000,
+      "cost": 0.01938828,
+      "wall_ms": 95775
+    },
+    {
+      "model": "kwaipilot/kat-coder-pro-v2",
+      "short": "kat-coder-pro",
+      "role": "code_expert",
+      "vendor": "kwai",
+      "status": "OK",
+      "finish_reason": "stop",
+      "tokens_in": 12192,
+      "tokens_out": 3474,
+      "cost": 0.0078264,
+      "wall_ms": 51998
+    },
+    {
+      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "short": "nemotron-super",
+      "role": "sre",
+      "vendor": "nvidia",
+      "status": "OK",
+      "finish_reason": "stop",
+      "tokens_in": 12577,
+      "tokens_out": 4887,
+      "cost": 0.0037012,
+      "wall_ms": 159018
+    }
+  ],
+  "valid_responses": 3,
+  "total_responses": 3,
+  "total_cost_usd": 0.03091588,
+  "wall_ms": 159039,
+  "anchor": ".planning/specs/v2/MMA-DEPLOY-RCA-VERIFY-V04/",
+  "consumes_step1": ".planning/specs/v2/MMA-DEPLOY-RCA-DIAGNOSE/CONSENSUS.md (CF-1..CF-9)",
+  "consumes_round3_findings": ".planning/specs/v2/MMA-BRIDGE-VERIFY-PV2-OPT-E/CONSENSUS-VERIFY.md (CR-FL-X+A+B+C+D+E+F+G+H)",
+  "supersedes_pivot_path": "PV2-OPT-B Win32 LockFileEx (deferred as overengineering given substrate evolution)",
+  "authorization": "Captain disposition (A) 2026-05-13 ~14:48 IST: \"drive Step 4 VERIFY to PASS on a v0.4 plan ... or commit to LockFileEx pivot. Authorize ~$0.05-0.10 MMA spend\"",
+  "vendor_diversity": "3 distinct vendor families (zhipu + kwai + nvidia); disjoint from Round 2 + Round 3 vendor sets",
+  "tier1_compliance": "all 3 models Tier-1 per §S-166: glm-5 (reasoner premium) + kat-coder-pro-v2 (code_expert standard) + nemotron-super (sre standard)",
+  "pass_threshold": 4,
+  "block_threshold": "<4.0"
+}
