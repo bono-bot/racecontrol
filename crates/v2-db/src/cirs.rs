@@ -22,12 +22,34 @@ use sha2::{Digest, Sha256};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CirsError {
-    #[error("invalid phone: {0}")]
+    // DPDP §7.8 PII-redaction: Display impl MUST NOT echo the raw phone input.
+    // Inner String preserved for programmatic access (pattern-matching callers);
+    // Display emits an 8-char sha256 fingerprint for duplicate-error correlation
+    // without disclosing the raw digits. 8 hex chars (32 bits) is PII-safe per
+    // analogous patterns and matches LookupInput::input_hash() truncation policy.
+    #[error("invalid phone: <sha256:{}>", redact_phone(.0))]
     InvalidPhone(String),
-    #[error("ambiguous phone (likely STD prefix or missing country code): {0}")]
+    #[error("ambiguous phone (likely STD prefix or missing country code): <sha256:{}>", redact_phone(.0))]
     AmbiguousPhone(String),
     #[error("sqlx: {0}")]
     Sqlx(#[from] sqlx::Error),
+}
+
+/// Produce a hyphen-split 8-char sha256 hex fingerprint of a phone input for
+/// safe Display in error messages. DPDP §7.8 — never echo raw phone digits in
+/// 4xx response bodies. 8 hex chars = 32 bits of entropy; sufficient for
+/// duplicate-error correlation in logs, insufficient for re-identification.
+///
+/// The hyphen split ("xxxx-xxxx") structurally guarantees the fingerprint can
+/// never contain an ASCII digit run of length >= 6 even when the hash happens
+/// to be all-digits — important because the cirs-lookup-pii-redaction contract
+/// test scans response bodies for any 6+ digit run as a generic PII signal and
+/// cannot distinguish a coincidental hex digit run from a real phone number.
+fn redact_phone(input: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(input.as_bytes());
+    let full = format!("{:x}", h.finalize());
+    format!("{}-{}", &full[..4], &full[4..8])
 }
 
 /// Input to a CIRS lookup. Exactly one variant per call.
@@ -325,5 +347,155 @@ mod tests {
     fn canonicalize_fullwidth_plus_rejects() {
         let err = canonicalize_phone("\u{FF0B}919876543210").unwrap_err();
         assert!(matches!(err, CirsError::InvalidPhone(_)));
+    }
+
+    // DPDP §7.8 PII-redaction coverage — Display impl of CirsError variants
+    // MUST NOT echo raw phone digits. Acceptance test
+    // tests/contract/cirs-lookup-pii-redaction.spec.ts (commit 7c15f18e, james
+    // §S-219) asserts no digit-run >= 6 in any 4xx response body across the
+    // CIRS lookup HTTP surface. These unit tests are the substrate-side
+    // contract: Display(CirsError) is the source of the leak the integration
+    // test asserts against.
+
+    /// Returns true if `s` contains any run of >= 6 consecutive ASCII digits.
+    fn contains_phone_digit_run(s: &str) -> bool {
+        let mut run = 0usize;
+        for c in s.chars() {
+            if c.is_ascii_digit() {
+                run += 1;
+                if run >= 6 {
+                    return true;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn contains_phone_digit_run_helper_smoke() {
+        // Helper self-check so the assertions below are meaningful.
+        assert!(contains_phone_digit_run("9876543210"));
+        assert!(contains_phone_digit_run("abc9876543210xyz"));
+        assert!(contains_phone_digit_run("123456"));
+        assert!(!contains_phone_digit_run("12345"));
+        assert!(!contains_phone_digit_run("123 456"));
+        assert!(!contains_phone_digit_run("abc12def34ghi56"));
+    }
+
+    #[test]
+    fn invalid_phone_display_redacts_raw_digits() {
+        let cases = [
+            "9876543210",
+            "+919876543210",
+            "09876543210",
+            "98765 43210",
+            "+1234567",
+            "12345",
+        ];
+        for raw in cases {
+            let msg = CirsError::InvalidPhone(raw.to_string()).to_string();
+            assert!(
+                !contains_phone_digit_run(&msg),
+                "InvalidPhone Display leaked digit-run >= 6 for input {raw:?} -> message {msg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ambiguous_phone_display_redacts_raw_digits() {
+        let cases = [
+            "9876543210",
+            "+919876543210",
+            "09876543210",
+            "98765 43210",
+            "19876543210",
+        ];
+        for raw in cases {
+            let msg = CirsError::AmbiguousPhone(raw.to_string()).to_string();
+            assert!(
+                !contains_phone_digit_run(&msg),
+                "AmbiguousPhone Display leaked digit-run >= 6 for input {raw:?} -> message {msg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn redacted_display_is_deterministic_per_input() {
+        // Same input -> same fingerprint (duplicate-error correlation property).
+        let a = CirsError::InvalidPhone("9876543210".to_string()).to_string();
+        let b = CirsError::InvalidPhone("9876543210".to_string()).to_string();
+        assert_eq!(a, b);
+        // Different input -> different fingerprint (no collision on realistic pairs).
+        let c = CirsError::InvalidPhone("9876543211".to_string()).to_string();
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn redacted_display_fingerprint_shape() {
+        // Expected shape: "invalid phone: <sha256:XXXX-XXXX>" (4-hyphen-4).
+        // The hyphen split structurally caps digit-run length at 4 inside the
+        // fingerprint, so even all-digit hash prefixes can't trip the
+        // contract's >=6 digit-run scanner.
+        let msg = CirsError::InvalidPhone("9876543210".to_string()).to_string();
+        let idx = msg.find("<sha256:").expect("redacted tag present");
+        let after = &msg[idx + "<sha256:".len()..];
+        let close = after.find('>').expect("redacted tag closed");
+        let fp = &after[..close];
+        assert_eq!(fp.len(), 9, "fingerprint must be 4-hyphen-4 = 9 chars");
+        let parts: Vec<&str> = fp.split('-').collect();
+        assert_eq!(parts.len(), 2, "fingerprint must have exactly one hyphen");
+        assert_eq!(parts[0].len(), 4);
+        assert_eq!(parts[1].len(), 4);
+        assert!(parts[0].chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// MAOR Tier-1 Finding #2 cross-verification: mirrors the substring-containment
+    /// detection strategy of the integration-level contract test at
+    /// `tests/contract/cirs-lookup-pii-redaction.spec.ts` (function `leakSubstrings`).
+    /// The contract test scans response bodies for raw input / digits-only / +91-prefix
+    /// / 0-prefix substrings of length >=6. This unit test independently verifies the
+    /// Display output cannot leak any such candidate, closing the cross-verification
+    /// gap between digit-run-count (other tests) and substring-containment (contract).
+    #[test]
+    fn redacted_display_no_leak_substring_class() {
+        // leak-substring candidates per contract leakSubstrings() logic
+        fn leak_candidates(input: &str) -> Vec<String> {
+            let trimmed = input.trim().to_string();
+            let digits: String = input.chars().filter(|c| c.is_ascii_digit()).collect();
+            let mut out: Vec<String> = Vec::new();
+            if trimmed.len() >= 6 {
+                out.push(trimmed.clone());
+            }
+            if digits.len() >= 6 {
+                out.push(digits.clone());
+                out.push(format!("+91{digits}"));
+                out.push(format!("0{digits}"));
+            }
+            out
+        }
+        let realistic_phones = [
+            "9876543210",
+            "+919876543210",
+            "09876543210",
+            "98765 43210",
+            "1234567890",
+        ];
+        for raw in realistic_phones {
+            let invalid_msg = CirsError::InvalidPhone(raw.to_string()).to_string();
+            let ambiguous_msg = CirsError::AmbiguousPhone(raw.to_string()).to_string();
+            for candidate in leak_candidates(raw) {
+                assert!(
+                    !invalid_msg.contains(&candidate),
+                    "InvalidPhone Display leaked substring {candidate:?} for input {raw:?} -> {invalid_msg:?}"
+                );
+                assert!(
+                    !ambiguous_msg.contains(&candidate),
+                    "AmbiguousPhone Display leaked substring {candidate:?} for input {raw:?} -> {ambiguous_msg:?}"
+                );
+            }
+        }
     }
 }

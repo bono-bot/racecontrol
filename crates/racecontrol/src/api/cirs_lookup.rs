@@ -285,6 +285,12 @@ pub async fn cirs_lookup_handler(
                             (StatusCode::INTERNAL_SERVER_ERROR, "lookup_db_error")
                         }
                     };
+                    // DPDP §7.8 — `format!("{e}")` is ALREADY redacted via the
+                    // CirsError Display impl (v2-db/src/cirs.rs L23-36). The audit
+                    // table stores the fingerprint form ("<sha256:xxxx-xxxx>"), not
+                    // the raw phone. DO NOT switch to `format!("{e:?}")` (Debug) —
+                    // Debug would re-expose the inner String and regress the privacy
+                    // contract at `tests/contract/cirs-lookup-pii-redaction.spec.ts`.
                     let msg = format!("{e}");
                     let audit = LookupResult::Error { message: msg.clone() };
                     if let Err(audit_err) = record_lookup(
