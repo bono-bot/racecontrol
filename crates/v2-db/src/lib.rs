@@ -20,6 +20,38 @@ pub type DbPool = sqlx::SqlitePool;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// SAFETY (sqlx Display feature-flag audit — §S-247 iter9 AUDITED-SAFE for `v2_db::Error::Sqlx`):
+    /// **Scope of this comment**: `v2_db::Error::Sqlx` ONLY (the variant directly above). The
+    /// sibling type `v2_db::cirs::CirsError::Sqlx` is a separate wrapper with its own reach
+    /// path — see disposition note below.
+    /// sqlx 0.8.6 Display does NOT expose bind values in current workspace configuration —
+    /// the `log-statements` feature was removed in sqlx 0.7+ structurally (query logging
+    /// migrated to tracing-based subscribers). All 3 sqlx imports verified: `crates/v2-db`
+    /// (`default-features = false` + minimal feature set), `crates/racecontrol` and
+    /// `crates/weekly-report` (defaults are `any, macros, migrate, derive, json` — no
+    /// log-statements). For `v2_db::Error::Sqlx` specifically: 0 HTTP Display reach paths
+    /// (`grep -rn "v2_db::Error\b" /root/racecontrol/crates/racecontrol/src/api/` returns
+    /// 0 hits; the wrapper is used only in the `open()` function at boot).
+    /// **Sibling-wrapper reach disclosure**: `v2_db::cirs::CirsError::Sqlx` (defined at
+    /// `v2-db/src/cirs.rs`) IS reached via `format!("{e}")` at `cirs_lookup.rs:294` →
+    /// HTTP response "message" field at line 312. That path's risk is bounded — sqlx 0.8.6
+    /// Display does not surface bind values (log-statements removed); SQLite driver Display
+    /// content is structural metadata (table names, column names, SQL error codes), not
+    /// bind values. The intentional-redaction comment at `cirs_lookup.rs:288-293` documents
+    /// PII fingerprint redaction for the InvalidPhone + AmbiguousPhone variants via the
+    /// CirsError Display impl (§S-241 iter5 fix at `cirs.rs:23-36`); the SQLX variant case
+    /// relies on sqlx Display safety rather than the explicit fingerprint mechanism. Future
+    /// audit class: SQLite error Display content fragments under adversarial query injection
+    /// (separate from feature-flag class; out of §S-247 scope; track via §S-146 RCA if
+    /// elevated).
+    /// Future caller-site contract for `v2_db::Error::Sqlx` (this variant): any new handler
+    /// matching on `Error::Sqlx` MUST NOT use `format!("{e}")` in JSON response — return
+    /// generic internal_error per `cirs_lookup.rs:284` pattern.
+    /// Audit trail: §S-241 Agent-2 recommendation #4; §S-247 iter9 verdict; MAOR Tier-1
+    /// Finding #1 DISPOSITIONED-INLINE — initial draft conflated `v2_db::Error::Sqlx` audit
+    /// scope with sibling-wrapper `CirsError::Sqlx` reach path (same G9 class as iter7
+    /// wrong-struct-import sub-class `multi-defined-similar-type-incomplete-grep`); this
+    /// revision separates the two wrapper types explicitly.
     #[error("sqlx: {0}")]
     Sqlx(#[from] sqlx::Error),
     #[error("migrate: {0}")]
