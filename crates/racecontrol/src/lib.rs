@@ -97,6 +97,7 @@ pub mod business_store;
 pub mod hr_store;
 pub mod maintenance_engine;
 pub mod marketing_triggers;
+pub mod pricing;
 pub mod pricing_engine;
 pub mod maintenance_models;
 pub mod maintenance_store;

@@ -197,6 +197,30 @@ pub(crate) async fn start_billing_inner(
         }
 
     let original_price_paise = input.custom_price_paise.map(|p| p as i64).unwrap_or(tier.price_paise);
+
+    // MAX_DISCOUNT_PCT ceiling: clamp before floor (§S-253 row 7.3 substrate; Captain Q-2-1 ratify §S-252 c203135d)
+    {
+        use crate::pricing::discount_ceiling::{clamp_discount_paise, max_discount_pct, ClampResult};
+        let cap = max_discount_pct(&state);
+        match clamp_discount_paise(applied_discount_paise, original_price_paise, cap) {
+            ClampResult::Allowed { .. } => {}
+            ClampResult::Clamped {
+                original_pct,
+                clamped_pct,
+                original_paise,
+                clamped_paise,
+                cap_source,
+            } => {
+                let new_discount = clamped_paise.unwrap_or(0);
+                tracing::warn!(
+                    "MAX_DISCOUNT_PCT ceiling clamped discount: original_pct={:.4} clamped_pct={:.4} original_paise={:?} clamped_paise={:?} cap_source={}",
+                    original_pct, clamped_pct, original_paise, clamped_paise, cap_source
+                );
+                applied_discount_paise = new_discount;
+            }
+        }
+    }
+
     let mut final_price_paise = original_price_paise - applied_discount_paise;
 
     // FATM-10: Enforce discount floor

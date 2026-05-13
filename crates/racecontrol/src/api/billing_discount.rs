@@ -137,6 +137,39 @@ pub(crate) async fn apply_billing_discount(
 
     let effective_discount_paise = match session_prices {
         Ok(Some((original_price_opt, current_discount))) => {
+            // MAX_DISCOUNT_PCT ceiling: clamp before floor (§S-253 row 7.3 substrate; Captain Q-2-1 ratify §S-252 c203135d)
+            //
+            // The ceiling clamps the TOTAL effective discount on the session
+            // (current_discount + requested) against `original_price * cap`. The
+            // floor below then caps further so final price >= DISCOUNT_FLOOR_PAISE.
+            // Both invariants compose: an incremental request that would push
+            // total discount past the ceiling is clamped down, then the floor
+            // check re-validates remaining headroom.
+            let ceiling_capped_request: i64 = {
+                use crate::pricing::discount_ceiling::{clamp_discount_paise, max_discount_pct, ClampResult};
+                let cap = max_discount_pct(&state);
+                let base_price = original_price_opt.unwrap_or(0);
+                let total_requested = current_discount.saturating_add(req.discount_paise);
+                match clamp_discount_paise(total_requested, base_price, cap) {
+                    ClampResult::Allowed { .. } => req.discount_paise,
+                    ClampResult::Clamped {
+                        original_pct,
+                        clamped_pct,
+                        original_paise,
+                        clamped_paise,
+                        cap_source,
+                    } => {
+                        let total_after_clamp = clamped_paise.unwrap_or(0);
+                        let new_incremental = (total_after_clamp - current_discount).max(0);
+                        tracing::warn!(
+                            "MAX_DISCOUNT_PCT ceiling clamped discount for session {}: original_pct={:.4} clamped_pct={:.4} original_total_paise={:?} clamped_total_paise={:?} cap_source={} new_incremental={}",
+                            session_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source, new_incremental
+                        );
+                        new_incremental
+                    }
+                }
+            };
+
             let floor = billing::DISCOUNT_FLOOR_PAISE;
             if floor > 0 {
                 let base_price = original_price_opt.unwrap_or(0);
@@ -153,16 +186,16 @@ pub(crate) async fn apply_billing_discount(
                         "session_id": session_id,
                     }));
                 }
-                let capped = req.discount_paise.min(remaining_headroom);
-                if capped < req.discount_paise {
+                let capped = ceiling_capped_request.min(remaining_headroom);
+                if capped < ceiling_capped_request {
                     tracing::info!(
                         "FATM-10: Discount floor enforced for session {} — requested {}p capped to {}p (floor={}p, base={}p, current_discount={}p)",
-                        session_id, req.discount_paise, capped, floor, base_price, current_discount
+                        session_id, ceiling_capped_request, capped, floor, base_price, current_discount
                     );
                 }
                 capped
             } else {
-                req.discount_paise
+                ceiling_capped_request
             }
         }
         Ok(None) => {
