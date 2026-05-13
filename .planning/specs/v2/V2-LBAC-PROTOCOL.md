@@ -416,6 +416,30 @@ Per MMA Q4 stop-condition: if post-fix gap rate ≥20% per cascade OR new sub-cl
 
 **Window:** 2026-05-13 → 2026-05-20 (stale-at). If triggered, bono surfaces DEPRECATE recommendation; Captain decides whether to proceed with deprecation or accept extension.
 
+### §14.6.1 — Candidate C ratify (cascade-class-stratified DEPRECATE thresholds)
+
+**Status:** RATIFIED 2026-05-13 ~20:18 IST per V-LBAC-DEPRECATE-TRIGGER-AUDIT-20260513.md interpretation analysis. Captain disposition under §S-265 pre-commitment exception (item 5 of 8 in NEXT-SESSION DIRECTIVE 19:10 IST queue) + continuation directive 19:26 IST ("Proceed to complete all LIVE blocking with MOAR. If you still ask my permission on any task, consider it a gap and fix it."). Audit-trail anchor: comms-link §S-268.
+
+The single ≥20% threshold in §14.6 is REFINED to cascade-class-stratified thresholds (each class measured independently) per Candidate C:
+
+| Class | Definition | Threshold | Measurement source |
+|---|---|---|---|
+| **Class M (multi-agent test)** | Cascade where ≥2 parallel general-purpose subagents author contract tests in single window | post-fix STRUCTURAL-GAP rate ≥20% | iter5+ multi-agent test cascade output (currently stand-down) |
+| **Class A (atom-substrate)** | Cascade where atomic substrate atoms (≤10 LOC each) authored + MAOR Tier-1 reviewed | post-fix real-defect MAOR rate ≥20% per atom | `~/.claude/state/maor-audit.jsonl` per-atom CRITICAL count |
+| **Class U (audit-only)** | Audit deliverable cascade (RCA / forensic / verification audits) — no code substrate | post-fix correctness-finding rate ≥20% per audit | post-Captain-ratify finding count |
+
+**DEPRECATE recommendation scope (Candidate C policy):** class-scoped, NOT blanket. A Class A DEPRECATE retires atom-substrate-cascade methodology in favor of single-agent atom authoring (which is effectively what Phase β PR #72 already was). A Class U DEPRECATE retires audit-only cascade in favor of single-pilot audits. Class M DEPRECATE requires iter5+ measurement first (cannot trigger on stand-down state).
+
+**Current data anchors (forward 7d window 2026-05-13 → 2026-05-20):**
+- **Class A:** Phase β (PR #72 / commit 1a2991b4) — 5 atoms · 0 real-defect MAOR Tier-1 findings (CONDITIONAL-DISPOSITIONED-PASS via §S-263 Finding-1 PRE-EXISTING + Finding-2 FALSE-POSITIVE) · **0% gap rate** (well under threshold)
+- **Class U:** §S-262 iter11 deploy-surface verify — 0 audits with post-Captain-ratify findings · **N/A** (insufficient datapoints)
+- **Class M:** stand-down (unmeasured · cannot DEPRECATE-trigger without iter5; preserves §S-219 iter4 last-known state)
+- **D-CLUSTER-8 rename (PR #73 / commit 670b5531):** Class A · 0 real-defect MAOR findings · MAOR Tier-1 self-review PASS · contributes 0% to Class A gap rate
+
+**Class M stand-down maintenance protocol:** V-LBAC-5 forward window 2026-05-20 extension OR explicit Captain authorization to run iter5 multi-agent test cascade required for forward measurement before window closes. If neither occurs by 2026-05-20: bono surfaces Class M decision-point (extend stand-down further · run forward measurement cascade · DEPRECATE Class M without measurement as predetermined).
+
+**Anchor:** V-LBAC-DEPRECATE-TRIGGER-AUDIT-20260513.md (racecontrol commit `6edbb51c`) · §S-268 close-anchor (comms-link, this session) · §S-265 pre-commitment exception (covers item 5 of 8).
+
 ### §14.7 — Composes-with extended
 
 - **§S-220 MAOR v0.1 RATIFY** — `.planning/specs/v2/MAOR-PROTOCOL.md` (commit `0360fde9`) + V2-MASTER-STATE comms-link `c09e2723`
