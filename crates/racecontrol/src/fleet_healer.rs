@@ -127,14 +127,19 @@ pub enum FleetHealerError {
 /// return — the data persists indefinitely but doesn't currently reach HTTP. Same risk class as
 /// §S-241 cirs.rs Display-impl PII-leak (commit `cbf5b995`) but via different mechanism
 /// (request-body audit-log echo, not thiserror Display interpolation).
-/// SEPARATE FINDING (DOCUMENTED-DEFERRED to iter8 / §S-146 audit): this POST endpoint
+/// AUTH-GAP FINDING (§S-246 iter8 VERIFIED — CONFIRMED-UNAUTHENTICATED): this POST endpoint
 /// merges at `routes.rs:128` OUTSIDE all auth-class sub-router groups (auth_rate_limited /
-/// public / customer / kiosk / staff / service / survival) — authentication context may
-/// be permissive; verify before claiming "internal-only" includes a meaningful trust
-/// boundary at the WRITE side. Audit trail: §S-241 Agent-2 class-audit recommendation #5;
-/// §S-245 iter7 defensive comment-contract (MAOR Tier-1 findings #1+#2+#3 DISPOSITIONED-INLINE —
-/// initial draft cited wrong struct fields and stale line numbers; this revision uses correct
-/// local-`SurvivalReport` fields and relative `log_repair` reference to survive future line drift).
+/// public / customer / kiosk / staff / service / survival). Verification chain traced via
+/// `main.rs:451-498` build_router — outer layers are `jwt_error_to_401` (error-handler not
+/// auth-gate), `security_headers_layer`, `cache_control_middleware`, CORS layer — NONE
+/// require authentication. Alternative `api/mod.rs:112-116` build_router has no auth layers
+/// either. Any LAN-internal client can POST arbitrary `SurvivalReport` JSON; data persists
+/// to `incident_log.metadata` indefinitely. AUTH FIX is foundational-boundary §S-146 class:
+/// requires 5-section RCA + MMA Step 1 DIAGNOSE + Captain per-PR auth; filed at
+/// `comms-link/data/security-debt-ledger.jsonl` 2026-05-13T10:15:00Z (`class: auth-gap`,
+/// `closure_phase: PENDING-CAPTAIN-DISPOSITION`). Audit trail: §S-241 Agent-2 class-audit
+/// recommendation #5; §S-245 iter7 hedged-finding "may be permissive"; §S-246 iter8
+/// verification upgrade + security-debt-ledger entry.
 pub async fn survival_report_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(pod_id): axum::extract::Path<String>,
