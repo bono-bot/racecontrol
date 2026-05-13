@@ -315,8 +315,13 @@ pub(crate) async fn internal_test_config_mismatch_handler(
 //     "days": 7,
 //     "today_count": <i64>,
 //     "by_day": [{ "date": "YYYY-MM-DD", "count": <i64> }, ...],
-//     "alert_threshold": 10
+//     "alert_threshold": <f64>  // resolved from state.config.alert_rules; fallback 10.0
 //   }
+//
+// §S-275 AMPLIFIER IMPORTANT #2 fix: alert_threshold is read from configured
+// alert_rules (matching metric=discount_clamp_count_daily) so dashboard reflects
+// operator-tuned TOML threshold. Closes config↔UI drift class per CLAUDE.md
+// "UI must reflect config truth".
 
 #[derive(Deserialize)]
 pub(crate) struct DiscountClampSummaryQuery {
@@ -358,11 +363,21 @@ pub(crate) async fn discount_clamp_summary_handler(
     .await
     .unwrap_or(0);
 
+    // §S-275 AMPLIFIER IMPORTANT #2: resolve threshold from configured alert_rules so
+    // dashboard tracks operator-tuned TOML edits instead of a hardcoded literal.
+    let alert_threshold: f64 = state
+        .config
+        .alert_rules
+        .iter()
+        .find(|r| r.metric == crate::metrics_tsdb::METRIC_DISCOUNT_CLAMP_COUNT)
+        .map(|r| r.threshold)
+        .unwrap_or(10.0);
+
     Json(json!({
         "days": days,
         "today_count": today_count,
         "by_day": by_day,
-        "alert_threshold": 10,
+        "alert_threshold": alert_threshold,
         "note": "Source: audit_log rows action_type='discount_clamped' (cluster atom A5 emitter)"
     }))
 }

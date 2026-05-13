@@ -184,4 +184,26 @@ mod tests {
         let after = counter.load(Ordering::Relaxed);
         assert_eq!(after, before + 1, "AtomicU64 counter must increment by 1");
     }
+
+    /// §S-275 AMPLIFIER IMPORTANT #3 regression guard: producer arm #6 emits a
+    /// `MetricSample { value: 0.0 }` when audit_log COUNT==0 (NOT skip).
+    /// Future regression to "only emit when count > 0" would cause the discount-clamp
+    /// alert evaluator to read a stale value from the prior cycle (or read nothing) →
+    /// silent observability failure. This test locks the "value=0.0 IS a valid sample"
+    /// invariant at the sample-construction level. Composes with
+    /// `metric_alert_discount_clamp_storm_fires_above_10` (asserts Gt 0.0 vs 10.0 = false).
+    #[test]
+    fn discount_clamp_zero_count_emits_explicit_zero_sample() {
+        use crate::metrics_tsdb::{MetricSample, METRIC_DISCOUNT_CLAMP_COUNT};
+        let count: i64 = 0;
+        let sample = MetricSample {
+            metric_name: METRIC_DISCOUNT_CLAMP_COUNT.to_string(),
+            pod_id: None,
+            value: count as f64,
+            recorded_at: "2026-05-14T03:55:00Z".to_string(),
+        };
+        assert_eq!(sample.metric_name, "discount_clamp_count_daily");
+        assert_eq!(sample.value, 0.0, "zero-count arm MUST emit value=0.0, not skip");
+        assert!(sample.pod_id.is_none(), "global-scope metric has no pod_id");
+    }
 }
