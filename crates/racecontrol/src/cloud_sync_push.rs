@@ -54,6 +54,8 @@ pub(crate) async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> 
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("comms_link_url not configured"))?;
 
+    // Capture cursor_before once so verify uses the SAME window the SELECTs read against.
+    let cursor_before = get_last_push_time(state).await;
     let (payload, has_data) = collect_push_payload(state).await?;
     if !has_data {
         tracing::debug!("Cloud sync relay: nothing to push");
@@ -73,7 +75,36 @@ pub(crate) async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> 
         anyhow::bail!("Relay sync returned status {}", resp.status());
     }
 
-    // Update push timestamp on success
+    // Cloud_sync RCA Phase 1 (Q3 verify-by-construction): probe receiver for actual row count
+    // before advancing cursor. Fail-open if receiver hasn't shipped /sync/echo yet.
+    let cursor_after = chrono::Utc::now().to_rfc3339();
+    match crate::cloud_sync_verify::verify_push(
+        state,
+        relay_url,
+        &payload,
+        &cursor_before,
+        &cursor_after,
+    )
+    .await
+    {
+        crate::cloud_sync_verify::VerifyOutcome::Mismatch { details } => {
+            tracing::error!(
+                "Cloud sync verify FAILED: {} table(s) mismatched, cursor NOT advanced (re-push next cycle): {:?}",
+                details.len(),
+                details
+            );
+            // Intentionally skip update_push_state — next cycle will re-push the same window.
+            return Ok(());
+        }
+        crate::cloud_sync_verify::VerifyOutcome::Unavailable => {
+            tracing::debug!("Cloud sync verify unavailable (fail-open) — advancing cursor");
+        }
+        crate::cloud_sync_verify::VerifyOutcome::AllOk => {
+            tracing::debug!("Cloud sync verify OK across all pushed tables");
+        }
+    }
+
+    // Update push timestamp on success (or fail-open)
     update_push_state(state).await;
 
     tracing::debug!("Cloud sync relay: push successful");
@@ -82,6 +113,8 @@ pub(crate) async fn push_via_relay(state: &Arc<AppState>) -> anyhow::Result<()> 
 
 /// Push venue-generated data (laps, billing, pods, leaderboard) to cloud via direct HTTP.
 pub(crate) async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> anyhow::Result<()> {
+    // Capture cursor_before once so verify uses the SAME window the SELECTs read against.
+    let cursor_before = get_last_push_time(state).await;
     let (payload, has_data) = collect_push_payload(state).await?;
 
     if !has_data {
@@ -136,6 +169,35 @@ pub(crate) async fn push_to_cloud(state: &Arc<AppState>, cloud_url: &str) -> any
 
     if upserted > 0 {
         tracing::info!("Cloud sync push: cloud accepted {} records", upserted);
+    }
+
+    // Cloud_sync RCA Phase 1 (Q3 verify-by-construction): probe receiver for actual row count
+    // before advancing cursor. Fail-open if receiver hasn't shipped /sync/echo yet.
+    let cursor_after = chrono::Utc::now().to_rfc3339();
+    match crate::cloud_sync_verify::verify_push(
+        state,
+        cloud_url,
+        &payload,
+        &cursor_before,
+        &cursor_after,
+    )
+    .await
+    {
+        crate::cloud_sync_verify::VerifyOutcome::Mismatch { details } => {
+            tracing::error!(
+                "Cloud sync verify FAILED: {} table(s) mismatched, cursor NOT advanced (re-push next cycle): {:?}",
+                details.len(),
+                details
+            );
+            // Intentionally skip update_push_state — next cycle will re-push the same window.
+            return Ok(());
+        }
+        crate::cloud_sync_verify::VerifyOutcome::Unavailable => {
+            tracing::debug!("Cloud sync verify unavailable (fail-open) — advancing cursor");
+        }
+        crate::cloud_sync_verify::VerifyOutcome::AllOk => {
+            tracing::debug!("Cloud sync verify OK across all pushed tables");
+        }
     }
 
     // Update push timestamp
