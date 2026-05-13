@@ -65,6 +65,13 @@ pub async fn cash_refund(
         return Err("Cash refund amount must be positive".to_string());
     }
 
+    // D-CLUSTER-9 — Rust-side allow-list gate (defense-in-depth replacement for
+    // the narrow DB CHECK dropped in §S-260 atom 4 / D-CLUSTER-1 disposition).
+    // The INSERT below uses an inline 'refund_cash' literal — this validation
+    // ensures the literal remains in the allow-list. If a future refactor
+    // parameterizes the txn_type, this same call still guards the new path.
+    crate::wallet_txn_type::validate_txn_type_string_err("refund_cash")?;
+
     // Begin transaction FIRST — all checks happen inside the tx to prevent TOCTOU race.
     // Pattern: state.db.begin() (matches debit_wallet at line 258, avoids acquire+begin borrow issues)
     let mut tx = state.db.begin().await

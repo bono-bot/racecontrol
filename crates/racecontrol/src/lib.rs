@@ -137,6 +137,7 @@ pub mod state;
 pub mod telemetry_store;
 pub mod track_outline;
 pub mod wallet;
+pub mod wallet_txn_type;
 pub mod notification_outbox;
 pub mod optimization_engine;
 pub mod pricing_bridge;
