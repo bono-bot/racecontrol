@@ -473,4 +473,64 @@ mod tests {
             assert!(!is_idempotency_conflict(case), "unrelated error MUST NOT trigger: {}", case);
         }
     }
+
+    /// §S-281 NF-Caveat-1 regression guard (per james §S-282 Option α + MAOR
+    /// Tier-1 reviewer recommendation). Pins the assumption that the actual
+    /// sqlx-SQLite-rendered UNIQUE-violation error string matches the helper's
+    /// detection patterns. Future sqlx/SQLite version drift breaking this
+    /// assumption is caught by CI rather than silently broken in production.
+    ///
+    /// Tests end-to-end: real sqlx + real SQLite + same UNIQUE INDEX shape
+    /// (`migrate_billing.rs:865-868`) + same error wrapping convention
+    /// (`wallet.rs:190` `format!("DB error recording transaction: {}", e)`).
+    #[tokio::test]
+    async fn is_idempotency_conflict_traps_real_sqlx_unique_violation() {
+        let pool = sqlx::SqlitePool::connect(":memory:")
+            .await
+            .expect("in-memory sqlite pool");
+
+        // Minimal schema reproducing the UNIQUE INDEX shape + column types
+        // that wallet_transactions uses for idempotency_key enforcement.
+        sqlx::query(
+            "CREATE TABLE wallet_transactions (
+                id TEXT PRIMARY KEY,
+                idempotency_key TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create wallet_transactions test table");
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX idx_wallet_txn_idempotency
+             ON wallet_transactions(idempotency_key)
+             WHERE idempotency_key IS NOT NULL",
+        )
+        .execute(&pool)
+        .await
+        .expect("create partial UNIQUE INDEX");
+
+        // First INSERT must succeed (establishes the idempotency_key row).
+        sqlx::query("INSERT INTO wallet_transactions (id, idempotency_key) VALUES ('id1', 'shared-key')")
+            .execute(&pool)
+            .await
+            .expect("first insert with shared-key must succeed");
+
+        // Second INSERT with same idempotency_key MUST fail with UNIQUE violation.
+        let raw_err = sqlx::query("INSERT INTO wallet_transactions (id, idempotency_key) VALUES ('id2', 'shared-key')")
+            .execute(&pool)
+            .await
+            .expect_err("second insert with same idempotency_key MUST fail UNIQUE constraint");
+
+        // Wrap the error the way `wallet::credit_in_tx` does (per wallet.rs:190).
+        let formatted_err = format!("DB error recording transaction: {}", raw_err);
+
+        assert!(
+            is_idempotency_conflict(&formatted_err),
+            "regression guard: real sqlx UNIQUE-violation MUST trigger is_idempotency_conflict.\n\
+             Actual error format: {}\n\
+             Update is_idempotency_conflict() detection patterns if this assertion fails.",
+            formatted_err
+        );
+    }
 }
