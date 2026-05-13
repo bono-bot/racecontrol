@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use crate::billing;
 use crate::wallet;
+use crate::accounting;
 use crate::state::AppState;
 use rc_common::pod_id::normalize_pod_id;
 
@@ -197,6 +198,45 @@ pub(crate) async fn start_billing_inner(
         }
 
     let original_price_paise = input.custom_price_paise.map(|p| p as i64).unwrap_or(tier.price_paise);
+
+    // MAX_DISCOUNT_PCT ceiling: clamp before floor (§S-253 row 7.3 substrate; Captain Q-2-1 ratify §S-252 c203135d)
+    {
+        use crate::pricing::discount_ceiling::{clamp_discount_paise, max_discount_pct, ClampResult};
+        let cap = max_discount_pct(&state);
+        match clamp_discount_paise(applied_discount_paise, original_price_paise, cap) {
+            ClampResult::Allowed { .. } => {}
+            ClampResult::Clamped {
+                original_pct,
+                clamped_pct,
+                original_paise,
+                clamped_paise,
+                cap_source,
+            } => {
+                let new_discount = clamped_paise.unwrap_or(0);
+                tracing::warn!(
+                    "MAX_DISCOUNT_PCT ceiling clamped discount: original_pct={:.4} clamped_pct={:.4} original_paise={:?} clamped_paise={:?} cap_source={}",
+                    original_pct, clamped_pct, original_paise, clamped_paise, cap_source
+                );
+                // §S-260 Atom 5 — audit-log stamp on clamp event (forensic ledger).
+                // Fire-and-forget per log_admin_action signature; failure does not
+                // block billing flow. Composes with existing audit_log pattern.
+                let details = format!(
+                    "{{\"session_id\":\"{}\",\"driver_id\":\"{}\",\"original_pct\":{:.4},\"clamped_pct\":{:.4},\"original_paise\":{:?},\"clamped_paise\":{:?},\"cap_source\":\"{}\",\"path\":\"billing_start\"}}",
+                    session_id, input.driver_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source
+                );
+                accounting::log_admin_action(
+                    &state,
+                    "discount_clamped",
+                    &details,
+                    input.staff_id.as_deref(),
+                    None,
+                )
+                .await;
+                applied_discount_paise = new_discount;
+            }
+        }
+    }
+
     let mut final_price_paise = original_price_paise - applied_discount_paise;
 
     // FATM-10: Enforce discount floor

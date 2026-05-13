@@ -129,7 +129,9 @@ pub async fn credit_in_tx(
     let txn_id = Uuid::new_v4().to_string();
 
     // Determine which tracking column to increment (per D-01, D-02, D-03)
-    let is_topup = txn_type.starts_with("topup_");
+    // D-CLUSTER-7 (§S-260 atom): include "gateway_topup" — was missed by prefix-match
+    // pre-fix, causing rupee_deposited_paise drift on Path B webhook credits.
+    let is_topup = txn_type.starts_with("topup_") || txn_type == "gateway_topup";
     let is_bonus = txn_type == "bonus" || txn_type == "adjustment";
 
     // Update wallet balance + tracking columns
