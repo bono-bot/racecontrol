@@ -76,7 +76,18 @@ pub(crate) async fn verify_push(
         if expected == 0 {
             continue;
         }
-        let cursor_col = cursor_column_for_table(table);
+        // §S-222 FLAG α: full-table-push tables (track_records, personal_bests) have NO WHERE
+        // clause in cloud_sync_payload.rs — sender always pushes all N rows, but Bono's windowed
+        // SELECT would return 0-K rows in the (cursor_before, cursor_after] window. actual < expected
+        // would always fire Mismatch → cursor stuck. Skip verify for these tables (None signal).
+        let cursor_col = match cursor_column_for_table(table) {
+            Some(c) => c,
+            None => {
+                tracing::trace!(target: LOG_TARGET, table = %table,
+                    "Skipping verify for full-table-push table (no cursor window)");
+                continue;
+            }
+        };
         let body = serde_json::json!({
             "table": table,
             "cursor_col": cursor_col,
@@ -150,13 +161,19 @@ pub(crate) async fn verify_push(
 }
 
 /// Cursor column name for a given push table — must match `cloud_sync_payload`'s WHERE clauses.
-fn cursor_column_for_table(table: &str) -> &'static str {
+///
+/// Returns `None` for tables that `cloud_sync_payload` pushes IN FULL (no WHERE clause); these
+/// would always fail a windowed verify against Bono's `/sync/echo` (sender N rows ≠ receiver's
+/// windowed COUNT in (cursor_before, cursor_after]). §S-222 FLAG α disposition Option A.
+fn cursor_column_for_table(table: &str) -> Option<&'static str> {
     match table {
-        "content_drift_events" => "detected_at",
-        "track_records" | "personal_bests" => "achieved_at",
-        "metrics_rollups" => "updated_at",
+        "content_drift_events" => Some("detected_at"),
+        // track_records + personal_bests are full-table-push per cloud_sync_payload.rs:54-87
+        // (no WHERE clause). Verify-by-window is structurally incompatible — skip.
+        "track_records" | "personal_bests" => None,
+        "metrics_rollups" => Some("updated_at"),
         // laps / billing_sessions / model_evaluations / others use created_at
-        _ => "created_at",
+        _ => Some("created_at"),
     }
 }
 
@@ -166,13 +183,14 @@ mod tests {
 
     #[test]
     fn cursor_col_known_tables() {
-        assert_eq!(cursor_column_for_table("content_drift_events"), "detected_at");
-        assert_eq!(cursor_column_for_table("track_records"), "achieved_at");
-        assert_eq!(cursor_column_for_table("personal_bests"), "achieved_at");
-        assert_eq!(cursor_column_for_table("metrics_rollups"), "updated_at");
-        assert_eq!(cursor_column_for_table("laps"), "created_at");
-        assert_eq!(cursor_column_for_table("billing_sessions"), "created_at");
-        assert_eq!(cursor_column_for_table("anything_else"), "created_at");
+        assert_eq!(cursor_column_for_table("content_drift_events"), Some("detected_at"));
+        // §S-222 FLAG α — full-table-push tables return None (verify-skip)
+        assert_eq!(cursor_column_for_table("track_records"), None);
+        assert_eq!(cursor_column_for_table("personal_bests"), None);
+        assert_eq!(cursor_column_for_table("metrics_rollups"), Some("updated_at"));
+        assert_eq!(cursor_column_for_table("laps"), Some("created_at"));
+        assert_eq!(cursor_column_for_table("billing_sessions"), Some("created_at"));
+        assert_eq!(cursor_column_for_table("anything_else"), Some("created_at"));
     }
 
     #[test]
