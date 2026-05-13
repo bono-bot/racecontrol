@@ -77,7 +77,7 @@ impl SessionBillingService {
 ///
 /// 0 sec → 0 min · 1..=60 sec → 1 min · 61..=120 sec → 2 min · etc.
 pub fn round_up_minutes(elapsed_seconds: u32) -> u32 {
-    (elapsed_seconds + 59) / 60
+    elapsed_seconds.div_ceil(60)
 }
 
 #[cfg(test)]
