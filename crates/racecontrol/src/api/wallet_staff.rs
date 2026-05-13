@@ -185,7 +185,7 @@ pub(crate) async fn topup_wallet(
         if let Some((_amount, balance)) = existing {
             return Json(json!({
                 "status": "ok",
-                "new_balance_credits": balance,
+                "new_balance_paise": balance,
                 "bonus_credits_granted": 0,
                 "rupee_amount": req.amount_paise,
                 "idempotent_replay": true,
@@ -304,7 +304,7 @@ pub(crate) async fn topup_wallet(
     let max_cash_refund = wallet::get_max_cash_refund(&state, &driver_id).await.unwrap_or(0);
     Json(json!({
         "status": "ok",
-        "new_balance_credits": new_balance,
+        "new_balance_paise": new_balance,
         "bonus_credits_granted": bonus_paise,
         "rupee_amount": req.amount_paise,
         "max_cash_refund": max_cash_refund,

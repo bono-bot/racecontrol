@@ -338,7 +338,7 @@ pub(crate) async fn refund_wallet(
         return Json(json!({
             "status": "ok",
             "type": "credit_refund",
-            "new_balance_credits": new_balance,
+            "new_balance_paise": new_balance,
             "max_cash_refund": max_cash,
         }));
     }
@@ -360,7 +360,7 @@ pub(crate) async fn refund_wallet(
             Json(json!({
                 "status": "ok",
                 "type": "credit_refund",
-                "new_balance_credits": new_balance,
+                "new_balance_paise": new_balance,
                 "max_cash_refund": max_cash,
             }))
         },
@@ -403,7 +403,7 @@ pub(crate) async fn cash_refund_wallet(
                 "status": "ok",
                 "type": "cash_refund",
                 "amount": req.amount_paise,
-                "new_balance_credits": new_balance,
+                "new_balance_paise": new_balance,
                 "max_cash_refund_remaining": remaining,
             }))
         }

@@ -242,7 +242,7 @@ pub(crate) async fn payment_gateway_webhook(
         return Json(json!({
             "ok": true,
             "duplicate": true,
-            "new_balance_credits": balance_after
+            "new_balance_paise": balance_after
         }));
     }
 
@@ -302,7 +302,7 @@ pub(crate) async fn payment_gateway_webhook(
 
     Json(json!({
         "ok": true,
-        "new_balance_credits": new_balance,
+        "new_balance_paise": new_balance,
         "txn_id": txn_id
     }))
 }
