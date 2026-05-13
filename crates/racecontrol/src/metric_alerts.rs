@@ -248,6 +248,53 @@ message_template = "FPS dropped to {value} (min: {threshold})"
         assert_eq!(config.alert_rules[1].severity, "critical");
     }
 
+    /// §S-272 Phase 2 observability — verify the discount_clamp_storm rule parses
+    /// from TOML matching the entry in racecontrol.toml. Closes MMA Step 1 BLOCKING #2
+    /// (empty alert_rules at boot from TOML syntax error silences all metric alerts).
+    #[test]
+    fn metric_alert_toml_discount_clamp_storm_rule_parses() {
+        let toml = r#"
+[venue]
+name = "Test Venue"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[database]
+path = "/tmp/test.db"
+
+[[alert_rules]]
+name = "discount_clamp_storm"
+metric = "discount_clamp_count_daily"
+condition = "gt"
+threshold = 10.0
+severity = "warn"
+message_template = "MAX_DISCOUNT_PCT ceiling clamped {value} times today (threshold: {threshold}). Investigate pricing config or staff behavior."
+"#;
+        let config: crate::config::Config =
+            toml::from_str(toml).expect("§S-272 discount_clamp_storm rule MUST parse");
+        assert_eq!(config.alert_rules.len(), 1);
+        let rule = &config.alert_rules[0];
+        assert_eq!(rule.name, "discount_clamp_storm");
+        assert_eq!(rule.metric, "discount_clamp_count_daily");
+        assert!(matches!(rule.condition, AlertCondition::Gt));
+        assert_eq!(rule.threshold, 10.0);
+        assert_eq!(rule.severity, "warn");
+        assert!(rule.message_template.contains("{value}"));
+        assert!(rule.message_template.contains("{threshold}"));
+    }
+
+    /// §S-272 verify the condition check fires correctly for the discount_clamp_storm threshold.
+    #[test]
+    fn metric_alert_discount_clamp_storm_fires_above_10() {
+        let rule = make_rule("discount_clamp_storm", AlertCondition::Gt, 10.0);
+        assert!(check_condition(&rule.condition, 11.0, rule.threshold), "11 clamps must fire");
+        assert!(check_condition(&rule.condition, 100.0, rule.threshold), "100 clamps must fire");
+        assert!(!check_condition(&rule.condition, 10.0, rule.threshold), "exactly 10 must NOT fire (Gt = strict)");
+        assert!(!check_condition(&rule.condition, 0.0, rule.threshold), "0 clamps must NOT fire");
+    }
+
     #[test]
     fn metric_alert_toml_without_rules_deserializes() {
         let toml = r#"
