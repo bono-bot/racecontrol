@@ -51,6 +51,7 @@ pub mod cloud_sync;
 pub mod cloud_sync_pull;
 pub mod cloud_sync_push;
 pub mod cloud_sync_upsert;
+pub mod cloud_sync_verify;
 pub mod config;
 pub mod content_drift;
 pub mod crypto;

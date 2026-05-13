@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "surface": "cloud_sync",
+  "evaluator": "james (claude opus 4.7)",
+  "evaluated_at": "2026-05-13T11:14:00+05:30",
+  "valid_until": "2026-06-12T11:14:00+05:30",
+  "trigger": "RCA-2026-05-13-content-drift-detected-at-tz-mislabel.md Phase 1 fix proposal touches cloud_sync transmit path (content_drift_events column semantics)",
+  "questions": [
+    {
+      "id": "Q1",
+      "name": "Atomic primitives",
+      "question": "Are writes to content_drift_events + cloud_sync push atomic with respect to each other (no torn read between INSERT and SELECT)?",
+      "answer": "YES",
+      "evidence": "content_drift.rs:289-298 INSERT runs in default sqlx transaction; cloud_sync_payload.rs:376-385 SELECT WHERE detected_at > ? runs in separate connection with its own snapshot. SQLite WAL-mode provides snapshot isolation between concurrent reader/writer. No partial writes observed in 36,199 row history."
+    },
+    {
+      "id": "Q2",
+      "name": "TTL-bounded sentinels",
+      "question": "Does cloud_sync push have TTL-bounded retry/dedup sentinels so a stuck push doesn't stall indefinitely or duplicate forever?",
+      "answer": "PARTIAL",
+      "evidence": "cloud_sync_payload.rs uses last_push cursor (WHERE detected_at > ?) — implicit dedup via monotonic timestamp ordering. NO explicit TTL on the cursor itself; if cursor write fails, next sync retries from same point (idempotent). However: TZ-mislabel may corrupt cursor semantics if a fix-forward writes correct UTC values that sort BEFORE the legacy IST-labeled cursor (5h30m gap). Mitigation: backfill (RCA Phase 1 Option A) restores monotonic order.",
+      "concern": "Cursor semantics fragile across the TZ-fix transition. Need explicit ordering guarantee in fix PR."
+    },
+    {
+      "id": "Q3",
+      "name": "Behavioral verify (binary hash / ws_uptime / mtime — NOT echo string)",
+      "question": "After cloud_sync push, does the system verify Bono VPS actually persisted the rows (not just '200 OK' from the relay)?",
+      "answer": "NO",
+      "evidence": "cloud_sync.rs / cloud_sync_payload.rs — no read-back from Bono after push. tracing::info!('Cloud sync push: {} content_drift_events') logs the COUNT pushed, not the count CONFIRMED on the Bono side. This is the proxy-vs-behavior anti-pattern (CGP H3 'health 200 != fix works' class).",
+      "concern": "Cannot verify post-fix that corrected timestamps reach Bono — we'd be trusting the push log only."
+    },
+    {
+      "id": "Q4",
+      "name": "Single-target dry-run path",
+      "question": "Can we test the cloud_sync fix on a single pod's drift events (not fleet-wide) before all 8 pods write the corrected format?",
+      "answer": "YES",
+      "evidence": "content_drift.rs:282 fix is server-side (Server .23) — affects all pods immediately on next 60-min cycle. BUT: per RCA Phase 1 ordering, deploy to Server .23 only (single deploy target), wait 1 cycle, verify next batch of inserts shows correct +00:00 label vs +05:30 wall-time mapping. Pods are NOT touched by this fix — they only serve /debug/content-dirs (no timestamp involvement on pod side)."
+    },
+    {
+      "id": "Q5",
+      "name": "Guards have written contracts with delivery script",
+      "question": "Does any guard / pre-commit / hook block the timestamp anti-pattern, with a parser-not-regex and allowlist contract?",
+      "answer": "NO",
+      "evidence": "No clippy lint, no pre-commit hook, no PreToolUse hook for the `Utc::now() + Duration::hours(5) + Duration::minutes(30)` anti-pattern. CLAUDE.md has a TZ warning for shell scripts only. RCA Phase 3 proposes adding this gate. Without the gate, the same anti-pattern can re-enter via future PRs.",
+      "concern": "Soft-rule only. Sibling-of network-map-IP-rule pre-go-live escalation pattern (text-only memo carries >=1 repeat-violation/30d per project_s146_enforcement_rca_20260510.md)."
+    }
+  ],
+  "verdict": "FAIL — 3/5 PARTIAL or NO. Triggers infrastructure-side §S-146 RCA on cloud_sync surface BEFORE the content_drift TZ fix proceeds.",
+  "blocking_concerns": [
+    {
+      "id": "BC-1",
+      "summary": "Q3 NO behavioral verify — proceeding with TZ fix means we can't confirm Bono receives corrected timestamps",
+      "blocks": "RCA Phase 1 Option B (backfill bundled with code fix) — without read-back, backfill might silently fail on Bono mirror"
+    },
+    {
+      "id": "BC-2",
+      "summary": "Q5 NO enforcement gate — fix-forward can be undone by future PR",
+      "blocks": "Long-term durability of the fix; mitigation is RCA Phase 3 hook addition"
+    },
+    {
+      "id": "BC-3",
+      "summary": "Q2 PARTIAL cursor semantics — last_push cursor straddles TZ-fix boundary",
+      "blocks": "Backfill order matters — must complete before any new writes use corrected format, else cursor logic skips rows"
+    }
+  ],
+  "recommended_path": "Captain auth path (D) from RCA: escalate to MMA Step 1 DIAGNOSE on cloud_sync surface itself. Concretely — author cloud_sync §S-146 RCA covering Q3 behavioral-verify gap + Q2 cursor-fragility + Q5 enforcement-gap, THEN proceed to content_drift Phase 1 fix.",
+  "override": {
+    "env_var": "V2_RCA_BYPASS=1",
+    "logged": true,
+    "captain_only": true
+  },
+  "composes_with": [
+    "feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md",
+    "feedback_v1_dependent_v2_root_cause_before_proceeding.md",
+    "project_s146_enforcement_rca_20260510.md (bono-side)",
+    ".planning/audits/RCA-2026-05-13-content-drift-detected-at-tz-mislabel.md (this RCA's parent)"
+  ]
+}

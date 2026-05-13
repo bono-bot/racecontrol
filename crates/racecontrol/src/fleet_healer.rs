@@ -76,9 +76,26 @@ pub enum FleetHealerError {
     #[error("SSH timeout on {pod_id} after {timeout_secs}s")]
     SshTimeout { pod_id: String, timeout_secs: u64 },
 
+    /// SAFETY: `error: String` reaches Display via `#[error(...)]`. The construction site at
+    /// `fleet_healer_diagnosis.rs:80` currently passes `e.to_string()` where `e` is `std::io::Error`
+    /// from the tokio Command `.output()` future — that is an OS/spawn-level error (low PII risk on
+    /// its own; e.g., "No such file or directory", "Connection refused"). The ACTUAL remote SSH stderr
+    /// lives in `SshCommandResult.stderr` (Ok path return value, `fleet_healer_diagnosis.rs:90`) and
+    /// is NOT currently funneled into this variant — but future callers MAY do so. Today's reach is
+    /// INTERNAL ONLY (FleetHealerOrchestrator has no HTTP response surface; audit-log + tracing only
+    /// per `fleet_healer_repair.rs:141`). Future HTTP wire-up MUST redact or hash-prefix the `error`
+    /// field IF (a) future code passes `SshCommandResult.stderr` into this variant, OR (b) any
+    /// `result.stderr` value reaches a JSON response body via `format!("{e}")`. Same shape class as
+    /// §S-241 cirs.rs PII-leak (commit `cbf5b995`). Audit trail: §S-241 Agent-2 recommendation #3;
+    /// §S-244 iter6 defensive comment-contract (MAOR Tier-1 finding #1 DISPOSITIONED-INLINE — corrects
+    /// initial mischaracterization of stderr source).
     #[error("SSH execution failed on {pod_id}: {error}")]
     SshExecFailed { pod_id: String, error: String },
 
+    /// SAFETY: same shape class as `SshExecFailed` above — `error: String` interpolates SSH stderr from
+    /// `fleet_healer_repair.rs:322`. Today's reach is INTERNAL ONLY (no HTTP response surface). Future
+    /// HTTP wire-up MUST redact or hash-prefix the `error` field. Audit trail: §S-241 Agent-2
+    /// recommendation #3; §S-244 iter6 defensive comment-contract.
     #[error("Pod isolation failed on {pod_id}: {error}")]
     IsolationFailed { pod_id: String, error: String },
 
@@ -93,6 +110,36 @@ pub enum FleetHealerError {
 
 /// Axum handler for POST /api/v1/pods/{id}/survival-report.
 /// Watchdog processes on pods POST their survival reports here.
+///
+/// SAFETY (audit-log echo class — §S-245 iter7 defensive comment-contract):
+/// In the `AuditTrail::log_repair` call below, `serde_json::to_string(&report)` persists
+/// the FULL request body into the `incident_log.metadata` column. The `SurvivalReport`
+/// in scope here is the LOCAL one re-exported at line 34 (`pub use audit::{..., SurvivalReport, ...}`)
+/// — defined at `fleet_healer_audit.rs:170-185`, NOT the unrelated `rc_common::survival_types::SurvivalReport`.
+/// Open-passthrough fields carrying caller-controlled data: `diagnostics: Option<serde_json::Value>`
+/// (free-form JSON), `source_layer: String`, `status: String`, `build_id: Option<String>`. Today's
+/// READ-side reach is INTERNAL ONLY — `AuditTrail::recent_entries` (`fleet_healer_audit.rs:125-163`)
+/// is the sole reader of `incident_log` and has ZERO call sites in `crates/racecontrol/src/` (dead
+/// code at the READ surface). Note that `query_audit_log` at `accounting_handlers.rs:191` reads a
+/// DIFFERENT table (`audit_log` — billing-class DB-change audit), NOT `incident_log`. Any future
+/// HTTP handler that exposes `incident_log` rows via JSON response MUST redact or hash-prefix
+/// the `metadata` field's `diagnostics` / `source_layer` / `status` / `build_id` keys BEFORE
+/// return — the data persists indefinitely but doesn't currently reach HTTP. Same risk class as
+/// §S-241 cirs.rs Display-impl PII-leak (commit `cbf5b995`) but via different mechanism
+/// (request-body audit-log echo, not thiserror Display interpolation).
+/// AUTH-GAP FINDING (§S-246 iter8 VERIFIED — CONFIRMED-UNAUTHENTICATED): this POST endpoint
+/// merges at `routes.rs:128` OUTSIDE all auth-class sub-router groups (auth_rate_limited /
+/// public / customer / kiosk / staff / service / survival). Verification chain traced via
+/// `main.rs:451-498` build_router — outer layers are `jwt_error_to_401` (error-handler not
+/// auth-gate), `security_headers_layer`, `cache_control_middleware`, CORS layer — NONE
+/// require authentication. Alternative `api/mod.rs:112-116` build_router has no auth layers
+/// either. Any LAN-internal client can POST arbitrary `SurvivalReport` JSON; data persists
+/// to `incident_log.metadata` indefinitely. AUTH FIX is foundational-boundary §S-146 class:
+/// requires 5-section RCA + MMA Step 1 DIAGNOSE + Captain per-PR auth; filed at
+/// `comms-link/data/security-debt-ledger.jsonl` 2026-05-13T10:15:00Z (`class: auth-gap`,
+/// `closure_phase: PENDING-CAPTAIN-DISPOSITION`). Audit trail: §S-241 Agent-2 class-audit
+/// recommendation #5; §S-245 iter7 hedged-finding "may be permissive"; §S-246 iter8
+/// verification upgrade + security-debt-ledger entry.
 pub async fn survival_report_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(pod_id): axum::extract::Path<String>,

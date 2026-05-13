@@ -375,6 +375,12 @@ pub enum DiagnosisError {
     ApiUnreachable(u32),
     #[error("diagnosis timeout after {0}s")]
     Timeout(u64),
+    /// SAFETY: callers MUST NOT interpolate user-supplied request-body data into the `String` payload.
+    /// `Other` is `#[error("{0}")]` open-passthrough — any caller value reaches Display output verbatim.
+    /// Same shape class as the realized PII-leak in `crates/v2-db/src/cirs.rs` `CirsError::InvalidPhone(String)`
+    /// fixed in §S-241 iter5 (racecontrol commit `cbf5b995`). Variant currently UNUSED; if revived, redact or
+    /// hash-prefix user-touching payloads BEFORE construction. Audit trail: §S-241 Agent-2 class-audit
+    /// recommendation #2; §S-244 iter6 defensive comment-contract.
     #[error("{0}")]
     Other(String),
 }

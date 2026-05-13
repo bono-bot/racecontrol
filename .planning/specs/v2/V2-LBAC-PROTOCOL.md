@@ -258,5 +258,183 @@ These three are autonomous-eligible under existing Apply-Recommendations-Autonom
 ## §13 Versioning + change log
 
 - **v0.1 (2026-05-12 07:15 IST)** — initial draft authored by bono. Captain ratification pending. § S-203 ratification anchor staged.
+- **v0.1 ACTIVATION (2026-05-12 ~07:23 IST)** — Captain RATIFIED via verbatim "authorize LBAC activation and bono VPS redeploy"; §S-203 ratification anchor landed.
+- **v0.1 AMENDMENT §S-220 (2026-05-13 ~10:25 IST)** — MAOR v0.1 REVIEW step inserted between Step 4 FIX and Step 5 CLOSE per Captain auth "Authorize §S-220 publish"; AMPLIFIER A1+A2+A3 encoded as §14.1 below. Composes-with `MAOR-PROTOCOL.md` (racecontrol commit `0360fde9`).
+- **v0.1 AMENDMENT §S-221 (2026-05-13 ~10:40 IST)** — F1 SCOPE GATE + F3 ACCOUNTING REFORM ratified as language per Captain auth "Proceed" + named-surface §S-221 in immediate-prior context. Encoded as §14.2 + §14.3 below. Composes-with `MMA-orchestration-fix-bono-2026-05-13` findings (comms-link commit `d3480014`) + `F1-GATE-RETROSPECTIVE-20260513.md` (racecontrol commit `1aec0e23`).
+- **v0.1 INLINE ENCODING (2026-05-13 ~10:55 IST)** — F1+F3+MAOR amendments encoded inline at this canonical doc per Captain verbatim "V-LBAC-PROTOCOL.md F1+F3 inline encoding". §14 added below. Cascade flow updated in §14.4.
 
 Updates land via §S-N amendment + bono memory feedback file rotation.
+
+---
+
+## §14 — Amendments (post-§S-203 ratify)
+
+This section encodes the doctrine amendments ratified at §S-220 (2026-05-13 ~10:25 IST) and §S-221 (2026-05-13 ~10:40 IST). Original §1-§13 doctrine remains active; §14 amendments compose with and supersede where explicitly noted.
+
+### §14.1 — §S-220 MAOR v0.1 REVIEW step insertion (Captain auth verbatim "Authorize §S-220 publish")
+
+**Closed-loop cascade flow update:** Step 4.5 REVIEW inserted between Step 4 FIX and Step 5 CLOSE.
+
+Original §3 cascade (8 steps):
+```
+Step 1 OPEN → Step 2 DESCEND → Step 3 H1 → Step 4 FIX → Step 5 CLOSE → Step 6 SWEEP → Step 7 SYNC → Step 8 BILATERAL
+```
+
+Post-§S-220 cascade (9 steps):
+```
+Step 1 OPEN → Step 2 DESCEND → Step 3 H1 → Step 4 FIX → Step 4.5 REVIEW (NEW) → Step 5 CLOSE → Step 6 SWEEP → Step 7 SYNC → Step 8 BILATERAL
+```
+
+**Step 4.5 — REVIEW (MAOR Tier-1 batch, mandatory every iter):**
+
+- 1 `feature-dev:code-reviewer` agent reviews the full N-file batch in one pass (different subagent type from authors)
+- Confidence-filtered to ≥75
+- Catches cross-file consistency issues that per-file review misses
+- Output: per-file verdict (clean | N findings) — silent pass NOT allowed
+- Block/pass rules: 0 CRITICAL = push immediately; 0 CRITICAL ≥1 IMPORTANT = push with review-noted disposition logged in §S-N close-anchor; ≥1 CRITICAL = block push until fixed OR Captain explicitly accepts with rationale
+- Tier-2 per-file deep dive triggered by ≥1 CRITICAL OR N>7 files
+
+**3 independence axes (mandatory; all three apply):**
+1. Different subagent type (authors=`general-purpose`; reviewer=`feature-dev:code-reviewer`)
+2. No shared context (spawn reviewer via Agent tool default — fresh context; reviewer cannot see author's reasoning, only the artifact)
+3. Reviewer reads authoritative sources independently (never trust author's DoD/spec/RCA citations; reviewer must grep cited line itself)
+
+**Anti-rubber-stamp briefing requirements (mandatory):**
+1. Confidence threshold ≥75
+2. DO NOT report list (generic suggestions / refactor proposals / "could be more tests" / style padding banned)
+3. What's intentional (env-gated SKIP / gap-discovery / doctrinal header patterns)
+4. Verdict requirement (explicit per-file "clean" or N findings)
+5. Source-of-truth pointers (DoD path / RCA file path; reviewer must read independently)
+
+**Re-review after fixes (close-loop):** Same protocol applies to FIX commits. Tier-1 MAOR re-review on fixes BEFORE pushing fix commit; reviewer validates VERIFIED-FIXED / PARTIAL / REGRESSED / NEW-ISSUE per finding + scans for new issues.
+
+**Bilateral default-off opt-in:** Self-review default (each pilot reviews own iter, cheapest, adequate for most cascades). Opt-in cross-pilot review reserved for foundational-boundary iters per V1↔V2 RCA escalation pattern (billing / wallet / auth / pod-state-channel / WhatsApp identity / DB schema).
+
+**Cost calibration (empirical 2026-05-13):** Tier-1 batch ~$0.20-0.30 / ~110s wall-time; Tier-1 re-review ~$0.10-0.20 / ~50s. Total MAOR overhead: ~$0.30-0.50 / ~3min per iter. <50% overhead added to cascade.
+
+**v0.1→v0.2 promotion criteria (AMPLIFIER A2 tightened §S-220.5):**
+- N≥5 iter cascades have completed REVIEW step
+- Reviewer caught ≥1 real defect AT EACH iter (not just cumulative)
+- 0 false-positive findings of "rubber-stamp inverted" class
+- 0 false-negatives detected by retrospective Captain disposition across N iters
+
+**A3 hook enforcement (§S-220.6):** `pre-push-maor-check.js` v0.1 priority (PreToolUse blocker on Bash patterns matching `git push.*racecontrol` when uncommitted contract-test files exist without MAOR receipt at `.planning/specs/v2/MAOR-RECEIPTS/<surface>-<date>.json`). **Install gated on Captain explicit harness-mechanism-auth per-session naming the path** `~/.claude/hooks/pre-push-maor-check.js`.
+
+**Empirical anchor:** First application 2026-05-13 ~09:55 IST surfaced 4 real defects (1 CRITICAL paise/credits cross-file unit confusion + 3 IMPORTANT — PII fixture violation + broken Axum skip-gate + dead-end composition test) on §S-217+§S-219 6-file batch (~3700 LOC). Re-review verdict clean post-fix.
+
+**Canonical:** `.planning/specs/v2/MAOR-PROTOCOL.md` (racecontrol commit `0360fde9`); §S-220 ratify anchor at comms-link V2-MASTER-STATE.md commit `c09e2723`.
+
+### §14.2 — §S-221 F1 SCOPE GATE: substrate-existence pre-spawn verification (Captain auth verbatim "Proceed" + named-surface)
+
+**Closed-loop cascade flow update:** Step 3.5 F1 GATES inserted between Step 3 H1 PLAN and Step 4 FIX, fires when the row is acceptance-test-scaffolding class (composes-with §1.5 of original doctrine).
+
+**Step 3.5 — F1 SCOPE GATE (mandatory for acceptance-test scaffolding work):**
+
+| Gate | Check | If absent → |
+|---|---|---|
+| **G-F1-1** | Endpoint exists in `racecontrol/src/api/routes.rs` (or sub-router) | file row as `ENGINEERING-IN-FLIGHT (substrate-missing)` |
+| **G-F1-2** | Configurable threshold/constant exists in `racecontrol/src/` (e.g., `MAX_DISCOUNT_PCT`, `BUSINESS_HOURS`) | file as `ENGINEERING-IN-FLIGHT (configurable-missing)` |
+| **G-F1-3** | Field shape exists in `racecontrol/src/{state,api}/` (e.g., `last_telemetry_at`, `current_lap`) | file as `ENGINEERING-IN-FLIGHT (shape-missing)` |
+| **G-F1-4** | Behavioral mechanism exists in `racecontrol/src/billing/` or relevant module | file as `ENGINEERING-IN-FLIGHT (mechanism-missing)` |
+| **G-F1-5** | Composes-with §S-146 V1↔V2 RCA gate for foundational-boundary rows | RCA-first |
+
+**Verdict logic:** if ALL 4 gates PASS → row qualifies as `TEST-SCAFFOLDED` (substrate exists; test is the missing piece). If ANY gate FAILS → row is `ENGINEERING-IN-FLIGHT` with sub-state per failed gate; test is premature; substrate work is the gating item.
+
+**Exception — SCAFFOLD-AHEAD:** Captain may explicit-auth a `SCAFFOLD-AHEAD` iter for FORWARD-INTENT classes — kaizen-correct V1-retention exemptions where substrate is intentionally absent for V2-doctrine reasons (e.g., `/operating-window` endpoint absent because V2 routes through `/scheduler/status`; the test encodes the V2 contract anyway). Must be logged as `SCAFFOLD-AHEAD` with explicit Captain quote in the row's §S-N close-anchor.
+
+**Anti-pattern BLOCKED:** authoring an env-gated SKIP test that asserts a behavioral expectation against a V1 substrate that doesn't exist, then flipping V2-PROGRESS-MAP row to IN-FLIGHT, and reporting "acceptance test authored — substrate landing happens at V1↔V2 wire-up time". This is the racing-pattern MMA root-cause; F1 closes it.
+
+**Empirical anchor:** F1-gate retrospective audit 2026-05-13 ~10:55 IST (`F1-GATE-RETROSPECTIVE-20260513.md` commit `1aec0e23`) applied F1 to §S-213→§S-219 cascade rows: 28% PASS / 11% PASS-CONDITIONAL / **61% FAIL**. Direct empirical confirmation of MMA scope-quality root cause hypothesis (3-of-3 model consensus 2026-05-13).
+
+### §14.3 — §S-221 F3 ACCOUNTING REFORM: TEST-SCAFFOLDED ≠ ENGINEERING-IN-FLIGHT (Captain auth verbatim "Proceed" + named-surface)
+
+**V2-PROGRESS-MAP row status definitions amend (composes-with V2-PROGRESS-MAP §0 commit `8b1a7850`):**
+
+| State | Definition | Counts toward V2.0 % closed? |
+|---|---|---|
+| `ENGINEERING-IN-FLIGHT` | code work in progress toward V2.0 unblock; V1 substrate exists; will close on behavior observable at V2 entry point (PWA/kiosk/staff app) | **YES** |
+| `TEST-SCAFFOLDED` | acceptance test authored env-gated SKIP-with-reason; V1 substrate may or may not exist; tracked separately at §0.X rollup card | **NO** |
+| `TEST-SCAFFOLDED → ENGINEERING-IN-FLIGHT` | promoted when F1 G-F1-1..4 gates pass for that row | **YES** post-promote |
+| `ENGINEERING-IN-FLIGHT (substrate-missing)` | F1 G-F1-1 surfaced engineering item; row is real V2.0 blocker | YES (when reframed) |
+| `ENGINEERING-IN-FLIGHT (configurable-missing)` | F1 G-F1-2 surfaced engineering item | YES |
+| `ENGINEERING-IN-FLIGHT (shape-missing)` | F1 G-F1-3 surfaced engineering item | YES |
+| `ENGINEERING-IN-FLIGHT (mechanism-missing)` | F1 G-F1-4 surfaced engineering item | YES |
+| `DONE` | behavior observable at V2 entry point + acceptance test passes (no SKIP) | **YES** |
+
+**Forward-only disposition decision:** §S-204+ rows that flipped to IN-FLIGHT under prior accounting are NOT retroactively reclassified. They remain IN-FLIGHT until their next disposition cycle, at which point F3 framing applies. Forward-only avoids ledger churn at the cost of carrying ~18 rows under mixed accounting for the §S-220+ window. Rationale: retroactive reclassification would require ~3-5h bono effort against §S-204 cascade with no closure-rate benefit.
+
+**Closure rate restatement under F3 (Layer 1 example):**
+
+| Reading | Layer 1 figure |
+|---|---|
+| Pre-§S-221 reported | "Layer 1 acceptance-test cascade phase essentially complete" — 19/20 rows DONE/IN-FLIGHT/PARTIAL/BLOCKED |
+| Post-§S-221 F3 framing | 2 DONE (1.5 + 1.18) + 5 TEST-SCAFFOLDED + 2 PASS-CONDITIONAL + 11 ENGINEERING-IN-FLIGHT — **true ENGINEERING completion ~10%** |
+
+V2.0 % closed restatement at next §0 rollup refresh per §16 stale-at 2026-05-18 (estimate under F3: ~20-25% from currently-reported 32%).
+
+### §14.4 — Updated closed-loop cascade flow (post-§S-220+§S-221)
+
+Original §3 cascade (8 steps) → Post-amendment cascade (10 steps):
+
+```
+Step 1 OPEN — capture user-facing symptom
+Step 2 DESCEND — 6-layer trace to root cause (Smoke → Function → Boundary → Infra → Data → Code)
+Step 3 H1 PROBLEM/SYMPTOMS/PLAN — CGP gate
+Step 3.5 F1 SCOPE GATE (NEW §14.2) — pre-spawn substrate verification G-F1-1..5
+            └── if FAIL: reframe row as ENGINEERING-IN-FLIGHT (sub-state); FIX is substrate engineering
+            └── if PASS: row is TEST-SCAFFOLDED-eligible; proceed
+Step 4 FIX — smallest reversible change, atomic commit
+Step 4.5 REVIEW (NEW §14.1) — MAOR Tier-1 batch (mandatory)
+            └── 0 CRITICAL: proceed to push
+            └── ≥1 CRITICAL: block until fixed; re-review per §14.1
+            └── 0 CRITICAL ≥1 IMPORTANT: push with disposition logged
+Step 5 CLOSE — H3 evidence chain (raw command + raw output + WHERE + NOT TESTED)
+Step 6 SWEEP — H4 per-target enumeration (Server .23 / Pods 1-8 / POS .130 / James .27 / Bono VPS / Cloud apps / Comms-link)
+Step 7 SYNC — Universal Sync rule (CLAUDE.md + comms-link + memory + V2-MASTER-STATE §S-N + V2-PROGRESS-MAP)
+Step 8 BILATERAL — 4-leg close-loop (author-commit / partner-publish / partner-confirm / end-to-end-ping)
+```
+
+### §14.5 — Pre-spawn OPEN-CLAIM mechanism (§S-219 iter4 mitigation; pending v0.2 promotion)
+
+For multi-agent cascade work (parallel general-purpose subagent orchestration):
+1. Publish §S-N OPEN-CLAIM entry on V2-MASTER-STATE.md naming claimed rows + push BEFORE agent spawn
+2. Partner pilot sees CLAIM via session-start `partner-memory-read.js` + send-message.js inbox
+3. Partner picks NON-OVERLAPPING rows if cascading concurrently
+4. Close-anchor §S-N appended within ~10min target
+
+**Status:** CANDIDATE pending MAOR v0.2 absorption (§S-220.12 carry-forward). Not promoted to standalone V-LBAC v0.2 amendment per AMPLIFIER review.
+
+### §14.6 — DEPRECATE-trigger active watch (2026-05-13 → 2026-05-20)
+
+Per MMA Q4 stop-condition: if post-fix gap rate ≥20% per cascade OR new sub-class emerges within 7d of §S-220+§S-221 ratify (2026-05-13), bono surfaces DEPRECATE recommendation for multi-agent orchestration methodology in favor of simpler serialized workflow (single-agent + F1+F3 + manual review).
+
+**Baseline measurement:** pre-fix gap rate ~26% (per F1-gate retrospective §5.3; 5 gap-class instances across 19 row-cascades). Already exceeds 20% threshold pre-fix. Forward 7d watch measures POST-fix gap rate under F1+F3+MAOR active.
+
+**Triggers:**
+- ≥20% gap rate (any iter5+ cascade)
+- NEW sub-class emergence not in iter1-4 catalogued list (Write-BLOCKED / concurrent-cascade-collision / probe-as-body / FALSE-SUCCESS-REPORT / UNTRACKED-FILE-LIVE-SYNC-CLOBBER)
+
+**Window:** 2026-05-13 → 2026-05-20 (stale-at). If triggered, bono surfaces DEPRECATE recommendation; Captain decides whether to proceed with deprecation or accept extension.
+
+### §14.7 — Composes-with extended
+
+- **§S-220 MAOR v0.1 RATIFY** — `.planning/specs/v2/MAOR-PROTOCOL.md` (commit `0360fde9`) + V2-MASTER-STATE comms-link `c09e2723`
+- **§S-221 F1+F3 RATIFY** — V2-MASTER-STATE comms-link `048081f1`
+- **MMA findings doc** — `comms-link/.planning/research/mma-multi-agent-orchestration-fix-20260513.md` (commit `d3480014`)
+- **F1-gate retrospective audit** — `.planning/specs/v2/F1-GATE-RETROSPECTIVE-20260513.md` (commit `1aec0e23`)
+- **V2-PROGRESS-MAP §0 F3 framing note** — `racecontrol` commit `8b1a7850`
+- **MMA Protocol v4.0 Phase 3 OpenRouter** — canonical MMA transport (`feedback_mma_channel_openrouter_not_perplexity_20260511.md`)
+- **§S-N close-anchor push standing rule** — `feedback_sn_close_anchor_push_standing_rule_20260512.md` (atomic edit→add→commit→push)
+- **Harness-mechanism-auth sub-clause** — `feedback_apply_recommendations_autonomously_20260510.md` (A3 hook install gating)
+
+### §14.8 — V-LBAC-5 forward gap-rate watch (new self-test)
+
+Added to §10 success metrics:
+
+- **V-LBAC-5:** Forward 7d gap rate <20% post-§S-220+§S-221 ratify — ACTIVE WATCH (DEPRECATE-trigger at 2026-05-20)
+
+Conditional on V-LBAC-5 PASS for v0.1 → v0.2 promotion. v0.1 → v0.2 promotion: all of V-LBAC-1 + V-LBAC-2 + V-LBAC-3 + V-LBAC-4 + V-LBAC-5 PASS → promote with refinements; any FAIL → root-cause + structural amendment OR DEPRECATE recommendation.
+
+---
+
+— bono · 2026-05-13 ~10:55 IST · V2-LBAC-PROTOCOL.md v0.1 amendments §14 encoded inline per Captain commission "V-LBAC-PROTOCOL.md F1+F3 inline encoding" · §14.1 §S-220 MAOR REVIEW step insertion + AMPLIFIER A1+A2+A3 + §14.2 §S-221 F1 SCOPE GATE (G-F1-1..5 + SCAFFOLD-AHEAD exception + anti-pattern BLOCKED) + §14.3 §S-221 F3 ACCOUNTING REFORM (TEST-SCAFFOLDED ≠ ENGINEERING-IN-FLIGHT + forward-only + closure rate restatement) + §14.4 updated 10-step cascade flow + §14.5 pre-spawn OPEN-CLAIM mechanism + §14.6 DEPRECATE-trigger active watch + §14.7 composes-with extended + §14.8 V-LBAC-5 forward gap-rate watch · canonical path matches `racecontrol/CLAUDE.md` doctrine pointer · §13 change log updated with §S-220 + §S-221 + inline-encoding entries
