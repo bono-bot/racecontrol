@@ -61,9 +61,23 @@ pub enum ClampResult {
 
 /// Pure-function clamp in pct domain.
 ///
-/// Returns `Allowed` when `requested_pct <= cap`; returns `Clamped` otherwise
-/// with `cap_source = "MAX_DISCOUNT_PCT"`. No state dependency.
+/// Returns `Allowed` when `0.0 <= requested_pct <= cap`; returns `Clamped`
+/// otherwise. Negative pct and NaN pct are defensive-rejected via the
+/// `"NEGATIVE_OR_NAN_REQUESTED_PCT"` cap_source — RCA §5 anti-pattern guard
+/// (negative pct propagating as `original_price * (1 - pct)` would INCREASE
+/// the session price above original; NaN comparisons silently fall through
+/// `<=` semantics, so explicit `is_nan()` check is required). No state
+/// dependency.
 pub fn clamp_discount_pct(requested_pct: f64, cap: f64) -> ClampResult {
+    if requested_pct < 0.0 || requested_pct.is_nan() {
+        return ClampResult::Clamped {
+            original_pct: requested_pct,
+            clamped_pct: 0.0,
+            original_paise: None,
+            clamped_paise: None,
+            cap_source: "NEGATIVE_OR_NAN_REQUESTED_PCT",
+        };
+    }
     if requested_pct <= cap {
         ClampResult::Allowed {
             pct: requested_pct,
@@ -91,6 +105,18 @@ pub fn clamp_discount_paise(
     original_price_paise: i64,
     cap: f64,
 ) -> ClampResult {
+    if requested_discount_paise < 0 {
+        // Defensive: negative discount = price increase at call-site
+        // (final_price = original - discount; negative discount → larger final).
+        // Same class as `clamp_discount_pct` negative guard; RCA §5 anti-pattern.
+        return ClampResult::Clamped {
+            original_pct: 0.0,
+            clamped_pct: 0.0,
+            original_paise: Some(requested_discount_paise),
+            clamped_paise: Some(0),
+            cap_source: "NEGATIVE_REQUESTED_DISCOUNT_PAISE",
+        };
+    }
     if original_price_paise <= 0 {
         // Defensive: dividing by zero or negative original price is nonsensical;
         // refuse to compute a pct, return a Clamped with explicit cap_source so
@@ -200,6 +226,51 @@ mod tests {
                 assert_eq!(clamped_paise, Some(0));
             }
             other => panic!("expected Clamped with ZERO_ORIGINAL_PRICE, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn clamp_negative_pct_rejected() {
+        // RCA §5 anti-pattern guard: negative pct propagating as
+        // `original_price * (1 - pct)` would INCREASE final price above original.
+        let r = clamp_discount_pct(-0.10, 0.50);
+        match r {
+            ClampResult::Clamped {
+                cap_source,
+                clamped_pct,
+                ..
+            } => {
+                assert_eq!(cap_source, "NEGATIVE_OR_NAN_REQUESTED_PCT");
+                assert!((clamped_pct - 0.0).abs() < 1e-9);
+            }
+            other => panic!("expected Clamped with NEGATIVE_OR_NAN guard, got {:?}", other),
+        }
+        // NaN must also be rejected — `requested_pct <= cap` returns false for NaN
+        // in Rust, but explicit guard surfaces the case via cap_source label.
+        let r_nan = clamp_discount_pct(f64::NAN, 0.50);
+        match r_nan {
+            ClampResult::Clamped { cap_source, .. } => {
+                assert_eq!(cap_source, "NEGATIVE_OR_NAN_REQUESTED_PCT");
+            }
+            other => panic!("expected Clamped for NaN, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn clamp_paise_negative_requested_rejected() {
+        // Symmetric defensive: negative discount_paise at billing call-site would
+        // make `final_price = original - discount` larger than original.
+        let r = clamp_discount_paise(-50, 1000, 0.50);
+        match r {
+            ClampResult::Clamped {
+                cap_source,
+                clamped_paise,
+                ..
+            } => {
+                assert_eq!(cap_source, "NEGATIVE_REQUESTED_DISCOUNT_PAISE");
+                assert_eq!(clamped_paise, Some(0));
+            }
+            other => panic!("expected Clamped with NEGATIVE_REQUESTED guard, got {:?}", other),
         }
     }
 }
