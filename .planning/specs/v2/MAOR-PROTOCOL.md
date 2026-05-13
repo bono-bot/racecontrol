@@ -51,6 +51,25 @@ Parallel reviewers, one per flagged file. ~$0.30-0.50 per file.
 
 ---
 
+## Composes-with V-LBAC scope-gate F1+F3 (AMPLIFIER A1, §S-220.4)
+
+MAOR addresses **mechanism-quality REVIEW** — the 4 first-application defects (paise/credits + PII + Axum middleware + dead-end composition) map cleanly to mechanism-quality bucket (file I/O reliability + agent verification + cross-file consistency).
+
+MAOR does **NOT** address **scope-quality**: F1 ("stop scaffolding ahead of substrate") + F3 ("test-scaffolded ≠ engineering-IN-FLIGHT"). 3-of-3 MMA models converged on scope-quality as the DOMINANT root cause of orchestration gap-generation. Without F1+F3, MAOR catches more bugs per cascade but the cascade still creates V1→V2 STRUCTURAL GAPS at the contract-test gate because tests still target absent V1 substrate.
+
+**MAOR is the REVIEW component. F1+F3 are the SCOPE GATE component. They compose — not alternatives.**
+
+Canonical encoding: [V-LBAC-PROTOCOL.md §14](./V2-LBAC-PROTOCOL.md) — F1 GATES inserted as Step 3.5 (pre-spawn substrate verification via G-F1-1..5 grep gates); REVIEW (this protocol) inserted as Step 4.5 between FIX and CLOSE. Updated 10-step cascade flow:
+```
+OPEN → DESCEND → H1 → F1 GATES → FIX → REVIEW → CLOSE → SWEEP → SYNC → BILATERAL
+```
+
+Anchor: V2-MASTER-STATE §S-220 (MAOR ratify) + §S-221 (F1+F3 ratify). Empirical: F1-retrospective on §S-213→§S-219 cascade rows shows 61% FAIL (substrate-missing) — these were artifacts MAOR could not have caught because the issue is upstream of REVIEW. F1+F3 prevent these artifacts from being authored at all.
+
+Forward meta-test (single-agent, 3 rows, 2026-05-13 ~11:35 IST): 0% gap rate vs ~26% pre-fix baseline. Two-layer defense empirically validated on N=1.
+
+---
+
 ## V-LBAC integration
 
 Current closed-loop (V-LBAC v0.1 §3):
@@ -122,23 +141,45 @@ MAOR adds <50% overhead to an iter and catches issues that would otherwise propa
 
 ---
 
-## Promotion criteria (v0.1 → v0.2)
+## Promotion criteria v1.1 (v0.1 → v0.2) — AMPLIFIER A2 tightened, §S-220.5
 
-Promote to v0.2 when:
-- N ≥ 3 iter cascades have completed REVIEW step
-- Reviewer caught ≥1 real defect across those N cascades
-- 0 false-positive findings of the "rubber-stamp inverted" class (reviewer fabricating issues)
+**Original v1.0 criteria were too lenient** — N≥3 cascades + ≥1 cumulative defect was already met on N=1 (first application caught 4 real defects). Promotion would have been observational, not testing-the-mechanism.
 
-Until then, v0.1 is in CANDIDATE-N1 sense — active but observational. Stale-at: 2026-08-13.
+**Tightened v1.1 criteria (active):**
 
----
+- **N ≥ 5 iter cascades** have completed REVIEW step (not just authored — actually run through the loop)
+- Reviewer caught **≥1 real defect AT EACH iter** (not just cumulative across N — proves the reviewer is consistently engaged, not just lucky once)
+- 0 false-positive findings of the "rubber-stamp inverted" class (reviewer fabricating issues at confidence ≥75)
+- 0 false-negatives detected by **retrospective Captain disposition** across those N iters (catches blind-spot patterns MAOR missed entirely)
 
-## Open questions (deferred)
+**Current status (2026-05-13 ~13:50 IST):** N=1 (forward meta-test by bono 2026-05-13 ~11:35 IST under V-LBAC §14.4). Original iter1-4 cascades did not run REVIEW — they predate §S-220, so they don't count toward N.
 
-- Should bilateral cross-pilot review be promoted to MANDATORY for foundational boundaries? (Currently opt-in.)
-- Should MAOR cover non-test artifacts (V2-PROGRESS-MAP refresh, §S-N entries)? (Currently test-files-only.)
-- Hook enforcement of `pre-push-maor-check` is a v0.2 candidate per the "text-only rule = repeat violation" pattern.
+Until v1.1 criteria met, v0.1 remains active but observational. Stale-at: 2026-08-13.
 
 ---
 
-**Last updated:** 2026-05-13 ~09:55 IST (initial author)
+## Hook enforcement (v0.1 priority) — AMPLIFIER A3, §S-220.6
+
+Per §S-146 enforcement RCA (`project_s146_enforcement_rca_20260510.md`): *"text-only rules carry ≥1 repeat-violation per 30d; hook-enforced rules carry zero."* MAOR is high-discipline-load text-only doctrine; same pattern as §S-146 itself. Without hook enforcement, MAOR will accumulate repeat-violations within 30d (predicted by §S-146 doctrine).
+
+**Hook v0.1 priority:** `pre-push-maor-check.js` (PreToolUse blocker)
+
+- **Trigger:** Bash commands matching `git push.*racecontrol` regex
+- **Block condition:** uncommitted contract-test files exist (`tests/contract/*.spec.ts` pattern) without corresponding MAOR receipt at `.planning/specs/v2/MAOR-RECEIPTS/<surface>-<date>.json`
+- **Composes-with:** `feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md` mechanism-trust-check.sh (sibling enforcement infrastructure)
+
+**Install gate:** harness self-mod — requires Captain explicit per-session auth per harness-mechanism-auth sub-clause. Install path: `~/.claude/hooks/pre-push-maor-check.js`. Captain auth phrase: *"I authorize edit to ~/.claude/hooks/pre-push-maor-check.js"*. This protocol ratifies priority escalation only; install remains pending Captain harness-auth.
+
+---
+
+## Open questions disposition (§S-220.7)
+
+| Q | Disposition |
+|---|---|
+| Bilateral cross-pilot review promote to MANDATORY for foundational boundaries? | AGREE-WITH-DEFAULT-OFF-OPT-IN. Matches §S-146 V1↔V2 foundational-boundary escalation pattern. Re-evaluate at v0.2 promotion. |
+| MAOR cover non-test artifacts (V2-PROGRESS-MAP refresh, §S-N entries)? | YES — extend in v0.2. The paise/credits mis-cite was a §S-N-class issue (close-anchor cited DoD line). Phase in v0.2 with separate cost calibration. |
+| Hook enforcement `pre-push-maor-check.js`? | ESCALATED TO v0.1 PRIORITY — see above section. |
+
+---
+
+**Last updated:** 2026-05-13 ~13:50 IST (A1+A2+A3 amendments inline per AMPLIFIER §S-220.4-.6; initial author 2026-05-13 ~09:55 IST)
