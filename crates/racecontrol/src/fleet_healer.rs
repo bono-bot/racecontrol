@@ -110,6 +110,31 @@ pub enum FleetHealerError {
 
 /// Axum handler for POST /api/v1/pods/{id}/survival-report.
 /// Watchdog processes on pods POST their survival reports here.
+///
+/// SAFETY (audit-log echo class — §S-245 iter7 defensive comment-contract):
+/// In the `AuditTrail::log_repair` call below, `serde_json::to_string(&report)` persists
+/// the FULL request body into the `incident_log.metadata` column. The `SurvivalReport`
+/// in scope here is the LOCAL one re-exported at line 34 (`pub use audit::{..., SurvivalReport, ...}`)
+/// — defined at `fleet_healer_audit.rs:170-185`, NOT the unrelated `rc_common::survival_types::SurvivalReport`.
+/// Open-passthrough fields carrying caller-controlled data: `diagnostics: Option<serde_json::Value>`
+/// (free-form JSON), `source_layer: String`, `status: String`, `build_id: Option<String>`. Today's
+/// READ-side reach is INTERNAL ONLY — `AuditTrail::recent_entries` (`fleet_healer_audit.rs:125-163`)
+/// is the sole reader of `incident_log` and has ZERO call sites in `crates/racecontrol/src/` (dead
+/// code at the READ surface). Note that `query_audit_log` at `accounting_handlers.rs:191` reads a
+/// DIFFERENT table (`audit_log` — billing-class DB-change audit), NOT `incident_log`. Any future
+/// HTTP handler that exposes `incident_log` rows via JSON response MUST redact or hash-prefix
+/// the `metadata` field's `diagnostics` / `source_layer` / `status` / `build_id` keys BEFORE
+/// return — the data persists indefinitely but doesn't currently reach HTTP. Same risk class as
+/// §S-241 cirs.rs Display-impl PII-leak (commit `cbf5b995`) but via different mechanism
+/// (request-body audit-log echo, not thiserror Display interpolation).
+/// SEPARATE FINDING (DOCUMENTED-DEFERRED to iter8 / §S-146 audit): this POST endpoint
+/// merges at `routes.rs:128` OUTSIDE all auth-class sub-router groups (auth_rate_limited /
+/// public / customer / kiosk / staff / service / survival) — authentication context may
+/// be permissive; verify before claiming "internal-only" includes a meaningful trust
+/// boundary at the WRITE side. Audit trail: §S-241 Agent-2 class-audit recommendation #5;
+/// §S-245 iter7 defensive comment-contract (MAOR Tier-1 findings #1+#2+#3 DISPOSITIONED-INLINE —
+/// initial draft cited wrong struct fields and stale line numbers; this revision uses correct
+/// local-`SurvivalReport` fields and relative `log_repair` reference to survive future line drift).
 pub async fn survival_report_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Path(pod_id): axum::extract::Path<String>,
