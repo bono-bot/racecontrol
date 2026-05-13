@@ -44,7 +44,7 @@ Captain may still authorize forward meta-test separately; this retrospective is 
 |---|---|---|---|---|---|---|---|---|---|
 | 1.17 | §S-213 | bono | PASS | PASS | PASS | PASS | **PASS** | TEST-SCAFFOLDED (env-SKIP until 1.6 POS + 1.10 Kiosk deploy) | cross-surface-consistency.spec.ts; substrate exists across canonical Server .23 + 3 V2 surfaces |
 | 1.14 | §S-215 | bono | PASS | PASS | PASS | PASS | **PASS** | TEST-SCAFFOLDED | customer_legal.rs DELETE cascade exists (43 ERASE_TABLES + 3 TRANSITIVE + 3 POINTER); /customer/profile + /customer/sessions + /customer/stats exist; DELETE /customer/data-delete exists |
-| 1.16 | §S-215 | bono | PASS | PASS | PASS | PASS | **PASS** | TEST-SCAFFOLDED | source-tagging DoD §3.3 enum exists; payment matrix R1-C kiosk×cash forbidden correlation rule exists |
+| 1.16 | §S-215 | bono | PASS | PASS-by-DOC¹ | **FAIL** | **FAIL** | **FAIL × 2** | ENGINEERING-IN-FLIGHT (shape-missing + mechanism-missing) | **§S-222 re-grep refresh 2026-05-13 ~12:25 IST:** original §S-215 PASS verdict relied on DoD §3.3 doc-substrate (G-F1-2 PASS-by-DOC) but **strict G-F1-3 re-grep reveals V1 `/billing/sessions` response at `billing_views.rs:350-420` returns 15 fields and EMITS NEITHER `source` NOR `payment_method`** — test C2/C3 enum-drift assertions will FAIL the moment env-gate wires. G-F1-4 write-side enforcement (DoD §209 "untagged write should be rejected at API boundary") also absent in V1. New STRUCTURAL GAP not in §S-215..§S-219 11+ inventory; composes-with Captain Q-1.16 source_tag substrate gap (Active matter #2 from session-end directive). _Original §S-215 evidence retained as DoD-substrate-only basis:_ DoD §3.3 enum exists; payment matrix R1-C kiosk×cash forbidden correlation rule exists. **¹PASS-by-DOC** = doc substrate exists but V1 code shape does not implement the spec; counts as PASS only under loose F1-G-F1-2 interpretation. |
 | 1.19 | §S-215 | bono | **FAIL** | **FAIL** | **FAIL** | PASS | **FAIL × 3** | ENGINEERING-IN-FLIGHT (substrate-missing + configurable-missing + shape-missing) | §S-215 evidence: V1 scheduler default `business_hours_start/end = 10:00/22:00` ≠ DoD canonical 12:00/24:00 (G-F1-2); `extension_active` / `iracing_active` flags don't exist in V1 API (G-F1-3); `/api/v1/operating-window` endpoint doesn't exist (G-F1-1) |
 | 1.11 | §S-216 | bono | **FAIL** | PASS | **FAIL** | PASS | **FAIL × 2** | ENGINEERING-IN-FLIGHT (substrate-missing + shape-missing) | §S-216 evidence: `/api/v1/telemetry/pulse` endpoint doesn't exist (G-F1-1); `/billing/active` `BillingSessionInfo` shape missing `current_lap`/`last_lap_time`/`best_lap_time` (G-F1-3); `fleet_health.rs` has no `last_telemetry_at` field (G-F1-3) |
 | 1.13 | §S-216 | bono | **FAIL** | PASS | PASS | PASS | **FAIL** | ENGINEERING-IN-FLIGHT (substrate-missing) | §S-216 evidence: `/api/v1/billing/finalize` endpoint doesn't exist; canonical today `/billing/{id}/stop` + `/billing/{id}/agent-shutdown`; `idempotency_key` HONORED on start+refund but only INFORMATIONAL on stop (mechanism partial) |
@@ -78,14 +78,14 @@ Captain may still authorize forward meta-test separately; this retrospective is 
 
 ### §4.1 F1 pass rate (substrate-existence rate)
 
-| Verdict | Count | % of audited rows |
-|---|---|---|
-| **PASS (all 4 gates)** — TEST-SCAFFOLDED valid | 5 | **28%** |
-| **PASS-CONDITIONAL** (PARTIAL on G-F1-4 with closure-phase gating) | 2 | 11% |
-| **FAIL (any gate)** — ENGINEERING-IN-FLIGHT | 11 | **61%** |
-| **TOTAL audited rows** | 18 | 100% |
+| Verdict | Count (initial) | Count (§S-222 re-grep refresh) | % of audited rows |
+|---|---|---|---|
+| **PASS (all 4 gates)** — TEST-SCAFFOLDED valid | 5 | **4** | **22%** |
+| **PASS-CONDITIONAL** (PARTIAL on G-F1-4 with closure-phase gating) | 2 | 2 | 11% |
+| **FAIL (any gate)** — ENGINEERING-IN-FLIGHT | 11 | **12** | **67%** |
+| **TOTAL audited rows** | 18 | 18 | 100% |
 
-**Reading:** 61% of cascade work was authoring TESTs against ABSENT V1 substrate. Only 28% were valid TEST-SCAFFOLDED-with-substrate-exists. 11% are conditional (test exists for current partial substrate; closure-phase will upgrade).
+**Reading (post-§S-222 re-grep refresh):** 67% of cascade work was authoring TESTs against ABSENT V1 substrate (up from 61% initial; row 1.16 reclassified PASS → FAIL × 2 after strict G-F1-3 V1-shape verification revealed `/billing/sessions` response missing `source` + `payment_method` fields). Only 22% are valid TEST-SCAFFOLDED-with-substrate-exists (down from 28%). 11% conditional unchanged. **The +1 FAIL reclassification firms up the empirical MMA scope-quality dominance hypothesis** — re-grep at §S-N close-anchor cycles per §6 Recommendations #1 is now demonstrated to surface hidden FAIL class on at least 1/5 (20%) of audited PASS rows in this bono-LED batch.
 
 ### §4.2 Sub-state distribution (ENGINEERING-IN-FLIGHT rows)
 
