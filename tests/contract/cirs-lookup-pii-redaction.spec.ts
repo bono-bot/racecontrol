@@ -309,7 +309,9 @@ test.describe('Layer 7.8 - cirs_lookup_handler PII redaction (security-debt-ledg
     // this test asserts the envelope itself doesn't leak. If the layer
     // is not yet wired (older deploy) the test will not see 429 within
     // the burst — handled by an observation log + skip.
-    const supplied = '9876543210';
+    // Sentinel '0000000000' per project no-fake-data rule (passes
+    // canonicalize_phone digit-count check, clearly non-production).
+    const supplied = '0000000000';
     const N_BURST = 40;
     let observed_429: ApiRead | null = null;
     let first_status: number | null = null;
@@ -351,7 +353,8 @@ test.describe('Layer 7.8 - cirs_lookup_handler PII redaction (security-debt-ledg
     // require_staff_jwt is the structurally-correct first line of defense
     // (returns 401 before any handler-level processing) — this test
     // verifies that envelope's PII discipline.
-    const supplied = '9876543210';
+    // Sentinel '0000000000' per project no-fake-data rule.
+    const supplied = '0000000000';
     const read = await cirsLookupRaw(
       { method: 'phone', phone: supplied } as CirsLookupPhoneRequest,
       null,

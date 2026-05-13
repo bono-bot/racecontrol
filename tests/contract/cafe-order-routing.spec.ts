@@ -444,6 +444,15 @@ test.describe('Layer 1.12 - Cafe order routing (PWA-self OR Kiosk-staff → kitc
   });
 
   test('cafe-order amount feeds auto-bill (composes Layer 1.13; DoD L104)', async () => {
+    // T3 IS UNREACHABLE in any pre-PR-D state. The test posts to the
+    // canonical /api/v1/cafe/order endpoint which is unregistered today
+    // (STRUCTURAL GAP §1 in the doctrinal header) — so it returns 404 and
+    // skips at the post-place gate. The composition assertion against
+    // active_session_wallet_debit_paise also requires Layer 1.13 to
+    // surface that field on /customer/profile, which is currently absent.
+    // Both gaps must close before this assertion can fire end-to-end.
+    // The test stays in-file as the executable contract that PR-D + the
+    // Layer 1.13 sub-PACT MUST jointly satisfy; not a missed test case.
     test.skip(!CANONICAL_REACHABLE, SKIP_REASONS.CANONICAL_REACHABLE);
     test.skip(!TEST_CUSTOMER_JWT, SKIP_REASONS.TEST_CUSTOMER_JWT);
     test.skip(!TEST_ITEM_SKU, SKIP_REASONS.TEST_ITEM_SKU);

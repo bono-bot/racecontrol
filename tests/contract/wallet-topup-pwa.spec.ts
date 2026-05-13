@@ -306,11 +306,12 @@ async function getWallet(jwt: string): Promise<ApiRead<WalletReadResponse>> {
 function extractBalanceCredits(body: PwaTopupResponse): number | undefined {
   if (typeof body.wallet_balance_credits === 'number') return body.wallet_balance_credits;
   if (typeof body.new_balance_credits === 'number') return body.new_balance_credits;
-  // PWA route MAY surface balance_paise (1 paise = 1 credit per DoD L39
-  // currency unit — substrate stores credits, 1 rupee = 1 credit; the
-  // paise<->credit dimensional mapping is the V2 contract this test
-  // anchors and Layer 1.20 ratifies).
-  if (typeof body.wallet_balance_paise === 'number') return body.wallet_balance_paise;
+  // DoD L39 canonical: "1 rupee = 1 credit. Substrate stores values as
+  // credits. Wallet ledger is credit-denominated." A response that
+  // surfaces wallet_balance_paise instead of wallet_balance_credits is
+  // a STRUCTURAL GAP — the V2 PWA contract is credit-denominated. We
+  // return undefined here so the caller's `typeof === 'number'` guard
+  // skips rather than silently coercing paise into credits.
   return undefined;
 }
 
@@ -435,10 +436,13 @@ test.describe('Layer 1.7 - Wallet top-up PWA path (DoD 14:22 Path A)', () => {
     // Mid-tier (≥₹2,000 < ₹4,000) → 10% bonus on the ₹2,000 deposit = 200
     // credits, written as a separate ledger row per DoD L72.
     if (typeof bonusReported === 'number') {
-      // 10% of ₹2,000 = 200 credits (DoD L69; wallet_staff.rs:229-245
-      // computes bp = amount * pct / 100 which for paise+pct gives paise,
-      // and substrate stores 1:1 paise<->credit per DoD L39).
-      expect(bonusReported).toBeGreaterThanOrEqual(20000);
+      // DoD L39: 1 rupee = 1 credit (substrate credit-denominated).
+      // DoD L69 worked example: ₹2,000 deposit + 10% bonus = 200 credits.
+      // The V2 PWA contract surfaces bonus_credits_granted in CREDITS,
+      // not paise. If the server returns 20000 (paise units), that is a
+      // STRUCTURAL GAP (substrate misnames its paise field as "credits");
+      // this assertion will fail-loud rather than coerce.
+      expect(bonusReported).toBeGreaterThanOrEqual(200);
     } else {
       console.log(
         `bonus_credits_granted field absent — PWA wrapper PR-D must surface ` +
@@ -454,13 +458,16 @@ test.describe('Layer 1.7 - Wallet top-up PWA path (DoD 14:22 Path A)', () => {
     const delta = balanceAfter - balanceBefore;
     console.log(
       `bonus-ladder delta: ${balanceBefore} → ${balanceAfter} (Δ=${delta}, ` +
-      `expected ≥220000 paise-equivalent for ₹2,000+10% on a fresh idempotency_key)`,
+      `expected 2200 credits for ₹2,000+10% on a fresh idempotency_key per DoD L39+L69)`,
     );
 
-    // Tolerance ±100 to cover paise-rounding edge cases; the CONTRACT
-    // is delta == 220000 (₹2,200 = 2,200 credits at 1:1 in substrate).
-    expect(delta).toBeGreaterThanOrEqual(220000 - 100);
-    expect(delta).toBeLessThanOrEqual(220000 + 100);
+    // DoD L39: balance_credits is credit-denominated (1 rupee = 1 credit).
+    // DoD L69: ₹2,000 deposit + 10% bonus = 2,200 credits net.
+    // Tolerance ±1 covers any single-unit rounding at the substrate edge;
+    // if delta lands at 220000, the substrate is returning paise under
+    // the "credits" name — a STRUCTURAL GAP this assertion surfaces.
+    expect(delta).toBeGreaterThanOrEqual(2200 - 1);
+    expect(delta).toBeLessThanOrEqual(2200 + 1);
   });
 
   test('idempotency - same idempotency_key submitted twice MUST NOT double-credit (FATM-02 guard)', async () => {
