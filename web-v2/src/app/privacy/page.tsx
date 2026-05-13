@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { SiteHeader } from "../../components/SiteHeader";
+import { SiteFooter } from "../../components/SiteFooter";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — RacingPoint",
@@ -18,12 +21,19 @@ export const metadata: Metadata = {
  * for browse-without-opt-in visitors and the inline opt-in form footer link.
  */
 
-export default function PrivacyPolicyPage() {
+async function isReturningCustomer(): Promise<boolean> {
+  const cookieStore = await cookies();
+  return cookieStore.get("rp_returning")?.value === "1";
+}
+
+export default async function PrivacyPolicyPage() {
+  const returning = await isReturningCustomer();
   return (
     <>
       <a href="#main" className="rp-skip-link">
         Skip to content
       </a>
+      <SiteHeader returning={returning} />
       <main id="main">
       <h1>Privacy Policy</h1>
       <p>
@@ -118,6 +128,7 @@ export default function PrivacyPolicyPage() {
         <a href="/v2/">← Back to RacingPoint</a>
       </p>
       </main>
+      <SiteFooter />
     </>
   );
 }
