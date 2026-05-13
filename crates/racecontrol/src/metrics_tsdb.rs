@@ -17,6 +17,10 @@ pub const METRIC_POD_HEALTH_SCORE: &str = "pod_health_score";
 pub const METRIC_GAME_SESSION_COUNT: &str = "game_session_count";
 /// Phase 364 GLD-D-05: Counter for try_send overflow events on hot-path WS channels.
 pub const METRIC_WS_TRY_SEND_OVERFLOWS: &str = "ws_try_send_overflows_total";
+/// §S-272 Phase 2 observability: daily count of MAX_DISCOUNT_PCT ceiling clamp events.
+/// Derived at producer-time from audit_log rows with action_type='discount_clamped' AND created_at >= date('now').
+/// Composes with cluster atom A5 audit-log stamps at billing_start.rs + billing_discount.rs (D-CLUSTER-3 PR #72).
+pub const METRIC_DISCOUNT_CLAMP_COUNT: &str = "discount_clamp_count_daily";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricSample {

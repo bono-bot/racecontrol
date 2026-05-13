@@ -11,7 +11,7 @@ use crate::metrics_tsdb::{
     MetricSample, MetricsSender,
     METRIC_WS_CONNECTIONS, METRIC_GAME_SESSION_COUNT,
     METRIC_POD_HEALTH_SCORE, METRIC_BILLING_REVENUE,
-    METRIC_WS_TRY_SEND_OVERFLOWS,
+    METRIC_WS_TRY_SEND_OVERFLOWS, METRIC_DISCOUNT_CLAMP_COUNT,
 };
 use crate::state::AppState;
 
@@ -122,6 +122,40 @@ pub fn spawn_metric_producers(state: Arc<AppState>, metrics_tx: MetricsSender) {
                     recorded_at: now.clone(),
                 };
                 metrics_tx.try_send(sample).ok();
+            }
+
+            // 6. §S-272 Phase 2 observability — daily MAX_DISCOUNT_PCT clamp count.
+            // Derived from audit_log rows emitted by cluster atom A5 stamps at
+            // billing_start.rs:227 + billing_discount.rs:175 (D-CLUSTER-3 PR #72).
+            // Read-only SELECT; no schema modification. Fires once per 30s cycle.
+            // Composes with metric_alert_task rule 'discount_clamp_count_daily Gt 10.0'.
+            //
+            // MMA Step 1 BLOCKING #3 mitigation: 5s query timeout (defense-in-depth
+            // against unbounded-query class — if WHERE clause regresses to full table
+            // scan, timeout prevents systemic DB outage affecting all observability).
+            {
+                let query_fut = sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM audit_log WHERE action_type = 'discount_clamped' AND created_at >= date('now')"
+                )
+                .fetch_one(&state.db);
+
+                match tokio::time::timeout(Duration::from_secs(5), query_fut).await {
+                    Ok(Ok(count)) => {
+                        let sample = MetricSample {
+                            metric_name: METRIC_DISCOUNT_CLAMP_COUNT.to_string(),
+                            pod_id: None,
+                            value: count as f64,
+                            recorded_at: now.clone(),
+                        };
+                        metrics_tx.try_send(sample).ok();
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(target: LOG_TARGET, "Failed to query daily discount-clamp count: {}", e);
+                    }
+                    Err(_elapsed) => {
+                        tracing::error!(target: LOG_TARGET, "Daily discount-clamp count query timed out >5s — possible audit_log scan degradation; skipping this cycle");
+                    }
+                }
             }
         }
     });

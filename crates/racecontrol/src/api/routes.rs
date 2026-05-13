@@ -790,6 +790,9 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 // Phase 367-04: Batch export estimate + export (GLD-G-04)
                 .route("/admin/export/estimate", get(admin_export_estimate_handler))
                 .route("/admin/export", get(admin_export_handler))
+                // §S-272 Phase 2 observability: discount-clamp summary endpoint
+                // (manager+ auth tier per §S-246 lesson — financial/ops data never public_routes)
+                .route("/admin/discount-clamp-summary", get(discount_clamp_summary_handler))
                 .layer(axum::middleware::from_fn(require_role_manager))
         )
         .merge(

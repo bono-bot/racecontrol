@@ -1,0 +1,60 @@
+{
+  "surface": "phase-2-observability-clamp-counter",
+  "cached_at": "2026-05-13T21:40:00Z",
+  "ist_local": "2026-05-14T03:10:00+05:30",
+  "validity_days": 30,
+  "stale_at": "2026-06-12T21:40:00Z",
+  "author": "bono",
+  "session": "post-/compact polling Session-B",
+  "rca_anchor": "racecontrol/.planning/audits/RCA-2026-05-13-phase-2-observability-clamp-counter.md",
+  "sn_anchor": "S-272",
+  "comms_link_open_claim_sha": "4f84f2d8",
+  "verdict_summary": "4 PASS + 1 PARTIAL (Q3 WhatsApp delivery — pre-existing surface limitation reused not modified; NOT a blocker per §S-186 PARTIAL-acceptable doctrine for surface-reuse-without-modification class)",
+  "questions": [
+    {
+      "id": "Q1",
+      "topic": "atomic primitives",
+      "surface_under_check": "TSDB metric emission + audit_log SELECT query path + admin endpoint handler",
+      "answer": "PASS",
+      "rationale": "TSDB MetricsSender.try_send is non-blocking atomic channel send (drops on full channel — acceptable observability semantic). audit_log SELECT is read-only idempotent SQL. Admin handler uses standard axum State+Query extractors with single-shot DB query (no multi-step transaction). All primitives are atomic at their semantic level."
+    },
+    {
+      "id": "Q2",
+      "topic": "TTL-bounded sentinels integrated with the atomic primitive",
+      "surface_under_check": "TSDB ring buffer + rollups + alert task cooldown",
+      "answer": "PASS",
+      "rationale": "metrics_samples 7-day retention (Phase 285 doctrine); metrics_rollups 90-day daily resolution; metric_alert_task per-rule 30-min cooldown built-in (metric_alerts.rs:23 'let cooldown = Duration::from_secs(30 * 60)'). All bounds explicit and TTL-enforced. Cooldown integrates with the atomic try_send pattern via the snapshot-then-evaluate cycle (60s tick + 30-min last_fired tracking)."
+    },
+    {
+      "id": "Q3",
+      "topic": "behavioral-verify success",
+      "surface_under_check": "WhatsApp outbound + alert firing observability",
+      "answer": "PARTIAL",
+      "rationale": "WhatsApp send via Evolution API is best-effort fire-and-forget per existing whatsapp_alerter.rs (no end-to-end ACK from Uday's device). Alert firing IS audit-trailed (event_archive.append_event 'alert.fired' per metric_alerts.rs:95). So firing is verified; delivery is echo-only (HTTP 200 from Evolution API ≠ message-delivered-to-Uday). Sibling Q3 surface to §S-263 deploy-surface verification. PR REUSES this surface; does NOT modify it. Pre-existing PATCHED-ONLY disposition per RCA §3.",
+      "remediation": "Phase γ follow-up: separate PR adds retry+ACK+fallback to send_whatsapp surface. Out of this PR's scope per smallest-reversible-change principle."
+    },
+    {
+      "id": "Q4",
+      "topic": "single-target dry-run path",
+      "surface_under_check": "Daily-clamp producer + admin endpoint + alert eval",
+      "answer": "PASS",
+      "rationale": "Daily-clamp producer is single-target (no fleet broadcast); admin endpoint is single-host query (uses local state.db only). Alert eval is single-rule against snapshot. No multi-pod fan-out. No fleet-wide blast surface. Dry-run path: run binary in dev with mock alert_rules; verify producer emits sample; verify metric_alert_task does NOT call send_whatsapp when count <= threshold."
+    },
+    {
+      "id": "Q5",
+      "topic": "guards have written contracts with delivery script (parser-not-regex + allowlist)",
+      "surface_under_check": "AlertRule schema + AlertCondition enum",
+      "answer": "PASS",
+      "rationale": "metric_alert_task consumes typed MetricAlertRule struct from config (not stringly-parsed eval). AlertCondition is a typed enum (Gt | Lt | Eq) parsed via serde from TOML. Schema is documented in config.rs MetricAlertRule. No regex; no string-eval. Allowlist semantic: only metrics that exist in TSDB snapshot are evaluated (metric_alerts.rs:47-55 — 'metric not in snapshot, skipping rule')."
+    }
+  ],
+  "composes_with": [
+    "RCA §1 boundary map (this is §5 5Q evaluation)",
+    "§S-186 mechanism-trust-check upstream of fix RCA",
+    "§S-146 V1↔V2 RCA gate",
+    "§S-263 sibling Q3 WhatsApp delivery surface (pre-existing PATCHED-ONLY)"
+  ],
+  "bypass_used": false,
+  "bypass_rationale": null,
+  "next_action": "MMA Step 1 DIAGNOSE on §S-146 RCA itself (foundational-boundary escalation per V1-dependent V2 sections rule)"
+}

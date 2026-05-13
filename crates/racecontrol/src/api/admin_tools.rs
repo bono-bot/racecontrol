@@ -297,3 +297,72 @@ pub(crate) async fn internal_test_config_mismatch_handler(
         "note": "WhatsApp alert fired. Verify receipt on staff phone within 30s."
     }))
 }
+
+// ─── §S-272 Phase 2 observability ───────────────────────────────────────────
+//
+// GET /api/v1/admin/discount-clamp-summary?days=7
+//
+// Returns last-N-days by-day breakdown of MAX_DISCOUNT_PCT ceiling clamp events.
+// Source: audit_log rows with action_type='discount_clamped' (emitted by cluster
+// atom A5 stamps at billing_start.rs:227 + billing_discount.rs:175 per D-CLUSTER-3
+// PR #72 MERGED).
+//
+// Auth: manager+ (financial/ops data — never public_routes per §S-246 lesson).
+// Read-only; no schema modification.
+//
+// Response shape:
+//   {
+//     "days": 7,
+//     "today_count": <i64>,
+//     "by_day": [{ "date": "YYYY-MM-DD", "count": <i64> }, ...],
+//     "alert_threshold": 10
+//   }
+
+#[derive(Deserialize)]
+pub(crate) struct DiscountClampSummaryQuery {
+    days: Option<i64>,
+}
+
+pub(crate) async fn discount_clamp_summary_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DiscountClampSummaryQuery>,
+) -> Json<Value> {
+    let days = params.days.unwrap_or(7).clamp(1, 30);
+
+    // Daily breakdown for last N days
+    let by_day_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT DATE(created_at) AS day, COUNT(*) AS count
+         FROM audit_log
+         WHERE action_type = 'discount_clamped'
+           AND created_at >= date('now', ?)
+         GROUP BY DATE(created_at)
+         ORDER BY day DESC",
+    )
+    .bind(format!("-{} days", days))
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let by_day: Vec<Value> = by_day_rows
+        .into_iter()
+        .map(|(date, count)| json!({ "date": date, "count": count }))
+        .collect();
+
+    // Today's count (matches the producer-emitted TSDB sample semantically)
+    let today_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE action_type = 'discount_clamped'
+           AND created_at >= date('now')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    Json(json!({
+        "days": days,
+        "today_count": today_count,
+        "by_day": by_day,
+        "alert_threshold": 10,
+        "note": "Source: audit_log rows action_type='discount_clamped' (cluster atom A5 emitter)"
+    }))
+}
