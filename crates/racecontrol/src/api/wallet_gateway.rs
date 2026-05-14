@@ -226,13 +226,22 @@ pub(crate) async fn payment_gateway_webhook(
 
     // §S-281 D-PHASE-γ-1 Atom 7 — INSERT-then-handle-conflict idempotency pattern.
     //
-    // Replaces the prior pre-flight SELECT-OUTSIDE-tx pattern (I-13 race class):
+    // Replaces the prior pre-flight SELECT-OUTSIDE-tx pattern (I-15 race class):
     // two concurrent webhooks with the same idempotency_key both used to SELECT
     // (finding no row) → both proceeded to credit_in_tx → second one's INSERT
     // failed on UNIQUE constraint and returned 500 → caller had to retry to get
     // the duplicate-response 200. Wallet balance was already race-safe via the
     // UNIQUE INDEX + rollback, but the caller-visible retry-required symptom
-    // was the I-13 idempotency persistence retry-race surface.
+    // was the I-15 idempotency persistence retry-race surface.
+    //
+    // §S-285 §5 / §S-287 PR-B bundle — comment-class label correction:
+    // pre-fix said "I-13 race class" / "I-13 idempotency persistence retry-race
+    // surface" which conflated with I-13 wallet-RMW Atom 6 (Phase γ-β PR-B
+    // scope). Canonical mapping per `RCA-2026-05-14-I13-I15-I17` §1:
+    //   I-13 = wallet RMW (Atom 6, PR-B)
+    //   I-15 = idempotency-key persistence (Atom 7, PR-A; this code path)
+    //   I-17 = audit-log atomicity (Atom 8, PR-B)
+    // No behavioral change; doctrine-label correctness only.
     //
     // New pattern: BEGIN tx → credit_in_tx (which INSERTs wallet_transactions
     // with idempotency_key) → on Err detected as UNIQUE-conflict, ROLLBACK +
