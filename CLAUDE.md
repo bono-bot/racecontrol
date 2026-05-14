@@ -1040,6 +1040,20 @@ Before claiming any capability OR service-state about a target X (`cannot reach`
 
 **Canonical memory:** `/root/.claude/projects/-root/memory/feedback_capability_claim_without_probe_20260514.md` · MEMORY.md L1151 index entry ⭐⭐ PROMOTE-N=2-ACTIVE · §S-297 V2-MASTER-STATE close-anchor `18dc90b5`. Bilateral parity: harness `~/.claude/CLAUDE.md` (landed Captain-auth this session 2026-05-14 ~08:50 IST) + comms-link/CLAUDE.md (landed bilateral this session) + this racecontrol/CLAUDE.md section (landed bilateral this session). james-side parity pending his own harness Captain auth.
 
+## Branch-state-mutation hook v0.1.0 — runtime enforcement of branch-verify-before-destructive-git (Captain 2026-05-14 IST HOOK-INSTALL-BUNDLE)
+
+`pre-bash-destructive-git-branch-check.js` v0.1.0 — PreToolUse Bash hook in V-LBAC shared working trees (`/root/racecontrol`, `/root/comms-link`). Intercepts destructive git ops (commit/push/reset/checkout/branch/rebase/clean/restore/merge/cherry-pick); prints branch+head+status context to stderr (advisory); BLOCKs two tripwire patterns: (1) force-push on protected branches (main/master/develop) — N=5 BILATERAL ACTIVE branch-state-mutation class would silently push parallel-pilot branch state to canonical main; (2) hard-reset in shared trees — can discard parallel-pilot commits with no diagnostic. Other destructive ops emit ADVISORY (exit 0) with full branch context so silent-flip is structurally impossible.
+
+**Bypass (audited):** `DESTRUCTIVE_GIT_BYPASS=1 DESTRUCTIVE_GIT_BYPASS_TS=$(date +%s)` paired — 15-min TTL, every use logged to `~/.claude/state/branch-check-audit.jsonl`. Anti-pattern blocked: shell-rc sets bypass var permanently — TTL forces re-set every 15min, ambient state structurally infeasible.
+
+**Empirical anchors (N=5 cumulative session arc 2026-05-14):** (1) parallel-bono §S-272 wrong-branch commit; (2) bono §S-273 branch-name silent-flip via bilateral live-sync; (3) /root/comms-link working tree state mutation from parallel-bono shared substrate ops; (4) /root/racecontrol silent-flip to PR-B branch head `98e70925` during §S-291 VPS rebuild; (5) shared-working-tree class detected during §S-281 cascade authorship. **Anchor #6 same install ~03:57Z (this commit's own author state):** /root/racecontrol working tree on PR-B feature branch when bilateral-sync of capability-claim section was attempted — discovered via grep miss; resolved via /tmp/rc-main worktree path. The hook just installed would have caught any ambient `git commit` op via ADVISORY display.
+
+**Smoke-test evidence (6/6 behaved-as-designed 2026-05-14 ~03:53Z):** TEST-1 commit ADVISORY exit=0 · TEST-2 force-push-main BLOCK exit=2 · TEST-3 hard-reset BLOCK exit=2 (incidentally exposed /root/racecontrol on PR-B branch — hook surfaced parallel-pilot mutation before any op) · TEST-4 ls-tmp out-of-scope no-op · TEST-5 status non-destructive no-op · TEST-6 BYPASS-env-allow exit=0.
+
+**Known v0.1.0 FP class (iter1-candidate DEFERRED):** substring detection matches destructive-op tokens inside heredoc/python-c/bash-c quoted-string bodies. iter1 fix: AST-class tokenization (stripHeredocs + quoted-string skip) same class as `pre-harness-auth-gate.js` v0.2.0 I-1 Bash AST resolution. Bypass-env path works as designed pending iter1.
+
+**Canonical:** `~/.claude/hooks/pre-bash-destructive-git-branch-check.js` v0.1.0 (137 lines) · audit log `~/.claude/state/branch-check-audit.jsonl` · HOOK-INSTALL-BUNDLE ledger entry `2026-05-14T03:52:10Z` op=install · `~/.claude/CLAUDE.md` "Branch-state-mutation hook v0.1.0" section · comms-link/CLAUDE.md bilateral mirror · this racecontrol/CLAUDE.md section · `feedback_branch_state_mutation_parallel_pilot_20260514.md` memory file flipped STAGED-PENDING → INSTALLED. james-side parity requires his own harness Captain auth.
+
 ## Current Blockers
 
 - v6.0 blocked on BIOS AMD-V (SVM Mode disabled on server Ryzen 7 5800X) — does not affect v9.0
