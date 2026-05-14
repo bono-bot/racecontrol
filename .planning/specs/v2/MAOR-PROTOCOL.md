@@ -1,7 +1,7 @@
 # MAOR v0.1 — Multi-Agent Orchestration Review Protocol
 
-**Status:** ACTIVE (first application 2026-05-13 ~09:55 IST)
-**Authored by:** james · ratify anchor V2-MASTER-STATE §S-220 (pending bono publish)
+**Status:** ACTIVE — v0.1.1 with v0.2-promotion-caveats encoded (CAVEAT-1 + CAVEAT-2 added §S-343; v0.1 → v0.2 RATIFY pending Captain disposition of D-MAOR-PROMOTE-1 retro-audit)
+**Authored by:** james · ratify anchor V2-MASTER-STATE §S-220 · v0.1.1 caveat-encoding anchor §S-343
 **Composes-with:** V-LBAC v0.1 §3 closed-loop · §S-219 Multi-Agent Orchestration iter pattern · CGP H1-H5
 
 ---
@@ -109,6 +109,8 @@ When briefing the reviewer agent, the prompt MUST include:
 3. **What's intentional** — env-gated SKIP, gap-discovery, doctrinal header pattern. Prevents false positives.
 4. **Verdict requirement** — explicit per-file "clean" or N findings (no silent pass)
 5. **Source-of-truth pointers** — DoD path, RCA file path, etc. Reviewer must read these independently before validating author citations.
+6. **Lateral-scope scan** (CAVEAT-1, §S-343 D-MAOR-PROMOTE-1 retro-audit FN-1 disposition) — "Scan all functions in each file, not only the new additions in this cascade. Prior content can violate standing rules the new content follows. If a rule applied to one file in a precedent cascade flagged a pattern (e.g. PII-fixture doctrine on `.spec.ts`), check whether the same pattern exists in lateral code (e.g. unit tests in the same `.rs` file). Inconsistency across cascades is itself a defect class." Anchor: §S-220 MAOR caught `9876543210` in contract tests; §S-241 MAOR missed the same pattern in cirs.rs unit tests. Reviewer must enumerate all functions in each file under review and apply the precedent rule-set laterally.
+7. **Inline-comment-as-flag** (CAVEAT-2, §S-343 D-MAOR-PROMOTE-1 retro-audit FN-2 disposition) — "Read all inline comments in migrations, RCA sections, and source files that contain explicit caveats, TODOs, or named future states. A comment that says 'the current X is not Y; future state is Z' (or 'allows future migration to add X', 'pending D-N ratify', 'temporary V1 retention with follow-up trigger', 'intentional default — see RCA §K') is a flag to verify whether Y is required now or whether the deferral was correctly ratified upstream. The author's own comment naming the gap means the gap is known but possibly mis-scoped." Anchor: §S-341 row 1.12 migration line 80 named `UNIQUE(idempotency_key, session_id)` as the intended future scope while shipping `UNIQUE(idempotency_key)` globally; MAOR did not flag the semantic mismatch despite the author's own pointer.
 
 ---
 
@@ -182,4 +184,4 @@ Per §S-146 enforcement RCA (`project_s146_enforcement_rca_20260510.md`): *"text
 
 ---
 
-**Last updated:** 2026-05-13 ~13:50 IST (A1+A2+A3 amendments inline per AMPLIFIER §S-220.4-.6; initial author 2026-05-13 ~09:55 IST)
+**Last updated:** 2026-05-15 ~00:05 IST (v0.1.1 caveat-encoding §S-343 D-MAOR-PROMOTE-1 retro-audit findings — CAVEAT-1 lateral-scope-scan + CAVEAT-2 inline-comment-as-flag added to §3 briefing requirements; v0.1 → v0.2 RATIFY pending Captain disposition · prior A1+A2+A3 amendments inline 2026-05-13 ~13:50 IST per AMPLIFIER §S-220.4-.6; initial author 2026-05-13 ~09:55 IST)

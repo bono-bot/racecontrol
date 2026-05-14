@@ -189,14 +189,21 @@ pub async fn record_lookup(
 mod tests {
     use super::*;
 
+    // PII-fixture doctrine: parsing/utility tests use the `0000000000` allowance
+    // (CLAUDE.md "No Fake Data" rule). Redaction security tests below (lines
+    // 352-500) deliberately retain realistic-shape fixtures (`9876543210` class)
+    // because the security guarantee they prove IS "realistic phone shapes get
+    // redacted." Replacing those fixtures would weaken the security test.
+    // §S-343 MAOR retro-audit FN-1 disposition (D-MAOR-PROMOTE-1 cascade).
+
     #[test]
     fn canonicalize_plus_prefix_canonical() {
-        assert_eq!(canonicalize_phone("+919876543210").unwrap(), "+919876543210");
+        assert_eq!(canonicalize_phone("+910000000000").unwrap(), "+910000000000");
     }
 
     #[test]
     fn canonicalize_10_digit_auto_91() {
-        assert_eq!(canonicalize_phone("9876543210").unwrap(), "+919876543210");
+        assert_eq!(canonicalize_phone("0000000000").unwrap(), "+910000000000");
     }
 
     #[test]
@@ -250,16 +257,16 @@ mod tests {
     #[test]
     fn canonicalize_trims_whitespace() {
         assert_eq!(
-            canonicalize_phone("  +919876543210  ").unwrap(),
-            "+919876543210"
+            canonicalize_phone("  +910000000000  ").unwrap(),
+            "+910000000000"
         );
-        assert_eq!(canonicalize_phone(" 9876543210 ").unwrap(), "+919876543210");
+        assert_eq!(canonicalize_phone(" 0000000000 ").unwrap(), "+910000000000");
     }
 
     #[test]
     fn input_method_db_strings() {
         assert_eq!(
-            LookupInput::Phone { phone: "+919999999999".to_string() }.input_method_db(),
+            LookupInput::Phone { phone: "+910000000000".to_string() }.input_method_db(),
             "phone"
         );
         assert_eq!(
@@ -283,12 +290,12 @@ mod tests {
 
     #[test]
     fn phone_input_hash_is_sha256_hex() {
-        let h = LookupInput::Phone { phone: "+919999999999".to_string() }
+        let h = LookupInput::Phone { phone: "+910000000000".to_string() }
             .input_hash()
             .unwrap();
         assert_eq!(h.len(), 64);
         assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
-        let h2 = LookupInput::Phone { phone: "+919999999998".to_string() }
+        let h2 = LookupInput::Phone { phone: "+910000000001".to_string() }
             .input_hash()
             .unwrap();
         assert_ne!(h, h2);
