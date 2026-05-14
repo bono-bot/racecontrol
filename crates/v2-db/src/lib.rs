@@ -107,12 +107,30 @@ mod tests {
         let pool = open(path).await.expect("open pool");
         migrate(&pool).await.expect("apply migrations");
 
-        // Smoke: customers table exists and is empty.
+        // Smoke: customers table exists and contains exactly the 2 named
+        // Walk-In Guest seeds from migration 20260514151300 (DoD line 775).
+        // Both must have discount_ineligible=true per DoD §3.3 line 341.
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customers")
             .fetch_one(&pool)
             .await
             .expect("count customers");
-        assert_eq!(count, 0);
+        assert_eq!(count, 2, "expected 2 walk-in guest seeds post-migration");
+
+        let walkin_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM customers WHERE id IN ('walk_in_guest_1', 'walk_in_guest_2') AND discount_ineligible = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count walk-in guests");
+        assert_eq!(walkin_count, 2, "both walk-in guests must have discount_ineligible=true");
+
+        let wallet_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM wallets WHERE customer_id IN ('walk_in_guest_1', 'walk_in_guest_2')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count walk-in wallets");
+        assert_eq!(wallet_count, 2, "wallet rows must exist for both walk-in guests");
     }
 
     #[tokio::test]
