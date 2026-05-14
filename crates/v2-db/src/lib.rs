@@ -454,4 +454,125 @@ mod tests {
         .fetch_one(&pool).await.expect("count");
         assert_eq!(n, 1, "NULL customer_id row must persist alongside FK rejection");
     }
+
+    #[tokio::test]
+    async fn kitchen_orders_phase1_substrate_applies() {
+        // Row 1.12 Phase 1: kitchen_orders V2 substrate per
+        // migration 20260514174000_kitchen_orders_substrate_phase1.sql
+        // and RCA-2026-05-14-row-1.12-kitchen-orders-substrate.md §5.
+        //
+        // Asserts:
+        //   (a) Migration applies cleanly (open + migrate succeeds)
+        //   (b) INSERT/SELECT round-trip with valid source enum + FK chain
+        //   (c) Source CHECK rejects 'cafe/POS' (R1-C lock structural enforcement)
+        //   (d) Idempotency UNIQUE rejects duplicate idempotency_key
+        //   (e) State CHECK rejects invalid state value
+        //   (f) total_paise CHECK rejects negative value
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = open(path).await.expect("open pool");
+        migrate(&pool).await.expect("apply migrations");
+
+        // Seed FK chain: walk_in_guest_1 customer is already seeded by migration
+        // 20260514151300 (§S-339 row 1.15). Seed staff + pod + session for FK.
+        sqlx::query(
+            "INSERT INTO staff (id, name, phone, pin, role, active) \
+             VALUES ('staff-test-1', 'Test Staff', '+919876543299', '9999', 'cashier', 1)",
+        )
+        .execute(&pool).await.expect("seed staff");
+
+        sqlx::query(
+            "INSERT INTO pods (id, display_name, hardware_class) \
+             VALUES ('pod-test-1', 'Test Pod 1', 'sim_pod')",
+        )
+        .execute(&pool).await.expect("seed pod");
+
+        sqlx::query(
+            "INSERT INTO sessions (id, customer_id, pod_id, session_type, started_at, staff_id) \
+             VALUES ('session-test-1', 'walk_in_guest_1', 'pod-test-1', 'solo', '2026-05-14T14:42:00Z', 'staff-test-1')",
+        )
+        .execute(&pool).await.expect("seed session");
+
+        // (b) Valid INSERT — cafe/PWA source, pending state
+        sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc) \
+             VALUES ('ko-1', 'session-test-1', 'cafe/PWA', '[{\"sku\":\"coffee\",\"qty\":1}]', 15000, 'idem-uuid-1', '2026-05-14T14:42:30Z')",
+        )
+        .execute(&pool).await.expect("insert kitchen_orders cafe/PWA");
+
+        // Round-trip SELECT
+        let row: (String, String, String, i64, String) = sqlx::query_as(
+            "SELECT id, source, items_json, total_paise, state \
+             FROM kitchen_orders WHERE id = 'ko-1'",
+        )
+        .fetch_one(&pool).await.expect("select kitchen_orders");
+        assert_eq!(row.0, "ko-1");
+        assert_eq!(row.1, "cafe/PWA");
+        assert_eq!(row.3, 15000);
+        assert_eq!(row.4, "pending", "default state must be 'pending'");
+
+        // (b') Valid INSERT — cafe/Kiosk source
+        sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc) \
+             VALUES ('ko-2', 'session-test-1', 'cafe/Kiosk', '[{\"sku\":\"sandwich\",\"qty\":2}]', 24000, 'idem-uuid-2', '2026-05-14T14:43:00Z')",
+        )
+        .execute(&pool).await.expect("insert kitchen_orders cafe/Kiosk");
+
+        // (c) Source CHECK rejects 'cafe/POS' (R1-C lock structural enforcement)
+        let pos_reject = sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc) \
+             VALUES ('ko-pos', 'session-test-1', 'cafe/POS', '[]', 0, 'idem-uuid-pos', '2026-05-14T14:44:00Z')",
+        )
+        .execute(&pool).await;
+        assert!(
+            pos_reject.is_err(),
+            "R1-C lock: source CHECK must reject 'cafe/POS' — POS .130 does NOT do cafe orders per DoD L93 + L98"
+        );
+
+        // (d) Idempotency UNIQUE rejects duplicate idempotency_key
+        let dup_idem = sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc) \
+             VALUES ('ko-dup', 'session-test-1', 'cafe/PWA', '[]', 1000, 'idem-uuid-1', '2026-05-14T14:45:00Z')",
+        )
+        .execute(&pool).await;
+        assert!(
+            dup_idem.is_err(),
+            "Idempotency UNIQUE INDEX must reject duplicate idempotency_key per spec test §3 (3)"
+        );
+
+        // (e) State CHECK rejects invalid state
+        let bad_state = sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc, state) \
+             VALUES ('ko-bad-state', 'session-test-1', 'cafe/PWA', '[]', 1000, 'idem-uuid-bad', '2026-05-14T14:46:00Z', 'invalid_state')",
+        )
+        .execute(&pool).await;
+        assert!(
+            bad_state.is_err(),
+            "state CHECK must reject values outside the allowed set (pending, preparing, ready, cancelled)"
+        );
+
+        // (f) total_paise CHECK rejects negative value
+        let neg_total = sqlx::query(
+            "INSERT INTO kitchen_orders \
+             (id, session_id, source, items_json, total_paise, idempotency_key, placed_at_utc) \
+             VALUES ('ko-neg', 'session-test-1', 'cafe/PWA', '[]', -100, 'idem-uuid-neg', '2026-05-14T14:47:00Z')",
+        )
+        .execute(&pool).await;
+        assert!(
+            neg_total.is_err(),
+            "total_paise CHECK must reject negative values"
+        );
+
+        // (g) Count active queue rows for partial-index sanity (state IN {pending, preparing})
+        let active: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM kitchen_orders WHERE state IN ('pending', 'preparing')",
+        )
+        .fetch_one(&pool).await.expect("count active");
+        assert_eq!(active, 2, "both ko-1 + ko-2 must be in active queue (default state pending)");
+    }
 }
