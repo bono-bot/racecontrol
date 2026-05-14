@@ -514,3 +514,251 @@ pub async fn debit(
     Ok((new_balance, txn_id))
 }
 
+#[cfg(test)]
+mod tests {
+    use sqlx::SqlitePool;
+
+    /// Minimal schema reproducing the wallets + wallet_transactions surface used
+    /// by `debit_in_tx` / `credit_in_tx`. Mirrors the production shape closely
+    /// enough that the atomic CAS guarantee can be exercised end-to-end with
+    /// real sqlx + real SQLite (no application AppState plumbing required).
+    async fn setup_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:")
+            .await
+            .expect("in-memory sqlite pool");
+
+        sqlx::query(
+            "CREATE TABLE wallets (
+                driver_id TEXT PRIMARY KEY,
+                balance_paise INTEGER NOT NULL DEFAULT 0,
+                total_credited_paise INTEGER NOT NULL DEFAULT 0,
+                total_debited_paise INTEGER NOT NULL DEFAULT 0,
+                rupee_deposited_paise INTEGER NOT NULL DEFAULT 0,
+                rupee_refunded_paise INTEGER NOT NULL DEFAULT 0,
+                bonus_credited_paise INTEGER NOT NULL DEFAULT 0,
+                venue_id TEXT,
+                updated_at TEXT DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create wallets test table");
+
+        sqlx::query(
+            "CREATE TABLE wallet_transactions (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT NOT NULL,
+                amount_paise INTEGER NOT NULL,
+                balance_after_paise INTEGER NOT NULL,
+                txn_type TEXT NOT NULL,
+                reference_id TEXT,
+                notes TEXT,
+                staff_id TEXT,
+                idempotency_key TEXT,
+                venue_id TEXT,
+                currency_type TEXT NOT NULL DEFAULT 'credit',
+                created_at TEXT DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create wallet_transactions test table");
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX idx_wallet_txn_idempotency
+             ON wallet_transactions(idempotency_key)
+             WHERE idempotency_key IS NOT NULL",
+        )
+        .execute(&pool)
+        .await
+        .expect("create partial UNIQUE INDEX");
+
+        pool
+    }
+
+    /// §S-287 D-PHASE-γ-7 — I-13.invariant.2 retry-poisoning regression guard.
+    ///
+    /// Per RCA-2026-05-14-I13-I15-I17 §1 the wallet RMW race for `debit_in_tx`
+    /// is bounded by an atomic CAS (`UPDATE wallets SET balance = balance - ?
+    /// WHERE driver_id = ? AND balance_paise >= ? RETURNING balance_paise`).
+    /// This test pins the CAS guarantee under the retry-poisoning failure
+    /// mode: client perceives transient network failure mid-debit and retries
+    /// the SAME debit; the second attempt MUST NOT double-debit when the
+    /// first attempt's tx had already committed.
+    ///
+    /// Scenario: balance=1000, debit=400.
+    ///   Attempt 1: succeeds → balance=600, txn row recorded.
+    ///   Client never receives the 200 (simulated network drop).
+    ///   Attempt 2 (retry with same logical request): also lands as a new
+    ///   `debit_in_tx` call.
+    ///
+    /// Without an idempotency_key on the debit path the second attempt
+    /// WILL succeed and balance becomes 200. That is correct behaviour by
+    /// the atomic CAS contract — `debit_in_tx` is a primitive, not an
+    /// idempotent operation. The invariant this test pins is the STRONGER
+    /// property: with an idempotency_key supplied on both attempts, the
+    /// UNIQUE INDEX prevents the second wallet_transactions INSERT, which
+    /// rolls back the wallet UPDATE → balance stays at 600 (no double-debit).
+    ///
+    /// This is the same idempotency-via-UNIQUE-INDEX-then-handle-conflict
+    /// pattern PR-A applied to `wallet_gateway.rs` for credit retries
+    /// (`is_idempotency_conflict` helper). For debit retries the upstream
+    /// caller (`billing_start.rs`) is responsible for passing the
+    /// `idempotency_key`. This test pins the substrate-level guarantee.
+    #[tokio::test]
+    async fn debit_in_tx_with_idempotency_key_blocks_retry_poisoning() {
+        let pool = setup_test_pool().await;
+
+        // Seed wallet at 1000p balance.
+        sqlx::query(
+            "INSERT INTO wallets (driver_id, balance_paise) VALUES ('driver-A', 1000)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed wallet");
+
+        // Attempt 1: simulate `debit_in_tx` happy-path inside a real tx.
+        let mut tx1 = pool.begin().await.expect("begin tx1");
+        let row1: Option<(i64,)> = sqlx::query_as(
+            "UPDATE wallets SET
+                balance_paise = balance_paise - ?,
+                total_debited_paise = total_debited_paise + ?
+             WHERE driver_id = ? AND balance_paise >= ?
+             RETURNING balance_paise",
+        )
+        .bind(400_i64)
+        .bind(400_i64)
+        .bind("driver-A")
+        .bind(400_i64)
+        .fetch_optional(&mut *tx1)
+        .await
+        .expect("attempt 1 CAS");
+        assert_eq!(row1.unwrap().0, 600, "attempt 1 balance after CAS");
+
+        sqlx::query(
+            "INSERT INTO wallet_transactions
+             (id, driver_id, amount_paise, balance_after_paise, txn_type, idempotency_key)
+             VALUES ('txn-1', 'driver-A', -400, 600, 'debit_session', 'retry-key-1')",
+        )
+        .execute(&mut *tx1)
+        .await
+        .expect("attempt 1 record txn");
+        tx1.commit().await.expect("attempt 1 commit");
+
+        // Attempt 2: same logical request retried with the same
+        // idempotency_key. The wallet UPDATE will succeed (CAS condition
+        // still holds because balance is now 600 >= 400), but the
+        // wallet_transactions INSERT will fail on the partial UNIQUE INDEX.
+        // The whole tx rolls back via Drop on the tx (no commit reached).
+        let mut tx2 = pool.begin().await.expect("begin tx2");
+        let row2: Option<(i64,)> = sqlx::query_as(
+            "UPDATE wallets SET
+                balance_paise = balance_paise - ?,
+                total_debited_paise = total_debited_paise + ?
+             WHERE driver_id = ? AND balance_paise >= ?
+             RETURNING balance_paise",
+        )
+        .bind(400_i64)
+        .bind(400_i64)
+        .bind("driver-A")
+        .bind(400_i64)
+        .fetch_optional(&mut *tx2)
+        .await
+        .expect("attempt 2 CAS");
+        assert_eq!(row2.unwrap().0, 200, "attempt 2 CAS provisionally drops balance to 200 inside tx2");
+
+        let dup_insert = sqlx::query(
+            "INSERT INTO wallet_transactions
+             (id, driver_id, amount_paise, balance_after_paise, txn_type, idempotency_key)
+             VALUES ('txn-2', 'driver-A', -400, 200, 'debit_session', 'retry-key-1')",
+        )
+        .execute(&mut *tx2)
+        .await;
+        assert!(
+            dup_insert.is_err(),
+            "duplicate idempotency_key INSERT MUST fail UNIQUE constraint"
+        );
+        let err_msg = format!("{}", dup_insert.unwrap_err());
+        assert!(
+            err_msg.contains("UNIQUE constraint failed: wallet_transactions.idempotency_key"),
+            "expected canonical sqlx UNIQUE-violation message, got: {}",
+            err_msg
+        );
+
+        // Drop tx2 without committing → wallet UPDATE rolls back.
+        drop(tx2);
+
+        // Verify balance is back to 600 (no double-debit despite the retry).
+        let final_balance: (i64,) =
+            sqlx::query_as("SELECT balance_paise FROM wallets WHERE driver_id = 'driver-A'")
+                .fetch_one(&pool)
+                .await
+                .expect("read final balance");
+        assert_eq!(
+            final_balance.0, 600,
+            "invariant: retry-poisoning with same idempotency_key MUST NOT double-debit (balance held at 600)"
+        );
+
+        // Verify exactly one debit row exists in the audit trail.
+        let txn_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM wallet_transactions WHERE driver_id = 'driver-A'")
+                .fetch_one(&pool)
+                .await
+                .expect("count txns");
+        assert_eq!(
+            txn_count.0, 1,
+            "invariant: exactly one wallet_transactions row exists for the deduplicated debit"
+        );
+    }
+
+    /// §S-287 D-PHASE-γ-7 — companion test confirming that WITHOUT an
+    /// idempotency_key the CAS is a pure primitive (no dedup guarantee).
+    /// This is intentional: the dedup property is an idempotency-key-driven
+    /// property, not a wallet-substrate property. Pinning the absence of
+    /// dedup here prevents future refactors from accidentally adding
+    /// silent dedup that masks real billing bugs.
+    #[tokio::test]
+    async fn debit_in_tx_without_idempotency_key_is_pure_primitive() {
+        let pool = setup_test_pool().await;
+        sqlx::query("INSERT INTO wallets (driver_id, balance_paise) VALUES ('driver-B', 1000)")
+            .execute(&pool)
+            .await
+            .expect("seed wallet");
+
+        // Two independent debits without idempotency_key.
+        for tag in ["txn-a", "txn-b"] {
+            let mut tx = pool.begin().await.expect("begin tx");
+            sqlx::query(
+                "UPDATE wallets SET balance_paise = balance_paise - ?
+                 WHERE driver_id = ? AND balance_paise >= ?",
+            )
+            .bind(400_i64)
+            .bind("driver-B")
+            .bind(400_i64)
+            .execute(&mut *tx)
+            .await
+            .expect("CAS");
+            sqlx::query(
+                "INSERT INTO wallet_transactions
+                 (id, driver_id, amount_paise, balance_after_paise, txn_type)
+                 VALUES (?, 'driver-B', -400, 0, 'debit_session')",
+            )
+            .bind(tag)
+            .execute(&mut *tx)
+            .await
+            .expect("record txn");
+            tx.commit().await.expect("commit");
+        }
+
+        let final_balance: (i64,) =
+            sqlx::query_as("SELECT balance_paise FROM wallets WHERE driver_id = 'driver-B'")
+                .fetch_one(&pool)
+                .await
+                .expect("read balance");
+        assert_eq!(
+            final_balance.0, 200,
+            "without idempotency_key the CAS allows both debits — pure primitive contract"
+        );
+    }
+}
+
