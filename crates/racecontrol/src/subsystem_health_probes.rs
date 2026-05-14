@@ -208,9 +208,66 @@ pub(super) fn check_db_sync_lag_sync(db_path: &str) -> SubsystemStatus {
 /// Probe 4: Cloud Sync — check last sync time from sync_state table.
 /// Degraded if oldest sync is > 120 seconds old.
 /// Only checks tables in SYNC_TABLES — orphan rows from removed tables are ignored.
+///
+/// §S-320 item 1 (2026-05-14): detail now also carries wallets-specific sync age
+/// + cloud_sync SCHEMA_VERSION for the §S-307 wallet-anomaly watchpoint Phase-1
+/// feed. Stale `wallets` sync IS the wallet_push_error signal — cloud_sync verify
+/// failures intentionally skip cursor advance (cloud_sync_push.rs:96-97), so a
+/// wallets sync age that does NOT shrink between probes indicates push rejection
+/// at cloud.
 pub(super) async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
     let start = Instant::now();
     let threshold_secs: i64 = 120;
+
+    // §S-320 item 1: wallets-specific sync age + schema_version for wallet-anomaly watchpoint feed.
+    // MAOR finding 1 (confidence 82): distinguish error classes so transient DB errors don't
+    // silently collapse to "no sync_state row" and mask DB-health events from the watchpoint.
+    enum WalletsAgeResult {
+        Age(i64),
+        NoRow,
+        QueryError(String),
+    }
+    let wallets_age = match sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT last_synced_at FROM sync_state WHERE table_name = 'wallets'",
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some((Some(ts),))) => match parse_sync_age_secs(&ts) {
+            Some(age) => WalletsAgeResult::Age(age),
+            None => WalletsAgeResult::QueryError(format!("parse failure on ts={}", ts)),
+        },
+        Ok(Some((None,))) | Ok(None) => WalletsAgeResult::NoRow,
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("no such table") {
+                WalletsAgeResult::NoRow
+            } else {
+                tracing::warn!(
+                    target: super::LOG_TARGET,
+                    error = %err_str,
+                    "wallets sync_state query failed (transient or schema error)"
+                );
+                WalletsAgeResult::QueryError(err_str)
+            }
+        }
+    };
+    let wallets_suffix = match wallets_age {
+        WalletsAgeResult::Age(age) => format!(
+            " | wallets: {}s ago | schema_version: {}",
+            age,
+            crate::cloud_sync_push::SCHEMA_VERSION
+        ),
+        WalletsAgeResult::NoRow => format!(
+            " | wallets: no sync_state row | schema_version: {}",
+            crate::cloud_sync_push::SCHEMA_VERSION
+        ),
+        WalletsAgeResult::QueryError(ref e) => format!(
+            " | wallets: query_error ({}) | schema_version: {}",
+            e,
+            crate::cloud_sync_push::SCHEMA_VERSION
+        ),
+    };
 
     // Build an IN clause from the active SYNC_TABLES list to avoid orphan rows
     // (e.g., metrics_rollups was removed from SYNC_TABLES but its row persisted in sync_state)
@@ -237,21 +294,21 @@ pub(super) async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
                     latency_ms: start.elapsed().as_millis() as u64,
                     error_code: Some("SYNC_STALE".to_string()),
                     detail: Some(format!(
-                        "Last sync {}s ago (threshold: {}s)",
-                        age, threshold_secs
+                        "Last sync {}s ago (threshold: {}s){}",
+                        age, threshold_secs, wallets_suffix
                     )),
                 },
                 Some(age) => SubsystemStatus {
                     ok: true,
                     latency_ms: start.elapsed().as_millis() as u64,
                     error_code: None,
-                    detail: Some(format!("Last sync {}s ago", age)),
+                    detail: Some(format!("Last sync {}s ago{}", age, wallets_suffix)),
                 },
                 None => SubsystemStatus {
                     ok: false,
                     latency_ms: start.elapsed().as_millis() as u64,
                     error_code: Some("SYNC_PARSE_ERROR".to_string()),
-                    detail: Some(format!("Could not parse timestamp: {}", ts)),
+                    detail: Some(format!("Could not parse timestamp: {}{}", ts, wallets_suffix)),
                 },
             }
         }
@@ -261,7 +318,7 @@ pub(super) async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
                 ok: true,
                 latency_ms: start.elapsed().as_millis() as u64,
                 error_code: None,
-                detail: Some("No sync records (venue-only mode)".to_string()),
+                detail: Some(format!("No sync records (venue-only mode){}", wallets_suffix)),
             }
         }
         Err(e) => {
@@ -272,14 +329,17 @@ pub(super) async fn probe_cloud_sync(db: &SqlitePool) -> SubsystemStatus {
                     ok: true,
                     latency_ms: start.elapsed().as_millis() as u64,
                     error_code: None,
-                    detail: Some("No sync_state table (venue-only mode)".to_string()),
+                    detail: Some(format!(
+                        "No sync_state table (venue-only mode){}",
+                        wallets_suffix
+                    )),
                 }
             } else {
                 SubsystemStatus {
                     ok: false,
                     latency_ms: start.elapsed().as_millis() as u64,
                     error_code: Some("SYNC_QUERY_FAILED".to_string()),
-                    detail: Some(err_str),
+                    detail: Some(format!("{}{}", err_str, wallets_suffix)),
                 }
             }
         }
