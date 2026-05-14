@@ -12,7 +12,7 @@ mod audit;
 #[path = "accounting_reports.rs"]
 mod reports;
 
-pub use audit::{log_audit, log_admin_action, snapshot_row};
+pub use audit::{log_audit, log_admin_action, log_admin_action_in_tx, snapshot_row};
 pub use reports::{get_trial_balance, get_profit_loss, get_balance_sheet};
 
 // ─── Journal Entries (Double-Entry Bookkeeping) ─────────────────────────────
