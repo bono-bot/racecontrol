@@ -39,6 +39,92 @@
 
 ---
 
+### §0.2 — Forward-delta supplement §S-217 → §S-316 (§S-317 close-anchor · 2026-05-14 ~14:13 IST)
+
+**Trigger:** Captain 2026-05-14 ~14:13 IST IST verbatim *"this is still out of date. Update this."* + *"this is a gap."* — flagged §0/§0.1 as-of 2026-05-13 14:30 IST as ~24h stale despite ~30 §S-N anchors of substrate landing across the night. §16 cron `3d362294` / `32ad5747` didn't fire (session-only durability gap CANDIDATE-N1 self-flagged in-file at authoring time has now empirically materialized). This §0.2 closes the instance-level gap; class-level structural fix lives at `~/.claude/projects/C--Users-bono/memory/feedback_v2_progress_map_section0_refresh_durability_gap_20260514.md` (3-tier remediation: per-session forward-delta supplement requirement + session-start staleness check hook + /schedule skill port for cron durability).
+
+**Substrate landings since §0.1 as-of (racecontrol/main MERGED PRs):**
+
+| PR | Subject | Merge SHA | Anchor | Layer impact |
+|---|---|---|---|---|
+| **#67** (squash) | cloud_sync Phase 1 /sync/echo verify-by-construction | a22f79b2 | §S-243 | Layer 10.x cloud_sync surface RCA closure |
+| **#72** | D-CLUSTER-3 gate (wallet substrate prereq) | — | §S-266 | wallet substrate sub-gate |
+| **#74** | D-CLUSTER-9 Rust-side txn_type allow-list | — | §S-270 | Layer 7.x wallet ledger taxonomy |
+| **#75** | Phase 2 observability — METRIC_DISCOUNT_CLAMP_COUNT + TSDB + alert rule | `a122e248` | §S-279 | Layer 7.x observability substrate |
+| **#69** | PWA customer-facing landing page | `a2a0eca6` | §S-288 | Layer 1.10 PWA surface |
+| **#70** | web-v2 brand V2 row 1.4 | `a4908e44` | §S-284 | **row 1.4 LIVE-BLOCKING** |
+| **#76** | PR-A Atom 7 idempotency persistence hardening | `f55fb12e` | §S-285 | Phase γ-α wallet substrate |
+| **#77** | PR-B-α Atom 6 invariant regression guards | `3561b5c9` | §S-290 | Phase γ-β-α wallet substrate |
+| **#78** | PR-B-β Atom 8 Option C audit-atomicity | `323b3d09` | §S-295 | Phase γ-β-β wallet substrate — **closes Phase γ cascade** |
+| **#79** | EnvFilter venue-deploy fix (closes §S-300 NF-1) | (deploy SHA `9b73a0ac`) | §S-311 | observability deploy substrate |
+| **#11 + #12 + #13** | comms-link Layer 4 LIVE-BLOCKING closure batch | `6bca00b9` | §S-314 | **+3 Layer 4 LIVE-BLOCKING explicit row flips OPEN→MERGED-CLOSED** |
+
+**Fleet-state landings:**
+- **Server .23 native-MSVC racecontrol.exe deployed from main HEAD `323b3d09`** (§S-298) — single deploy combines PR #75+#76+#77+#78+EnvFilter fix. **4-week class-A soak clock STARTED 2026-05-14 ~09:20 IST → ends 2026-06-11.** All §S-272 alert_rules appended pre-swap.
+- **Apex routing flipped** (§S-304): legacy ManagerXP marketing app retired; `racingpoint.cloud/` apex now serves PR #69 PWA :3501. Q-LEGACY-MARKETING-DISPOSITION-1 + Q-PWA-NGINX-1 Captain RATIFIED Option I.
+- **§S-300 NF-1 fully CLOSED** — metric_alert_task spawn-evidence absent → root-caused (EnvFilter quiet-drop class) → fixed PR #79 → verified A1-FORWARD `target="metric_alerts"` reaching jsonl post-PR-79 (§S-313 3-line evidence chain).
+- **Bono VPS racecontrol :8080 STALE** on build_id `98e70925` (PR-B branch state) vs Server .23 venue `323b3d09` (4-wallet-PR-substrate gap). Captain RATIFIED **Option E HOLD-during-soak until 2026-06-11** (§S-307); wallet-anomaly watchpoint instrumentation Phase-1 designed (baseline observation: 0 wallet-class conflicts in current observability window).
+
+**Captain ratifications closed since §0.1 as-of:**
+- §S-229: Q-1.14 Option B (DPDP separation) + Q-1.16 Option C (source-tagging)
+- §S-252: **Q-2-1 max_discount_pct = 0.50 (50%)** — 1 of 7 Captain-stake queue items closed
+- §S-255: **MAOR v0.1 → v0.2 promotion RATIFIED** — 2 of 7 closed
+- §S-269: 5-disposition DOCTRINE BATCH (D-CLUSTER-6 + §14.4 candidate + §14.6.1 + §S-249.4 #1/#4/#5)
+- §S-280: **D-PHASE-γ ratify EXECUTED** — Phase γ-β cascade UNLOCKED via Pre-Commit Exception sub-clause
+- §S-303/304: apex routing disposition (Option I executed)
+- §S-307: Option E HOLD-during-soak ratified
+- §S-315: PACT-013 + PACT-014 (Q4 CAVEAT) + PACT-015 V2.0 schema scope-authoring trio AMPLIFIER vote-batch (#4 wallet-credit-purchase + #9 PWA-portal-customer-availability + #20 failure-detection)
+
+**RCA + acceptance-test batches landed:**
+- **Layer 8 V1 Process-Mess RCA categories A-J all 10 authored** (§S-225/228/230/232-238) — 10-of-10 categories now have full V2-RCA per §S-146 doctrine. Layer 8 RCA backlog CLEARED.
+- §S-242: Q-1.14 V2-Clean DPDP Separation §S-146 V1↔V2 RCA james-LEAD AUTHORED.
+- §S-248: **9 §S-146 V1↔V2 RCAs on cumulative STRUCTURAL GAPS** authored single-stream (17-of-19 cumulative gaps closed).
+- §S-251: 2 RCAs Phase 2-A rate-table + Phase 2-F Campaign Object prereq substrates.
+- §S-256: wallet-ledger CLUSTER §S-146 V1↔V2 RCA (absorbs row 7.3 MAX_DISCOUNT_PCT).
+- §S-217/218: **Layer 1 acceptance-test cascade phase ENTIRELY COMPLETE** — rows 1.1/1.7/1.10/1.11/1.12/1.13/1.14/1.15/1.16/1.17/1.19/1.20 all have acceptance tests.
+
+**§0 rollup estimate — restated (NOT canonical; canonical recompute pending §16 cron):**
+
+| Class | Total | DONE | ENG-IN-FLIGHT (F3-pure) | TEST-SCAFFOLDED | BLOCKED | NOT-STARTED | % DONE | % DONE+ENG |
+|---|---|---|---|---|---|---|---|---|
+| **V2-LIVE-BLOCKING (F3-pure)** | ~78 | **~40–43** | **~3** | ~22 | 6 | ~7–10 | **~52–55%** | **~57–58%** |
+
+**Delta accounting (since §0.1):**
+- Layer 4 batch (§S-314 explicit PR #11/#12/#13 row flips): **+3 DONE**
+- PR #70 row 1.4 (§S-284): **+1 DONE**
+- PR #69 row 1.10 (§S-288): **+1 DONE** (PWA surface deployed apex via §S-304)
+- Phase 2 observability PR #75 row (§S-279): **+1 DONE** (deployed Server .23 + verified §S-313)
+- Phase γ wallet substrate PR-A+PR-B-α+PR-B-β rows (§S-285/290/295): **+3 DONE** (deployed Server .23 in single transaction §S-298; 4-week soak now running)
+- cloud_sync Phase 1 PR #71 row (§S-243): **+1 DONE** (Layer 10.x)
+- D-CLUSTER-3 PR #72 + D-CLUSTER-9 PR #74 wallet ledger sub-rows: **+2 DONE** (Layer 7.x)
+- Net forward-delta: **~12 DONE** added since §0.1 30/78 baseline → estimated ~42/78 = ~54% F3-pure DONE.
+- ENG-IN-FLIGHT contracted from ~4 → ~3 (PR #76/77/78 promoted DONE-via-deploy; remaining ENG-IN-FLIGHT = Bono VPS racecontrol promotion gate + soak-window watchpoint instrumentation Phase-1).
+- TEST-SCAFFOLDED contracted from ~23 → ~22 (Layer 1 + Layer 7 acceptance tests stable; substrate landed for some Phase γ wallet rows so reclassification candidates exist — concrete row-by-row audit deferred to canonical cron recompute).
+- NOT-STARTED contracted from 13 → ~7–10 (Layer 1 cascade closed all Layer 1 NOT-STARTED rows to IN-FLIGHT; some Layer 4 NOT-STARTED→DONE via §S-314).
+
+**What's gating live now:**
+1. **4-week class-A soak (2026-05-14 → 2026-06-11)** on Server .23 wallet substrate — promotion-gate for Bono VPS racecontrol :8080 cloud-side.
+2. **PACT-013/014/015 V2.0 schema scope-authoring trio** filed (§S-315) but not yet executed — V2.0-LIVE blockers when promoted from PACT-DRAFT to substrate PR queue.
+3. **5 of 7 Captain-stake items remaining** post §S-252 + §S-255 closure.
+4. **5 Q-CUST + 7 Q-2F batch** in Captain G33 queue (§S-247.18 7-item Captain-stake carry-forward).
+5. **Q-2F-7 sub-RCA** james-LEAD forward-defer.
+6. **NF-1 Bono VPS reproduction probe §S-300 §11.2** H5 binary-version-class RULED OUT — remaining causes triaged.
+
+**G9 anchors past 24h:**
+1. **branch-state-mutation-by-parallel-pilot N=5-BILATERAL-ACTIVE** (§S-277/§S-314 namespace co-existence + §S-281 cascade)
+2. **sn-append-stale-tail-read N=5** (§S-277 datapoint + §S-251 N=2 promotion + multiple intra-session anchors)
+3. **rebase-auto-merge-replaces-append** (memory file landed §S-310)
+4. **shell-expansion in WS body** N=2-ACTIVE (bilateral mirror landed)
+5. **AMPLIFIER discipline rubric** — independent receipt-verify on out-of-band claims (bilateral mirror landed §S-284)
+6. **capability-claim-without-probe N=2-ACTIVE** (bono §S-297 / 3-probe rule for reach + N≥2-spaced for service-state; harness CLAUDE.md landed bilateral)
+7. **V2-PROGRESS-MAP §0 refresh durability gap** (§S-317 — this turn; memory anchor landed bilateral; structural fix DEFERRED-N=2 trigger or 2026-06-13 stale-at)
+
+**Composes-with:** §S-N close-anchor + V2-PROGRESS-MAP refresh push STANDING RULE (Captain 2026-05-12; this §0.2 publish + §S-317 close-anchor satisfies standing-rule scope) · §S-307 Option E HOLD-during-soak ratify · §S-298 Server .23 deploy receipt-verify · feedback_v2_progress_map_section0_refresh_durability_gap_20260514.md (class-level structural fix).
+
+**Stale-at:** 2026-06-11 (4-week soak window close) OR next nightly cron recompute (whichever first). §0.2 supersedes §0.1 estimates forward; §0.1 retained for ledger-stability per F3 forward-only disposition.
+
+---
+
 > **¹ MIXED-FRAMING** per F3 ACCOUNTING REFORM (V-LBAC §14.3): the IN-FLIGHT column combines pre-§S-204 ENGINEERING-IN-FLIGHT + post-§S-204 TEST-SCAFFOLDED-AWAITING-SUBSTRATE rows; doctrine is **forward-only**, post-§S-204 flips NOT retroactively reclassified. **F3-pure ENGINEERING-only estimate** (per §14.3 prose; deferred to next nightly cron refresh §16 stale-at 2026-05-18): if ~18 Layer 1 + ~5 Layer 7 cascade rows reclassify to TEST-SCAFFOLDED, ENGINEERING-IN-FLIGHT drops to ~4, and **F3-pure V2.0 % closed ≈ DONE only = 40%** (DONE+ENG-IN-FLIGHT ≈ 45%) — slightly higher than the §14.3 ~20-25% pre-restate guess because actual ENGINEERING DONE absorbed +6 substrate closes since baseline (Layer 12.7, 1.18, 4.1, 4.2, 7.5, 7.9).
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
