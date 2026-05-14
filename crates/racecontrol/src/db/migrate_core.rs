@@ -65,7 +65,7 @@ pub(crate) async fn migrate_core(pool: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS laps (
             id TEXT PRIMARY KEY,
-            session_id TEXT REFERENCES sessions(id),
+            session_id TEXT,
             driver_id TEXT REFERENCES drivers(id),
             pod_id TEXT REFERENCES pods(id),
             sim_type TEXT NOT NULL,
