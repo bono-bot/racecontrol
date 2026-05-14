@@ -201,22 +201,88 @@ pub(crate) async fn topup_wallet(
         _ => "topup_cash",
     };
 
-    let mut new_balance = match wallet::credit(
-        &state,
+    // §S-293 Atom 8 Option C — wallet credit + admin audit in SAME atomic tx.
+    // Closes the I-17 atomicity gap (wallet wrote but audit missing) for the
+    // wallet_topup admin route. Bonus credit / WhatsApp / driver activity
+    // remain post-commit best-effort (existing semantics; non-wallet-critical).
+    //
+    // Pre-fix: wallet::credit(&state, ...) opened its own tx and committed,
+    //          then accounting::log_admin_action(&state, ...) wrote audit on
+    //          a separate pool connection. A crash between the two left an
+    //          orphaned wallet credit without an audit row.
+    //
+    // Post-fix: ensure_wallet → tx.begin → wallet::credit_in_tx → log_admin_action_in_tx
+    //           → tx.commit. The journal-entry post (accounting::post_topup)
+    //           runs after commit, same as wallet::credit did pre-fix.
+    if let Err(e) = wallet::ensure_wallet(&state, &driver_id).await {
+        return Json(json!({ "error": e }));
+    }
+
+    let mut conn = match state.db.acquire().await {
+        Ok(c) => c,
+        Err(e) => return Json(json!({ "error": format!("DB error acquiring connection: {}", e) })),
+    };
+    let mut tx = match sqlx::Acquire::begin(&mut *conn).await {
+        Ok(t) => t,
+        Err(e) => return Json(json!({ "error": format!("DB error starting transaction: {}", e) })),
+    };
+
+    let (mut new_balance, primary_txn_id) = match wallet::credit_in_tx(
+        &mut tx,
         &driver_id,
         req.amount_paise,
         txn_type,
         None,
         req.notes.as_deref(),
         req.staff_id.as_deref(),
+        req.idempotency_key.as_deref(),
+        &state.config.venue.venue_id,
     )
     .await
     {
-        Ok(b) => b,
-        Err(e) => return Json(json!({ "error": e })),
+        Ok(result) => result,
+        Err(e) => {
+            drop(tx);
+            return Json(json!({ "error": e }));
+        }
     };
 
-    // Bonus credit tiers — read from DB
+    // Audit trail for wallet topup (HIGH sensitivity) — INSIDE same tx as
+    // the wallet credit per §S-293 D-PHASE-γ-2 Option C atomic-audit.
+    let topup_details = json!({
+        "driver_id": driver_id,
+        "amount_paise": req.amount_paise,
+        "method": req.method,
+    })
+    .to_string();
+    if let Err(e) = accounting::log_admin_action_in_tx(
+        &mut tx,
+        "wallet_topup",
+        &topup_details,
+        req.staff_id.as_deref(),
+        None,
+    )
+    .await
+    {
+        drop(tx);
+        return Json(json!({ "error": format!("Audit log write failed: {}", e) }));
+    }
+
+    if let Err(e) = tx.commit().await {
+        return Json(json!({ "error": format!("DB commit error: {}", e) }));
+    }
+
+    // Post-commit journal entry (same fire-and-forget pattern wallet::credit
+    // applied pre-fix; wallet_transactions row inside the committed tx remains
+    // source of truth for reconciliation if journal posting fails).
+    match txn_type {
+        "topup_cash" | "topup_card" | "topup_upi" | "topup_online" => {
+            accounting::post_topup(&state, &driver_id, req.amount_paise, txn_type, req.staff_id.as_deref(), Some(&primary_txn_id)).await;
+        }
+        _ => {}
+    }
+
+    // Bonus credit tiers — read from DB (post-commit best-effort, same as pre-fix)
     let bonus_row: Option<(i64,)> = sqlx::query_as(
         "SELECT bonus_percent FROM bonus_tiers WHERE is_active = 1 AND min_amount_paise <= ? ORDER BY min_amount_paise DESC LIMIT 1"
     )
@@ -244,12 +310,6 @@ pub(crate) async fn topup_wallet(
         0
     };
 
-    // Audit trail + WhatsApp alert for wallet topup (HIGH sensitivity)
-    accounting::log_admin_action(
-        &state, "wallet_topup",
-        &json!({"driver_id": driver_id, "amount_paise": req.amount_paise, "method": req.method}).to_string(),
-        req.staff_id.as_deref(), None,
-    ).await;
     whatsapp_alerter::send_admin_alert(
         &state.config, "Wallet Topup",
         &format!("{} paise for driver {}", req.amount_paise, driver_id),

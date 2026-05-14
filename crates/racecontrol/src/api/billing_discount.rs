@@ -135,6 +135,13 @@ pub(crate) async fn apply_billing_discount(
     .fetch_optional(&state.db)
     .await;
 
+    // §S-293 Atom 8 Option C — capture clamp audit details to emit inside
+    // the atomic tx alongside the billing_sessions UPDATE below, instead of
+    // a separate fire-and-forget pool write that could outlive a crash and
+    // leave an orphaned audit record without the corresponding session
+    // discount mutation.
+    let mut clamp_audit_details: Option<String> = None;
+
     let effective_discount_paise = match session_prices {
         Ok(Some((original_price_opt, current_discount))) => {
             // MAX_DISCOUNT_PCT ceiling: clamp before floor (§S-253 row 7.3 substrate; Captain Q-2-1 ratify §S-252 c203135d)
@@ -165,21 +172,12 @@ pub(crate) async fn apply_billing_discount(
                             "MAX_DISCOUNT_PCT ceiling clamped discount for session {}: original_pct={:.4} clamped_pct={:.4} original_total_paise={:?} clamped_total_paise={:?} cap_source={} new_incremental={}",
                             session_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source, new_incremental
                         );
-                        // §S-260 Atom 5 — audit-log stamp on clamp event. Fire-and-forget
-                        // (log_admin_action returns unit). Composes with existing audit_log
-                        // pattern at billing_discount.rs:243-258 admin_actions logging.
-                        let details = format!(
+                        // §S-260 Atom 5 + §S-293 Atom 8 Option C — capture clamp
+                        // audit details; emitted inside the atomic tx below.
+                        clamp_audit_details = Some(format!(
                             "{{\"session_id\":\"{}\",\"original_pct\":{:.4},\"clamped_pct\":{:.4},\"original_total_paise\":{:?},\"clamped_total_paise\":{:?},\"cap_source\":\"{}\",\"new_incremental\":{},\"path\":\"billing_discount\"}}",
                             session_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source, new_incremental
-                        );
-                        accounting::log_admin_action(
-                            &state,
-                            "discount_clamped",
-                            &details,
-                            Some(&claims.sub),
-                            None,
-                        )
-                        .await;
+                        ));
                         new_incremental
                     }
                 }
@@ -225,6 +223,26 @@ pub(crate) async fn apply_billing_discount(
         }
     };
 
+    // §S-293 Atom 8 Option C — apply discount + clamp audit + discount_applied
+    // audit all in ONE atomic tx. Pre-fix the UPDATE was on the pool then both
+    // log_admin_action calls were on separate pool connections, leaving a
+    // window where billing_sessions could be mutated but audit records lost
+    // on crash (or vice versa).
+    let mut conn = match state.db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("STAFF-01: DB acquire failed for session {}: {}", session_id, e);
+            return Json(json!({ "error": "Database error applying discount" }));
+        }
+    };
+    let mut tx = match sqlx::Acquire::begin(&mut *conn).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("STAFF-01: DB begin failed for session {}: {}", session_id, e);
+            return Json(json!({ "error": "Database error applying discount" }));
+        }
+    };
+
     // Apply discount: UPDATE billing_sessions for active/paused sessions only
     let update_result = sqlx::query(
         "UPDATE billing_sessions
@@ -235,24 +253,43 @@ pub(crate) async fn apply_billing_discount(
     .bind(effective_discount_paise)
     .bind(&req.reason_code)
     .bind(&session_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await;
 
     match update_result {
         Ok(r) if r.rows_affected() == 0 => {
+            drop(tx);
             return Json(json!({
                 "error": "Session not found or not in an active/paused state",
                 "session_id": session_id,
             }));
         }
         Err(e) => {
+            drop(tx);
             tracing::error!("STAFF-01: Failed to apply discount for session {}: {}", session_id, e);
             return Json(json!({ "error": "Database error applying discount" }));
         }
         Ok(_) => {}
     }
 
-    // Insert audit_log entry
+    // Emit deferred clamp audit inside the same tx (if a clamp occurred).
+    if let Some(ref details) = clamp_audit_details {
+        if let Err(e) = accounting::log_admin_action_in_tx(
+            &mut tx,
+            "discount_clamped",
+            details,
+            Some(&claims.sub),
+            None,
+        )
+        .await
+        {
+            drop(tx);
+            tracing::error!("STAFF-01: clamp audit-log failed for session {}: {}", session_id, e);
+            return Json(json!({ "error": "Audit log write failed" }));
+        }
+    }
+
+    // discount_applied audit — inside same tx as the UPDATE (atomicity invariant).
     let audit_details = json!({
         "session_id": session_id,
         "discount_paise": effective_discount_paise,
@@ -262,14 +299,24 @@ pub(crate) async fn apply_billing_discount(
         "actor_id": claims.sub,
         "discount_floor_paise": billing::DISCOUNT_FLOOR_PAISE,
     });
-    accounting::log_admin_action(
-        &state,
+    if let Err(e) = accounting::log_admin_action_in_tx(
+        &mut tx,
         "discount_applied",
         &audit_details.to_string(),
         Some(&claims.sub),
         None,
     )
-    .await;
+    .await
+    {
+        drop(tx);
+        tracing::error!("STAFF-01: discount_applied audit-log failed for session {}: {}", session_id, e);
+        return Json(json!({ "error": "Audit log write failed" }));
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!("STAFF-01: discount tx commit failed for session {}: {}", session_id, e);
+        return Json(json!({ "error": "Database commit error applying discount" }));
+    }
 
     tracing::info!(
         actor_id = %claims.sub,

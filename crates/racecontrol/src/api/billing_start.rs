@@ -200,6 +200,15 @@ pub(crate) async fn start_billing_inner(
     let original_price_paise = input.custom_price_paise.map(|p| p as i64).unwrap_or(tier.price_paise);
 
     // MAX_DISCOUNT_PCT ceiling: clamp before floor (§S-253 row 7.3 substrate; Captain Q-2-1 ratify §S-252 c203135d)
+    //
+    // §S-293 D-PHASE-γ-2 Option C — defer audit-log emission to inside the
+    // atomic tx scope (Step 1 below) so the discount_clamped record either
+    // commits with the wallet debit or rolls back with it. Pre-fix this
+    // log_admin_action ran on a separate pool connection BEFORE tx.begin,
+    // so a crash between clamp-audit and wallet-debit could leave an audit
+    // row referencing a session that never actually got debited (orphaned
+    // audit; reverse of the topup gap).
+    let mut clamp_audit_details: Option<String> = None;
     {
         use crate::pricing::discount_ceiling::{clamp_discount_paise, max_discount_pct, ClampResult};
         let cap = max_discount_pct(&state);
@@ -217,21 +226,12 @@ pub(crate) async fn start_billing_inner(
                     "MAX_DISCOUNT_PCT ceiling clamped discount: original_pct={:.4} clamped_pct={:.4} original_paise={:?} clamped_paise={:?} cap_source={}",
                     original_pct, clamped_pct, original_paise, clamped_paise, cap_source
                 );
-                // §S-260 Atom 5 — audit-log stamp on clamp event (forensic ledger).
-                // Fire-and-forget per log_admin_action signature; failure does not
-                // block billing flow. Composes with existing audit_log pattern.
-                let details = format!(
+                // §S-260 Atom 5 + §S-293 Atom 8 Option C — record clamp event
+                // for forensic ledger; emitted inside the atomic tx below.
+                clamp_audit_details = Some(format!(
                     "{{\"session_id\":\"{}\",\"driver_id\":\"{}\",\"original_pct\":{:.4},\"clamped_pct\":{:.4},\"original_paise\":{:?},\"clamped_paise\":{:?},\"cap_source\":\"{}\",\"path\":\"billing_start\"}}",
                     session_id, input.driver_id, original_pct, clamped_pct, original_paise, clamped_paise, cap_source
-                );
-                accounting::log_admin_action(
-                    &state,
-                    "discount_clamped",
-                    &details,
-                    input.staff_id.as_deref(),
-                    None,
-                )
-                .await;
+                ));
                 applied_discount_paise = new_discount;
             }
         }
@@ -381,6 +381,29 @@ pub(crate) async fn start_billing_inner(
             .bind(&input.driver_id)
             .execute(&mut *tx)
             .await;
+    }
+
+    // Step 5 (§S-293 Atom 8 Option C): emit deferred discount_clamped audit
+    // INSIDE the atomic tx so the forensic record commits with the wallet
+    // debit or rolls back with it. Avoids orphaned audit-without-debit.
+    if let Some(ref details) = clamp_audit_details {
+        if let Err(e) = accounting::log_admin_action_in_tx(
+            &mut tx,
+            "discount_clamped",
+            details,
+            input.staff_id.as_deref(),
+            None,
+        )
+        .await
+        {
+            drop(tx);
+            if applied_coupon_id.is_some() {
+                let _ = restore_coupon_on_cancel(&state.db, &session_id).await;
+                tracing::info!("FATM-09: Coupon restored after audit-log failure for session {}", session_id);
+            }
+            state.record_api_error("billing/start");
+            return Json(json!({ "error": format!("Audit log write failed: {}", e) }));
+        }
     }
 
     // Commit: all-or-nothing (FATM-01)
