@@ -1,6 +1,9 @@
 import { getToken, clearToken } from "./auth";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Same-origin relative URL — Next.js server-side rewrite (next.config.ts) proxies
+// /api/* to backend ${API_PROXY_TARGET || "http://localhost:8080"}. V2-aligned.
+// Replaces V1-pattern cross-origin :8080 fetch (mirrors PR #80 v2 admin login).
+const API_BASE = "";
 
 export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();

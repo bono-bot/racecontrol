@@ -4,7 +4,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Same-origin relative URL — Next.js rewrite proxies to backend. V2-aligned.
+// Note: WS_BASE_RAW retained as-is — WebSocket protocol is out-of-scope for this PR
+// (separate Layer 12 RCA per bono §S-324 §7 PWA WS inventory).
+const API_BASE = "";
 const WS_BASE_RAW = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/dashboard";
 // Derive the spectator WS URL from the dashboard WS URL base
 const WS_SPECTATOR = WS_BASE_RAW.replace("/ws/dashboard", "/ws/spectator");

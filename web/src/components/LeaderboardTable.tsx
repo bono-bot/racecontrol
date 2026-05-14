@@ -103,9 +103,10 @@ export function LeaderboardTable({
   useEffect(() => {
     isMountedRef.current = true;
 
-    // Initial REST fetch so we show data immediately before WS first push
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://192.168.31.23:8080";
-    fetch(`${apiBase}/api/v1/leaderboards${buildQuery()}`)
+    // Initial REST fetch so we show data immediately before WS first push.
+    // Same-origin relative URL — Next.js rewrite proxies to backend. V2-aligned
+    // (closes I-7 hardcoded LAN IP fallback from RCA-2026-05-14-layer-12-7-sibling).
+    fetch(`/api/v1/leaderboards${buildQuery()}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<{ entries?: LeaderboardEntry[] }>;

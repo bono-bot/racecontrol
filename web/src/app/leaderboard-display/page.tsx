@@ -338,7 +338,8 @@ export default function LeaderboardDisplayPage() {
   // ─── Heartbeat ping ────────────────────────────────────────────────
 
   useEffect(() => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    // Same-origin relative URL — Next.js rewrite proxies to backend. V2-aligned.
+    const API_BASE = "";
 
     // Try to get a display ID from URL or generate one
     const params = new URLSearchParams(window.location.search);
