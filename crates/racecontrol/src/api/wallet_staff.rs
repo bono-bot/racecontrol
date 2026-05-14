@@ -243,7 +243,18 @@ pub(crate) async fn topup_wallet(
         Ok(result) => result,
         Err(e) => {
             drop(tx);
-            return Json(json!({ "error": e }));
+            // MAOR-T1 IMPORTANT-1 (§S-293): classify the concurrent-duplicate
+            // race past the pre-tx FATM-02 check as a clean idempotency replay
+            // signal. The UNIQUE INDEX on wallet_transactions.idempotency_key
+            // is the second floor (first floor: pre-tx SELECT at lines 176-194).
+            // Surfacing the raw sqlx message would leak schema detail.
+            if e.contains("UNIQUE constraint failed: wallet_transactions.idempotency_key") {
+                return Json(json!({
+                    "status": "ok",
+                    "idempotent_replay": true,
+                }));
+            }
+            return Json(json!({ "error": "Wallet credit failed — please retry" }));
         }
     };
 

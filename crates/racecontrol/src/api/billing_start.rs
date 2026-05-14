@@ -383,9 +383,12 @@ pub(crate) async fn start_billing_inner(
             .await;
     }
 
-    // Step 5 (§S-293 Atom 8 Option C): emit deferred discount_clamped audit
-    // INSIDE the atomic tx so the forensic record commits with the wallet
-    // debit or rolls back with it. Avoids orphaned audit-without-debit.
+    // Step 5 (§S-293 Atom 8 Option C): CONDITIONAL — emits deferred
+    // discount_clamped audit INSIDE the atomic tx ONLY when a clamp fired
+    // (clamp_audit_details.is_some()). Non-clamped billing starts produce
+    // zero audit rows here (same as pre-fix non-clamp path; no regression).
+    // When fired, the forensic record commits with the wallet debit or rolls
+    // back with it. Avoids orphaned audit-without-debit.
     if let Some(ref details) = clamp_audit_details {
         if let Err(e) = accounting::log_admin_action_in_tx(
             &mut tx,

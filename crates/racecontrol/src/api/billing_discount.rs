@@ -533,6 +533,10 @@ pub(crate) async fn cash_drawer_close(
         "status": status,
         "actor_id": claims.sub,
     });
+    // Non-wallet read-only operation (cash_drawer_close performs no
+    // wallet/billing_sessions UPDATE) — pool-based audit retained per
+    // §S-280 D-PHASE-γ-2.1 (wallet-mutation sites only; 8.C universal
+    // audit-atomicity DEFERRED V2.1+).
     accounting::log_admin_action(
         &state,
         "cash_drawer_close",
