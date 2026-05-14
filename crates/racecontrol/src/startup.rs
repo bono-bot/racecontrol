@@ -152,6 +152,21 @@ pub async fn maybe_send_first_boot_email(state: &std::sync::Arc<AppState>) {
     tracing::info!("First-boot email send attempted. Check logs for delivery status.");
 }
 
+/// Default EnvFilter directive set when `RUST_LOG` is unset.
+///
+/// Each comma-separated directive is `<target>=<level>`. EnvFilter matches events by their
+/// `target` field; events with explicit `target: "lit"` literals require their literal to
+/// appear in this set (or in `RUST_LOG`), otherwise they are filtered to OFF.
+///
+/// §S-307 (2026-05-14 NF-1 closure, RCA `.planning/audits/RCA-2026-05-14-envfilter-target-exclusion.md`):
+/// `startup=info` admits the `metric_alert_task` spawn-evidence line from `background_tasks.rs:60` —
+///   sole current crate-wide emit at `target: "startup"`; before adding NEW emits at this target,
+///   re-confirm the scope assumption (see RCA §5 follow-up trigger condition).
+/// `metric_alerts=info` admits the task body's info-level emits (started + first-cycle) and
+///   warn-level emits (`alert.fired`) from `metric_alerts.rs:17,32,94`. Debug-level emits at
+///   `metric_alerts.rs:48-53,67-72` remain filtered OFF (intentional — operational verbosity).
+pub(crate) const DEFAULT_ENV_FILTER_DIRECTIVES: &str = "racecontrol_crate=info,tower_http=info,admin_api=info,debug=info,pod_healer=info,startup=info,metric_alerts=info";
+
 /// Initializes tracing (stdout + rolling JSON file) and returns the non-blocking guard
 /// that must be held for the lifetime of the process.
 ///
@@ -180,7 +195,7 @@ pub fn init_tracing(
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "racecontrol_crate=info,tower_http=info,admin_api=info,debug=info,pod_healer=info".into());
+        .unwrap_or_else(|_| DEFAULT_ENV_FILTER_DIRECTIVES.into());
 
     // Error rate monitoring — broadcast bridge from sync Layer to async alerters
     let (alert_tx, _) = tokio::sync::broadcast::channel::<()>(4);
@@ -226,5 +241,50 @@ pub fn cleanup_old_logs(log_dir: &std::path::Path) {
                                 eprintln!("Cleaned old log: {}", path.display());
                             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard for §S-307 (NF-1 EnvFilter target-exclusion closure).
+    ///
+    /// `metric_alert_task` emits with explicit `target: "startup"` (background_tasks.rs:60) and
+    /// `target: "metric_alerts"` (metric_alerts.rs:14,17,32,94). If these directives are removed
+    /// from the default filter, the task spawns silently and 0/4 spawn-evidence patterns appear
+    /// in the JSONL appender — same observable as "task never started." This test fails fast on
+    /// regression rather than waiting for next post-deploy log scan to surface the gap.
+    ///
+    /// LIMITATION (MAOR Tier-1 F2 disposition, §S-307): substring-contains check, not a behavioral
+    /// `EnvFilter::enabled()` query. A pathological string like `"xstartup=info"` would satisfy
+    /// `contains("startup=info")` while not admitting the target. Acceptable here because the const
+    /// is internal (`pub(crate)`) and changes go through code review. Behavioral-test enhancement
+    /// (build EnvFilter + mock Metadata + assert `enabled()`) is a follow-up if the false-positive
+    /// class ever fires in practice.
+    #[test]
+    fn default_env_filter_admits_metric_alert_task_targets() {
+        assert!(
+            DEFAULT_ENV_FILTER_DIRECTIVES.contains("startup=info"),
+            "DEFAULT_ENV_FILTER_DIRECTIVES must include `startup=info` so metric_alert_task spawn-evidence \
+             at background_tasks.rs:60 reaches the JSONL appender. See RCA-2026-05-14-envfilter-target-exclusion.md."
+        );
+        assert!(
+            DEFAULT_ENV_FILTER_DIRECTIVES.contains("metric_alerts=info"),
+            "DEFAULT_ENV_FILTER_DIRECTIVES must include `metric_alerts=info` so metric_alert_task body emits \
+             at metric_alerts.rs:17,32,94 reach the JSONL appender. See RCA-2026-05-14-envfilter-target-exclusion.md."
+        );
+    }
+
+    /// Sanity check: the default directives parse as a valid EnvFilter so binary boot never falls
+    /// into the `.unwrap_or_else` arm with a malformed string.
+    #[test]
+    fn default_env_filter_parses_cleanly() {
+        let parsed = tracing_subscriber::EnvFilter::try_new(DEFAULT_ENV_FILTER_DIRECTIVES);
+        assert!(
+            parsed.is_ok(),
+            "DEFAULT_ENV_FILTER_DIRECTIVES failed to parse as EnvFilter: {:?}",
+            parsed.err()
+        );
     }
 }
