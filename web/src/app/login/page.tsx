@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { setToken, isAuthenticated } from "@/lib/auth";
 import PinPad from "@/components/PinPad";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Same-origin relative URL — browser fetches /api/* via Next.js server-side
+// rewrite (configured in next.config.ts), which proxies to backend on localhost:8080.
+// Works venue (LAN HTTP) + cloud (VPS proxy) + Tailscale + future HTTPS uniformly.
+// Replaces prior cross-origin :8080 fetch pattern (PR #80 v1) which had cloud-deploy
+// regression + HTTPS protocol mismatch + IPv6-literal + phishing-surface concerns per
+// MMA-VERIFY 2026-05-14 comms-link §S-324 §11 (anthropic/openai BLOCK aggregate 2.8/5).
+const API_BASE = "";
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
