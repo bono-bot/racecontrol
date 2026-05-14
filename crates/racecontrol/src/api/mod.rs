@@ -72,6 +72,7 @@ pub mod leaderboard_driver_profile;
 pub mod leaderboard_driver_ratings;
 pub mod leaderboard_public;
 pub mod mesh_intelligence;
+pub mod operating_window;
 pub mod pod_exec;
 pub mod pod_mgmt;
 pub mod pod_queue;

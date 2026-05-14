@@ -85,6 +85,7 @@ use super::leaderboard_driver_ratings::*;
 use super::cirs_lookup;
 use super::leaderboard_public::*;
 use super::mesh_intelligence::*;
+use super::operating_window;
 use super::pod_exec::*;
 use super::pod_mgmt::*;
 use super::pod_queue::*;
@@ -185,6 +186,11 @@ fn public_routes() -> Router<Arc<AppState>> {
         )
         .route("/venue", get(venue_info))
         .route("/venue/register", post(venue_register))
+        // V2 canonical operating-window endpoint — public; DPDP-clean.
+        // RCA: .planning/audits/RCA-2026-05-14-row-1.19-operating-window-v1-v2.md
+        // DoD §0 L29+L33 — 12:00-24:00 IST hardcoded; explicit UTC+5:30 math.
+        // V1 /scheduler/status retained alongside per V2-only forward path.
+        .route("/operating-window", get(operating_window::get_operating_window))
         .route("/customer/register", post(customer_register))
         .route("/wallet/bonus-tiers", get(wallet_bonus_tiers))
         .route("/wallet/topup-presets", get(wallet_topup_presets))

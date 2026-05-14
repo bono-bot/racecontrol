@@ -164,10 +164,16 @@ test.describe('Layer 1.19 - Operating window 12:00-24:00 IST + iRacing extension
     console.log(`IST now=${ist.iso} hour=${ist.hour}:${ist.minute.toString().padStart(2, '0')} expected_open=${expected} (DoD 12:00-24:00 IST)`);
 
     // V1 scheduler defaults (10:00/22:00) disagree with DoD (12:00/24:00) at IST 10-11 and 22-23.
-    const v1DisagreementHour = (ist.hour >= 10 && ist.hour < 12) || (ist.hour >= 22 && ist.hour < 24);
+    // The disagreement only matters when consuming the V1 endpoint (/api/v1/scheduler/status).
+    // The V2 endpoint (/api/v1/operating-window, RCA-2026-05-14-row-1.19) hardcodes DoD canonical
+    // 12:00-24:00 and returns the correct is_open value at IST 22:xx-23:xx — so skipping there
+    // would mask a valid assertion (MAOR Tier-1 finding §S-N 2026-05-14, confidence 0.88).
+    const usingV1Endpoint = WINDOW_STATE_PATH.includes('/scheduler/');
+    const v1DisagreementHour = usingV1Endpoint &&
+      ((ist.hour >= 10 && ist.hour < 12) || (ist.hour >= 22 && ist.hour < 24));
     if (v1DisagreementHour) {
-      console.log(`SKIP REASON: V1 scheduler default 10:00/22:00 deviates from DoD 12:00/24:00 at IST hour ${ist.hour}.`);
-      test.skip(true, `${SKIP_REASONS.V1_V2_HOUR_GAP} (current IST hour: ${ist.hour})`);
+      console.log(`SKIP REASON: V1 scheduler default 10:00/22:00 deviates from DoD 12:00/24:00 at IST hour ${ist.hour} (path=${WINDOW_STATE_PATH}).`);
+      test.skip(true, `${SKIP_REASONS.V1_V2_HOUR_GAP} (current IST hour: ${ist.hour}; path: ${WINDOW_STATE_PATH})`);
       return;
     }
 
