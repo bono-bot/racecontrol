@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { setToken, isAuthenticated } from "@/lib/auth";
 import PinPad from "@/components/PinPad";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined"
+    ? `http://${window.location.hostname}:8080`
+    : "http://localhost:8080");
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
