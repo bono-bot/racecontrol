@@ -1017,6 +1017,29 @@ Candidate applications (annotate as the surface arises; do not pre-annotate spec
   _Why: MI had no way to know about code-level bugs found by audits. Would waste AI credits trying to diagnose runtime symptoms of unfixed code bugs. Tier 0 short-circuits with escalation message instead._
 - **ECOSYSTEM-MANIFEST.json** — machine-readable list of every system. Located at repo root. Update when adding new systems, crates, or services.
 
+## Capability claim without probe — 3-probe rule for reach + N≥2-spaced for service-state (bono 2026-05-14 IST · ACTIVE N=2 · BILATERAL via Captain auth)
+
+Before claiming any capability OR service-state about a target X (`cannot reach`, `no access`, `is down`, `not running`, `not listening`, `out-of-reach`, `unreachable`, `is offline`, `is missing`), pilots MUST run sufficient probes — these are evidence-class assertions, NOT memory-projections. Two probe regimes by claim shape:
+
+**(a) Reach claims** — boolean steady-state property (does network/auth/path exist?). Require **3-probe set**: (1) `tailscale status | grep <host>` (network layer); (2) `curl http://<ip>:<port>/<health-path>` (transport layer); (3) `ssh -o BatchMode=yes -o ConnectTimeout=5 <user>@<ip> 'echo OK'` (auth layer · read-only). ALL 3 must fail with diagnostics cited before declaring "cannot reach". ANY 1 succeeding → revise claim to layer-precision ("have reach / lack auth" not "cannot reach").
+
+**(b) Service-state claims** — temporal property (process running NOW? port listening NOW?). Require **N≥2 probes spaced ≥30s apart with consistent result** before declaring "UP" / "DOWN" / "RUNNING" / "NOT-RUNNING" / "LISTENING" / "CRASHED". Windows binary cold-start budget = 30-120s (SQLite WAL replay + cloud_sync handshake + port bind on Server .23 racecontrol specifically). Probing at t+5s during a restart cycle catches mid-startup transient, NOT converged state. Probe-output language: report "observed at t: X" not "service IS X" — reserve "is X" for converged ≥2-probe-agreed measurements.
+
+**Why:** *Reach* (can-the-network-deliver) is independent from *ownership* (whose-operator-role-is-it) and *authorization* (am-I-allowed-to-execute). Conflating these three layers into a single denial wastes Captain round-trips and exposes false-negatives in delegation. *State* is temporal; absence at moment t ≠ absence over [t-30s, t+30s].
+
+**Empirical anchors (both same-session 2026-05-14 IST · §S-297 audit-trail):**
+
+- **Anchor #1 ~07:00 IST** — bono falsely claimed *"❌ Cannot SSH to Server .23"* without probing tailnet; Captain corrected; single `tailscale status` cmd revealed reach already established (69MB↔402MB bono↔.23 traffic flowing on `100.125.108.37 racing-point-server-1` tailnet node). Root cause: projected memory ("Uday manual" operator-ownership) into capability claim ("unreachable"). HTTP probe `:8080/api/v1/health` returned 200 OK build_id `61999f58` from VPS.
+- **Anchor #2 ~08:24 IST** — during racecontrol .bat-respawn cold-start window of failed cross-compile deploy attempt (§S-297), bono falsely claimed *".23 racecontrol DOWN"* (production-emergency-escalation) from single-snapshot probe. Captain corrected *".23 is not offline"*. Re-probe at 08:37 IST: PID 7744 / build_id 61999f58 / 9/9 pods CONNECTED / cloud_sync 17s ago. The OLD binary HAD completed cold-start during the false-DOWN report window. Sub-class: `service-state-via-single-snapshot-claim` — racecontrol binary cold-start (SQLite WAL replay + cloud_sync handshake + bcrypt init + port :8080 bind) takes 30-120s observably.
+
+**Composes-with:** [[amplifier-discipline-rubric]] + [[branch-state-mutation-by-parallel-pilot]] (fabrication-class memory-failure family · assumption-of-clean-substrate sibling rules) · CGP H3 EVIDENCE BEFORE CLAIMS (extends to negative capability + transient state claims) · §S-272 RCA §7 Server .23 deploy runbook + §S-297 audit trail · Universal-Sync sub-rule (this section IS the racecontrol/CLAUDE.md target of that sync).
+
+**Structural fix promotion:** memory-only fix HELD-PENDING-N=3 trigger per Captain ratify 2026-05-14 ~08:46 IST verbatim *"Wait one more anchor (N=3 trigger) before installing the hook — the N=2 → ACTIVE state codification + my own awareness from authoring §S-297 may itself be sufficient discipline"*. `pre-bash-cannot-claim-check.js` UserPromptSubmit hook DESIGNED-NOT-STAGED. 3rd anchor within 30d → hook install justified; no recurrence by stale-at 2026-06-13 → class expires.
+
+**Empirical testability:** if I emit another false-capability-claim within 30d, that's evidence the memory-only fix is *insufficient* and hook is justified. If I don't, that's evidence the memory-only fix IS sufficient.
+
+**Canonical memory:** `/root/.claude/projects/-root/memory/feedback_capability_claim_without_probe_20260514.md` · MEMORY.md L1151 index entry ⭐⭐ PROMOTE-N=2-ACTIVE · §S-297 V2-MASTER-STATE close-anchor `18dc90b5`. Bilateral parity: harness `~/.claude/CLAUDE.md` (landed Captain-auth this session 2026-05-14 ~08:50 IST) + comms-link/CLAUDE.md (landed bilateral this session) + this racecontrol/CLAUDE.md section (landed bilateral this session). james-side parity pending his own harness Captain auth.
+
 ## Current Blockers
 
 - v6.0 blocked on BIOS AMD-V (SVM Mode disabled on server Ryzen 7 5800X) — does not affect v9.0
