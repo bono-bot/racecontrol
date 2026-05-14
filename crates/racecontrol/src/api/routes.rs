@@ -528,6 +528,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/billing/sessions/{id}/events", get(billing_session_events))
         .route("/billing/sessions/{id}/summary", get(billing_session_summary))
         .route("/billing/sessions/{id}/invoice", get(get_session_invoice))
+        // §S-329 row 1.13 — V2-doctrine unified session-end endpoint.
+        // Phase 1 substrate: staff-JWT path only. Service-key path (rc-agent)
+        // continues to use /billing/{id}/stop-service; V1 wrapper redirect to
+        // this handler is Phase 1.5.
+        .route("/billing/finalize", post(super::billing_finalize::finalize_handler))
         .route("/billing/{id}/stop", post(stop_billing))
         .route("/billing/{id}/pause", post(pause_billing))
         .route("/billing/{id}/resume", post(resume_billing))

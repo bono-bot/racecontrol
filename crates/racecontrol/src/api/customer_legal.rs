@@ -42,6 +42,13 @@ pub(crate) const ERASE_TABLES: &[(&str, &[&str])] = &[
     ("debit_intents", &["driver_id"]),
     ("dispute_requests", &["driver_id"]),
     ("billing_sessions", &["driver_id"]),
+    // §S-329 row 1.13 finalize substrate (2026-05-14): billing_session_receipts
+    // FK-references billing_sessions(id) ON DELETE CASCADE — the cascade fires
+    // automatically when billing_sessions deletes here, so no explicit entry is
+    // needed. The new billing_sessions.finalize_* columns (finalize_actor,
+    // finalize_reason, finalize_idempotency_key, finalized_at) carry role-class
+    // identifiers (kiosk/staff/rc-agent/auto-scheduler) and request-correlation
+    // keys — not person PII — and are erased with the parent row.
     // ── Ordering-critical (FK to laps, must precede it) ─────────────────────
     // personal_bests.lap_id, track_records.lap_id, hotlap_event_entries.lap_id
     // all REFERENCE laps(id). personal_bests_v2 / track_records_v2 are the
@@ -137,6 +144,18 @@ pub(crate) const TRANSITIVE_ERASE_SQL: &[(&str, &str)] = &[
         "telemetry_samples",
         "DELETE FROM telemetry_samples WHERE lap_id IN \
          (SELECT id FROM laps WHERE driver_id = ?)",
+    ),
+    // §S-329 row 1.13 finalize substrate (2026-05-14):
+    // billing_session_receipts.session_id REFERENCES billing_sessions(id)
+    // ON DELETE CASCADE. The cascade alone would clean up the row, but
+    // dpdp-coverage-check requires explicit listing in either ERASE_TABLES
+    // or TRANSITIVE_ERASE_SQL (defense-in-depth — the schema-checker does
+    // not introspect CASCADE clauses). Explicit DELETE here matches the
+    // sibling billing_events / split_sessions pattern.
+    (
+        "billing_session_receipts",
+        "DELETE FROM billing_session_receipts WHERE session_id IN \
+         (SELECT id FROM billing_sessions WHERE driver_id = ?)",
     ),
 ];
 

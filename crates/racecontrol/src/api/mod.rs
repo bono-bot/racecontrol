@@ -27,6 +27,7 @@ pub mod auth_handlers;
 pub mod auth_staff;
 pub mod billing_coupon;
 pub mod billing_discount;
+pub mod billing_finalize;
 pub mod billing_invoice;
 pub mod billing_session;
 pub mod billing_shift;
