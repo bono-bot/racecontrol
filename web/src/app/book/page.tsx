@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Same-origin relative URL — Next.js rewrite proxies to backend. V2-aligned.
+const API_BASE = "";
 
 interface DisplayTier {
   id: string;

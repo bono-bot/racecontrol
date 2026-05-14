@@ -6,7 +6,8 @@
  * Uses the same API_BASE + fetch pattern as web/src/lib/api.ts.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// Same-origin relative URL — mirrors web/src/lib/api.ts V2-aligned pattern.
+const API_BASE = "";
 
 // ─── Local type declarations matching packages/shared-types/src/metrics.ts ──
 // (Declared locally to avoid adding a build-time dependency on @racingpoint/types

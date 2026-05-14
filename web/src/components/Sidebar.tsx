@@ -100,9 +100,8 @@ export default function Sidebar() {
     let mounted = true;
     const checkServer = async () => {
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/health`
-        );
+        // Same-origin relative URL — Next.js server-side rewrite proxies to backend. V2-aligned.
+        const res = await fetch("/api/v1/health");
         if (mounted) setServerOk(res.ok);
       } catch {
         if (mounted) setServerOk(false);
