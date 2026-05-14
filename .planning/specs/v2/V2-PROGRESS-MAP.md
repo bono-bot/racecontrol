@@ -140,12 +140,12 @@
 | 4.3 | comms-link | #8 | PACT-20260429-005 venue-stability-state.sh implementation | james | 12d | OPEN | DISCIPLINE |
 | 4.4 | comms-link | #9 | PACT-20260503-016 handoff schema head-at-write-time | james | 8d | OPEN | DISCIPLINE |
 | 4.5 | comms-link | #10 | PACT-20260503-012 deploy-server.sh SWAPLOG-append path bug fix | james | 8d | OPEN | DISCIPLINE |
-| 4.6 | comms-link | #11 | PACT-20260503-013 wallet-credit-purchase-event schema (#4) | james | 8d | OPEN | LIVE-BLOCKING |
-| 4.7 | comms-link | #12 | PACT-20260503-014 PWA→.23 portal customer auto-appearance schema (#9) | james | 8d | OPEN | LIVE-BLOCKING |
-| 4.8 | comms-link | #13 | PACT-20260503-015 V2.0 #20 failure-detection event schema | james | 8d | OPEN | LIVE-BLOCKING |
-| 4.9 | comms-link | #14 | PACT-20260504-027 Presence-detection wire-in + Z2 deadline | james | 7d | OPEN | LIVE-BLOCKING |
+| 4.6 | comms-link | #11 | PACT-20260503-013 wallet-credit-purchase-event schema (#4) | james | 11d | **MERGED 2026-05-14 ~13:00 IST (95f84625)** — rebase via /tmp worktree (1271-commit drift, pact-slots.jsonl append-conflict resolved); Pre-Commit Exception per Captain "Continue to complete LIVE BLOCKING with MAO" 2026-05-14 ~13:07 IST | LIVE-BLOCKING-CLOSED |
+| 4.7 | comms-link | #12 | PACT-20260503-014 PWA→.23 portal customer auto-appearance schema (#9) | james | 11d | **MERGED 2026-05-14 ~13:00 IST (31d9921d)** — rebase via /tmp worktree (stack on #11, --skip duplicate); Pre-Commit Exception | LIVE-BLOCKING-CLOSED |
+| 4.8 | comms-link | #13 | PACT-20260503-015 V2.0 #20 failure-detection event schema | james | 11d | **MERGED 2026-05-14 ~13:00 IST (6bb1efbc)** — rebase via /tmp worktree (stack on #11+#12, double-skip duplicates); Pre-Commit Exception | LIVE-BLOCKING-CLOSED |
+| 4.9 | comms-link | #14 | PACT-20260504-027 Presence-detection wire-in + Z2 deadline | james | 10d | OPEN · CAPTAIN-GATED — DEFERRED 2026-05-14 ~13:00 IST per §S-271 logged Finding D requires §4 CAVEAT-1 amendment + G33-GUIDE-CONFIRM Level B (doctrine-class explicit-auth NOT covered by Pre-Commit Exception sub-clause §S-146 foundational-boundary scope) | LIVE-BLOCKING |
 
-**Layer 4 totals:** **7 OPEN PRs** = 4 LIVE-BLOCKING + 3 DISCIPLINE. PR #17 MERGED 2026-05-11 11:39 IST (ab9d867f) — deploy parity verification ongoing. PR #54 MERGED 2026-05-12 03:38 UTC (51bf4637) — Bono VPS deploy parity confirmed 2026-05-12 ~10:07 IST. All remaining james-authored. **Captain disposition needed on remaining 7.**
+**Layer 4 totals:** **4 OPEN PRs** = 1 LIVE-BLOCKING (PR #14) + 3 DISCIPLINE. PR #17 MERGED 2026-05-11 11:39 IST (ab9d867f) · PR #54 MERGED 2026-05-12 03:38 UTC (51bf4637) · **PR #11 MERGED 2026-05-14 13:00 IST (95f84625)** · **PR #12 MERGED 2026-05-14 13:00 IST (31d9921d)** · **PR #13 MERGED 2026-05-14 13:00 IST (6bb1efbc)**. Δ 2026-05-14 LIVE-BLOCKING closure batch: +3 closures via Captain "Continue to complete LIVE BLOCKING with MAO" + Pre-Commit Exception path (§S-271 MAOR-PASS-CLEAN carry-forward). Closure rate: 31/~78 → 34/~78 (40% → 43.6%). **Captain disposition needed on remaining 4** (PR #14 G33-GUIDE-CONFIRM Level B + PRs #8/#9/#10 DISCIPLINE-class).
 
 ---
 
