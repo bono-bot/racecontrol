@@ -405,7 +405,7 @@ export default function StaffTerminal() {
   // ─── Auth Gate ──────────────────────────────────────────────────────
   // Wait for hydration before deciding — SSR can't read sessionStorage
   if (!hydrated) {
-    return <div className="h-screen bg-[#0A0A0A]" />;
+    return <div className="h-screen bg-rp-black" />;
   }
   if (!staffName) {
     return (
@@ -421,7 +421,7 @@ export default function StaffTerminal() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#0A0A0A]">
+    <div className="h-screen flex flex-col bg-rp-black">
       {/* ─── Header ─────────────────────────────────────────────────── */}
       <KioskHeader connected={connected} pods={pods} staffName={staffName} onSignOut={handleSignOut} />
 
@@ -462,7 +462,7 @@ export default function StaffTerminal() {
           {displayPods.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-4">
               <div className="w-10 h-10 border-2 border-rp-red border-t-transparent rounded-full animate-spin" />
-              <p className="text-zinc-500 text-sm font-sans">
+              <p className="text-rp-grey text-sm font-sans">
                 {connected ? "Waiting for pods to connect..." : "Connecting to RaceControl..."}
               </p>
             </div>
@@ -635,16 +635,16 @@ export default function StaffTerminal() {
 
         {/* ── Recent Sessions (collapsible bottom drawer) ──────────── */}
         {!isPanelOpen && (
-          <div className="absolute bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-[#2A2A2A]">
+          <div className="absolute bottom-0 left-0 right-0 bg-rp-black border-t border-rp-border">
             <button
               onClick={() => setRecentSessionsOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-4 py-2 text-xs cursor-pointer transition-colors duration-200 hover:bg-[#141414]"
+              className="w-full flex items-center justify-between px-4 py-2 text-xs cursor-pointer transition-colors duration-200 hover:bg-rp-black"
             >
-              <span className="text-zinc-500 uppercase tracking-widest font-medium font-sans">
+              <span className="text-rp-grey uppercase tracking-widest font-medium font-sans">
                 Recent Sessions ({recentSessions.length})
               </span>
               <svg
-                className={`w-3.5 h-3.5 text-zinc-500 transition-transform duration-200 ${
+                className={`w-3.5 h-3.5 text-rp-grey transition-transform duration-200 ${
                   recentSessionsOpen ? "rotate-180" : ""
                 }`}
                 fill="none"
@@ -659,7 +659,7 @@ export default function StaffTerminal() {
               <div className="max-h-48 overflow-y-auto px-3 pb-2">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-zinc-600 uppercase tracking-wider border-b border-[#2A2A2A]">
+                    <tr className="text-rp-grey uppercase tracking-wider border-b border-rp-border">
                       <th className="text-left py-1.5 px-2 font-medium">Pod</th>
                       <th className="text-left py-1.5 px-2 font-medium">Driver</th>
                       <th className="text-left py-1.5 px-2 font-medium">Duration</th>
@@ -672,21 +672,21 @@ export default function StaffTerminal() {
                     {recentSessions.map((s) => (
                       <tr
                         key={s.id}
-                        className="border-b border-[#1E1E1E] hover:bg-[#141414] transition-colors duration-150"
+                        className="border-b border-rp-black hover:bg-rp-black transition-colors duration-150"
                       >
-                        <td className="py-1.5 px-2 font-mono text-zinc-400">
+                        <td className="py-1.5 px-2 font-mono text-rp-grey">
                           {String(s.pod_number).padStart(2, "0")}
                         </td>
                         <td className="py-1.5 px-2 text-white font-medium truncate max-w-[160px]">
                           {s.driver_name}
                         </td>
-                        <td className="py-1.5 px-2 font-mono text-zinc-400">
+                        <td className="py-1.5 px-2 font-mono text-rp-grey">
                           {Math.floor(s.driving_seconds / 60)}m
                         </td>
-                        <td className="py-1.5 px-2 font-mono text-zinc-400">
+                        <td className="py-1.5 px-2 font-mono text-rp-grey">
                           {s.cost_paise != null ? `${(s.cost_paise / 100).toFixed(0)} cr` : "--"}
                         </td>
-                        <td className="py-1.5 px-2 text-zinc-600">
+                        <td className="py-1.5 px-2 text-rp-grey">
                           {s.ended_at
                             ? new Date(s.ended_at).toLocaleTimeString("en-IN", {
                                 timeZone: "Asia/Kolkata",
@@ -699,7 +699,7 @@ export default function StaffTerminal() {
                         <td className="py-1.5 px-2 text-right">
                           <button
                             onClick={() => handleOpenRefund(s)}
-                            className="px-2.5 py-1 border border-amber-600/30 text-amber-400 hover:bg-amber-600/10 rounded text-xs cursor-pointer transition-colors duration-200"
+                            className="px-2.5 py-1 border border-rp-yellow/30 text-rp-yellow hover:bg-rp-yellow/10 rounded text-xs cursor-pointer transition-colors duration-200"
                           >
                             Refund
                           </button>
@@ -788,9 +788,9 @@ function RefundPanel({
   return (
     <div className="flex flex-col h-full p-5 gap-4">
       {/* Session info card */}
-      <div className="bg-[#141414] border border-[#2A2A2A] rounded-lg p-4 space-y-2">
+      <div className="bg-rp-black border border-rp-border rounded-lg p-4 space-y-2">
         <p className="text-white font-semibold font-sans">{session.driver_name}</p>
-        <div className="flex gap-3 text-xs text-zinc-500 font-mono">
+        <div className="flex gap-3 text-xs text-rp-grey font-mono">
           <span>POD {String(session.pod_number).padStart(2, "0")}</span>
           <span>{session.pricing_tier_name}</span>
           <span>{Math.floor(session.driving_seconds / 60)} min</span>
@@ -802,7 +802,7 @@ function RefundPanel({
 
       <div className="space-y-3">
         <div>
-          <label className="text-xs text-zinc-500 block mb-1.5 uppercase tracking-wider font-medium">
+          <label className="text-xs text-rp-grey block mb-1.5 uppercase tracking-wider font-medium">
             Refund Amount (credits)
           </label>
           <input
@@ -810,13 +810,13 @@ function RefundPanel({
             min={1}
             value={amountCredits || ""}
             onChange={(e) => setAmountCredits(Math.max(0, parseInt(e.target.value) || 0))}
-            className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-rp-red focus:outline-none transition-colors duration-200"
+            className="w-full bg-rp-black border border-rp-border rounded-lg px-3 py-2.5 text-white text-sm font-mono focus:border-rp-red focus:outline-none transition-colors duration-200"
             placeholder="0"
           />
         </div>
 
         <div>
-          <label className="text-xs text-zinc-500 block mb-1.5 uppercase tracking-wider font-medium">
+          <label className="text-xs text-rp-grey block mb-1.5 uppercase tracking-wider font-medium">
             Method
           </label>
           <div className="flex gap-2">
@@ -827,7 +827,7 @@ function RefundPanel({
                 className={`flex-1 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all duration-200 ${
                   method === m
                     ? "bg-rp-red text-white"
-                    : "border border-[#2A2A2A] text-zinc-500 hover:text-white hover:border-zinc-500"
+                    : "border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey"
                 }`}
               >
                 {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -837,32 +837,32 @@ function RefundPanel({
         </div>
 
         <div>
-          <label className="text-xs text-zinc-500 block mb-1.5 uppercase tracking-wider font-medium">
+          <label className="text-xs text-rp-grey block mb-1.5 uppercase tracking-wider font-medium">
             Reason (required)
           </label>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className="w-full bg-[#141414] border border-[#2A2A2A] rounded-lg px-3 py-2.5 text-white text-sm resize-none placeholder:text-zinc-700 focus:border-rp-red focus:outline-none transition-colors duration-200"
+            className="w-full bg-rp-black border border-rp-border rounded-lg px-3 py-2.5 text-white text-sm resize-none placeholder:text-rp-grey focus:border-rp-red focus:outline-none transition-colors duration-200"
             placeholder="Why is this refund being issued?"
           />
         </div>
 
-        {error && <p className="text-red-400 text-xs font-mono">{error}</p>}
+        {error && <p className="text-rp-red text-xs font-mono">{error}</p>}
       </div>
 
       <div className="mt-auto space-y-2">
         <button
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg cursor-pointer transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full py-3 bg-rp-yellow hover:bg-rp-yellow/80 text-white font-semibold rounded-lg cursor-pointer transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {busy ? "Processing..." : `Refund ${amountCredits > 0 ? amountCredits + " credits" : ""}`}
         </button>
         <button
           onClick={onClose}
-          className="w-full py-2.5 border border-[#2A2A2A] text-zinc-500 hover:text-white rounded-lg text-sm cursor-pointer transition-colors duration-200"
+          className="w-full py-2.5 border border-rp-border text-rp-grey hover:text-white rounded-lg text-sm cursor-pointer transition-colors duration-200"
         >
           Cancel
         </button>
@@ -884,9 +884,9 @@ function WaitingPanel({
   return (
     <div className="flex flex-col items-center justify-center h-full gap-5 p-8">
       {/* Spinner */}
-      <div className="w-12 h-12 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      <div className="w-12 h-12 border-2 border-rp-yellow border-t-transparent rounded-full animate-spin" />
 
-      <p className="text-amber-400 text-xs font-semibold uppercase tracking-[0.2em]">
+      <p className="text-rp-yellow text-xs font-semibold uppercase tracking-[0.2em]">
         Waiting for Customer
       </p>
 
@@ -898,11 +898,11 @@ function WaitingPanel({
         </p>
       )}
       {authToken.auth_type === "qr" && (
-        <p className="text-zinc-500 text-sm">Scan QR code at the pod</p>
+        <p className="text-rp-grey text-sm">Scan QR code at the pod</p>
       )}
 
-      <p className="text-sm text-zinc-500">{authToken.pricing_tier_name}</p>
-      <p className="text-xs text-zinc-600 font-mono">
+      <p className="text-sm text-rp-grey">{authToken.pricing_tier_name}</p>
+      <p className="text-xs text-rp-grey font-mono">
         Expires {authToken.expires_at ? new Date(authToken.expires_at).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true }) : '--'}
       </p>
 
@@ -915,7 +915,7 @@ function WaitingPanel({
         </button>
         <button
           onClick={() => onCancel(authToken.id)}
-          className="px-8 py-3 border border-[#2A2A2A] text-zinc-500 hover:text-white hover:border-zinc-500 rounded-lg cursor-pointer transition-colors duration-200 min-w-[120px]"
+          className="px-8 py-3 border border-rp-border text-rp-grey hover:text-white hover:border-rp-grey rounded-lg cursor-pointer transition-colors duration-200 min-w-[120px]"
         >
           Cancel
         </button>
