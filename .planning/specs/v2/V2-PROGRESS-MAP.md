@@ -727,6 +727,35 @@ STALE-DISPOSITIONED breakdown:
 
 ---
 
+## §13.5 — Layer 14: Design System / UX Cohesion / Brand Surface
+
+**Source-of-truth:** TBD — currently scattered across `kiosk/src/`, `web/src/`, `apps/admin/src/`, `packages/shared-tokens/tokens.css` (colors only), `comms-link/v2-skeleton/10-ui-design-system.md` (V2 design substrate spec). No consolidated design contract.
+
+**Rationale (added 2026-05-15 IST):** §1-§13 cover functional infrastructure (data, billing, auth, dispatch, observability, MI, PACTs, AMPLIFIER, hygiene, §S-N substrate). No layer captures **design system coherence / UX cohesion / brand surface consistency** — what the customer/staff sees and feels across kiosk + POS + web + WhatsApp + admin. Captain dispatch 2026-05-15 ~05:37Z verbatim: *"We have done so much work. But we are missing critical components like design theme."* Adding Layer-14 makes the gap measurable so it can be closed. **Existence of the layer is the deliverable; closure of items is a separate work plan.**
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| 14.1 | Design tokens consolidated (color, spacing, radius, shadow, font-size) | OPEN | Colors in `packages/shared-tokens/tokens.css`; spacing/radius/shadow/typography tokens missing |
+| 14.2 | Typography canonical across kiosk + web + admin + POS (Montserrat body + Orbitron display) | OPEN | kiosk = canonical per racecontrol/CLAUDE.md Brand Identity; web/admin/POS parity unverified |
+| 14.3 | Component library audit (button, input, modal, table, card, badge, alert, toast) | OPEN | Each surface re-implements primitives; visual + behavioral drift |
+| 14.4 | Screen audit — every customer-facing screen has documented visual spec + sign-off | OPEN | `tests/page-audit/self-audit.sh` infra exists (v43.0) but no sign-off ledger |
+| 14.5 | Copy voice + tone canonical (kiosk error states, POS confirmations, WhatsApp templates) | OPEN | Each surface authors copy independently; tone drifts (formal POS vs casual kiosk vs templated WhatsApp) |
+| 14.6 | Brand surface parity — logos, badges, color emphasis across kiosk + POS + web + admin + WhatsApp templates + email signatures | OPEN | Logo asset preserved at `brand-assets/logos/`; cross-surface application unverified |
+| 14.7 | Mobile-vs-POS visual parity (PWA + spectator + customer phone vs POS Windows browser) | OPEN | PWA exists (row 1.10 §S-288) but visual cohesion across device classes not measured |
+| 14.8 | Accessibility — WCAG AA contrast, keyboard nav, screen reader on staff + customer surfaces | OPEN | Customer-facing kiosk + staff POS both unaudited |
+| 14.9 | UI-SPEC.md required gate for every new customer-touch row (§1.x / §7.x) | OPEN | `gsd-ui-researcher` + `gsd-ui-auditor` skills exist but not enforced as substrate gate |
+| 14.10 | Dashboard visual hierarchy — admin + web + kiosk staff dashboards have consistent nav/status/alert patterns | OPEN | Each dashboard owns its layout independently |
+
+**Layer 14 totals: 10 items, all OPEN.** No items DONE / IN-FLIGHT / BLOCKED / NOT-STARTED — Captain disposition needed per item: LIVE-BLOCKING (customer-day visual quality bar) vs DISCIPLINE (post-V2.0). Most likely LIVE-BLOCKING candidates: **14.2 (typography canonical)** · **14.4 (screen audit)** · **14.6 (brand parity)**. Most likely DISCIPLINE: **14.8 (a11y)** · **14.9 (UI-SPEC gate)** · **14.10 (dashboard hierarchy)**.
+
+**Composes-with:** racecontrol/CLAUDE.md Brand Identity (canonical color/font sources · §6 Doctrine Conventions Substrate-Pointer) · `gsd-ui-researcher` + `gsd-ui-auditor` skills · §0 rollup card (Layer-14 row flips counted forward when Captain dispositions LIVE-BLOCKING per item; until then NOT counted to avoid framing-distortion).
+
+**Anchor:** Captain dispatch 2026-05-15 ~11:08 IST 4-leg structural-gap remediation composite Leg 2 · §S-365 close-anchor PENDING.
+
+**Stale-at:** 30d (2026-06-14). At day 30, un-dispositioned rows default to DISCIPLINE (post-V2.0).
+
+---
+
 ## §14 — Cross-layer leverage map (highest-impact closures)
 
 | Item | Closes count | Class | Captain action needed? |
