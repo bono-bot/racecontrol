@@ -228,10 +228,18 @@ pub(super) async fn customer_multiplayer_results(
 
 /// Shared PII anonymization logic for both customer- and staff-initiated consent revocation.
 ///
-/// Anonymizes all PII fields on the drivers row and sets consent_revoked = 1.
-/// The driver row is retained so billing_sessions.driver_id foreign keys remain valid.
-/// Financial records (journal_entries, invoices, billing_sessions, wallet_transactions)
-/// are NOT touched — retained for 8 years per the Income Tax Act.
+/// Anonymizes the drivers-row PII set documented below, NULLs PII-adjacent finalize_*
+/// columns on billing_sessions, and sets consent_revoked = 1. The driver row is retained
+/// so billing_sessions.driver_id foreign keys remain valid; financial-amount columns
+/// (journal_entries, invoices, wallet_transactions, billing_sessions money fields) are
+/// NOT touched — retained for 8 years per the Income Tax Act.
+///
+/// drivers-row PII columns NULL'd: name (replaced with ANONYMIZED-id-prefix), email,
+/// phone, phone_hash, guardian_name, guardian_phone, guardian_phone_hash, dob,
+/// pin_hash, otp_code, guardian_otp_code, signature_data. Columns NOT cleared and
+/// the rationale: steam_guid/iracing_id (third-party-identifier class — separate
+/// erasure flow per third-party operator); avatar_url (placeholder/identicon class
+/// often non-PII — case-by-case audit class).
 pub(crate) async fn anonymize_driver_pii(
     state: &Arc<AppState>,
     driver_id: &str,
@@ -263,6 +271,10 @@ pub(crate) async fn anonymize_driver_pii(
 
     // Anonymize PII — same UPDATE used by the daily background job.
     // The driver row is KEPT so billing_session.driver_id FKs remain valid.
+    // pin_hash + otp_code + guardian_otp_code + signature_data added per
+    // PR #91 MAOR Tier-1 IMPORTANT #1 finding (credential-derived hash linked
+    // to identity + live OTP credentials + biometric-class waiver signature
+    // are unambiguous PII under DPDP erasure semantics).
     let result = sqlx::query(
         "UPDATE drivers SET
             name = 'ANONYMIZED-' || substr(id, 1, 8),
@@ -273,6 +285,10 @@ pub(crate) async fn anonymize_driver_pii(
             guardian_phone = NULL,
             guardian_phone_hash = NULL,
             dob = NULL,
+            pin_hash = NULL,
+            otp_code = NULL,
+            guardian_otp_code = NULL,
+            signature_data = NULL,
             pii_anonymized = 1,
             pii_anonymized_at = datetime('now'),
             consent_revoked = 1,
