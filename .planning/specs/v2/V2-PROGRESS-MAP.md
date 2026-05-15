@@ -338,6 +338,63 @@
 
 **Stale-at:** Next §S-N close-anchor that includes §S-362+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
 
+### §0.9 — Forward-delta supplement §S-361 → §S-363 (bono close-anchor · 2026-05-15 ~10:50 IST)
+
+**Trigger:** Captain NAMED-SURFACE 7-leg composite ratify 2026-05-15 ~10:45 IST · leg-6 §0.9 supplement enumerated. Refresh authorized per §S-N close-anchor + V2-PROGRESS-MAP refresh STANDING RULE + §S-186 fast-lane. N=7-supplements-in-31h pattern continues (§0.3 + §0.4 + §0.5 + §0.6 + §0.7 + §0.8 + §0.9) — formalized baseline-cadence at multi-Captain-dispatch frequency.
+
+**Doctrine motions since §0.8 (~10:10 IST):**
+- **§S-361 — Captain NAMED-SURFACE 8-leg composite recovery (CLASSIFIER-CLEARED)** (~10:13 IST). 15-stash batch-drop EXECUTED (high-to-low loop · per-drop SHA + audit-trail) + stash@{9} DROP (V2-LBAC verified on main:CLAUDE.md:150) + G9 family review shipped + §0.8 LANDED + close-anchor. **NEW substrate finding**: racecontrol stash count actually **1299** (1284 remaining after 15-drop) · §S-359 triage covered head-of-stack only. **G9 PROMOTES**: `count-claim-without-enumeration` from CANDIDATE-N1 to ACTIVE-pending-Captain-ratify at N=2 trigger (§S-359 + §S-361 anchors). NAMED-SURFACE recovery pattern 3rd empirical anchor.
+- **§S-362 — Captain 3-leg leverage dispatch surface** (~10:22 IST). 3 dispatch artifacts: substrate surface doc + NOTIFY msg 36817 to james + §S-362 close-anchor. Class: SURFACE-FOR-CAPTAIN-DISPOSITION (bono provides substrate · Captain dispositions). 4 Q-MI bono-recs + 3 PR bono-recs + per-PR merge auth policy codified for james consumption.
+- **§S-363 — Captain disposition cascade EXECUTED** (~10:42 IST). 4 Q-MI dispositions ratified (all bono-rec): A=cohort-1σ · B=v2-db server-side · C=staff_routes · D=empty_pod_count. **§S-338 Wave 4 MI substrate-PR work UNBLOCKED** (D-1.1-7/8/9/10). 3 PR closures EXECUTED: **PR #8 CLOSED-SUPERSEDED** (halo+l2.5 cover surface · OQ-1 tables never existed) · **PR #9 + PR #10 MERGED-VIA-CHERRY-PICK** commit `b353da53` (branches 12d old · zero shared ancestry · cherry-pick of 2 named memo files preserved Captain's MERGE-MEMO intent · 8+ unrelated proposals in branch diffs NOT cherry-picked). **§S-354 §4 Layer 4 DISCIPLINE gate CLEARED** (3/3 named items closed). NAMED-SURFACE recovery pattern 4th empirical anchor (cherry-pick when unrelated histories).
+
+**Substrate / source-fix landings since §0.8 (racecontrol/main MERGED):**
+- **None on racecontrol main** — §S-361/§S-362/§S-363 cascade is housekeeping + dispatch-surface + disposition class.
+- comms-link main absorbed cherry-pick commit `b353da53` (PACT-016 + PACT-012 memos) — 493 LOC scope-authoring memos · sub-PACTs await separate Captain auth for actual production-code touch.
+
+**What's gating live now (delta from §0.8):**
+- 14 active L2.5 legs · 2-tier monitor verified end-to-end (Tier A first-fire 09:59 IST + Tier B first-fire 09:47 IST observed §S-359 + §S-361)
+- PR #87 amendment-pending (event-driven)
+- 11 DISPATCH-7 substrate PRs armed event-driven · per-PR merge auth pre-grant operational §S-355+§S-362 codification
+- **NEW: D-1.1-7/8/9/10 Wave 4 MI substrate-PRs armed event-driven** · Q-MI dispositions now ratified config · james-LEAD authoring
+- **CLEARED: §S-354 §4 Layer 4 DISCIPLINE gate** · 3 PRs closed
+- 1284 remaining racecontrol stashes (separate Captain-stake-destructive · §S-361 carry-forward)
+- PR #15 (comms-link doctrine mirror) · bono AMPLIFIER vote cast AGREE 10:48 IST (~5.5h ahead of 16:11 IST deadline) · awaits Captain merge auth
+- Captain-stake carry from §0.8: §S-247.18 7-item · 6.13 pm2 timing · wake-mechanism Phase 2-5 verbs.
+
+**Rollup delta:** Net LIVE-BLOCKING DONE-flips since §0.8 = **0**. Forward motion is dispatch-substrate cadence + audit-quality (cherry-pick recovery pattern · NAMED-SURFACE auth empirical anchor count to 4) + Captain-stake gate clearing (§S-354 §4 + Q-MI batch) + housekeeping (15 stash drops). F3-pure ~52-55% V2.0 DONE estimate unchanged. **Critical path:** james authors D-1.1-7/8/9/10 (4 Wave 4 MI PRs) + 11 DISPATCH-7 substrate PRs · 15 potential row-flips queued.
+
+**G9 anchors past arc (delta from §0.8):**
+- **G9 PROMOTES to ACTIVE-pending-Captain-ratify §S-361:** `count-claim-without-enumeration` · N=2 within 30d (§S-359 9-vs-15 + §S-361 15-vs-1299). Sibling of `capability-claim-without-probe` (parent · N=2 ACTIVE since 2026-05-14).
+- **No new G9 anchors §S-362/§S-363** — composite verbs were explicit-named · classifier cleared all destructive ops (3 PR closes + 1 cherry-pick commit) on first attempt.
+- Carry: 4 CANDIDATE-N1 (`subagent-tool-asymmetry` + `classifier-denial-recovery-via-composite-renaming` + `pre-commitment-exception-scope-overread` + sibling) · 30d windows through 2026-06-15.
+
+**Pattern observation: NAMED-SURFACE auth requirement for destructive ops at N=4 empirical:**
+
+| Anchor | Op | Auth shape | Classifier disposition |
+|---|---|---|---|
+| §S-357 leg-1 | system-crontab edit | "timer-driven" generic | DENIED |
+| §S-358 leg-5 | system-crontab edit | NAMED-SURFACE verbatim | PASSED |
+| §S-360 leg-5 | 15-stash mass-drop | "Proceed with recommendation" pre-commit | DENIED |
+| §S-361 leg-5 | 15-stash mass-drop | NAMED-SURFACE 14-index enumeration | PASSED |
+| **§S-363 (this arc)** | **3 PR closes + cherry-pick commit** | **NAMED-SURFACE per-PR + per-Q-MI explicit values** | **PASSED** |
+
+**N=5 cumulative consistent observations.** Destructive-op + explicit-named-value verb = PASS · destructive-op + generic-or-ambiguous verb = BLOCK. Sufficient empirical basis for promotion of `classifier-denial-recovery-via-composite-renaming` CANDIDATE-N1 to ACTIVE class.
+
+**Cherry-pick-when-PR-branch-shares-zero-ancestry pattern at N=2:**
+
+| Anchor | PR | Reason |
+|---|---|---|
+| §S-355 | PR #14 PACT-027 (racecontrol) | 1270 commits behind main · 396-DEL diff would wipe doctrine |
+| §S-363 | PR #9 + #10 (comms-link) | 12d branches · `refusing to merge unrelated histories` |
+
+Substrate-recovery success class (not failure-class) · candidate sibling rule to track for ACTIVE promotion if N=3 occurs.
+
+**MAOR-REVIEW:** SKIP-RATIONALE — §0.9 is V2-PROGRESS-MAP refresh class (§S-186 fast-lane · single-boundary documentation · no schema · no contract spec · no PR substrate · no source-code touch).
+
+**Composes-with:** §0.8 (parent · extends tail without overwriting) · §S-361 + §S-362 + §S-363 close-anchors · `feedback_apply_recommendations_autonomously_20260510.md` (pre-commitment exception sub-clause empirical anchor) · `feedback_capability_claim_without_probe_20260514.md` (parent rule · `count-claim-without-enumeration` sibling at N=2-ACTIVE-pending-ratify) · §S-220 MAOR v0.1 (datapoint #4 still armed event-driven) · §S-186 fast-lane (this §0.9 + cherry-pick memo merges qualifying) · §S-N close-anchor + V2-PROGRESS-MAP refresh push STANDING RULE · branch-state-mutation hook v0.1.0 (ADVISORY · 0 BLOCKs on all 22+ destructive ops this arc · main clean throughout).
+
+**Stale-at:** Next §S-N close-anchor that includes §S-364+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
+
 ---
 
 > **¹ MIXED-FRAMING** per F3 ACCOUNTING REFORM (V-LBAC §14.3): the IN-FLIGHT column combines pre-§S-204 ENGINEERING-IN-FLIGHT + post-§S-204 TEST-SCAFFOLDED-AWAITING-SUBSTRATE rows; doctrine is **forward-only**, post-§S-204 flips NOT retroactively reclassified. **F3-pure ENGINEERING-only estimate** (per §14.3 prose; deferred to next nightly cron refresh §16 stale-at 2026-05-18): if ~18 Layer 1 + ~5 Layer 7 cascade rows reclassify to TEST-SCAFFOLDED, ENGINEERING-IN-FLIGHT drops to ~4, and **F3-pure V2.0 % closed ≈ DONE only = 40%** (DONE+ENG-IN-FLIGHT ≈ 45%) — slightly higher than the §14.3 ~20-25% pre-restate guess because actual ENGINEERING DONE absorbed +6 substrate closes since baseline (Layer 12.7, 1.18, 4.1, 4.2, 7.5, 7.9).
