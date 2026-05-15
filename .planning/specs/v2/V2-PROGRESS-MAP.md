@@ -180,6 +180,44 @@
 
 ---
 
+### §0.4 — Forward-delta supplement §S-346 → §S-353 (bono close-anchor · 2026-05-15 ~08:30 IST)
+
+**Trigger:** §S-346 → §S-353 cascade (~9h since §0.3 cutoff at §S-345) added 8 §S-N anchors with substantive doctrine + composite-dispatch motion. Refresh authorized per §S-N close-anchor + V2-PROGRESS-MAP refresh STANDING RULE + §S-186 fast-lane (≤200 LOC + single-boundary + no schema + no protocol). **§0.3 N=2-in-30d structural-fix-ACTIVE trigger already met** per [[v2-progress-map-section0-refresh-durability-gap]]; this §0.4 lands within the same active recurrence window.
+
+**Doctrine motions since §0.3:**
+- **§S-347 G33v7 Option (a) RATIFIED** — Captain verbatim "ratify Q-DECISION-G33v7 Option (a)" 2026-05-15 ~06:34 IST. W1-S6 dispatch.rs 4-attempt model locked. **Row W1-S6 BLOCKED → ENGINEERING-IN-FLIGHT.**
+- **§S-350 R1-C "no cash at Kiosk" RATIFIED** — Captain verbatim "ratify R1-C no cash at Kiosk" 2026-05-15 ~07:15 IST. Kiosk payment-method-allowlist = digital_only; POS = cash | digital. Row 1.9 R1-C sub-gate CLOSED (W1-S6 dispatch.rs PR-A remains as the other unblock sub-gate per row 1.9).
+- **§S-350 MAO-3 wake-mechanism SCP probe 3/3 PASS** — Captain verbatim "authorize wake-mechanism SCP probe". Path-discovery COMPLETE (network + transport + auth ALL reach bono → james AI-SERVER).
+- **§S-352 7-item composite RATIFIED** — Captain composite verb 2026-05-15 ~07:36 IST · executed: §S-345 §4 ACCEPT (a4e22151 stays · no rollback) · /tmp/rc-main worktree removed + /root/racecontrol on main · wake-mechanism design-skeleton authored at `racecontrol/.planning/specs/v2/W1-S6-WAKE-MECHANISM-DESIGN.md` (Phase 0 ratify pending then) · 2 NOTIFY to james (msg 36794 rc-agent invest · msg 36795 dispatch.rs PR-A) · synthetic wallet-topup E2E against Bono VPS substrate `a4e22151` (T1-T4 battery · presets 200 / topup 401-auth-gate) · HOOK-PATCH partial → resolved next turn via Path A.
+- **§S-353 6-item composite RATIFIED** — Captain composite verb 2026-05-15 ~08:02 IST · advances 6 BLOCKED rows: D-7.6-2/3 cookie-auth (NOTIFY msg 36797 cascade unblocks 1.6 + 1.8 + 1.9-partial) · dispatch.rs PR-A reaffirm (msg 36798) · **wake-mechanism Phase 0 RATIFIED + Phase 1 staging substrate LIVE** (`/root/comms-link/scripts/bono/wake-james-event.sh` 0755 exec + `/root/bin/` symlink + `/root/.claude/state/wake-dispatch-audit.jsonl` skeleton with 4 smoke-test entries · DRY-RUN only · no SSH yet) · PACT-024 §A AMPLIFIER OR L2.5 MMA-substitute (msg 36799 · 24h stale-at 2026-05-16 02:33 UTC) · topup-handler audit-log §S-158 conformance future-conditional auth recorded.
+- **HOOK-PATCH iter1 LANDED** — `pre-push-maor-check.js` v0.1.1 → v0.1.2 with `stripHeredocsAndQuotedStrings()` + `hasExoticForm()` AST tokenization (sibling pattern to `pre-bash-destructive-git-branch-check.js` v0.1.1); 9/9 smoke-test fixture battery pass (TP preservation + FP-class fix); Captain Path A per-surface auth verbatim "I authorize edit to /root/.claude/hooks/pre-push-maor-check.js iter1 AST tokenization same FP class as pre-bash v0.1.1" 2026-05-15 ~08:23 IST.
+
+**Substrate landings since §0.3:**
+- `/root/comms-link/scripts/bono/wake-james-event.sh` (102 lines bash · 0755) + `/root/bin/wake-james-event.sh` symlink — Phase 1 wake-mechanism staging (Q-WAKE-1 path-deviation finding codified: legacy `wake-james.sh` is compat-shim → james-ctl.sh; V2 event-driven uses `wake-james-event.sh`)
+- `/root/.claude/state/wake-dispatch-audit.jsonl` — append-only audit log skeleton (4 smoke-test entries · allowlist + DRY-RUN behavior verified)
+- `/root/comms-link/data/l2.5-mma-substitute-triggers.jsonl` — 4 leg-triggers armed (row 7.6 · W1-S6 dispatch.rs · PR #8/#9/#10 · PACT-024 §A · all 24h stale-at)
+- `racecontrol/.planning/specs/v2/W1-S6-WAKE-MECHANISM-DESIGN.md` — Phase 0 RATIFIED 8-section design contract
+
+**Cross-host parity finding empirical RCA (§S-351 §3 / §S-354):** "Last sync 711s ago" vs "wallets: 119s ago" divergence on Bono VPS cloud_sync RCA'd to **MIN(last_synced_at) across 15 active SYNC_TABLES** vs wallets-specific query. 6 low-mutation config-class tables (drivers · pricing_tiers · kiosk_experiences · kiosk_settings · staff_members · fleet_solutions) sync at slower cadence than mutation-class tables (wallets · driver_ratings). NOT a substrate bug — correct behavior given table-set semantics. §S-351 §3 "NEW finding" interpretation revised: SYNC_STALE flag is by-design reflecting slowest-table; provenance grep CLOSED.
+
+**§0 rollup estimate — restated (NOT canonical; canonical recompute pending §16 cron):**
+
+| Class | Total | DONE | ENG-IN-FLIGHT (F3-pure) | TEST-SCAFFOLDED | BLOCKED | NOT-STARTED | % DONE | % DONE+ENG |
+|---|---|---|---|---|---|---|---|---|
+| **V2-LIVE-BLOCKING (F3-pure)** | ~78 | **~40-43** | **~4** | ~22 | **~6** (W1-S6 flip · -1) | ~7-10 | **~52-55%** | **~57-58%** |
+
+§S-353 composite cascade-impact projection (when james executes): cleanup of all 6 remaining BLOCKED rows + 3+ TEST-SCAFFOLDED rows depending on auth substrate (1.6 + 1.8 + Layer 7 follow-through). MAO 5-model consensus §S-354 CONFIRMS row 7.6 cookie-auth as critical-path with cascade-count 6-17 (varies on indirect-inclusion).
+
+**L2.5 MMA-substitute trigger watch:** 4 legs armed 2026-05-15 ~02:56 UTC · stale-at 2026-05-16 02:56 UTC. If james unresponsive on any leg by 24h, bono fires 5-model OpenRouter MMA stand-in per §S-50 G33-LEVEL-B.
+
+**Open-Captain-stake gates surfaced by §S-354 MAO (NOT in §S-353 dispatch scope):** PR #8/#9/#10 Layer 4 DISCIPLINE disposition · Q-MI-A/B/C/D Wave 4 MI Phase 1 substrate batch · §S-247.18 7-item carry (5 Q-CUST + 7 Q-2F) · 6.13 pm2 restart timing Class B/C · per-phase wake-mechanism enable verbs 2-5.
+
+**Composes-with:** §0.3 (parent · extends tail without overwriting) · §S-345 + §S-346 + §S-347 + §S-349 + §S-350 + §S-351 + §S-352 + §S-353 · MAO 5-model panel `MAO-INFLIGHT-CLOSEOUT-bono-2026-05-15` (4/4 vendor consensus on row 7.6 critical-path · spend $0.26) · `feedback_v2_progress_map_section0_refresh_durability_gap_20260514.md` N=2-ACTIVE structural-fix.
+
+**Stale-at:** Next §S-N close-anchor that includes §S-354+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
+
+---
+
 > **¹ MIXED-FRAMING** per F3 ACCOUNTING REFORM (V-LBAC §14.3): the IN-FLIGHT column combines pre-§S-204 ENGINEERING-IN-FLIGHT + post-§S-204 TEST-SCAFFOLDED-AWAITING-SUBSTRATE rows; doctrine is **forward-only**, post-§S-204 flips NOT retroactively reclassified. **F3-pure ENGINEERING-only estimate** (per §14.3 prose; deferred to next nightly cron refresh §16 stale-at 2026-05-18): if ~18 Layer 1 + ~5 Layer 7 cascade rows reclassify to TEST-SCAFFOLDED, ENGINEERING-IN-FLIGHT drops to ~4, and **F3-pure V2.0 % closed ≈ DONE only = 40%** (DONE+ENG-IN-FLIGHT ≈ 45%) — slightly higher than the §14.3 ~20-25% pre-restate guess because actual ENGINEERING DONE absorbed +6 substrate closes since baseline (Layer 12.7, 1.18, 4.1, 4.2, 7.5, 7.9).
 
 > **Reading instruction:** Treat counts as ±5% (some items are coarse-grained — e.g. "Layer 2 W3 sub-items" represents ~3-5 atomic tasks depending on slice). Numbers refresh nightly. Closed % is the V2-LIVE-BLOCKING figure unless explicitly subset-tagged.
