@@ -80,6 +80,53 @@ CLAUDE.md "Current Blockers" lists *"Server .23 Tailscale re-authenticated under
 
 ---
 
+## §6 F5 root-cause confirmed — frontend-staleness-check.sh silently fails on auth
+
+**Schtask config (`schtasks /Query /TN FrontendStalenessCheck /FO LIST /V`):**
+- Task To Run: `wscript.exe "C:\RacingPoint\hidden.vbs" "C:\Program Files\Git\bin\bash.exe" "C:\Users\bono\racingpoint\comms-link\test\scheduled-staleness-check.sh"`
+- Last Run Time: 2026-05-15 09:00:01 IST
+- Last Result: 0 (success)
+- Run As User: bono · Logon Mode: Interactive only · Schedule: Daily 09:00 IST since 2026-03-29
+
+**Why "Last Result: 0" is misleading:** `wscript.exe` returns 0 if it launches bash successfully — it does NOT propagate the bash script's exit code. So schtasks shows green even if the bash script exits 1.
+
+**Why the bash script returned 0 anyway (the actual root cause):**
+
+`test/frontend-staleness-check.sh` (142 lines, 2026-03-29) at lines 73-95:
+
+```bash
+DEPLOY_CHECK=$(curl -s --max-time 10 -X POST "http://${SERVER}:8090/exec" \
+  -H "Content-Type: application/json" \
+  -d "{\"cmd\":\"powershell ... (Get-Item C:/RacingPoint/${APP_NAME}/.next/BUILD_ID ...).LastWriteTimeUtc ...\",\"timeout\":10}" 2>/dev/null)
+
+DEPLOY_DATE=$(echo "$DEPLOY_CHECK" | grep -o '"stdout":"[^"]*"' | sed 's/"stdout":"//;s/"//' | tr -d '\r\n' 2>/dev/null || echo "")
+```
+
+**The curl POST to `:8090/exec` has NO `X-Service-Key` header.** Per CLAUDE.md Security standing rule, "/exec" is protected. Server returns `{"error":"unauthorized"}`. The grep for `"stdout":"..."` finds nothing → `DEPLOY_DATE=""` → fallback also unauthorized → `DEPLOY_DATE="unknown"` → `DEPLOY_EPOCH=0`.
+
+At line 113: `elif [ "$DEPLOY_EPOCH" -eq 0 ]; then` → prints `UNKNOWN (could not determine deploy date)` → `SKIP_COUNT++` (not STALE_COUNT). At line 132: `if [ "$STALE_COUNT" -gt 0 ]` is false → `exit 0`.
+
+**Therefore the script ran daily for 47 consecutive days reporting all 3 apps as SKIP/UNKNOWN.** Zero stale detections logged. Zero alerts sent. 16d drift on web/admin + 47d on kiosk path went unsurfaced.
+
+**Compounded secondary issues:**
+1. Wrapper at `test/scheduled-staleness-check.sh` line 38: `if [ -z "${COMMS_PSK:-}" ]; then echo "WARNING: COMMS_PSK not set — alert not sent"; fi` — silent-skip alert path under scheduled-task context (PSK not in schtask env). Even if drift were detected, alert wouldn't surface.
+2. wscript.exe wrapper masks bash exit code from schtasks Last Result. Silent failure class.
+
+**Fix proposals (smallest reversible first):**
+
+- **F5-FIX-1 (SMALLEST):** Switch the probe in `frontend-staleness-check.sh` from `/exec` to `/build-info.json` on the kiosk port — that endpoint is PUBLIC (verified earlier: `curl :3200/build-info.json` returned full JSON without auth). Replace the curl + powershell + Get-Item dance with `curl -s http://${SERVER}:${PORT}/build-info.json | jq -r '.build_time_utc'`. Eliminates the entire `/exec` auth dependency.
+- **F5-FIX-2:** Add `set -e` AND make `DEPLOY_EPOCH=0` branch exit 1 (not just SKIP) — silent skip masks broken probe.
+- **F5-FIX-3:** Replace `wscript.exe hidden.vbs` wrapper with a direct bash launcher OR a wrapper that propagates exit codes — surface bash failure to schtasks Last Result.
+- **F5-FIX-4:** Move alert path to fail-loud — if COMMS_PSK missing in scheduled context, exit 1 with stderr warning instead of silent continue.
+
+Recommend F5-FIX-1 + F5-FIX-2 + F5-FIX-4 in a single commit (all in same file, single-boundary, §S-186 fast-lane eligible). F5-FIX-3 is harness-adjacent (schtask Task To Run change) — requires Captain harness-mechanism-auth.
+
+**CommsLink schtask naming-overlap finding (read-only):** 3 sibling tasks confirmed
+- `CommsLink-DaemonWatchdog` (next run 16:55 IST today) — likely original
+- `CommsLink-RealDaemonWatchdog` (next run 16:54 IST) — fires 1min earlier than the "Daemon" one; possibly the actual active watcher
+- `CommsLink-Watchdog` (next run N/A) — manual-trigger only; legacy
+This naming evolution suggests at least one attempt-to-replace cycle that left stale entries. Not load-bearing per F0 scope but flag for future cleanup. Not adding to F5.
+
 ## §5 Stale-at
 
 - (a) Any §S-N anchor naming a row in §1 status table
