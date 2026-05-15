@@ -3,6 +3,9 @@ mod game_helpers;
 // PR-A W1-S6 PIN-LOCKOUT publisher (Phase 1 scaffold; impl in Phases 2-3).
 // Captain Option C hybrid 2026-05-09 ~20:28 IST → cascade #8 PR-A authoring.
 pub mod lockout;
+// PR-A W1-S6 Phase 2 dispatch retry queue + WhatsApp fire-and-forget.
+// §S-347 Q-DECISION-G33v7 Option (a) ratify 2026-05-15 06:34 IST.
+pub mod dispatch;
 pub mod middleware;
 pub mod otp;
 pub mod privileged_actions;
