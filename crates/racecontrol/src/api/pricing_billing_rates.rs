@@ -12,6 +12,61 @@ use std::sync::Arc;
 use crate::accounting;
 use crate::state::AppState;
 
+// ─── Pricing ceiling read-out (V2 row 7.3 Phase 1 surface) ──────────────────
+//
+// V2-PROGRESS-MAP §7 row 7.3 — MAX_DISCOUNT_PCT ceiling primitive.
+// Substrate landed via §S-253 cascade (`crates/racecontrol/src/pricing/
+// discount_ceiling.rs` + call-site wires at `api/billing_discount.rs:147` +
+// `api/billing_start.rs:202` + §S-260 wallet_transactions audit columns +
+// §S-272 Phase 2 observability daily clamp count). This endpoint exposes the
+// effective cap to staff dashboards + the
+// `tests/contract/pricing-discount-ceiling.spec.ts` discovery probe so the
+// `CEILING_SURFACE_MISSING` SKIP gate can flip to runtime-check.
+//
+// **Read-only.** No writes; the cap is a doctrine-encoded constant pending a
+// future config-override field on `AppState`. Captain Q-2-1 ratify anchor:
+// comms-link §S-252 commit `c203135d` ("max_discount_pct = 0.50").
+// RCA: `.planning/audits/RCA-2026-05-13-row-7.3-max-discount-pct-ceiling.md`.
+
+#[cfg_attr(feature = "gen-types", utoipa::path(
+    get,
+    path = "/api/v1/pricing/ceiling",
+    tag = "pricing",
+    responses(
+        (status = 200, description = "Effective MAX_DISCOUNT_PCT ceiling + cap_source provenance", body = serde_json::Value),
+        (status = 401, description = "Staff JWT required"),
+    ),
+    security(("staffJWT" = []))
+))]
+pub(crate) async fn get_pricing_ceiling(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let cap = crate::pricing::discount_ceiling::max_discount_pct(&state);
+    let is_default = (cap - crate::pricing::discount_ceiling::MAX_DISCOUNT_PCT_DEFAULT).abs() < f64::EPSILON;
+    let cap_source = if is_default {
+        "MAX_DISCOUNT_PCT_DEFAULT"
+    } else {
+        "AppState.config.discount_ceiling_pct"
+    };
+    // Unit clarity: the Rust constant `MAX_DISCOUNT_PCT_DEFAULT = 0.50` is
+    // fraction-form (0.0..=1.0); applied-discount math in
+    // `pricing/discount_ceiling::clamp_discount_pct` uses the same fraction
+    // domain. Some downstream consumers (kiosk staff dashboard + the contract
+    // test `tests/contract/pricing-discount-ceiling.spec.ts` 0-100 assertion)
+    // expect percentage-form. Emitting BOTH avoids the unit-confusion class:
+    //   * `max_discount_pct` — fraction (canonical; matches Rust const)
+    //   * `max_discount_pct_percent` — percentage (UI/test-friendly)
+    //   * `unit` — explicit declaration of which field carries which form
+    Json(json!({
+        "max_discount_pct": cap,
+        "max_discount_pct_percent": cap * 100.0,
+        "unit": "fraction",
+        "cap_source": cap_source,
+        "captain_ratify_anchor": "comms-link §S-252 commit c203135d",
+        "rca_anchor": ".planning/audits/RCA-2026-05-13-row-7.3-max-discount-pct-ceiling.md",
+        "doctrine_phase": "Post-V2.0-Pricing-Calibration",
+        "schema_version": 1,
+    }))
+}
+
 // ─── Billing Rate Tiers (per-minute rates) ──────────────────────────────────
 
 #[cfg_attr(feature = "gen-types", utoipa::path(
@@ -203,5 +258,85 @@ pub(crate) async fn delete_billing_rate(
             tracing::error!("delete_billing_rate DB error for {}: {}", id, e);
             axum::http::StatusCode::NO_CONTENT.into_response()
         }
+    }
+}
+
+// ─── V2 row 7.3 Phase 1 tests ────────────────────────────────────────────────
+
+#[cfg(test)]
+mod row_7_3_tests {
+    use super::*;
+    use crate::pricing::discount_ceiling::MAX_DISCOUNT_PCT_DEFAULT;
+
+    /// `get_pricing_ceiling` emits both fraction + percentage forms with
+    /// matching values and the `unit` declaration. Closes the unit-confusion
+    /// class surfaced during PR authoring (Rust const = fraction 0.50;
+    /// contract test assertion expected percentage 0..100).
+    #[tokio::test]
+    async fn get_pricing_ceiling_emits_both_unit_forms() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+        let mut config = crate::config::Config::default_test();
+        config.auth.jwt_secret = "test".to_string();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
+
+        let Json(body) = get_pricing_ceiling(State(state)).await;
+
+        // Fraction-form: must equal the Rust doctrine const (Captain Q-2-1
+        // ratify §S-252 c203135d). f64 equality is safe here because both
+        // sides flow from the same const.
+        let fraction = body["max_discount_pct"].as_f64().expect("max_discount_pct present");
+        assert!(
+            (fraction - MAX_DISCOUNT_PCT_DEFAULT).abs() < f64::EPSILON,
+            "max_discount_pct fraction-form drifted from MAX_DISCOUNT_PCT_DEFAULT"
+        );
+
+        // Percentage-form: fraction × 100.
+        let percent = body["max_discount_pct_percent"].as_f64().expect("max_discount_pct_percent present");
+        assert!(
+            (percent - fraction * 100.0).abs() < f64::EPSILON,
+            "max_discount_pct_percent must equal fraction × 100"
+        );
+
+        // Unit declaration is explicit.
+        assert_eq!(body["unit"].as_str(), Some("fraction"));
+
+        // Captain ratify anchor + RCA anchor are present (closes provenance audit).
+        assert_eq!(
+            body["captain_ratify_anchor"].as_str(),
+            Some("comms-link §S-252 commit c203135d")
+        );
+        assert!(body["rca_anchor"].as_str().is_some());
+
+        // Cap source declares whether the value came from default-const or
+        // a future config override. Test-state has no override → default.
+        assert_eq!(body["cap_source"].as_str(), Some("MAX_DISCOUNT_PCT_DEFAULT"));
+    }
+
+    /// Contract test invariant: percentage-form falls within (0, 100] per
+    /// the assertions in `tests/contract/pricing-discount-ceiling.spec.ts`
+    /// Test 1. This regression pins the doctrine ratify (50%) within the
+    /// safe band so a future hot-config change to 0.0 or 1.5 is caught.
+    #[tokio::test]
+    async fn get_pricing_ceiling_percent_in_safe_band() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+        let mut config = crate::config::Config::default_test();
+        config.auth.jwt_secret = "test".to_string();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
+
+        let Json(body) = get_pricing_ceiling(State(state)).await;
+        let percent = body["max_discount_pct_percent"].as_f64().expect("present");
+
+        assert!(percent > 0.0, "ceiling must be strictly positive (>0 invariant)");
+        assert!(percent <= 100.0, "ceiling must not exceed 100% (refund-class boundary)");
     }
 }

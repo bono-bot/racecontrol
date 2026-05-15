@@ -557,6 +557,11 @@ fn staff_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Write operations (POST/PUT/DELETE rates) remain manager+ gated.
         .route("/billing/report/daily", get(daily_billing_report))
         .route("/billing/rates", get(list_billing_rates))
+        // V2 row 7.3 Phase 1: MAX_DISCOUNT_PCT ceiling read-out for staff dashboards
+        // + tests/contract/pricing-discount-ceiling.spec.ts discovery probe.
+        // Read-only; no writes — cap is doctrine-encoded constant pending future
+        // config-override (Captain Q-2-1 ratify §S-252 c203135d "max_discount_pct = 0.50").
+        .route("/pricing/ceiling", get(get_pricing_ceiling))
         // Feature flags: staff can read (POS obeys flags), only superadmin can write.
         .route("/flags", get(flags::list_flags))
         .route("/billing/split-options/{duration_minutes}", get(get_split_options))

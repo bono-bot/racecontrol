@@ -361,4 +361,5 @@ pub(crate) async fn delete_pricing_tier(
 // ─── Billing Rate Tiers (extracted to pricing_billing_rates.rs) ─────────────
 pub(crate) use super::pricing_billing_rates::{
     list_billing_rates, create_billing_rate, update_billing_rate, delete_billing_rate,
+    get_pricing_ceiling,
 };
