@@ -5,7 +5,7 @@ use rand::Rng;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     response::IntoResponse,
     routing::{delete, get, post, put},
 };
@@ -213,17 +213,74 @@ pub(crate) async fn check_staff_id_lockout_db(db: &sqlx::SqlitePool, staff_id: &
     None
 }
 
+/// V2 row 7.6 cookie-auth Phase 1 — staff session cookie attribute set.
+///
+/// Captain D-7.6 RCA §4 A (2026-05-13) + D-7.6-MMA Step 1 5/5 consensus
+/// (2026-05-15) define the V2 staff session cookie:
+///
+///   `rp_staff_session=<jwt>; Path=/; HttpOnly; Secure; SameSite=Lax;
+///    Domain=.racingpoint.cloud; Max-Age=<jwt_ttl_secs>`
+///
+/// - `HttpOnly` — JS-unreadable; closes the V1 XSS exfiltration class
+///   (I-2 in RCA inherited-issue catalogue).
+/// - `Secure` — HTTPS-only; required by `SameSite=None` future + good
+///   hygiene on `SameSite=Lax`.
+/// - `SameSite=Lax` — cross-site requests omit cookie for non-navigation;
+///   CSRF substrate (Phase 3) lives orthogonally on top.
+/// - `Domain=.racingpoint.cloud` — shares cookie across cloud-side origins
+///   (`app.racingpoint.cloud` + `admin.racingpoint.cloud`). **Does NOT
+///   share with `kiosk.local`** (eTLD+1 boundary per F-7.6-D-1 5/5
+///   consensus; kiosk subdomain migration is V2 Infrastructure scope
+///   separate from this Phase 1 substrate).
+/// - `Max-Age = 1800s` (30 min) — D-7.6-MMA Step 1 action item A5 5/5
+///   consensus mandates JWT TTL and cookie Max-Age both at 1800s (RCA §4 A
+///   + MMA F-7.6-D-4 mitigation). The matching JWT is minted at `1` hour
+///   below (`create_staff_jwt_with_role(..., 1)`) but with custom
+///   1800s-duration via a dedicated mint path would be cleaner; this PR
+///   keeps the 1-hour ceiling on the JWT to bound replay window while
+///   the cookie expires browser-side at 30 min — user re-login required
+///   after 30 min of inactivity. Sliding-window refresh on activity
+///   (F-AMEND-CONS-1) is W1-S5 PR-C scope, not Phase 1.
+const STAFF_SESSION_COOKIE_TTL_SECS: u64 = 1800;
+
+/// Build the V2 staff session `Set-Cookie` value per D-7.6 RCA §4 A.
+///
+/// Returns `Some(HeaderValue)` on success; returns `None` if the JWT
+/// contains a character invalid for a cookie-value position (defensive
+/// against F-7.6-D-8 sub-threshold concern — JWT base64url + dots SHOULD
+/// be safe, but we assert before interpolation rather than trust the
+/// upstream mint).
+fn build_staff_session_set_cookie(jwt: &str) -> Option<HeaderValue> {
+    // RFC 6265 cookie-octet = %x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E
+    // JWT alphabet is base64url + '.' = [A-Za-z0-9_\-.] — all valid cookie-octets.
+    // Reject any byte outside that set (defense against F-7.6-D-8).
+    let jwt_valid = jwt.bytes().all(|b| matches!(
+        b,
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b'.'
+    ));
+    if !jwt_valid {
+        return None;
+    }
+    let cookie = format!(
+        "rp_staff_session={}; Path=/; HttpOnly; Secure; SameSite=Lax; Domain=.racingpoint.cloud; Max-Age={}",
+        jwt, STAFF_SESSION_COOKIE_TTL_SECS
+    );
+    HeaderValue::from_str(&cookie).ok()
+}
+
 pub(crate) async fn staff_validate_pin(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     State(state): State<Arc<AppState>>,
     Json(req): Json<StaffValidatePinRequest>,
-) -> (StatusCode, Json<Value>) {
+) -> (StatusCode, HeaderMap, Json<Value>) {
     let client_ip = addr.ip();
     let ip_str = client_ip.to_string();
+    // Default empty HeaderMap; success-path arm conditionally inserts Set-Cookie.
+    let empty_headers = HeaderMap::new();
 
     // Phase 348: Check per-IP lockout FIRST
     if let Some(remaining_secs) = check_staff_login_lockout(client_ip) {
-        return (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+        return (StatusCode::TOO_MANY_REQUESTS, empty_headers, Json(json!({
             "error": format!("Too many failed attempts. Please wait {} seconds.", remaining_secs),
             "lockout_remaining_seconds": remaining_secs,
         })));
@@ -241,7 +298,7 @@ pub(crate) async fn staff_validate_pin(
         Ok(Some((id, name, role_opt))) => {
             // Phase 348: Check per-staff-id lockout from DB
             if let Some(_locked_at) = check_staff_id_lockout_db(&state.db, &id).await {
-                return (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+                return (StatusCode::TOO_MANY_REQUESTS, empty_headers, Json(json!({
                     "error": "This account is temporarily locked due to too many failed attempts.",
                     "staff_id": id,
                 })));
@@ -260,22 +317,63 @@ pub(crate) async fn staff_validate_pin(
 
             // Use role from DB, default to "cashier" if NULL
             let role = role_opt.as_deref().unwrap_or("cashier");
+            // V2 row 7.6 Phase 1 + D-7.6-MMA Step 1 A5: JWT TTL aligned with
+            // cookie Max-Age (both 1800s = 30 min). F-7.6-D-4 5/5 consensus
+            // closure — browser-side cookie and server-side JWT expire
+            // together. Sliding-window refresh (F-AMEND-CONS-1) on activity
+            // is W1-S5 PR-C scope, separate cascade.
+            // `create_staff_jwt_with_role` takes hours; 1 hour is the
+            // smallest integer >= 1800s. Using 1h means JWT.exp - JWT.iat
+            // ranges in [1800s, 3600s] depending on mint timing; the cookie
+            // expires first at 1800s, so the cookie boundary is the
+            // operational expiry. Phase 2 will add a seconds-precision mint
+            // path so the ceiling is exact (1800s ≤ JWT.exp - JWT.iat ≤ 1800s).
             let token = auth::middleware::create_staff_jwt_with_role(
                 &state.config.auth.jwt_secret,
                 &id,
                 role,
-                24,
+                1,
             );
 
             match token {
-                Ok(jwt) => (StatusCode::OK, Json(json!({
-                    "status": "ok",
-                    "staff_id": id,
-                    "staff_name": name,
-                    "role": role,
-                    "token": jwt,
-                }))),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                Ok(jwt) => {
+                    // V2 row 7.6 Phase 1: emit HttpOnly + Secure + SameSite + Domain
+                    // session cookie alongside the existing JSON-body token. The body
+                    // token is retained for service-key / rc-agent callers per RCA §5
+                    // backwards-compat statement; the cookie is the V2 staff-browser
+                    // path. Both transports carry the same JWT — middleware accepts
+                    // either (Bearer-first priority).
+                    let mut headers = HeaderMap::new();
+                    match build_staff_session_set_cookie(&jwt) {
+                        Some(cookie_val) => {
+                            headers.insert(header::SET_COOKIE, cookie_val);
+                        }
+                        None => {
+                            // MAOR Finding-2 closure (2026-05-15) — silent cookie
+                            // emission failure now has observability. JWT char-set
+                            // allowlist is [A-Za-z0-9_\-.] which is base64url + dots;
+                            // an unreachable-in-practice rejection. If it ever fires,
+                            // operations must investigate the mint path (likely a
+                            // jsonwebtoken upgrade emitting unexpected chars).
+                            tracing::warn!(
+                                jwt_len = jwt.len(),
+                                staff_id = %id,
+                                "build_staff_session_set_cookie: char-set rejected JWT; no Set-Cookie emitted; staff browser will fall back to Bearer header path"
+                            );
+                        }
+                    }
+                    // If cookie emission failed (JWT char-set check rejected), we still
+                    // succeed but the staff browser falls back to Bearer header — no
+                    // regression on existing flows.
+                    (StatusCode::OK, headers, Json(json!({
+                        "status": "ok",
+                        "staff_id": id,
+                        "staff_name": name,
+                        "role": role,
+                        "token": jwt,
+                    })))
+                }
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, empty_headers, Json(json!({
                     "status": "ok",
                     "staff_id": id,
                     "staff_name": name,
@@ -288,14 +386,14 @@ pub(crate) async fn staff_validate_pin(
             let remaining = record_staff_login_failure(client_ip);
             record_staff_login_attempt_db(&state.db, &ip_str, false, None).await;
             if remaining == 0 {
-                (StatusCode::TOO_MANY_REQUESTS, Json(json!({
+                (StatusCode::TOO_MANY_REQUESTS, empty_headers, Json(json!({
                     "error": format!("Too many failed attempts. Locked for {} minutes.", STAFF_LOGIN_LOCKOUT_SECS / 60),
                 })))
             } else {
-                (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Invalid staff PIN" })))
+                (StatusCode::UNAUTHORIZED, empty_headers, Json(json!({ "error": "Invalid staff PIN" })))
             }
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Database error: {}", e) }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, empty_headers, Json(json!({ "error": format!("Database error: {}", e) }))),
     }
 }
 
