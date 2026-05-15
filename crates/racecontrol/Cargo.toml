@@ -33,6 +33,10 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+# PR-A W1-S6 Phase 2 dispatch.rs — `EmailSender` / `WhatsAppSender` traits.
+# Native async-fn-in-traits is not object-safe for `dyn Trait`, and dispatch.rs
+# uses `Arc<dyn EmailSender>` for runtime substitution.
+async-trait = "0.1"
 
 # Web framework
 axum = { version = "0.8", features = ["ws", "macros", "multipart"] }

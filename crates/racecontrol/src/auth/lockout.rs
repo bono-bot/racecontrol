@@ -18,6 +18,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use thiserror::Error;
 
+use crate::auth::dispatch::{DispatchError, DispatchManager, EmailPayload};
+
 /// Predicate returned by `LockoutManager::is_locked_out`.
 ///
 /// Q-W1-CROSS-1: SECURITY-CLASS EXPLICIT — W1-S5 refresh path MUST
@@ -61,24 +63,56 @@ pub struct LockoutManager {
     // Phase 1 scaffold: pool injected; logic added in Phase 2.
     #[allow(dead_code)]
     pool: sqlx::SqlitePool,
-    // Phase 1 placeholder for Q-W1-S6-NEW-2 retry-queue dispatch sender;
-    // Phase 2 wires this to dispatch.rs `tokio::sync::mpsc::UnboundedSender`.
-    #[allow(dead_code)]
-    dispatch_tx: Option<tokio::sync::mpsc::UnboundedSender<DispatchTaskPlaceholder>>,
+    // Phase 2 (PR #87 amendment / DISPATCH-8 Finding I-3): real `DispatchManager`
+    // handle replacing the Phase 1 `DispatchTaskPlaceholder` zero-size marker.
+    // Optional so existing call sites that construct `LockoutManager::new(pool)`
+    // (without an injected dispatcher) keep compiling; threshold-breach paths
+    // route through `enqueue_alert_email` which short-circuits when None.
+    dispatch_manager: Option<Arc<DispatchManager>>,
 }
 
-/// Phase 1 placeholder for `dispatch::DispatchTask`; Phase 2 replaces with
-/// real type. Marker type-only to keep the scaffold compileable.
-#[allow(dead_code)]
-pub struct DispatchTaskPlaceholder;
-
 impl LockoutManager {
-    /// Construct a new `LockoutManager`. Phase 2 will wire dispatch_tx.
+    /// Construct a new `LockoutManager` without an alert dispatcher.
+    ///
+    /// Convenience shim for tests / call sites that don't need lockout-alert
+    /// email dispatch. Production wires the dispatcher via
+    /// [`Self::new_with_dispatch`] from startup.
     pub fn new(pool: sqlx::SqlitePool) -> Arc<Self> {
+        Self::new_with_dispatch(pool, None)
+    }
+
+    /// Construct a new `LockoutManager` with an injected `DispatchManager`.
+    ///
+    /// Wires the Q-W1-S6-NEW-2 retry-queue path: threshold-breach alerts
+    /// enqueue an `EmailPayload` via the dispatcher's `enqueue_email`. Pass
+    /// `None` for `dispatch_manager` to skip alert dispatch (testing /
+    /// degraded-mode startup).
+    pub fn new_with_dispatch(
+        pool: sqlx::SqlitePool,
+        dispatch_manager: Option<Arc<DispatchManager>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             pool,
-            dispatch_tx: None,
+            dispatch_manager,
         })
+    }
+
+    /// Internal helper: enqueue a lockout-alert email through the injected
+    /// `DispatchManager`, if one is configured. Returns `Ok(())` (no-op) when
+    /// no dispatcher is wired so the caller path does not fail closed in
+    /// degraded-mode startup.
+    ///
+    /// Threshold-breach logic (Phase 2.2 sub-PR) calls this after writing the
+    /// `staff.lockout_until` row + audit-log entry.
+    #[allow(dead_code)]
+    pub(crate) fn enqueue_alert_email(
+        &self,
+        payload: EmailPayload,
+    ) -> Result<(), DispatchError> {
+        match self.dispatch_manager.as_ref() {
+            Some(mgr) => mgr.enqueue_email(payload),
+            None => Ok(()),
+        }
     }
 
     /// Q-W1-CROSS-1 publisher contract.
