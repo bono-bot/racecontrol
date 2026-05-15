@@ -385,6 +385,48 @@ pub(crate) async fn migrate_billing(pool: &SqlitePool) -> anyhow::Result<()> {
         .execute(pool)
         .await;
 
+    // ─── §S-329 row 1.13 finalize substrate ───────────────────────────────
+    // 4 new columns + 1 new table + 1 partial UNIQUE INDEX. DPDP cascade:
+    // billing_sessions row delete cascades to billing_session_receipts via FK
+    // ON DELETE CASCADE; anonymize-path NULL-out covered in customer_legal.rs
+    // anonymize_driver_pii(). Per RCA §4-A6 + §5 §F.
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN finalize_idempotency_key TEXT")
+        .execute(pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN finalize_reason TEXT")
+        .execute(pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN finalize_actor TEXT")
+        .execute(pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE billing_sessions ADD COLUMN finalized_at TEXT")
+        .execute(pool)
+        .await;
+
+    // Partial UNIQUE INDEX — only enforces uniqueness on non-NULL keys, so
+    // existing NULL rows are not blocked. Per RCA §5 §F.
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_sessions_finalize_idempotency_key \
+         ON billing_sessions(finalize_idempotency_key) \
+         WHERE finalize_idempotency_key IS NOT NULL",
+    )
+    .execute(pool)
+    .await?;
+
+    // Canonical first-response store for idempotency replay determinism.
+    // Per RCA §4-A2: on replay-by-key, server returns this blob verbatim.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS billing_session_receipts (
+            session_id TEXT PRIMARY KEY REFERENCES billing_sessions(id) ON DELETE CASCADE,
+            idempotency_response_blob TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await?;
 
     // NOTE: updated_at columns, backfill, and indexes for billing_sessions,
     // pricing_tiers, and wallets are handled by migrate_cross_domain which
