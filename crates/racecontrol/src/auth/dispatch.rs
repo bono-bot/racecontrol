@@ -24,7 +24,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch, Mutex};
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{info, warn};
 
@@ -180,19 +181,28 @@ struct RetryEnvelope {
 }
 
 /// Handle to the retry-queue dispatcher. Construct via `DispatchManager::spawn`;
-/// the returned handle clones cheaply (it's just an `mpsc::Sender` + Arc'd
-/// WhatsApp sender).
+/// the returned handle clones cheaply (`mpsc::Sender` + Arc'd shutdown sender +
+/// Arc'd join handle + Arc'd WhatsApp sender).
+///
+/// DISPATCH-8 Finding I-1 amendment: the manager now exposes [`Self::shutdown`]
+/// which signals the retry loop, drops the loop's `self_tx` clone, drains
+/// pending envelopes, and logs the drain count — making
+/// `retry_queue_drains_on_shutdown_with_log` (§4.3 spec) structurally
+/// implementable. Prior architecture held `self_tx` for re-enqueue with no
+/// external signal path; the loop ran until the tokio runtime dropped.
 #[derive(Clone)]
 pub struct DispatchManager {
     email_tx: mpsc::UnboundedSender<RetryEnvelope>,
     whatsapp: Arc<dyn WhatsAppSender>,
+    shutdown_tx: Arc<watch::Sender<bool>>,
+    join_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl DispatchManager {
     /// Spawn the retry loop and return a `DispatchManager` handle.
     ///
-    /// The retry loop owns the receiver and consumes envelopes until the
-    /// sender is dropped (`QueueShutdown` for any in-flight enqueue thereafter).
+    /// The retry loop owns the receiver and consumes envelopes until either
+    /// the external sender is dropped OR [`Self::shutdown`] is called.
     /// Restart-loses-queue is the documented kaizen-min behaviour per
     /// Q-W1-S6-NEW-2 (CR-3 customer-service-priority bounded blast radius).
     pub fn spawn(
@@ -201,12 +211,35 @@ impl DispatchManager {
         config: DispatchConfig,
     ) -> Self {
         let (tx, rx) = mpsc::unbounded_channel::<RetryEnvelope>();
-        let handle = Self {
-            email_tx: tx.clone(),
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let join = tokio::spawn(dispatch_retry_loop(
+            rx,
+            tx.clone(),
+            shutdown_rx,
+            email_sender,
+            config,
+        ));
+        Self {
+            email_tx: tx,
             whatsapp: whatsapp_sender,
-        };
-        tokio::spawn(dispatch_retry_loop(rx, tx, email_sender, config));
-        handle
+            shutdown_tx: Arc::new(shutdown_tx),
+            join_handle: Arc::new(Mutex::new(Some(join))),
+        }
+    }
+
+    /// Signal the retry loop to drain and exit, then await its completion.
+    ///
+    /// DISPATCH-8 Finding I-1: this is the path that makes graceful shutdown
+    /// structurally possible. The loop drops its own `self_tx` clone on the
+    /// shutdown signal, drains any envelopes already queued, emits an
+    /// `info!(drained = N, "dispatch_retry_loop drained on shutdown")` event,
+    /// and exits. Idempotent — subsequent calls are no-ops.
+    pub async fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+        let mut guard = self.join_handle.lock().await;
+        if let Some(handle) = guard.take() {
+            let _ = handle.await;
+        }
     }
 
     /// Enqueue an email for dispatch with retry-on-failure.
@@ -237,13 +270,18 @@ impl DispatchManager {
 
 /// Spawn-target for the retry-queue consumer task.
 ///
-/// Holds a clone of the sender so it can re-enqueue retry attempts. Re-enqueue
-/// happens by writing the envelope back into the same mpsc channel with an
-/// updated `next_attempt_at`; the loop pops envelopes whose `next_attempt_at`
-/// has elapsed and waits otherwise.
+/// Holds a clone of the external sender (`self_tx`) so it can re-enqueue
+/// retry attempts onto the same mpsc channel with an updated
+/// `next_attempt_at`. DISPATCH-8 Finding I-1 amendment: also listens on a
+/// `shutdown_rx` watch channel; when signalled, drops `self_tx` (so any
+/// remaining drain is bounded), pulls any still-queued envelopes with
+/// `try_recv`, emits a single `drained` log event, and exits. This makes
+/// `retry_queue_drains_on_shutdown_with_log` (W1-S6-PLAN.md §4.3)
+/// structurally implementable.
 async fn dispatch_retry_loop(
     mut rx: mpsc::UnboundedReceiver<RetryEnvelope>,
     self_tx: mpsc::UnboundedSender<RetryEnvelope>,
+    mut shutdown_rx: watch::Receiver<bool>,
     email_sender: Arc<dyn EmailSender>,
     config: DispatchConfig,
 ) {
@@ -254,7 +292,49 @@ async fn dispatch_retry_loop(
         "dispatch_retry_loop starting"
     );
 
-    while let Some(envelope) = rx.recv().await {
+    // Wrap `self_tx` in Option so the shutdown branch can drop it (releasing
+    // the loop's own sender clone — required for graceful drain semantics).
+    let mut self_tx = Some(self_tx);
+
+    loop {
+        let envelope = tokio::select! {
+            biased;
+            // Shutdown branch — `changed()` resolves on every send, including
+            // the `false → true` transition that `DispatchManager::shutdown`
+            // triggers. We additionally check the borrowed value to ignore
+            // any spurious initial-value resolutions.
+            res = shutdown_rx.changed() => {
+                if res.is_err() || *shutdown_rx.borrow() {
+                    // Drop the loop's own sender clone — any retries already
+                    // re-enqueued before this point remain visible to the
+                    // drain, but no new sends from this side can occur.
+                    // `.take()` returns the inner Sender which is then
+                    // dropped at end-of-expression, releasing the channel.
+                    drop(self_tx.take());
+                    let mut drained = 0u64;
+                    while let Ok(_env) = rx.try_recv() {
+                        drained = drained.saturating_add(1);
+                    }
+                    info!(
+                        drained,
+                        "dispatch_retry_loop drained on shutdown"
+                    );
+                    break;
+                }
+                continue;
+            }
+            maybe_env = rx.recv() => {
+                match maybe_env {
+                    Some(env) => env,
+                    None => {
+                        // External sender dropped; channel closed cleanly.
+                        info!("dispatch_retry_loop exiting (sender dropped)");
+                        return;
+                    }
+                }
+            }
+        };
+
         // Wait until this envelope is due. If `next_attempt_at` is in the past,
         // `sleep_until` returns immediately (saturating behaviour).
         tokio::time::sleep_until(envelope.next_attempt_at).await;
@@ -330,15 +410,27 @@ async fn dispatch_retry_loop(
             attempt: envelope.attempt + 1,
             next_attempt_at,
         };
-        if self_tx.send(retry_envelope).is_err() {
-            // Channel closed mid-flight — caller dropped the manager during a
-            // pending retry. Log and exit; restart-loses-queue acceptable.
-            warn!("dispatch_retry_loop: self-send failed, channel closed mid-retry");
-            break;
+        match self_tx.as_ref() {
+            Some(tx) => {
+                if tx.send(retry_envelope).is_err() {
+                    // Channel closed mid-flight — caller dropped the manager
+                    // during a pending retry. Log and exit;
+                    // restart-loses-queue acceptable.
+                    warn!("dispatch_retry_loop: self-send failed, channel closed mid-retry");
+                    break;
+                }
+            }
+            None => {
+                // Shutdown in progress — drop the retry, log, and continue
+                // toward loop exit. The drain path will count any remaining
+                // in-flight envelopes; this one is already past drain.
+                warn!(
+                    attempt = retry_envelope.attempt,
+                    "dispatch_retry_loop: retry suppressed (shutdown in progress)"
+                );
+            }
         }
     }
-
-    info!("dispatch_retry_loop exiting (sender dropped)");
 }
 
 #[cfg(test)]
@@ -614,5 +706,212 @@ mod tests {
         assert_eq!(RETRY_BACKOFFS[0], Duration::from_secs(10));
         assert_eq!(RETRY_BACKOFFS[1], Duration::from_secs(60));
         assert_eq!(RETRY_BACKOFFS[2], Duration::from_secs(300));
+    }
+
+    // ─── DISPATCH-8 amendment: 3 spec-named tests (Finding I-2) ─────────
+    //
+    // Per W1-S6-PLAN.md §4.3 + §4.4 + F-AMEND-CONS-4 contract:
+    //   * retry_queue_drains_on_shutdown_with_log — graceful shutdown
+    //     drains pending envelopes and emits a structured drain event.
+    //   * retry_queue_metrics_emit — successful dispatch emits the
+    //     `dispatch_outcome=ok` + `duration_ms` fields that the TSDB
+    //     histogram + counter extract.
+    //   * dispatch_timeout_metric_increments — timeout path emits the
+    //     `dispatch_outcome=timeout` field for the timeout-class counter.
+    //
+    // Capture uses an in-test `tracing_subscriber` Layer; `#[tokio::test]`
+    // defaults to a current-thread runtime so `set_default` (thread-local)
+    // is sufficient to scope capture to one test.
+
+    use std::sync::Mutex as StdMutex;
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::layer::{Context as LayerContext, Layer, SubscriberExt};
+    use tracing_subscriber::Registry;
+
+    /// In-memory tracing-event capture. Records each event as a single
+    /// `target/name + flat field=value` string for substring assertions.
+    #[derive(Default)]
+    struct CaptureLayer {
+        events: Arc<StdMutex<Vec<String>>>,
+    }
+
+    impl<S: tracing::Subscriber> Layer<S> for CaptureLayer {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: LayerContext<'_, S>,
+        ) {
+            let meta = event.metadata();
+            let mut visitor = FieldVisitor { rendered: String::new() };
+            event.record(&mut visitor);
+            let line = format!(
+                "{}::{} {}{}",
+                meta.target(),
+                meta.level(),
+                meta.name(),
+                visitor.rendered
+            );
+            self.events.lock().unwrap().push(line);
+        }
+    }
+
+    struct FieldVisitor {
+        rendered: String,
+    }
+
+    impl Visit for FieldVisitor {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.rendered
+                .push_str(&format!(" {}={}", field.name(), value));
+        }
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.rendered
+                .push_str(&format!(" {}={}", field.name(), value));
+        }
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.rendered
+                .push_str(&format!(" {}={}", field.name(), value));
+        }
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.rendered
+                .push_str(&format!(" {}={}", field.name(), value));
+        }
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.rendered
+                .push_str(&format!(" {}={:?}", field.name(), value));
+        }
+    }
+
+    fn install_capture() -> (Arc<StdMutex<Vec<String>>>, tracing::subscriber::DefaultGuard) {
+        let events: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(Vec::new()));
+        let layer = CaptureLayer {
+            events: events.clone(),
+        };
+        let subscriber = Registry::default().with(layer);
+        let guard = tracing::subscriber::set_default(subscriber);
+        (events, guard)
+    }
+
+    /// §4.3 spec test — graceful shutdown drains any remaining queued
+    /// envelopes and emits the `drained` log event.
+    ///
+    /// Pre-amendment (PR #87 HEAD `aa7cd5df`), this test was structurally
+    /// impossible: the retry loop held its own `self_tx` clone keeping the
+    /// channel alive forever (DISPATCH-8 Finding I-1). After amendment the
+    /// loop selects on a shutdown watch signal, drops `self_tx`, drains
+    /// `rx.try_recv()`, and logs `drained=N`.
+    #[tokio::test]
+    async fn retry_queue_drains_on_shutdown_with_log() {
+        let (events, _guard) = install_capture();
+
+        // Send an envelope that will block in the per-attempt timeout path
+        // long enough to still be in the channel queue when shutdown fires.
+        let (email_mock, _notify) = ScriptedEmailSender::new(vec![EmailAttemptOutcome::Ok]);
+        let wa_mock = RecordingWhatsApp::new();
+        // Use a config whose first envelope's backoff is long enough that
+        // additional enqueues sit waiting behind the in-flight one.
+        let cfg = DispatchConfig {
+            dispatch_timeout: Duration::from_millis(50),
+            retry_backoffs: vec![
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+                Duration::from_millis(30),
+            ],
+        };
+        let mgr = DispatchManager::spawn(email_mock.clone(), wa_mock, cfg);
+
+        // Enqueue 3 envelopes — first one processes immediately, the others
+        // sit in the channel awaiting the loop's next iteration.
+        for _ in 0..3 {
+            mgr.enqueue_email(email_payload()).unwrap();
+        }
+
+        // Trigger shutdown immediately (without waiting for full processing).
+        // The drain path picks up whichever envelopes remain in the channel.
+        mgr.shutdown().await;
+
+        let captured = events.lock().unwrap().clone();
+        let drain_line = captured
+            .iter()
+            .find(|l| l.contains("dispatch_retry_loop drained on shutdown"));
+        assert!(
+            drain_line.is_some(),
+            "expected drained-on-shutdown log; got events: {:#?}",
+            captured
+        );
+        // The `drained` field must be present (value depends on scheduling;
+        // 0 is acceptable if all three were consumed before shutdown fired,
+        // but the field must always appear for the TSDB extraction path).
+        let line = drain_line.unwrap();
+        assert!(
+            line.contains("drained="),
+            "expected `drained` field in drain log; got: {}",
+            line
+        );
+    }
+
+    /// §4.3 + §4.4 spec test (F-AMEND-CONS-4 contract) — a successful email
+    /// dispatch emits the structured `dispatch_outcome=ok` event with a
+    /// `duration_ms` field. These two fields are what the TSDB extractor
+    /// projects into the `dispatch_outcome_total{outcome=ok}` counter and
+    /// the `dispatch_duration_seconds` histogram.
+    #[tokio::test]
+    async fn retry_queue_metrics_emit() {
+        let (events, _guard) = install_capture();
+
+        let (email_mock, notify) = ScriptedEmailSender::new(vec![EmailAttemptOutcome::Ok]);
+        let wa_mock = RecordingWhatsApp::new();
+        let mgr = DispatchManager::spawn(email_mock.clone(), wa_mock, fast_config());
+
+        mgr.enqueue_email(email_payload()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), notify.notified())
+            .await
+            .expect("first attempt should fire");
+        // Allow the structured event to flush.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let captured = events.lock().unwrap().clone();
+        let ok_event = captured.iter().find(|l| {
+            l.contains("dispatch_outcome=ok") && l.contains("duration_ms=")
+        });
+        assert!(
+            ok_event.is_some(),
+            "expected dispatch_outcome=ok event with duration_ms field for F-AMEND-CONS-4 histogram + counter extraction; got: {:#?}",
+            captured
+        );
+        // Cleanly tear down to avoid loop-leak across tests.
+        mgr.shutdown().await;
+    }
+
+    /// §4.4 spec test — a timeout on the underlying send emits the
+    /// `dispatch_outcome=timeout` event. This is the field the
+    /// `dispatch_outcome_total{outcome=timeout}` TSDB counter extracts.
+    #[tokio::test]
+    async fn dispatch_timeout_metric_increments() {
+        let (events, _guard) = install_capture();
+
+        // First attempt hangs (triggers per-attempt timeout); second succeeds
+        // so the loop doesn't keep firing under the test's drain window.
+        let (email_mock, _notify) = ScriptedEmailSender::new(vec![
+            EmailAttemptOutcome::Hang,
+            EmailAttemptOutcome::Ok,
+        ]);
+        let wa_mock = RecordingWhatsApp::new();
+        let mgr = DispatchManager::spawn(email_mock.clone(), wa_mock, fast_config());
+
+        mgr.enqueue_email(email_payload()).unwrap();
+        // dispatch_timeout (50ms) + backoff (10ms) + second attempt: ~200ms safe.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let captured = events.lock().unwrap().clone();
+        let timeout_event = captured.iter().find(|l| {
+            l.contains("dispatch_outcome=timeout") && l.contains("duration_ms=")
+        });
+        assert!(
+            timeout_event.is_some(),
+            "expected dispatch_outcome=timeout event for F-CONS-18 timeout counter extraction; got: {:#?}",
+            captured
+        );
+        mgr.shutdown().await;
     }
 }
