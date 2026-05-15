@@ -1,5 +1,31 @@
 "use client";
 
+// TODO: V2 substrate ambiguity / DEPRECATION RECOMMENDATION
+//   preview-hud has ZERO live references across kiosk/src/ — no Link href,
+//   no router.push, no useRouter.replace, no next.config.ts rewrite/redirect,
+//   no middleware mention. It is auto-registered as a Next.js route at
+//   /kiosk/preview-hud purely by file-system convention, but nothing in the
+//   kiosk app navigates to it.
+//
+//   Per the V2 theme migration brief: "Verify still in use first. Grep
+//   preview-hud across kiosk/src/ and racecontrol/; if no live route
+//   reference, flag for deletion in PR description, do not migrate."
+//
+//   This file uses generic Tailwind colors (bg-zinc-900, text-zinc-700)
+//   that would otherwise be migrated to bg-rp-black / text-rp-grey, but
+//   it has been intentionally left un-migrated pending the deletion
+//   decision. If the file is kept, follow up with a token-migration PR;
+//   the changes are trivial.
+//
+//   RECOMMENDED ACTION: delete src/app/preview-hud/ entirely (the directory
+//   contains only this single page.tsx). The RacingHUD component imported
+//   from @/components/RacingHUD has other usages in production code and
+//   should NOT be deleted with it.
+//
+//   Verification (after delete): `grep -rn "preview-hud" kiosk/src/` → 0 hits.
+//   Verification (RacingHUD still used): `grep -rn "RacingHUD" kiosk/src/`
+//   should show usages in src/app/pod/[number]/ or staff/control flows.
+
 import { useState, useEffect } from "react";
 import { RacingHUD } from "@/components/RacingHUD";
 import type { TelemetryFrame, Lap, BillingSession } from "@/lib/types";
