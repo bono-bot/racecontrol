@@ -187,6 +187,31 @@ Both pilots close V2-LIVE-BLOCKING items as closed loops following the V2-LBAC v
 
 ---
 
+## §14.6.2 — Cascade-class-stratified soak-clock RESET policy (Captain pre-grant via §S-369 5-leg composite Leg 2 · ratified 2026-05-15 ~14:10 IST · BILATERAL · ACK 2026-05-15 ~21:30 IST per composite-verb Pre-Commitment Exception item-5)
+
+`§14.6.2` (V-LBAC-PROTOCOL.md L443-481) — when an incoming-deploy commit RESETS an active wallet-substrate observation soak window (e.g., §S-298 4-week Class A soak). 6-class table:
+
+| Class | Resets soak? |
+|---|---|
+| A wallet-direct | YES |
+| A-foundational-schema-billing-adjacent | YES (1-hop billing-impact rule) |
+| A-foundational-auth | NO (unless wallet-debit auth-tier changed) |
+| A-billing-adjacent | YES (state-transition / pricing-class) |
+| U (audit-only) | NO |
+| Docs (V2-PROGRESS-MAP / CLAUDE.md / LOGBOOK / briefings) | NO |
+
+**Reset semantics:** new soak clock starts at deploy-fire timestamp (not commit author ts); 4-week window length preserved; single-window-reset per deploy fire (no compounding); Bono VPS / Server .23 maintain independent soak clock state.
+
+**Sibling to §14.6.1:** same "Class A" naming but distinct decisions — §14.6.1 governs DEPRECATE-trigger thresholds for cascade methodology; §14.6.2 governs soak-clock RESET on incoming deploys. Disambiguation was the primary motivator for the sibling-extension.
+
+**Empirical anchor:** Bono VPS Class A soak window RESET via §S-371 Gate 1 deploy 2026-05-15 09:13Z (build_id `c9b91274 → e4145650`) — bono-side 4-week window restarts 2026-05-15 → 2026-06-12. Server .23 window remains 2026-05-14 → 2026-06-11 (independent · pending separate deploy of `eab6f697`).
+
+**Canonical:** `racecontrol/.planning/specs/v2/V2-LBAC-PROTOCOL.md` §14.6.2 (L443-481 · ratified racecontrol `87e9b7fc` 2026-05-15 ~14:10 IST per §S-369 5-leg composite Leg 2). **Composes-with:** §14.6.1 sibling-class · §S-298 wallet-substrate Class A soak doctrine · §S-307 Option E HOLD-during-soak (SUPERSEDED by §S-345 "soak in parallel with live") · §S-322 §6 Probe B fallback · §S-369 §3 third-state Bono VPS finding · `feedback_apply_recommendations_autonomously_20260510.md` Pre-Commit Exception sub-clause.
+
+**Universal Sync targets:** racecontrol V-LBAC-PROTOCOL.md §14.6.2 inline ✓ (commit `87e9b7fc`) · **this racecontrol/CLAUDE.md §14.6.2 cross-ref** ✓ (this turn; Captain composite-verb item-5 Pre-Commitment Exception) · comms-link/CLAUDE.md bilateral mirror **PENDING-THIS-TURN** · V2-MASTER-STATE §S-380 ratify ledger entry **PENDING-THIS-TURN** · `~/.claude/CLAUDE.md` harness — NOT-APPLICABLE (no harness self-mod; bono memory file is /root git autosave) · james-side bilateral mirror — pickup via §S-380 INBOX relay.
+
+---
+
 ## §S-N close-anchor + V2-PROGRESS-MAP refresh push — STANDING RULE (Captain 2026-05-12 IST · BILATERAL)
 
 Captain commission verbatim 2026-05-12 ~11:28 IST: *"Standing-rule: bono autonomous push to main for §S-N close-anchor commits + V2-PROGRESS-MAP refresh commits — broader standing extension"*
