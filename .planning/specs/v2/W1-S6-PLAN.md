@@ -104,10 +104,10 @@ Config:
 **Implementation:**
 - `tokio::sync::mpsc::UnboundedSender<DispatchTask>` channel; consumer is a single tokio-spawned task running `dispatch_retry_loop`
 - `DispatchTask { recipient, subject, body, attempt: u8, retry_after: Instant }`
-- Backoff schedule: attempt 1 immediate, attempt 2 after +10s, attempt 3 after +60s, attempt 4 (final) after +300s; cap at 3 attempts (= attempt 1 + 2 retries) per Captain spec — NOTE: Captain spec says "3 attempts" total; backoff sequence of `10s · 60s · 300s` applies to attempts 2 / 3 / [4 if extended]; for V2.0 this PLAN interprets as **3 total attempts** with backoffs `[0s, 10s, 60s]` applied between attempts; the `300s` slot in Captain spec is RESERVED for V2.1+ extension to 4 attempts (out of scope V2.0)
+- Backoff schedule: **4 total dispatch attempts** (initial + 3 retries) — attempt 1 immediate (0s), attempt 2 after +10s, attempt 3 after +60s, attempt 4 (final) after +300s. Captain G33 v5 #6 "3 attempts" = 3 retries-after-failure; backoffs `[10s, 60s, 300s]` apply to retries 1/2/3. **CAPTAIN RATIFIED Option (a) — 2026-05-15 06:34 IST · §S-347.** Prior interpretation (3 total attempts, 300s V2.1 reserve) superseded.
 - Anti-precedent comment: `// Q-W1-S6-NEW-2: WhatsApp dispatch is FIRE-AND-FORGET (Captain-freeze); only email goes through retry queue`
 - Restart loses queue — comment: `// Q-W1-S6-NEW-2 kaizen-min: in-memory queue; restart-loses-queue is acceptable per CR-3 bounded blast radius; DB persistence hook reserved for V2.1+`
-- Test `retry_queue_first_attempt_succeeds` + `retry_queue_retries_on_timeout` + `retry_queue_gives_up_after_3_attempts` + `retry_queue_email_only_not_whatsapp` + `retry_queue_drains_on_shutdown_with_log` + `retry_queue_metrics_emit` (`dispatch_duration_seconds` histogram + `dispatch_outcome_total{outcome=ok|timeout|error}` counter per F-AMEND-CONS-4)
+- Test `retry_queue_first_attempt_succeeds` + `retry_queue_retries_on_timeout` + `retry_queue_gives_up_after_4_attempts` + `retry_queue_4th_attempt_succeeds_on_300s_backoff` + `retry_queue_email_only_not_whatsapp` + `retry_queue_drains_on_shutdown_with_log` + `retry_queue_metrics_emit` (`dispatch_duration_seconds` histogram + `dispatch_outcome_total{outcome=ok|timeout|error}` counter per F-AMEND-CONS-4)
 
 ### §4.4 — F-CONS-18 dispatch timeout (Step 1 amended CONSENSUS)
 

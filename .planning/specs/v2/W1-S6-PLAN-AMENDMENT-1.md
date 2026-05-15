@@ -214,6 +214,22 @@ Re-VERIFY of W1-S6-PLAN.md (closing FL-CONV-2 alongside the closures in this ame
 
 ---
 
+### §9.1 — CAPTAIN RATIFICATION ANCHOR — Q-DECISION-G33v7 Option (a)
+
+**Captain verbatim:** `"ratify Q-DECISION-G33v7 Option (a)"` — 2026-05-15 06:34 IST
+**Ledger anchor:** §S-347
+
+**Effect:**
+- W1-S6-PLAN.md §4.3 AMENDED to 4-total-attempts model (1 initial + 3 retries, backoffs `[10s, 60s, 300s]`)
+- FL-CONV-2 (ratified-spec interpretation gap) **CLOSED** — Option (a) is the V2.0 canonical interpretation
+- W1-S6 row in V2-PROGRESS-MAP: BLOCKED → ENGINEERING-IN-FLIGHT
+- Test suite delta: `retry_queue_gives_up_after_3_attempts` → `retry_queue_gives_up_after_4_attempts` + new `retry_queue_4th_attempt_succeeds_on_300s_backoff`
+- Row 1.9 (Kiosk digital top-up) PARTIAL-UNBLOCK — still gates on R1-C (Q-LIVE-BLOCKING-MAO-2) ratify
+
+**Phase 2 dispatch.rs authoring:** james-LEAD, autonomous-eligible per standing-rule post-ratify. Phase 2 PR-A author-and-stage scope; merge gate = per-PR Captain auth (retained per G33 v5 #9).
+
+---
+
 ## §10 — Doctrine alignment
 
 | Doctrine | Application |
