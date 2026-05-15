@@ -440,6 +440,41 @@ The single ≥20% threshold in §14.6 is REFINED to cascade-class-stratified thr
 
 **Anchor:** V-LBAC-DEPRECATE-TRIGGER-AUDIT-20260513.md (racecontrol commit `6edbb51c`) · §S-268 close-anchor (comms-link, this session) · §S-265 pre-commitment exception (covers item 5 of 8).
 
+### §14.6.2 — Cascade-class-stratified soak-clock RESET policy (sibling-extension to §14.6.1 · bono-LED 2026-05-15 ~14:10 IST · Captain ratify via §S-369 5-leg composite pre-grant)
+
+**Status:** RATIFIED 2026-05-15 ~14:10 IST per Captain pre-commitment verbatim *"Proceed with all 5 legs autonomously"* 2026-05-15 ~14:05 IST covering §S-369 §4 disposition + this §14.6.2 amendment as Leg 2 of 5-leg composite. Audit-trail anchor: comms-link §S-369 §4 + §S-370 close-anchor.
+
+**Background:** §14.6.1 governs DEPRECATE-trigger thresholds for cascade methodology (when to retire multi-agent / atom-substrate / audit-only methodologies). This §14.6.2 governs an ADJACENT but DISTINCT question: when an incoming code-on-main commit RESETS an active **wallet-substrate observation soak window** (e.g., §S-298 4-week Class A soak 2026-05-14 → 2026-06-11). The two §14.6.x rules share the "Class A" naming but apply to different operational decisions; this disambiguation is the primary motivator for the sibling-extension.
+
+**Rule:** §S-298-class wallet-substrate soak windows reset on incoming-deploy of any commit matching one of the RESET classes below. The 6-class table:
+
+| Cascade class on incoming deploy | Resets active wallet-substrate soak? | Reasoning |
+|---|---|---|
+| **Class A wallet-direct** (atomic substrate ≤10 LOC modifying wallet/billing/topups/redemptions/billing_session_receipts tables) | **YES** | direct-substrate-modification → fresh observation needed |
+| **Class A-foundational-schema-billing-adjacent** (DB migration touching billing-adjacent schema · billing/laps/billing_sessions/wallet/topups/redemptions/staff_pin/sessions tables · sibling-FK rebuild on any of these) | **YES** | indirect cross-coupling rule (1-hop billing-impact = reset) — schema migration may change row visibility, FK constraint behavior, cross-table reconciliation semantics |
+| **Class A-foundational-auth** (auth-substrate · cookie/session/JWT/HMAC) | **NO unless wallet-debit auth-tier changed** | auth doesn't directly mutate wallet rows · independent class |
+| **Class A-billing-adjacent** (substrate that affects billing-state-transitions · lockout-dispatch · session-end · finalize · stop endpoint changes · pricing surfaces) | **YES** | billing-class behavior change (state-transition or pricing) modifies wallet observation surface |
+| **Class U** (audit-only · RCA / forensic / verification audits · doctrine ratify entries) | **NO** | doc-class; no substrate landed on live |
+| **Class Docs** (V2-PROGRESS-MAP · CLAUDE.md · LOGBOOK · briefings) | **NO** | docs-class; no substrate landed on live |
+
+**Reset semantics on trigger:** new soak clock starts from the timestamp of the deploy fire (binary swap completion + behavioral verify success), NOT from commit author timestamp. The 4-week window length is preserved (default; configurable per §S-298 sibling soak window declarations if Captain explicitly amends).
+
+**Cumulative-class evaluation:** if a single deploy advances main by N commits, evaluate EACH commit's class independently. If ANY one commit triggers RESET, the soak clock resets ONCE per deploy fire. Multiple RESETS-class commits in same deploy do NOT compound — single-window reset per deploy.
+
+**Bono VPS vs Server .23 independence:** each deploy target maintains its own active soak clock state. Bono VPS deploy of Class A-direct commit resets bono-side soak; Server .23 deploy of same commit resets venue-side soak. Cross-target observation corpus aggregation is OUT OF §14.6.2 scope (defer to §S-298 §4 successor decision Q3 surfaced in §S-369 §4 step 7).
+
+**Empirical anchor (this entry's authoring window 2026-05-15):**
+
+- Server .23 baseline: `ad410a32` (pre-merge baseline · §S-298 wallet-substrate Class A soak active since 2026-05-14)
+- racecontrol main current HEAD: `c037352c` (post-§S-369 PR #85 merge)
+- 4-commit window Server .23 → main: `c9b91274` (PR #87 W1-S6 dispatch · Class A-billing-adjacent · **RESETS**) → `1bdc792c` (PR #88 cookie-auth · Class A-foundational-auth · **NO RESET** unless wallet-debit auth-tier changed) → `3c4aaa22` (V2-PROGRESS-MAP · Class Docs · **NO RESET**) → `d47c26ba` (PR #83 lap-FK · Class A-foundational-schema-billing-adjacent · **RESETS** — laps schema modification with billing-adjacent FK preservation) → `c037352c` (PR #85 row 1.13 finalize substrate · Class A wallet-direct touches wallet_debit_paise + cafe_amount_paise + billing_session_receipts · **RESETS**)
+- **Trigger count: 3 of 5 RESET-class commits.** On Server .23 deploy fire of `c037352c`, soak clock RESETS once → new 4-week window starting at deploy timestamp + 28d.
+- **Bono VPS already on `c9b91274`** (per §S-369 §3 third-state finding) — bono-side soak clock should already have RESET when `c9b91274` landed on Bono VPS at unknown time post-§S-345. Forensic audit class: determine when c9b91274 deploy fired on Bono VPS to fix bono-side soak-clock timestamp.
+
+**Anchor:** §S-369 §4 disposition (parent · this §14.6.2 executes Leg 2 of 5-leg Captain composite) · §S-370 close-anchor (comms-link · ratify ledger entry) · §S-298 wallet-substrate soak window predecessor doctrine · §14.6.1 sibling-class for distinct DEPRECATE-trigger question.
+
+**Composes-with:** §14.6.1 (sibling extension · same-numbering-prefix disambiguates DEPRECATE-trigger from soak-clock-RESET decisions) · §S-298 wallet-substrate Class A soak doctrine · §S-307 Option E HOLD-during-soak (SUPERSEDED by §S-345) · §S-345 "soak in parallel with live" · §S-322 §6 Probe B fallback · §S-369 §3 third-state Bono VPS finding (forensic-audit-class for bono-side soak-clock provenance) · `feedback_apply_recommendations_autonomously_20260510.md` Pre-Commit Exception (Captain composite ratify covers per-leg gates including this §14.6.2 doctrine-class amendment per non-harness scope).
+
 ### §14.7 — Composes-with extended
 
 - **§S-220 MAOR v0.1 RATIFY** — `.planning/specs/v2/MAOR-PROTOCOL.md` (commit `0360fde9`) + V2-MASTER-STATE comms-link `c09e2723`
