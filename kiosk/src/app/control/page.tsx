@@ -248,31 +248,31 @@ export default function ControlPage() {
       <div className="flex items-center gap-2 px-2 pt-2">
         <button
           onClick={handleWakeAll}
-          className="px-3 py-1 rounded text-xs font-semibold bg-green-900/50 text-green-400 border border-green-800 hover:bg-green-800/60 transition-colors"
+          className="px-3 py-1 rounded text-xs font-semibold bg-rp-green/20 text-rp-green border border-rp-green/40 hover:bg-rp-green/30 transition-colors"
         >
           Wake All
         </button>
         <button
           onClick={handleShutdownAll}
-          className="px-3 py-1 rounded text-xs font-semibold bg-red-900/50 text-red-400 border border-red-800 hover:bg-red-800/60 transition-colors"
+          className="px-3 py-1 rounded text-xs font-semibold bg-rp-red/20 text-rp-red border border-rp-red/40 hover:bg-rp-red/30 transition-colors"
         >
           Shutdown All
         </button>
         <button
           onClick={handleRestartAll}
-          className="px-3 py-1 rounded text-xs font-semibold bg-yellow-900/50 text-yellow-400 border border-yellow-800 hover:bg-yellow-800/60 transition-colors"
+          className="px-3 py-1 rounded text-xs font-semibold bg-rp-yellow/20 text-rp-yellow border border-rp-yellow/40 hover:bg-rp-yellow/30 transition-colors"
         >
           Restart All
         </button>
         <button
           onClick={handleLockAll}
-          className="px-3 py-1 rounded text-xs font-semibold bg-orange-900/50 text-orange-400 border border-orange-800 hover:bg-orange-800/60 transition-colors"
+          className="px-3 py-1 rounded text-xs font-semibold bg-rp-orange/20 text-rp-orange border border-rp-orange/40 hover:bg-rp-orange/30 transition-colors"
         >
           Lock All
         </button>
         <button
           onClick={handleUnlockAll}
-          className="px-3 py-1 rounded text-xs font-semibold bg-zinc-700 text-zinc-300 border border-zinc-600 hover:bg-zinc-600 transition-colors"
+          className="px-3 py-1 rounded text-xs font-semibold bg-rp-card text-rp-grey border border-rp-border hover:bg-rp-surface transition-colors"
         >
           Unlock All
         </button>
@@ -335,7 +335,7 @@ export default function ControlPage() {
                   {!isOnline && (
                     <button
                       onClick={() => handleWakePod(pod.id)}
-                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-green-900/40 text-green-400 hover:bg-green-800/50 transition-colors"
+                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-rp-green/20 text-rp-green hover:bg-rp-green/30 transition-colors"
                       title="Power on (WOL)"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -347,7 +347,7 @@ export default function ControlPage() {
                   {isOnline && (
                     <button
                       onClick={() => handleRestartPod(pod.id)}
-                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-yellow-900/40 text-yellow-400 hover:bg-yellow-800/50 transition-colors"
+                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-rp-yellow/20 text-rp-yellow hover:bg-rp-yellow/30 transition-colors"
                       title="Restart pod"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -359,7 +359,7 @@ export default function ControlPage() {
                   {isOnline && (
                     <button
                       onClick={() => handleShutdownPod(pod.id)}
-                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-red-900/40 text-red-400 hover:bg-red-800/50 transition-colors"
+                      className="w-6 h-6 flex items-center justify-center rounded text-[10px] bg-rp-red/20 text-rp-red hover:bg-rp-red/30 transition-colors"
                       title="Shutdown pod"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -373,8 +373,8 @@ export default function ControlPage() {
                       onClick={() => handleToggleLockdown(pod.id)}
                       className={`w-6 h-6 flex items-center justify-center rounded text-[10px] transition-colors ${
                         lockedPods.has(pod.id)
-                          ? "bg-orange-700/60 text-orange-300 hover:bg-orange-600/50"
-                          : "bg-orange-900/40 text-orange-400 hover:bg-orange-800/50"
+                          ? "bg-rp-orange/30 text-rp-orange hover:bg-rp-orange/40"
+                          : "bg-rp-orange/20 text-rp-orange hover:bg-rp-orange/30"
                       }`}
                       title={lockedPods.has(pod.id) ? "Unlock kiosk" : "Lock kiosk"}
                     >
@@ -392,8 +392,8 @@ export default function ControlPage() {
                     onClick={() => handleTogglePod(pod)}
                     className={`w-6 h-6 flex items-center justify-center rounded text-[10px] transition-colors ${
                       pod.status === "disabled"
-                        ? "bg-zinc-700 text-rp-grey hover:bg-zinc-600"
-                        : "bg-green-900/40 text-green-400 hover:bg-green-800/50"
+                        ? "bg-rp-card text-rp-grey hover:bg-rp-surface"
+                        : "bg-rp-green/20 text-rp-green hover:bg-rp-green/30"
                     }`}
                     title={pod.status === "disabled" ? "Enable kiosk" : "Disable kiosk"}
                   >
