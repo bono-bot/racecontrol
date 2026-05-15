@@ -91,12 +91,48 @@ Surfaces where V1 remains sole production substrate per V2-PROGRESS-MAP §0.4 / 
 
 ## §6 — Recommended Phase 1 entry conditions (when this doc gets promoted)
 
-1. Captain ratify of this Phase 0 framing (specifically: 3-tier categorization + Phase 1 scope boundary).
-2. Decision on Phase 1 scope: services/binaries only, or include DB schema?
-3. Decision on Phase 1 authority: james authors RCA per Tier A item autonomously + Captain merges, or Bono adversarial review on each RCA before merge?
-4. Decision on cadence: tied to a specific Wave (e.g., Pod-Control FV) or open-ended kaizen interleaved with V2-PROGRESS-MAP refresh cycles?
+**v0.2-C restructure (MAO general-purpose findings 8-18): merged single-decision-package + multi-axis scope + per-tier authority matrix + abort criteria + rollback contract + soak + billing guard + bono handshake + MMA budget.**
 
-Phase 1 first task (when authorized): per-surface walk producing one RCA per Tier A / Tier B candidate.
+### §6.1 Captain decision package (single ratify)
+
+The 4 v0.1 entry conditions were partially circular and offered false dichotomies. Replaced with one composite decision package:
+
+| Axis | Options | Recommended default |
+|---|---|---|
+| **Scope** (multi-select) | (a) services/binaries · (b) DB schema · (c) config + registry + scheduled tasks + bat files · (d) feature flags (FF-01+) · (e) WS protocol surfaces · (f) frontend deprecated tokens/components | **(a)+(c)+(d)+(f)** default; (b)+(e) need separate foundational-boundary auth per §S-146 |
+| **Authority matrix** (per tier) | Tier A non-foundational → james + Captain merge · Tier A foundational → james RCA + MAOR Tier-1 + Captain merge · Tier B → +bono AMPLIFIER · any schema/wallet/auth → +MMA Step 1 | full matrix |
+| **Cadence trigger** | (a) tied to Pod-Control Wave 1+5a completion · (b) open kaizen between waves bounded by WIP-cap 3 · (c) hybrid | **(c) hybrid** — Wave-tied for foundational, kaizen for Tier A non-foundational |
+| **MMA budget envelope** | per Phase 1 batch; declare expected $ at PLAN time | $5/session cap per V4.0; Captain pre-approve for >$5 |
+
+### §6.2 Rollback contract (MANDATORY per removal)
+
+Every removal PR MUST include in description:
+1. **Revert SHA** — pre-staged `git revert <commit>` ready to push
+2. **Redeploy script** — exact deploy-server.sh / deploy-pod.sh invocation to restore prev binary (`*-prev.exe` retained 72h per OTA standing rule)
+3. **Verification curl** — the single curl that proves V1 surface is back online if rollback fires
+4. **DEPLOY PARITY rollback** — venue + cloud both restorable in same session
+
+Staged BEFORE Captain merge auth. No rollback contract = merge auth denied.
+
+### §6.3 Phase 1 abort criteria (halt + reassess)
+
+Phase 1 halts immediately if ANY of:
+- (a) Any removal triggers customer-visible regression → full G9, Phase 1 PAUSED
+- (b) ≥2 RCAs reclassify Tier A items → Tier B/C → Phase 1 PAUSED for re-tier
+- (c) MMA Step 1 verify FAILS on any foundational-boundary removal → halt
+- (d) Bono parallel-pilot conflict on same surface (concurrent §S-N anchor or PR) → halt + bilateral sync per V2-LBAC §3 step 8
+- (e) Post-fix gap rate ≥20% per cascade (sibling to §14.4 DEPRECATE-trigger watch)
+
+### §6.4 Pre-action gates per removal
+
+- **Billing-active guard** — `has_active_billing_session()==false` across all 8 pods + POS .130 before any binary swap (OTA pipeline standing rule)
+- **Inter-removal soak** — ≥48h venue-active per Tier A removal; ≥1 customer day for any cafe/billing/wallet-adjacent surface; compounded blast-radius forbidden
+- **Bilateral handshake** — bono §S-N ledger entry confirming james-LEAD on Phase 1 walks + non-conflicting surface list (V2-LBAC §3 step 8 bilateral close-loop)
+- **MMA budget pre-declare** — per Phase 1 batch in PLAN; Captain pre-approve >$5
+
+### §6.5 Phase 1 first task (when authorized)
+
+Per-surface walk producing one RCA per Tier A / Tier B candidate, following §6.1-§6.4 gates. Walk order: lowest blast-radius first.
 
 ---
 
@@ -113,6 +149,13 @@ Phase 1 first task (when authorized): per-surface walk producing one RCA per Tie
 
 ---
 
-## §8 — Stale-at
+## §8 — Stale-at (v0.2-C tightened)
 
-Next §S-N close-anchor that touches V1-DECOMMISSION-INVENTORY scope OR next V2-PROGRESS-MAP §0.X refresh that flips ≥1 row to DONE for a Tier B/C entry above (whichever first). Re-evaluate Tier C → B and B → A promotion candidates at each refresh.
+Re-evaluation fires on ANY of (whichever first; silent stale-pass banned — every fire produces written tier-reassignment delta OR explicit NO-CHANGE confirmation):
+
+- (a) Any §S-N close-anchor whose subject line names a row in §3 or §4 tables above (by V1 surface name or V2 row-ID, e.g. `row 7.6` / `row 1.13` / `V1 wallet ledger`)
+- (b) Any V2-PROGRESS-MAP §0.X refresh that flips a row to DONE for any Tier B or Tier C entry above (by row-ID)
+- (c) **Hard time-fire: 2026-05-29** (14 days from authoring) regardless of (a)/(b)
+- (d) Any customer-visible regression on a surface listed in §3/§4 → immediate re-eval + tier reassessment
+
+Re-evaluation produces either: a tier-flip with §S-N close-anchor citation, OR a written NO-CHANGE confirmation appended below as a dated section. Re-evaluate Tier C → B and B → A promotion candidates at each fire.
