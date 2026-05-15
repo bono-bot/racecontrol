@@ -210,6 +210,8 @@ Both pilots close V2-LIVE-BLOCKING items as closed loops following the V2-LBAC v
 
 **Universal Sync targets:** racecontrol V-LBAC-PROTOCOL.md §14.6.2 inline ✓ (commit `87e9b7fc`) · **this racecontrol/CLAUDE.md §14.6.2 cross-ref** ✓ (this turn; Captain composite-verb item-5 Pre-Commitment Exception) · comms-link/CLAUDE.md bilateral mirror **PENDING-THIS-TURN** · V2-MASTER-STATE §S-380 ratify ledger entry **PENDING-THIS-TURN** · `~/.claude/CLAUDE.md` harness — NOT-APPLICABLE (no harness self-mod; bono memory file is /root git autosave) · james-side bilateral mirror — pickup via §S-380 INBOX relay.
 
+**§14.6.2.1 runtime-config-class extension** (iter-N candidate · §S-387 close-anchor 2026-05-16 ~00:30 IST · Captain pre-commit exception "complete all task" coverage): Runtime-configuration changes (env-var via ecosystem.config.cjs + pm2 reload · feature-flag flip · TOML re-read) are NOT a 7th class — they inherit reset-disposition from the class of behavior they gate. RC_IS_CLOUD-style observability-stratification → NO RESET (Class Docs-equivalent). Wallet-class feature flag → YES RESET. Pricing-class TOML change → YES RESET. Empirical anchor: §S-383 RC_IS_CLOUD=1 (observability-only, no RESET; §S-382 binary-deploy is the load-bearing reset for current Class A soak window). Canonical detail: `racecontrol/.planning/specs/v2/V2-LBAC-PROTOCOL.md` §14.6.2.1.
+
 ---
 
 ## §S-N close-anchor + V2-PROGRESS-MAP refresh push — STANDING RULE (Captain 2026-05-12 IST · BILATERAL)

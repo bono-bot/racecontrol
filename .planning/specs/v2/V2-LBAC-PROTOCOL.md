@@ -475,6 +475,28 @@ The single ≥20% threshold in §14.6 is REFINED to cascade-class-stratified thr
 
 **Composes-with:** §14.6.1 (sibling extension · same-numbering-prefix disambiguates DEPRECATE-trigger from soak-clock-RESET decisions) · §S-298 wallet-substrate Class A soak doctrine · §S-307 Option E HOLD-during-soak (SUPERSEDED by §S-345) · §S-345 "soak in parallel with live" · §S-322 §6 Probe B fallback · §S-369 §3 third-state Bono VPS finding (forensic-audit-class for bono-side soak-clock provenance) · `feedback_apply_recommendations_autonomously_20260510.md` Pre-Commit Exception (Captain composite ratify covers per-leg gates including this §14.6.2 doctrine-class amendment per non-harness scope).
 
+### §14.6.2.1 — Runtime-config-class extension (iter-N candidate · empirical anchor §S-383 · bono-LED 2026-05-16 ~00:30 IST · pre-commit exception coverage)
+
+**Background:** §14.6.2 6-class table covers binary-deploy fires (compiled artifact swap + behavioral verify). It does NOT explicitly enumerate **runtime-configuration changes** (env-var via ecosystem.config.cjs + pm2 reload-from-file · feature-flag flip · TOML re-read · etc.) where no new binary lands but observable behavior changes. §S-383 §S-9 surfaced this gap when RC_IS_CLOUD=1 activation flipped subsystem-stratification on the existing `1d0218ff` binary already-deployed.
+
+**Rule:** Runtime-config changes are NOT a 7th independent class. They **inherit their reset-disposition from the class of behavior they gate**. Evaluation rule: for any runtime-config change, ask "what class of behavior does this gate?" → apply that class's RESET disposition per §14.6.2 6-class table.
+
+| Runtime-config example | Gated behavior class | Resets soak? |
+|---|---|---|
+| RC_IS_CLOUD=1 flipping cloud-class subsystem stratification (fleet_connectivity probe target · db_sync_lag emission stratum) | Class Docs-equivalent (observability stratification · no wallet semantic change) | **NO** |
+| Feature flag enabling new wallet-class code path on existing binary | Class A wallet-direct (substrate-effective via flag flip) | **YES** |
+| TOML re-read changing billing rate / pricing-class config | Class A-billing-adjacent (pricing-class change) | **YES** |
+| Log-level / metric-target / observability-only config change | Class Docs-equivalent | **NO** |
+| Auth-tier change via runtime config (JWT cookie domain · session TTL) | Class A-foundational-auth | **NO unless wallet-debit auth-tier flipped** |
+
+**Empirical anchor:** §S-383 RC_IS_CLOUD=1 activation 2026-05-15 16:59:50Z via ecosystem.config.cjs env-add + 2-step pm2 reload (Step-1 `pm2 restart --update-env` FAILED silently; Step-2 `pm2 reload ecosystem.config.cjs` SUCCEEDED). Subsystem effect: fleet_connectivity flipped degraded→ok (cloud-class probe target); db_sync_lag flipped from venue-skip to active-cloud-probe. Class disposition: **observability-stratification-only · NO wallet semantic change · NO RESET fires.** §S-382 binary-deploy 16:50:28Z is the load-bearing reset for current Bono VPS Class A soak window (2026-05-15T16:50:28Z → 2026-06-12T16:50:28Z); the subsequent §S-383 RC_IS_CLOUD activation does NOT reset further.
+
+**Composes-with:** parent §14.6.2 6-class table · §S-382 binary-deploy RESET anchor (single-window-reset-per-deploy rule preserved · runtime-config does not double-reset) · §S-383 close-anchor (runtime-config activation provenance) · §14.6.2 cumulative-class evaluation rule (each commit independent; runtime-config and binary-deploy in same observation window evaluated independently, only one RESET fires per the higher class).
+
+**Process notes:** when applying runtime-config change to V-LBAC shared working tree without binary deploy, audit-trail logs SHOULD distinguish `op=runtime-config` from `op=deploy` so forensic-audit-class queries can separate binary-deploy timestamps from runtime-config-change timestamps. Bono VPS audit-log convention (forward) — racecontrol-pm2-logs surface ecosystem-config-reload events at distinct level/target from binary-swap completion events. §S-371 Gate 1 deploy precedent (`c9b91274 → e4145650` binary swap with §14.6.2 binary-deploy RESET) and §S-383 RC_IS_CLOUD activation (env-add + pm2 reload-from-file without binary swap; no RESET fires) are the canonical comparison-pair for this distinction.
+
+**Anchor:** §S-383 §S-9 iter-N candidate surfaced 2026-05-15 ~22:32 IST · §S-387 close-anchor (this amendment authoring) · §S-298 wallet-substrate Class A soak predecessor doctrine · §14.6.2 parent · `feedback_apply_recommendations_autonomously_20260510.md` Pre-Commit Exception sub-clause (Captain composite verb "complete all task" 2026-05-16 ~00:25 IST covers this non-harness doctrine-class amendment).
+
 ### §14.7 — Composes-with extended
 
 - **§S-220 MAOR v0.1 RATIFY** — `.planning/specs/v2/MAOR-PROTOCOL.md` (commit `0360fde9`) + V2-MASTER-STATE comms-link `c09e2723`
