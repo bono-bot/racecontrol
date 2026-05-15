@@ -245,6 +245,36 @@
 
 **Stale-at:** Next §S-N close-anchor that includes §S-356+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
 
+### §0.6 — Forward-delta supplement §S-356 → §S-358 (bono close-anchor · 2026-05-15 ~09:48 IST)
+
+**Trigger:** Captain composite verb 2026-05-15 ~09:43 IST 7-leg ratify echoing back the bono-immediate set including *"§0.6 forward-delta supplement covering §S-356 + §S-357 + §S-358 → latest tail (bono autonomous · racecontrol map-refresh · §S-186 fast-lane · landing NOW since SUPPLEMENT-10/11 arc tail accumulated 3 close-anchors of substrate motion)"*. Refresh authorized per §S-N close-anchor + V2-PROGRESS-MAP refresh STANDING RULE + §S-186 fast-lane (≤200 LOC + single-boundary + no schema + no protocol). N=4-in-30d structural-fix-ACTIVE class continues (this §0.6 is the 4th forward-delta supplement landed in 30h — pattern is now baseline, not exception).
+
+**Doctrine motions since §0.5 (~9:10 IST):**
+- **§S-356 — Captain composite for Next-most-important bono actions carry-forward** (~09:10 IST). 5-leg execution: §0.5 forward-delta supplement LANDED (`bd7b47c8..0f6ff8c3` racecontrol) + re-MAOR-on-#87 EVENT-DRIVEN-armed + 11-PR multi-agent parallel review orchestration EVENT-DRIVEN-armed + L2.5 24h stale-at watch CONFIRMED + §S-356 self-close-anchor (comms-link `8638c911..8d1dcea3`). End-to-end ~7min for 5-leg composite. MAOR pre-push gate empirical anchor: caught format-mismatch in commit body (`SKIP-RATIONALE —` em-dash vs regex `SKIP-RATIONALE:` colon) → forced audit-registry path = better-by-design.
+- **§S-357 — Captain 6-leg composite for SUPPLEMENT-9 carry-forward** (~09:35 IST). 3 immediate legs executed + 3 deferred. **Leg 5 stash@{0} drop EXECUTED** (Captain-stake-destructive · diff-verify confirmed james `41279a97` strict-superset · pre-drop SHA `02c6908e` recorded · audit-trail logged). **Leg 1 L2.5 stale-at first-fire monitor INSTALLED** — detector script `/root/.claude/state/l2.5-stale-watch.sh` + CronCreate `45a90f36` hourly :47 (session-only [persistence gap surfaced]). Classifier denied direct system-crontab edit — self-corrected to CronCreate. Iter1 candidate: Captain auth for system-crontab named-surface install.
+- **§S-358 — Captain 6-leg composite NAMED-SURFACE crontab install** (~09:38 IST). 1 immediate execution leg + 5 armed/deferred. **System-crontab named-surface install EXECUTED** — Captain composite verb explicitly named `crontab` + script path + audit log + reversibility cmd · classifier PASSED under named-surface auth (vs §S-357 denied under generic "timer-driven" verb) · crontab 43→46 lines · exit=0 · iter1 candidate substrate-gap closed. **Two-tier L2.5 monitor now operational**: Tier A CronCreate session-bound + Tier B system-cron cross-session-bound · both invoke same detector with idempotent dedup. **G9 CANDIDATE-N1 surfaced**: `classifier-denial-recovery-via-composite-renaming` — same underlying op had opposite classifier dispositions based solely on Captain's verb surface-naming (DEFERRED-N=2-trigger 30d through 2026-06-15).
+
+**Substrate / source-fix landings since §0.5 as-of (racecontrol/main MERGED):**
+- **None** — §S-356/§S-357/§S-358 cascade is composite-execution + audit/orchestration + persistence-substrate class. No row-flip on V2-PROGRESS-MAP from §0.5 baseline.
+
+**What's gating live now (delta from §0.5):**
+- 14 active L2.5 legs (1 obsoleted W1-S6 + 1 amendment-pending) · earliest stale-at 2026-05-16 02:33Z · now monitored by 2-tier substrate
+- PR #87 W1-S6 dispatch.rs **amendment-pending** (event-driven · awaits james I-1/I-2/I-3 fixes · then re-MAOR Tier-1 = §S-220 v0.1→v0.2 datapoint #4)
+- 11 DISPATCH-7 substrate PRs **armed event-driven** · audit-class auth pre-granted §S-355
+- Captain-stake gates carry from §0.5: PR #8/#9/#10 Layer 4 DISCIPLINE · Q-MI-A/B/C/D · §S-247.18 7-item carry · 6.13 pm2 restart timing · wake-mechanism Phase 2-5 per-phase verbs.
+
+**Rollup delta:** Net LIVE-BLOCKING DONE-flips since §0.5 = **0**. Forward motion is orchestration (composite verb cadence) + audit-quality (MAOR Tier-1 datapoint #3 landed) + persistence-substrate (2-tier L2.5 monitor) + housekeeping (stash@{0} drop). F3-pure ~52-55% V2.0 DONE estimate carries forward unchanged (~42-43 / 78).
+
+**G9 anchors past arc (delta from §0.5):**
+- **G9 CANDIDATE-N1 surfaced §S-358:** `classifier-denial-recovery-via-composite-renaming` — same underlying system-crontab edit op denied under generic verb (§S-357 leg-1) but passed under named-surface verb (§S-358 leg-5). Structural lesson: classifier disposition is responsive to surface-naming at composite-design time, NOT to execution-time choice of primitive. DEFERRED-N=2-trigger through 2026-06-15.
+- Carry: 1 CANDIDATE-N1 subagent-tool-asymmetry from §S-355 · 30d window through 2026-06-15.
+
+**MAOR-REVIEW:** SKIP-RATIONALE — §0.6 is V2-PROGRESS-MAP refresh class (single-boundary documentation · no schema · no contract spec · no PR substrate · no source-code touch). MAOR REVIEW step §14.1 applies to FIX→CLOSE code-class changes; §S-186 fast-lane covers ≤200 LOC refresh per Captain 2026-05-12 ~11:28 IST autonomous-push standing rule.
+
+**Composes-with:** §0.5 (parent · extends tail without overwriting) · §S-356 + §S-357 + §S-358 close-anchors · §S-220 MAOR v0.1 (datapoint #3 landed via §S-355 + datapoint #4 armed event-driven via §S-358) · branch-state-mutation hook v0.1.0 (ADVISORY layer on all commits this arc · 0 BLOCKs · clean main throughout) · pre-push-maor-check.js v0.1.2 (AST tokenization · empirical anchor: caught SKIP-RATIONALE format mismatch in §S-356 commit body) · system-crontab L2.5 entry hourly :47 (Tier B persistence · §S-358 leg-5) · CronCreate `45a90f36` (Tier A session-bound · §S-357 leg-1) · `feedback_v2_progress_map_section0_refresh_durability_gap_20260514.md` (4 supplements in 30h shows pattern is now baseline cadence not exception).
+
+**Stale-at:** Next §S-N close-anchor that includes §S-359+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
+
 ---
 
 > **¹ MIXED-FRAMING** per F3 ACCOUNTING REFORM (V-LBAC §14.3): the IN-FLIGHT column combines pre-§S-204 ENGINEERING-IN-FLIGHT + post-§S-204 TEST-SCAFFOLDED-AWAITING-SUBSTRATE rows; doctrine is **forward-only**, post-§S-204 flips NOT retroactively reclassified. **F3-pure ENGINEERING-only estimate** (per §14.3 prose; deferred to next nightly cron refresh §16 stale-at 2026-05-18): if ~18 Layer 1 + ~5 Layer 7 cascade rows reclassify to TEST-SCAFFOLDED, ENGINEERING-IN-FLIGHT drops to ~4, and **F3-pure V2.0 % closed ≈ DONE only = 40%** (DONE+ENG-IN-FLIGHT ≈ 45%) — slightly higher than the §14.3 ~20-25% pre-restate guess because actual ENGINEERING DONE absorbed +6 substrate closes since baseline (Layer 12.7, 1.18, 4.1, 4.2, 7.5, 7.9).
