@@ -733,20 +733,27 @@ STALE-DISPOSITIONED breakdown:
 
 **Rationale (added 2026-05-15 IST):** §1-§13 cover functional infrastructure (data, billing, auth, dispatch, observability, MI, PACTs, AMPLIFIER, hygiene, §S-N substrate). No layer captures **design system coherence / UX cohesion / brand surface consistency** — what the customer/staff sees and feels across kiosk + POS + web + WhatsApp + admin. Captain dispatch 2026-05-15 ~05:37Z verbatim: *"We have done so much work. But we are missing critical components like design theme."* Adding Layer-14 makes the gap measurable so it can be closed. **Existence of the layer is the deliverable; closure of items is a separate work plan.**
 
-| # | Item | Status | Notes |
-|---|---|---|---|
-| 14.1 | Design tokens consolidated (color, spacing, radius, shadow, font-size) | OPEN | Colors in `packages/shared-tokens/tokens.css`; spacing/radius/shadow/typography tokens missing |
-| 14.2 | Typography canonical across kiosk + web + admin + POS (Montserrat body + Orbitron display) | OPEN | kiosk = canonical per racecontrol/CLAUDE.md Brand Identity; web/admin/POS parity unverified |
-| 14.3 | Component library audit (button, input, modal, table, card, badge, alert, toast) | OPEN | Each surface re-implements primitives; visual + behavioral drift |
-| 14.4 | Screen audit — every customer-facing screen has documented visual spec + sign-off | OPEN | `tests/page-audit/self-audit.sh` infra exists (v43.0) but no sign-off ledger |
-| 14.5 | Copy voice + tone canonical (kiosk error states, POS confirmations, WhatsApp templates) | OPEN | Each surface authors copy independently; tone drifts (formal POS vs casual kiosk vs templated WhatsApp) |
-| 14.6 | Brand surface parity — logos, badges, color emphasis across kiosk + POS + web + admin + WhatsApp templates + email signatures | OPEN | Logo asset preserved at `brand-assets/logos/`; cross-surface application unverified |
-| 14.7 | Mobile-vs-POS visual parity (PWA + spectator + customer phone vs POS Windows browser) | OPEN | PWA exists (row 1.10 §S-288) but visual cohesion across device classes not measured |
-| 14.8 | Accessibility — WCAG AA contrast, keyboard nav, screen reader on staff + customer surfaces | OPEN | Customer-facing kiosk + staff POS both unaudited |
-| 14.9 | UI-SPEC.md required gate for every new customer-touch row (§1.x / §7.x) | OPEN | `gsd-ui-researcher` + `gsd-ui-auditor` skills exist but not enforced as substrate gate |
-| 14.10 | Dashboard visual hierarchy — admin + web + kiosk staff dashboards have consistent nav/status/alert patterns | OPEN | Each dashboard owns its layout independently |
+**Status sub-states (per §S-221 F3 framing applied to Layer-14):**
+- `OPEN` — no work started · no branch
+- `STRANDED-CRITICAL` — work exists on feature branch · no PR open · large delivery (≥5 commits or `feat/`/`phase/`/`pact-`/`amend` prefix)
+- `STRANDED-DELIVERABLE` — work exists on feature branch · no PR open · smaller delivery (docs / config / single-file)
+- `IN-FLIGHT` — PR open against main · not yet merged
+- `DONE` — merged to main + deployed + behavior-verified per CLD Step 5 SWEEP
 
-**Layer 14 totals: 10 items, all OPEN.** No items DONE / IN-FLIGHT / BLOCKED / NOT-STARTED — Captain disposition needed per item: LIVE-BLOCKING (customer-day visual quality bar) vs DISCIPLINE (post-V2.0). Most likely LIVE-BLOCKING candidates: **14.2 (typography canonical)** · **14.4 (screen audit)** · **14.6 (brand parity)**. Most likely DISCIPLINE: **14.8 (a11y)** · **14.9 (UI-SPEC gate)** · **14.10 (dashboard hierarchy)**.
+| # | Item | Status | Branch holding work (state) | Notes |
+|---|---|---|---|---|
+| 14.1 | Design tokens consolidated (color, spacing, radius, shadow, font-size) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (web/src/components/v2/tokens.ts) + `feat/v2-design-layer-1-handoff` (web-v2/src/app/globals.css + components.json) | Colors in `packages/shared-tokens/tokens.css`; spacing/radius/shadow/typography tokens scattered across stranded refs |
+| 14.2 | Typography canonical (Montserrat body + Orbitron display) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (web/src/app/globals.css inline shared-tokens · commit `d64130df`) | kiosk = canonical per racecontrol/CLAUDE.md Brand Identity; web/admin/POS parity work sits on amend1 unmerged |
+| 14.3 | Component library audit (button, input, modal, table, card, badge, alert, toast) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (web/src/components/v2/atomic.tsx + kiosk/src/components/v2/atomic.tsx) + `feat/v2-design-layer-1-handoff` (web-v2/src/components/{rp,ui}/) | Atomic libs authored cross-surface; each surface still re-implements primitives in main |
+| 14.4 | Screen audit (every customer-facing screen has documented visual spec + sign-off) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (19 V2 screens · kiosk-13 + admin-4 + POS-1 + PWA-1) + `feat/v2-design-layer-1-handoff` (8 web-v2 screens · POS-7 + chef-1) | **27 stranded V2 screens vs 0 V2 screens in main**; `tests/page-audit/self-audit.sh` infra exists (v43.0) but no sign-off ledger |
+| 14.5 | Copy voice + tone canonical (kiosk error states, POS confirmations, WhatsApp templates) | OPEN | no branch · unstarted (pure DISCIPLINE) | Each surface authors copy independently; tone drifts |
+| 14.6 | Brand surface parity (logos, badges, color emphasis cross-surface) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (brand-assets/logos/racing-point-logo-light.png) + `feat/v2-design-layer-1-handoff` (web-v2/public/racing-point-logo*.png · 3 variants) | Logo asset preserved at `brand-assets/logos/`; cross-surface application stranded |
+| 14.7 | Mobile-vs-POS visual parity (PWA + spectator + customer phone vs POS Windows browser) | OPEN | partial split: `feat/v2-pwa-landing-iter2-port` (mobile) + `amend1-section1-heart-admin-substrate` (POS); end-to-end parity unstarted | PWA exists (row 1.10 §S-288) but visual cohesion across device classes not measured |
+| 14.8 | Accessibility (WCAG AA contrast, keyboard nav, screen reader on staff + customer surfaces) | OPEN | no branch · unstarted (would author on top of merged design system) | Customer-facing kiosk + staff POS both unaudited |
+| 14.9 | UI-SPEC.md required gate for every new customer-touch row (§1.x / §7.x) | STRANDED-DELIVERABLE | `feat/v2-design-layer-1-handoff` (UI-SPEC-V2-DESIGN-LAYER-1-POS-FOUNDATION.md + UI-SPEC-CHECKER artifact from `gsd-ui-researcher`) | Skills exist · gate not enforced; docs subset eligible for §S-186 fast-lane |
+| 14.10 | Dashboard visual hierarchy (admin + web + kiosk staff dashboards have consistent nav/status/alert patterns) | STRANDED-CRITICAL | `amend1-section1-heart-admin-substrate` (web/src/app/v2/admin/cockpit · pods · flags) | Each dashboard owns its layout independently in main; v2 admin work stranded |
+
+**Layer 14 totals: 10 items · 7 STRANDED-CRITICAL · 1 STRANDED-DELIVERABLE · 2 OPEN (unstarted).** Per james `db514b42` branch-mapping audit (responsive to bono `c1da0593` Layer-14 add): 6 of 10 rows have substantial committed work on unmerged refs · 1 row (14.9) has STRANDED-DELIVERABLE docs · 3 rows (14.5/14.7/14.8) are pure-unstarted DISCIPLINE candidates. Captain disposition needed per Path A: row-state flip schedule = at MERGE (not at PR open) per §S-221 F3 framing; rows 14.5/14.7/14.8 → LIVE-BLOCKING vs DISCIPLINE Captain triage scope post-merge.
 
 **Composes-with:** racecontrol/CLAUDE.md Brand Identity (canonical color/font sources · §6 Doctrine Conventions Substrate-Pointer) · `gsd-ui-researcher` + `gsd-ui-auditor` skills · §0 rollup card (Layer-14 row flips counted forward when Captain dispositions LIVE-BLOCKING per item; until then NOT counted to avoid framing-distortion).
 
