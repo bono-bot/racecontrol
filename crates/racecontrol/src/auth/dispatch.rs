@@ -268,6 +268,36 @@ impl DispatchManager {
     }
 }
 
+/// MAOR re-review Finding I-NEW-1 closure (2026-05-15 ~03:55 UTC).
+///
+/// `DispatchManager` is `#[derive(Clone)]` and the spawned `dispatch_retry_loop`
+/// holds its own `self_tx` clone (intentional for retry re-enqueue). Without a
+/// `Drop` impl, the loop's `rx.recv()` would never return `None` because its
+/// own sender keeps the channel open — so dropping all external
+/// `DispatchManager` handles without calling [`DispatchManager::shutdown`]
+/// would leak the spawned task until the tokio runtime drops.
+///
+/// This Drop impl bounds the loop's lifetime to the manager's lifetime by
+/// firing the shutdown watch signal when the **last** live `DispatchManager`
+/// clone drops. `shutdown_tx` is `Arc<watch::Sender<bool>>` and is only
+/// cloned among `DispatchManager` handles (the spawned task holds the
+/// `watch::Receiver`, not a `Sender` clone), so `Arc::strong_count == 1`
+/// inside `Drop` means "I am the last live manager handle." Intermediate
+/// clone drops are no-ops, preserving the Clone semantics.
+///
+/// Best-effort signal-only — the async `.await` of the `JoinHandle` for
+/// fully graceful drain still belongs in the application-level shutdown
+/// handler via [`DispatchManager::shutdown`]. `Drop` is synchronous and
+/// cannot `.await`; this Drop guarantees the loop will exit promptly, but
+/// does not guarantee the drain log fires before the process exits.
+impl Drop for DispatchManager {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.shutdown_tx) == 1 {
+            let _ = self.shutdown_tx.send(true);
+        }
+    }
+}
+
 /// Spawn-target for the retry-queue consumer task.
 ///
 /// Holds a clone of the external sender (`self_tx`) so it can re-enqueue
