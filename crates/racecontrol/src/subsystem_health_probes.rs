@@ -421,8 +421,28 @@ pub(super) async fn probe_whatsapp_api(state: &AppState) -> SubsystemStatus {
 }
 
 /// Probe 6: Fleet Connectivity — count pods with ws_connected: true.
+///
+/// VENUE-ONLY. Mirror-inverse of `probe_db_sync_lag` (CLOUD-ONLY): pods
+/// WS-connect to the venue authority (Server .23) and do NOT directly
+/// connect to the cloud instance. On cloud, `agent_senders` is
+/// structurally empty and this probe would report FLEET_PARTIAL forever
+/// (false-positive `status=degraded`). Pod state still reaches the cloud
+/// via cloud_sync (sibling probe). §SUPPLEMENT-11 forensic anchor
+/// 2026-05-15 confirmed driver on Bono VPS.
 pub(super) async fn probe_fleet_connectivity(state: &AppState) -> SubsystemStatus {
     let start = Instant::now();
+
+    if crate::config::this_instance_is_cloud(&state.config) {
+        return SubsystemStatus {
+            ok: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error_code: None,
+            detail: Some(
+                "cloud instance — fleet_connectivity probe skipped (pods connect to venue)"
+                    .to_string(),
+            ),
+        };
+    }
 
     // Snapshot fleet health state — drop lock before any async work
     let fleet_snapshot = { state.pod_fleet_health.read().await.clone() };
