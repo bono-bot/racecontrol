@@ -288,6 +288,35 @@ pub(crate) async fn anonymize_driver_pii(
         return Json(json!({ "error": "Failed to anonymize driver data" }));
     }
 
+    // §S-329 §4-A6 RCA contract: NULL-out billing_sessions PII-adjacent
+    // finalize_* columns for affected sessions on revoke-consent path. Preserves
+    // billing row identity (8-year tax retention per Income Tax Act) while
+    // nulling customer-derived correlation key (finalize_idempotency_key) and
+    // role-class identifier (finalize_actor) per RCA §4-A6 contract:
+    // "revoke_consent_handler + anonymize_driver_pii paths updated equivalently"
+    // (finalize_reason enum + finalized_at ts are operational metadata, NOT PII).
+    // Closes PR #85 MAOR Tier-1 retrospective Finding #1 (audit ts 2026-05-15
+    // T09:00:35Z sha c037352c reviewer bono-feature-dev-code-reviewer-agent).
+    // Degraded-mode safe: drivers UPDATE already succeeded; if billing UPDATE
+    // fails the audit log captures the discrepancy and operator can re-run.
+    let billing_result = sqlx::query(
+        "UPDATE billing_sessions
+            SET finalize_idempotency_key = NULL,
+                finalize_actor = NULL
+            WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = billing_result {
+        tracing::warn!(
+            driver_id = %driver_id,
+            "consent_revocation billing_sessions PII null-out failed: {} — proceeding (audit log captures discrepancy)",
+            e
+        );
+    }
+
     // Audit log — record the revocation event
     accounting::log_audit(
         state,
