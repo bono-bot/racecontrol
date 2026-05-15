@@ -12,11 +12,11 @@ function formatUptime(secs: number | null | undefined): string {
 }
 
 function statusBorder(ws: boolean, http: boolean, maintenance: boolean): string {
-  if (maintenance) return "border-l-[#E10600]";
-  if (ws && http) return "border-l-green-500";
-  if (ws && !http) return "border-l-yellow-500";
-  if (!ws && http) return "border-l-orange-500";
-  return "border-l-red-500/50";
+  if (maintenance) return "border-l-rp-red";
+  if (ws && http) return "border-l-rp-green";
+  if (ws && !http) return "border-l-rp-yellow";
+  if (!ws && http) return "border-l-rp-orange";
+  return "border-l-rp-red/50";
 }
 
 function statusLabel(ws: boolean, http: boolean, maintenance: boolean): string {
@@ -28,11 +28,11 @@ function statusLabel(ws: boolean, http: boolean, maintenance: boolean): string {
 }
 
 function statusLabelColor(ws: boolean, http: boolean, maintenance: boolean): string {
-  if (maintenance) return "text-[#E10600]";
-  if (ws && http) return "text-green-500";
-  if (ws && !http) return "text-yellow-500";
-  if (!ws && http) return "text-orange-500";
-  return "text-red-500/50";
+  if (maintenance) return "text-rp-red";
+  if (ws && http) return "text-rp-green";
+  if (ws && !http) return "text-rp-yellow";
+  if (!ws && http) return "text-rp-orange";
+  return "text-rp-red/50";
 }
 
 interface StatusDotProps {
@@ -42,7 +42,7 @@ interface StatusDotProps {
 function StatusDot({ active }: StatusDotProps) {
   return (
     <span
-      className={`w-2 h-2 rounded-full inline-block mr-1.5 ${active ? "bg-green-500" : "bg-red-500/50"}`}
+      className={`w-2 h-2 rounded-full inline-block mr-1.5 ${active ? "bg-rp-green" : "bg-rp-red/50"}`}
     />
   );
 }
@@ -56,10 +56,10 @@ function CountdownRing({ remaining, allocated }: { remaining: number; allocated:
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width="64" height="64" className="-rotate-90">
-        <circle cx="32" cy="32" r={R} fill="none" stroke="#333" strokeWidth="5" />
+        <circle cx="32" cy="32" r={R} fill="none" stroke="var(--rp-border)" strokeWidth="5" />
         <circle
           cx="32" cy="32" r={R} fill="none"
-          stroke={isLow ? "#E10600" : "#22c55e"}
+          stroke={isLow ? "var(--rp-red)" : "var(--rp-green)"}
           strokeWidth="5"
           strokeDasharray={`${CIRC} ${CIRC}`}
           strokeDashoffset={dashOffset}
@@ -67,7 +67,7 @@ function CountdownRing({ remaining, allocated }: { remaining: number; allocated:
           className={isLow ? "animate-pulse" : ""}
         />
       </svg>
-      <span className={`text-xs font-mono ${isLow ? "text-[#E10600] animate-pulse" : "text-white"}`}>
+      <span className={`text-xs font-mono ${isLow ? "text-rp-red animate-pulse" : "text-white"}`}>
         {Math.floor(remaining / 60)}:{String(Math.floor(remaining % 60)).padStart(2, "0")}
       </span>
     </div>
@@ -171,23 +171,23 @@ export default function FleetPage() {
   }
 
   return (
-    <div className="bg-[var(--color-rp-black)] h-screen overflow-hidden text-white flex flex-col">
+    <div className="bg-rp-black h-screen overflow-hidden text-white flex flex-col">
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-xl font-bold">Fleet Health</h1>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-rp-grey mt-1">
           {lastUpdate ? `Last updated: ${formatTimestamp(lastUpdate)}` : "Connecting..."}
         </p>
         {error && (
-          <p className="text-yellow-500 text-xs mt-1">{error}</p>
+          <p className="text-rp-yellow text-xs mt-1">{error}</p>
         )}
       </div>
 
       {/* Server App Health Alert Banner */}
       {serverAlerts.length > 0 && (
-        <div className="mx-4 mb-2 px-3 py-2 bg-red-900/60 border border-red-500/40 rounded-lg flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-          <div className="text-xs text-red-200 flex-1">
-            <span className="font-semibold text-red-400">Server Alert: </span>
+        <div className="mx-4 mb-2 px-3 py-2 bg-rp-red/20 border border-rp-red/40 rounded-lg flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-rp-red animate-pulse flex-shrink-0" />
+          <div className="text-xs text-rp-red/80 flex-1">
+            <span className="font-semibold text-rp-red">Server Alert: </span>
             {serverAlerts.map((a, i) => (
               <span key={a.app}>
                 {a.app} {a.status}
@@ -209,11 +209,11 @@ export default function FleetPage() {
           return (
             <div
               key={pod.pod_number}
-              className={`bg-[var(--color-rp-card)] rounded-lg p-3 border-l-4 ${statusBorder(ws, http, maintenance)} ${offline && !maintenance ? "opacity-50" : ""}`}
+              className={`bg-rp-card rounded-lg p-3 border-l-4 ${statusBorder(ws, http, maintenance)} ${offline && !maintenance ? "opacity-50" : ""}`}
             >
               <div className="flex items-baseline justify-between mb-0.5">
                 <span className="text-sm font-bold text-white">{pod.node_type === 'pos' ? (pod.name || 'POS') : `Pod ${pod.pod_number}`}</span>
-                <span className="text-xs text-gray-400">{pod.version ? `v${pod.version}` : "v--"}</span>
+                <span className="text-xs text-rp-grey">{pod.version ? `v${pod.version}` : "v--"}</span>
               </div>
 
               <div className={`text-xs font-medium mb-2 ${statusLabelColor(ws, http, maintenance)}`}>
@@ -223,28 +223,27 @@ export default function FleetPage() {
               <div className="space-y-1">
                 <div className="flex items-center text-xs">
                   <StatusDot active={ws} />
-                  <span className="text-gray-500 mr-1">WS</span>
-                  <span className={ws ? "text-white" : "text-gray-600"}>
+                  <span className="text-rp-grey mr-1">WS</span>
+                  <span className={ws ? "text-white" : "text-rp-grey"}>
                     {ws ? "Connected" : "Disconnected"}
                   </span>
                 </div>
                 <div className="flex items-center text-xs">
                   <StatusDot active={http} />
-                  <span className="text-gray-500 mr-1">HTTP</span>
-                  <span className={http ? "text-white" : "text-gray-600"}>
+                  <span className="text-rp-grey mr-1">HTTP</span>
+                  <span className={http ? "text-white" : "text-rp-grey"}>
                     {http ? "Reachable" : "Blocked"}
                   </span>
                 </div>
               </div>
 
-              <div className="mt-2 text-xs text-gray-500">
+              <div className="mt-2 text-xs text-rp-grey">
                 Uptime: {formatUptime(pod.uptime_secs)}
               </div>
 
               {(pod.violation_count_24h ?? 0) > 0 && (
                 <div
-                  className="mt-1.5 inline-block px-2 py-0.5 rounded text-xs font-bold text-white"
-                  style={{ backgroundColor: '#E10600' }}
+                  className="mt-1.5 inline-block px-2 py-0.5 rounded text-xs font-bold text-white bg-rp-red"
                   title={pod.last_violation_at ? `Last: ${pod.last_violation_at}` : 'Process violations detected'}
                 >
                   {pod.violation_count_24h} {pod.violation_count_24h === 1 ? 'violation' : 'violations'}
@@ -252,7 +251,7 @@ export default function FleetPage() {
               )}
 
               {pod.crash_recovery === true && (
-                <div className="mt-1 text-xs text-red-500">Crash recovered</div>
+                <div className="mt-1 text-xs text-rp-red">Crash recovered</div>
               )}
 
               {pod.pod_id && billingSessions.has(pod.pod_id) && ws && http && (() => {
@@ -262,7 +261,7 @@ export default function FleetPage() {
                     <CountdownRing remaining={session.remaining_seconds} allocated={session.allocated_seconds} />
                     <div className="text-xs">
                       <p className="text-white font-medium">{session.driver_name}</p>
-                      <p className="text-gray-500">{session.pricing_tier_name}</p>
+                      <p className="text-rp-grey">{session.pricing_tier_name}</p>
                     </div>
                   </div>
                 );
@@ -275,8 +274,7 @@ export default function FleetPage() {
                     setPinVerified(false);
                     setPin("");
                   }}
-                  className="mt-1.5 px-3 py-2 rounded text-xs font-bold text-white min-h-[44px] active:scale-[0.97] transition-transform"
-                  style={{ backgroundColor: "#E10600" }}
+                  className="mt-1.5 px-3 py-2 rounded text-xs font-bold text-white min-h-[44px] active:scale-[0.97] transition-transform bg-rp-red"
                 >
                   Maintenance
                 </button>
@@ -286,7 +284,7 @@ export default function FleetPage() {
         })}
 
         {pods.length === 0 && !error && (
-          <div className="col-span-2 sm:col-span-4 text-center text-gray-500 text-sm py-8">
+          <div className="col-span-2 sm:col-span-4 text-center text-rp-grey text-sm py-8">
             Loading pod data...
           </div>
         )}
@@ -297,43 +295,43 @@ export default function FleetPage() {
         if (!pod) return null;
         return (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setSelectedMaintenancePod(null)}>
-            <div className="bg-[#222222] rounded-lg p-6 max-w-sm w-full mx-4 border border-[#333333]" onClick={e => e.stopPropagation()}>
+            <div className="bg-rp-card rounded-lg p-6 max-w-sm w-full mx-4 border border-rp-border" onClick={e => e.stopPropagation()}>
               <h2 className="text-lg font-bold text-white mb-2">{pod.node_type === 'pos' ? (pod.name || 'POS') : `Pod ${pod.pod_number}`} — Maintenance</h2>
 
               {!pinVerified ? (
                 <div>
-                  <p className="text-sm text-gray-400 mb-3">Enter staff PIN</p>
+                  <p className="text-sm text-rp-grey mb-3">Enter staff PIN</p>
 
                   {/* PIN dot display */}
                   <div className="flex gap-2 justify-center mb-4">
                     {Array.from({ length: Math.max(4, pin.length) }, (_, i) => i).map((i) => (
                       <div key={i} className={`w-10 h-12 rounded border-2 flex items-center justify-center
-                        ${i < pin.length ? "border-[#E10600] bg-[#E10600]/10" : "border-[#333333] bg-[#1A1A1A]"}`}>
+                        ${i < pin.length ? "border-rp-red bg-rp-red/10" : "border-rp-border bg-rp-black"}`}>
                         {pin[i] ? <span className="text-white text-xl">*</span> : null}
                       </div>
                     ))}
                   </div>
 
-                  {pinError && <p className="text-red-400 text-xs mb-2">{pinError}</p>}
+                  {pinError && <p className="text-rp-red text-xs mb-2">{pinError}</p>}
 
                   {/* On-screen numpad */}
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(d => (
                       <button key={d} onClick={() => { if (pin.length < 6) { setPin(p => p + d); setPinError(""); } }}
-                        className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
+                        className="h-14 rounded-lg bg-rp-black border border-rp-border text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
                         {d}
                       </button>
                     ))}
                     <button onClick={() => { setPin(""); setPinError(""); }}
-                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xs text-gray-500 active:scale-[0.97] transition-transform min-h-[44px]">
+                      className="h-14 rounded-lg bg-rp-black border border-rp-border text-xs text-rp-grey active:scale-[0.97] transition-transform min-h-[44px]">
                       Clear
                     </button>
                     <button onClick={() => { if (pin.length < 6) { setPin(p => p + "0"); setPinError(""); } }}
-                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
+                      className="h-14 rounded-lg bg-rp-black border border-rp-border text-xl font-bold text-white active:scale-[0.97] transition-transform min-h-[44px]">
                       0
                     </button>
                     <button onClick={() => setPin(p => p.slice(0, -1))}
-                      className="h-14 rounded-lg bg-[#1A1A1A] border border-[#333333] text-gray-500 active:scale-[0.97] transition-transform min-h-[44px] flex items-center justify-center">
+                      className="h-14 rounded-lg bg-rp-black border border-rp-border text-rp-grey active:scale-[0.97] transition-transform min-h-[44px] flex items-center justify-center">
                       &#x232B;
                     </button>
                   </div>
@@ -350,21 +348,20 @@ export default function FleetPage() {
                       } catch { setPinError("Network error"); }
                     }}
                     disabled={pin.length < 4}
-                    className="w-full py-3 rounded text-sm font-bold text-white disabled:opacity-40 min-h-[44px]"
-                    style={{ backgroundColor: "#E10600" }}
+                    className="w-full py-3 rounded text-sm font-bold text-white disabled:opacity-40 min-h-[44px] bg-rp-red"
                   >
                     Verify
                   </button>
                 </div>
               ) : (
                 <div>
-                  <p className="text-sm text-gray-400 mb-2">Failed checks:</p>
+                  <p className="text-sm text-rp-grey mb-2">Failed checks:</p>
                   <ul className="list-disc list-inside text-sm text-white mb-4 space-y-1">
                     {(pod.maintenance_failures ?? []).map((f, i) => (
                       <li key={i}>{f}</li>
                     ))}
                     {(!pod.maintenance_failures || pod.maintenance_failures.length === 0) && (
-                      <li className="text-gray-500">No details available</li>
+                      <li className="text-rp-grey">No details available</li>
                     )}
                   </ul>
                   <button
@@ -380,8 +377,7 @@ export default function FleetPage() {
                       }
                     }}
                     disabled={clearing}
-                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-60 min-h-[44px] active:scale-[0.97] transition-transform"
-                    style={{ backgroundColor: "#E10600" }}
+                    className="w-full py-2 rounded text-sm font-bold text-white disabled:opacity-60 min-h-[44px] active:scale-[0.97] transition-transform bg-rp-red"
                   >
                     {clearing ? "Clearing..." : "Clear Maintenance"}
                   </button>
@@ -390,7 +386,7 @@ export default function FleetPage() {
 
               <button
                 onClick={() => setSelectedMaintenancePod(null)}
-                className="w-full py-2 mt-2 rounded text-sm text-gray-400 hover:text-white min-h-[44px]"
+                className="w-full py-2 mt-2 rounded text-sm text-rp-grey hover:text-white min-h-[44px]"
               >
                 Close
               </button>
