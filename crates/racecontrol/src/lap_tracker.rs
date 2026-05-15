@@ -216,6 +216,30 @@ pub async fn persist_lap(state: &Arc<AppState>, lap: &LapData) -> bool {
     if let Err(e) = result {
         tracing::error!("Failed to insert lap: {}", e);
         let _ = tx.rollback().await;
+
+        // §S-146 lap-FK-gap audit trail: persist rejection to lap_rejections
+        // (best-effort; pool-level INSERT outside the rolled-back tx). Captures
+        // any future INSERT failure class (FK violations after the migration
+        // are no longer the expected mode, but other CHECK/NOT-NULL failures
+        // still funnel here). Per MMA Step 2 §3 PLAN spec.
+        let rejection_id = uuid::Uuid::new_v4().to_string();
+        let reason = format!("insert_failed: {}", e);
+        let session_id_for_rejection: &str = billing_session_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(lap.session_id.as_str());
+        let _ = sqlx::query(
+            "INSERT INTO lap_rejections (id, session_id, lap_number, reason, venue_id) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&rejection_id)
+        .bind(session_id_for_rejection)
+        .bind(lap.lap_number as i64)
+        .bind(&reason)
+        .bind(&state.config.venue.venue_id)
+        .execute(&state.db)
+        .await;
+
         return false;
     }
 

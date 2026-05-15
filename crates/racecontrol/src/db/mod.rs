@@ -15,6 +15,7 @@ mod migrate_ops;
 mod migrate_policy;
 mod migrate_config;
 mod migrate_cross_domain;
+mod migrate_lap_fk;
 mod migrate_pii;
 
 #[cfg(test)]
@@ -103,6 +104,9 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
 
     // ─── Cross-domain migrations ──────────────────────────────────────────
     migrate_cross_domain::migrate_cross_domain(pool).await?;
+
+    // §S-146: drop FK on laps.session_id (must run AFTER all column ALTERs)
+    migrate_lap_fk::migrate_lap_fk(pool).await?;
 
     Ok(())
 }
