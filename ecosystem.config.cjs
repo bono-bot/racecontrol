@@ -31,6 +31,14 @@ module.exports = {
         // Captures end_billing_session entry backtrace + WS disconnect timing per pod.
         // Cloud canary first; venue Server .23 deploy gated on canary clean.
         RC_GHOST_END_DIAG: '1',
+        // S-383 (2026-05-15 22:26 IST): activate PR #94 cloud-skip path on
+        // Bono VPS. Read by config::this_instance_is_cloud (crates/racecontrol/
+        // src/config/mod.rs:130) — flips fleet_connectivity probe to skip
+        // (subsystem_health_probes.rs:435) + flips db_sync_lag probe behavior
+        // (subsystem_health_probes.rs:133). Captain auth: 2026-05-15 ~22:26 IST
+        // verbatim "activate RC_IS_CLOUD and reload" (named-surface verb
+        // closing S-382 carry item #2 PR #94 runtime activation gate).
+        RC_IS_CLOUD: '1',
       },
     },
   ],
