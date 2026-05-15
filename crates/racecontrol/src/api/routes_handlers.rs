@@ -228,10 +228,18 @@ pub(super) async fn customer_multiplayer_results(
 
 /// Shared PII anonymization logic for both customer- and staff-initiated consent revocation.
 ///
-/// Anonymizes all PII fields on the drivers row and sets consent_revoked = 1.
-/// The driver row is retained so billing_sessions.driver_id foreign keys remain valid.
-/// Financial records (journal_entries, invoices, billing_sessions, wallet_transactions)
-/// are NOT touched — retained for 8 years per the Income Tax Act.
+/// Anonymizes the drivers-row PII set documented below, NULLs PII-adjacent finalize_*
+/// columns on billing_sessions, and sets consent_revoked = 1. The driver row is retained
+/// so billing_sessions.driver_id foreign keys remain valid; financial-amount columns
+/// (journal_entries, invoices, wallet_transactions, billing_sessions money fields) are
+/// NOT touched — retained for 8 years per the Income Tax Act.
+///
+/// drivers-row PII columns NULL'd: name (replaced with ANONYMIZED-id-prefix), email,
+/// phone, phone_hash, guardian_name, guardian_phone, guardian_phone_hash, dob,
+/// pin_hash, otp_code, guardian_otp_code, signature_data. Columns NOT cleared and
+/// the rationale: steam_guid/iracing_id (third-party-identifier class — separate
+/// erasure flow per third-party operator); avatar_url (placeholder/identicon class
+/// often non-PII — case-by-case audit class).
 pub(crate) async fn anonymize_driver_pii(
     state: &Arc<AppState>,
     driver_id: &str,
@@ -263,6 +271,10 @@ pub(crate) async fn anonymize_driver_pii(
 
     // Anonymize PII — same UPDATE used by the daily background job.
     // The driver row is KEPT so billing_session.driver_id FKs remain valid.
+    // pin_hash + otp_code + guardian_otp_code + signature_data added per
+    // PR #91 MAOR Tier-1 IMPORTANT #1 finding (credential-derived hash linked
+    // to identity + live OTP credentials + biometric-class waiver signature
+    // are unambiguous PII under DPDP erasure semantics).
     let result = sqlx::query(
         "UPDATE drivers SET
             name = 'ANONYMIZED-' || substr(id, 1, 8),
@@ -273,6 +285,10 @@ pub(crate) async fn anonymize_driver_pii(
             guardian_phone = NULL,
             guardian_phone_hash = NULL,
             dob = NULL,
+            pin_hash = NULL,
+            otp_code = NULL,
+            guardian_otp_code = NULL,
+            signature_data = NULL,
             pii_anonymized = 1,
             pii_anonymized_at = datetime('now'),
             consent_revoked = 1,
@@ -286,6 +302,35 @@ pub(crate) async fn anonymize_driver_pii(
     if let Err(e) = result {
         tracing::error!(driver_id = %driver_id, "consent_revocation anonymization failed: {}", e);
         return Json(json!({ "error": "Failed to anonymize driver data" }));
+    }
+
+    // §S-329 §4-A6 RCA contract: NULL-out billing_sessions PII-adjacent
+    // finalize_* columns for affected sessions on revoke-consent path. Preserves
+    // billing row identity (8-year tax retention per Income Tax Act) while
+    // nulling customer-derived correlation key (finalize_idempotency_key) and
+    // role-class identifier (finalize_actor) per RCA §4-A6 contract:
+    // "revoke_consent_handler + anonymize_driver_pii paths updated equivalently"
+    // (finalize_reason enum + finalized_at ts are operational metadata, NOT PII).
+    // Closes PR #85 MAOR Tier-1 retrospective Finding #1 (audit ts 2026-05-15
+    // T09:00:35Z sha c037352c reviewer bono-feature-dev-code-reviewer-agent).
+    // Degraded-mode safe: drivers UPDATE already succeeded; if billing UPDATE
+    // fails the audit log captures the discrepancy and operator can re-run.
+    let billing_result = sqlx::query(
+        "UPDATE billing_sessions
+            SET finalize_idempotency_key = NULL,
+                finalize_actor = NULL
+            WHERE driver_id = ?",
+    )
+    .bind(driver_id)
+    .execute(&state.db)
+    .await;
+
+    if let Err(e) = billing_result {
+        tracing::warn!(
+            driver_id = %driver_id,
+            "consent_revocation billing_sessions PII null-out failed: {} — proceeding (audit log captures discrepancy)",
+            e
+        );
     }
 
     // Audit log — record the revocation event
