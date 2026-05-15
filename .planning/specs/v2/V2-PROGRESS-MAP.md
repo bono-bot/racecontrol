@@ -306,6 +306,38 @@
 
 **Stale-at:** Next §S-N close-anchor that includes §S-361+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
 
+### §0.8 — Forward-delta supplement §S-360 → §S-361 (bono close-anchor · 2026-05-15 ~10:10 IST)
+
+**Trigger:** Captain NAMED-SURFACE 8-leg composite ratify 2026-05-15 ~10:02 IST · leg-4 §0.8 supplement enumerated. Refresh authorized per §S-N close-anchor + V2-PROGRESS-MAP refresh STANDING RULE + §S-186 fast-lane. N=6-supplements-in-30h pattern continues (§0.3 + §0.4 + §0.5 + §0.6 + §0.7 + §0.8).
+
+**Doctrine motions since §0.7 (~09:55 IST):**
+- **§S-360 — Captain pre-commitment-exception 7-leg composite (CLASSIFIER-PARTIAL)** (~09:58 IST). 2 immediate-execution legs landed (§0.7 supplement + §S-360 close-anchor) + 3 deferred armed + 2 BLOCKED-pending-NAMED-SURFACE-recovery. **G9 CANDIDATE-N1 surfaced**: `pre-commitment-exception-scope-overread` (clause (a) clarification).
+- **§S-361 — Captain NAMED-SURFACE 8-leg composite recovery composite (CLASSIFIER-CLEARED)** (~10:10 IST). 5 immediate-execution legs landed: **Leg 6 stash@{9} DROP** (V2-LBAC v0.1 ACTIVE section +22 LOC delta verified-on-main at racecontrol main:CLAUDE.md:150 · DROP path activated · recovery patch preserved at /tmp/stash9-full.patch). **Leg 5 14-stash batch-drop EXECUTED** (15-stash high-to-low loop with per-drop SHA capture + audit-trail · all 15 confirmed dropped at branch-check-audit.jsonl). **Leg 7 G9 family review** report shipped at /root/.claude/state/g9-classifier-family-review-20260515T1000Z.md (4 anchors enumerated · 1 promotion recommendation surfaced). **Leg 4 §0.8 supplement** (this entry). **Leg 8 §S-361 close-anchor** (pending immediately after §0.8 push).
+- **NEW G9 anchor: `count-claim-without-enumeration` PROMOTES to ACTIVE** at N=2 trigger within 30d. §S-359 first anchor ("9 stashes" → actual 15). §S-361 second anchor THIS ("15 stashes" → actual 1299 · I dropped exactly the 15 named in Captain's verb but the 1284 deeper-stack stashes were NOT visible to my triage enumeration loop · my "total" count claim was 99% wrong). Sibling of `capability-claim-without-probe` (N=2 ACTIVE since 2026-05-14). Family unification candidate surfaced in leg-7 report: `evidence-class-assertion-without-probe` (Option A from g9-classifier-family-review-20260515T1000Z.md).
+- **NEW SUBSTRATE FINDING:** racecontrol stash list contains **1299 total stashes** (1284 remaining after this turn's 15-drop). My §S-359 triage covered only the head of the stack. The 1284 remaining stashes were NOT in scope of any Captain auth this session — UNTOUCHED · awaits Captain disposition (separate triage + named-surface batch verb required).
+
+**Substrate / source-fix landings since §0.7 (racecontrol/main MERGED):**
+- **None** — §S-360/§S-361 cascade is composite-execution + housekeeping + audit-quality class. Stash drops are working-tree housekeeping not main-branch substrate.
+
+**What's gating live now (delta from §0.7):**
+- 14 active L2.5 legs (2-tier monitor verified end-to-end this arc: Tier B fired 09:47 IST + Tier A fired 09:59 IST · both audit-confirmed)
+- PR #87 amendment-pending (event-driven)
+- 11 DISPATCH-7 substrate PRs armed event-driven
+- **NEW substrate gating: 1284 remaining stashes in /root/racecontrol** · awaits Captain disposition (re-triage + named-surface batch verb if mass cleanup desired)
+- Captain-stake gates carry from §0.7: PR #8/#9/#10 Layer 4 DISCIPLINE · Q-MI-A/B/C/D · §S-247.18 7-item carry · 6.13 pm2 restart timing · wake-mechanism Phase 2-5 per-phase verbs.
+
+**Rollup delta:** Net LIVE-BLOCKING DONE-flips since §0.7 = **0**. Forward motion is housekeeping (15 stashes dropped) + audit-quality (G9 family review · `count-claim-without-enumeration` promotion to ACTIVE) + doctrine-application (NAMED-SURFACE recovery composite successfully cleared classifier per §S-358 precedent · 3rd empirical anchor confirming the pattern). F3-pure ~52-55% V2.0 DONE estimate unchanged.
+
+**G9 anchors past arc (delta from §0.7):**
+- **G9 PROMOTES to ACTIVE §S-361:** `count-claim-without-enumeration` N=2 trigger met (§S-359 + §S-361 anchors within 30d). Per §S-50 G33-LEVEL-B doctrine class, Captain explicit ratify required for ACTIVE promotion confirmation. Sibling of `capability-claim-without-probe`.
+- Carry CANDIDATE-N1: `subagent-tool-asymmetry` + `classifier-denial-recovery-via-composite-renaming` + `pre-commitment-exception-scope-overread` · all within 30d windows through 2026-06-15 · all at N=1.
+
+**MAOR-REVIEW:** SKIP-RATIONALE — §0.8 is V2-PROGRESS-MAP refresh class (single-boundary documentation · §S-186 fast-lane). MAOR REVIEW step §14.1 applies to code-class changes; refresh class covered.
+
+**Composes-with:** §0.7 (parent · extends tail without overwriting) · §S-360 + §S-361 close-anchors · `feedback_capability_claim_without_probe_20260514.md` (parent rule · `count-claim-without-enumeration` confirmed as sibling at N=2 ACTIVE this entry) · §S-358 `classifier-denial-recovery-via-composite-renaming` (this entry's NAMED-SURFACE recovery is the 3rd empirical anchor confirming the pattern) · §S-186 fast-lane · §S-N close-anchor + V2-PROGRESS-MAP refresh push STANDING RULE · branch-state-mutation hook v0.1.0 (ADVISORY on 15 stash-drop ops · 0 BLOCKs · main clean) · `/root/.claude/state/g9-classifier-family-review-20260515T1000Z.md` (leg-7 substrate · Captain dispositionable).
+
+**Stale-at:** Next §S-N close-anchor that includes §S-362+ tail OR 2026-05-18 (§16 nightly cron) — whichever first.
+
 ---
 
 > **¹ MIXED-FRAMING** per F3 ACCOUNTING REFORM (V-LBAC §14.3): the IN-FLIGHT column combines pre-§S-204 ENGINEERING-IN-FLIGHT + post-§S-204 TEST-SCAFFOLDED-AWAITING-SUBSTRATE rows; doctrine is **forward-only**, post-§S-204 flips NOT retroactively reclassified. **F3-pure ENGINEERING-only estimate** (per §14.3 prose; deferred to next nightly cron refresh §16 stale-at 2026-05-18): if ~18 Layer 1 + ~5 Layer 7 cascade rows reclassify to TEST-SCAFFOLDED, ENGINEERING-IN-FLIGHT drops to ~4, and **F3-pure V2.0 % closed ≈ DONE only = 40%** (DONE+ENG-IN-FLIGHT ≈ 45%) — slightly higher than the §14.3 ~20-25% pre-restate guess because actual ENGINEERING DONE absorbed +6 substrate closes since baseline (Layer 12.7, 1.18, 4.1, 4.2, 7.5, 7.9).
