@@ -44,7 +44,7 @@ function GameTab({ game, active, onClick }: { game: string; active: boolean; onC
       className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border transition-all ${
         active
           ? "border-rp-red bg-rp-red/10 text-white"
-          : "border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:text-white hover:border-zinc-700"
+          : "border-rp-border bg-rp-black/50 text-rp-grey hover:text-white hover:border-rp-grey"
       }`}
     >
       {logo && (
@@ -75,8 +75,8 @@ function ExperienceCard({
       disabled={!available}
       className={`group relative flex flex-col rounded-xl border overflow-hidden transition-all duration-200 text-left ${
         available
-          ? "border-zinc-800 bg-zinc-900/60 hover:border-rp-red/50 hover:bg-zinc-900/80 cursor-pointer hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(225,6,0,0.1)]"
-          : "border-zinc-800/30 bg-zinc-900/20 cursor-not-allowed opacity-40"
+          ? "border-rp-border bg-rp-black/60 hover:border-rp-red/50 hover:bg-rp-black/80 cursor-pointer hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(225,6,0,0.1)]"
+          : "border-rp-border/30 bg-rp-black/20 cursor-not-allowed opacity-40"
       }`}
     >
       {/* Top section — gradient background with game logo */}
@@ -94,14 +94,14 @@ function ExperienceCard({
         {/* Car class badge — top right */}
         {exp.car_class && (
           <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${
-            CLASS_COLORS[exp.car_class] || "bg-zinc-700 text-white"
+            CLASS_COLORS[exp.car_class] || "bg-rp-card text-white"
           }`}>
             {exp.car_class}
           </span>
         )}
 
         {/* Session type badge — top left */}
-        <span className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-950/70 text-xs text-zinc-300 font-mono uppercase tracking-wider">
+        <span className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rp-black/70 text-xs text-white font-mono uppercase tracking-wider">
           <span>{icon}</span>
           {exp.start_type}
         </span>
@@ -118,16 +118,16 @@ function ExperienceCard({
         </h3>
 
         {/* Track + Car */}
-        <p className="text-sm text-zinc-400 truncate">
+        <p className="text-sm text-rp-grey truncate">
           {exp.track}
         </p>
-        <p className="text-sm text-zinc-500 font-mono truncate">
+        <p className="text-sm text-rp-grey font-mono truncate">
           {exp.car}
         </p>
 
         {/* Bottom row — duration + availability */}
         <div className="mt-auto pt-2 flex items-center justify-between">
-          <span className="text-xs text-zinc-500 font-mono">
+          <span className="text-xs text-rp-grey font-mono">
             {exp.duration_minutes} min
           </span>
           {available ? (
@@ -135,7 +135,7 @@ function ExperienceCard({
               Available
             </span>
           ) : (
-            <span className="text-xs text-zinc-600 italic">
+            <span className="text-xs text-rp-grey italic">
               Not installed
             </span>
           )}
@@ -162,17 +162,17 @@ export default function IdlePreview() {
         <div className="flex items-center gap-4">
           <div className="w-1 h-8 bg-rp-red rounded-full" />
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-wide" style={{ fontFamily: "var(--font-display, 'Orbitron'), sans-serif" }}>
+            <h1 className="text-2xl font-bold text-white tracking-wide font-display">
               Select Experience
             </h1>
-            <p className="text-sm text-zinc-500">Choose your race, track, and car</p>
+            <p className="text-sm text-rp-grey">Choose your race, track, and car</p>
           </div>
         </div>
 
         {/* Racing Point branding */}
         <div className="text-right">
-          <p className="text-xs text-zinc-600 font-mono uppercase tracking-[0.3em]">Racing Point</p>
-          <p className="text-xs text-zinc-700 font-mono">eSports &amp; Cafe</p>
+          <p className="text-xs text-rp-grey font-mono uppercase tracking-[0.3em]">Racing Point</p>
+          <p className="text-xs text-rp-grey font-mono">eSports &amp; Cafe</p>
         </div>
       </div>
 
