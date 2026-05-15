@@ -30,9 +30,9 @@ Three categories per V1 surface:
 | Surface | V2 replacement | Cleanup anchor | Disposition |
 |---|---|---|---|
 | **Legacy ManagerXP marketing app at `racingpoint.cloud/` apex** | PR #69 PWA :3501 (Layer 1.10) | §S-303 / §S-304 Captain RATIFIED Option I 2026-05-14 | RETIRED |
-| **V1 staff page kiosk-mirror (sibling V1-antipattern source-fix)** | row 1.13 PR-#85 substrate landed | PR #80 v2 MERGED `8b7c828d` (§S-330) + PR #85 §S-329 `c037352c` finalize | RETIRED-AT-SOURCE (substrate PR pending Captain merge auth at row 1.13) |
+| **V1 staff page kiosk-mirror (sibling V1-antipattern source-fix)** | row 1.13 PR-#85 substrate landed | PR #80 v2 MERGED `8b7c828d` (§S-330) + PR #85 §S-329 `c037352c` finalize | **PARTIALLY-CLEANED** — PR #80 source-fix MERGED but row 1.13 substrate PR #85 is DRAFT pending Captain merge auth per V2-PROGRESS-MAP §0.3 L142-143 (row IN-FLIGHT not DONE) |
 
-These are the only confirmed V1 retirements at venue as of cutoff. Used as exemplars for the per-item §S-146 RCA shape required in Phase 1.
+Note: only ManagerXP apex flip is fully RETIRED. Staff-mirror row is partially-cleaned (source-fix landed, substrate PR Captain-gated) — kept here as exemplar of the §S-146 RCA shape, NOT as a completed Phase 1 candidate.
 
 ### §2.2 True SAFE-TO-REMOVE-NOW candidates
 
@@ -49,7 +49,7 @@ Rationale: the §0.4/§0.7 cascade snapshot shows no LIVE-BLOCKING row flipped V
 | V1 surface | V2 status (per V2-PROGRESS-MAP) | Quarantine recommendation | Trigger to fully remove |
 |---|---|---|---|
 | V1 wallet ledger schema | Phase γ-β substrate landed (§S-285/290/295 deployed Server .23 `323b3d09` then overlaid by `ad410a32`); 4-week class-A soak 2026-05-14 → 2026-06-11; §S-345 supersedes Option E HOLD-during-soak so launch-gate lifted | Keep V1 ledger read-only during soak; no write-path disable yet — would gate top-up + redemption | Soak window close 2026-06-11 + Q-MI-A/B/C/D Captain disposition (wallet observability) |
-| V1 brand colors / Enthocentric display font (deprecated 2026-05-08, never shipped) | V2 brand RATIFIED 2026-05-08; row 1.4 LIVE-BLOCKING `+1 DONE` per §0.2 PR #70 `a4908e44` | Already removed at code level; verify no `--rp-*` deprecated tokens or Enthocentric references remain in deployed bundles | Frontend-staleness sweep across all 3 frontends (kiosk/web/admin) on all deploy targets |
+| V1 brand colors / Enthocentric display font | V2 brand RATIFIED 2026-05-08; row 1.4 LIVE-BLOCKING `+1 DONE` per §0.2 PR #70 `a4908e44` (web-v2 frontend only) | **Source-fix REQUIRED** — kiosk `kiosk/src/components/DeployPanel.tsx:163` still has live `fontFamily: "Enthocentric, sans-serif"` inline style; Phase 1 task = remove Enthocentric from kiosk source + sweep admin frontend for residual `--rp-*` deprecated tokens | Frontend-staleness sweep across all 3 frontends (kiosk/web/admin) on all deploy targets |
 | V1 cloud_sync surface (pre-Phase 1 /sync/echo) | cloud_sync Phase 1 MERGED `a22f79b2` (§S-243); §S-322 wallets-suffix observability probe overlaid `ad410a32` | Phase 1 substrate landed; V1 sync paths still execute in parallel until Phase 2/3 cutover defined | Phase 2/3 cutover ratify (not yet scheduled per §0.7 gating list) |
 
 ---
