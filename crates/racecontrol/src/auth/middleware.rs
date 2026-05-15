@@ -61,16 +61,72 @@ impl StaffClaims {
 
 // ─── Token extraction helper ──────────────────────────────────────────────
 
-/// Extract and validate StaffClaims from the request Authorization header.
-/// Returns Ok(StaffClaims) on success, Err(()) on any failure.
+/// V2 row 7.6 cookie-auth substrate — session cookie name (Phase 1).
+///
+/// Captain D-7.6 RCA §4 (2026-05-13) names the V2 staff session cookie
+/// `rp_staff_session`. Cookie attributes (HttpOnly + Secure + SameSite=Lax +
+/// Domain=.racingpoint.cloud + Max-Age = JWT TTL) are emitted at
+/// `api::auth_staff::staff_validate_pin`. This constant + the
+/// `extract_session_cookie` helper below establish the bidirectional contract.
+pub(crate) const STAFF_SESSION_COOKIE_NAME: &str = "rp_staff_session";
+
+/// Extract the V2 staff session cookie value from request `Cookie` headers.
+///
+/// Returns `Some(token)` when exactly one `rp_staff_session=<value>` appears
+/// across all `Cookie:` headers; returns `None` when:
+///   - No `Cookie` header carries `rp_staff_session=`
+///   - Multiple `rp_staff_session=` values are present (D-7.6-MMA Step 1
+///     finding F-7.6-D-3 / R1 P0 0.95 / 5/5 consensus — duplicate cookies are
+///     fail-closed to defeat session-fixation via attacker-planted cookie).
+///   - Any `Cookie` header value is not valid UTF-8.
+///
+/// Per F-7.6-D-7 (R1) the helper iterates `headers.get_all("cookie")` rather
+/// than `get("cookie")` first-only, so a `rp_staff_session=` value carried in
+/// a second/third `Cookie:` header is still extracted (RFC 6265 §5.4 allows
+/// multiple Cookie headers; axum HeaderMap does not auto-merge).
+pub(crate) fn extract_session_cookie<B>(req: &Request<B>) -> Option<String> {
+    let prefix = format!("{}=", STAFF_SESSION_COOKIE_NAME);
+    let mut found: Option<String> = None;
+    for hv in req.headers().get_all("cookie") {
+        let Ok(s) = hv.to_str() else { return None; };
+        for part in s.split(';') {
+            let kv = part.trim();
+            if let Some(val) = kv.strip_prefix(&prefix) {
+                if found.is_some() {
+                    // F-7.6-D-3 fail-closed on duplicates.
+                    return None;
+                }
+                found = Some(val.to_string());
+            }
+        }
+    }
+    found
+}
+
+/// Extract and validate StaffClaims from the request.
+///
+/// Priority order (RCA §4 B + D-7.6-MMA Step 1 Q3 disposition 5/5 OR 4/5
+/// majority — Bearer for service-key callers / rc-agent path, Cookie for
+/// staff browser path):
+///   1. `Authorization: Bearer <token>` header (service-key compatible)
+///   2. `Cookie: rp_staff_session=<token>` header (V2 staff browser path)
+///
+/// Returns `Ok(StaffClaims)` on success, `Err(())` on any failure. The
+/// downstream JWT decode + role check + idle-timeout check are identical
+/// regardless of which transport delivered the token — the cookie transport
+/// is parallel to Bearer, not a separate auth class.
 fn extract_staff_claims<B>(state: &Arc<AppState>, req: &Request<B>) -> Result<StaffClaims, ()> {
-    let auth_header = req
+    let bearer = req
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .ok_or(())?;
+        .and_then(|s| s.strip_prefix("Bearer ").map(str::to_string));
 
-    let token = auth_header.strip_prefix("Bearer ").ok_or(())?;
+    let token = match bearer {
+        Some(t) => t,
+        None => extract_session_cookie(req).ok_or(())?,
+    };
+    let token = token.as_str();
 
     let secret = &state.config.auth.jwt_secret;
 
