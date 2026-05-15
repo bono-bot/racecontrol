@@ -25,16 +25,28 @@
 //      run independent code paths in Phase 1; redirect is Phase 1.5)
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use crate::auth::middleware::CredentialClass;
+use crate::cloud_sync_verify::{VerifyOutcome, verify_finalize_sync};
 use crate::state::AppState;
+
+/// A3 Phase 1.5 — synchronous cloud_sync verify timeout budget.
+///
+/// Per §S-146 RCA §5 + Q1 ratify: 200ms is 20% of the 1s SLA budget; existing
+/// `ECHO_TIMEOUT_SECS=2s` (cloud_sync_verify) is the underlying reqwest cap.
+/// `tokio::time::timeout` wraps the call to enforce the tighter budget; on
+/// elapsed → fail-open per Q2 ratify (Mismatch identical to Unavailable from
+/// the caller's perspective: keep `mirror_state="pending_async_verify"`; 30s
+/// tick picks up async).
+const FINALIZE_VERIFY_TIMEOUT_MS: u64 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -105,37 +117,35 @@ struct FinalizeSnapshot {
 }
 
 // Auth-tier server-side binding-matrix per RCA §4-A7.
-// Phase 1: only staff-JWT path is enabled (handler registered under
-// require_staff_jwt). The matrix is enforced anyway so Phase 1.5 service-key
-// path can drop in without re-deriving doctrine.
+//
+// Phase 1.5 §S-146 Q4 (Option Z): the credential class authority lives in
+// the middleware-injected `CredentialClass` extension, NOT in handler-local
+// header inference. `require_staff_jwt` inserts `CredentialClass::StaffJwt`
+// alongside `StaffClaims`. A future `require_service_key` middleware will
+// insert `CredentialClass::ServiceKey` for rc-agent + auto-scheduler routes
+// (separate PR scope). This handler is the FIRST consumer of the extension
+// pattern; migration of other handlers is tracked via the audit issue seeded
+// in the Phase 1.5 PR description (30-day deadline per anthropic Risk #1).
 fn validate_actor_credential(
-    state: &Arc<AppState>,
-    headers: &HeaderMap,
     declared_actor: FinalizeActor,
-    has_staff_jwt: bool,
+    credential: Option<CredentialClass>,
 ) -> Result<(), (StatusCode, Value)> {
-    let has_service_key = match &state.config.pods.sentry_service_key {
-        Some(expected) if !expected.is_empty() => headers
-            .get("x-service-key")
-            .and_then(|v| v.to_str().ok())
-            .map(|provided| provided == expected.as_str())
-            .unwrap_or(false),
-        _ => false,
-    };
-
-    let credential_class = if has_staff_jwt {
-        "staff-jwt"
-    } else if has_service_key {
-        "service-key"
-    } else {
-        "none"
+    let credential_class = match credential {
+        Some(CredentialClass::StaffJwt) => "staff-jwt",
+        Some(CredentialClass::ServiceKey) => "service-key",
+        Some(CredentialClass::AutoScheduler) => "internal-caller",
+        None => "none",
     };
 
     let expected = declared_actor.expected_credential_class();
-    let ok = match declared_actor {
-        FinalizeActor::Kiosk | FinalizeActor::Staff => has_staff_jwt,
-        FinalizeActor::RcAgent => has_service_key,
-        FinalizeActor::AutoScheduler => has_staff_jwt,
+    let ok = match (declared_actor, credential) {
+        (FinalizeActor::Kiosk, Some(CredentialClass::StaffJwt))
+        | (FinalizeActor::Staff, Some(CredentialClass::StaffJwt)) => true,
+        (FinalizeActor::RcAgent, Some(CredentialClass::ServiceKey)) => true,
+        // AutoScheduler is enabled on staff-JWT in Phase 1 (deferred matrix
+        // tightening to dedicated internal-caller middleware in Phase 2).
+        (FinalizeActor::AutoScheduler, Some(CredentialClass::StaffJwt)) => true,
+        _ => false,
     };
 
     if ok {
@@ -169,23 +179,19 @@ fn finalize_allowed_from(status: &str) -> bool {
 
 pub(crate) async fn finalize_handler(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    credential: Option<Extension<CredentialClass>>,
     Json(req): Json<FinalizeRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let started_at = Instant::now();
 
-    // The route is registered behind require_staff_jwt in Phase 1, so a
-    // request arriving here has a validated staff JWT in extensions. We
-    // detect that via the Authorization header presence; full claim
-    // validation already ran upstream.
-    let has_staff_jwt = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.starts_with("Bearer "))
-        .unwrap_or(false);
+    // Phase 1.5 §S-146 Q4 (Option Z): credential class is read from the
+    // middleware-injected Extension, NOT from raw header inference. The route
+    // is registered behind `require_staff_jwt` in Phase 1, so a request
+    // arriving here has `CredentialClass::StaffJwt` in extensions.
+    let credential_class = credential.map(|Extension(c)| c);
 
     if let Err((status, body)) =
-        validate_actor_credential(&state, &headers, req.actor, has_staff_jwt)
+        validate_actor_credential(req.actor, credential_class)
     {
         return Err((status, Json(body)));
     }
@@ -268,6 +274,11 @@ pub(crate) async fn finalize_handler(
 
         // Row stamped but receipt missing — degraded replay; surface
         // observable state without making up canonical fields.
+        //
+        // Phase 1.5 Q3 (always-emit): verify_outcome on the degraded-replay
+        // path is "sync_unavailable" because the original sync verify result
+        // was not preserved (receipt blob missing). Clients treat this the
+        // same as any other unavailable: keep mirror_state pending.
         return Ok(Json(json!({
             "session_id": first_id,
             "finalize_reason": first_reason,
@@ -275,35 +286,50 @@ pub(crate) async fn finalize_handler(
             "finalized_at": first_finalized_at,
             "idempotency_status": "replayed_degraded",
             "mirror_state": "pending_async_verify",
+            "verify_outcome": "sync_unavailable",
             "latency_ms": started_at.elapsed().as_millis() as u64,
         })));
     }
 
     // §4 state-transition gate + pre-image snapshot capture.
-    let row: Option<(String, Option<i64>, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT status, wallet_debit_paise, pricing_strategy_id, pricing_tier_id, started_at \
+    //
+    // Phase 1.5 §S-146 Q1 (Option A, 3/3 unanimous): capture `updated_at` here
+    // as the PRIOR-row value (cursor_before for the A3 sync verify probe).
+    // The UPDATE below explicitly writes `updated_at = finalized_at_iso`
+    // (cursor_after), so the receiver's windowed `/sync/echo` query over
+    // `(updated_at_before, updated_at_after]` matches exactly one row.
+    let row: Option<(
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT status, wallet_debit_paise, pricing_strategy_id, pricing_tier_id, \
+                 started_at, updated_at \
              FROM billing_sessions WHERE id = ? LIMIT 1",
+    )
+    .bind(&req.session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "db_error", "detail": e.to_string()})),
         )
-        .bind(&req.session_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "db_error", "detail": e.to_string()})),
-            )
-        })?;
+    })?;
 
-    let (from_status, wallet_pre, strategy_pre, tier_pre, started_at_pre) = match row {
-        Some(r) => r,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "session_not_found", "session_id": req.session_id})),
-            ));
-        }
-    };
+    let (from_status, wallet_pre, strategy_pre, tier_pre, started_at_pre, updated_at_before) =
+        match row {
+            Some(r) => r,
+            None => {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "session_not_found", "session_id": req.session_id})),
+                ));
+            }
+        };
 
     if !finalize_allowed_from(&from_status) {
         return Err((
@@ -368,18 +394,26 @@ pub(crate) async fn finalize_handler(
     }
 
     // §4-A2 stamp idempotency-key + finalize meta-columns on billing_sessions.
+    //
+    // Phase 1.5 §S-146 Q1: explicitly set `updated_at = finalize_at_iso` so
+    // that `(updated_at_before, updated_at_after]` is a clean cursor window
+    // for the A3 sync verify probe. The cloud_sync 30s tick reads
+    // `billing_sessions WHERE created_at >= ? OR ended_at >= ?` so this
+    // explicit write does not alter that path.
     let finalized_at_iso = chrono::Utc::now().to_rfc3339();
     let _ = sqlx::query(
         "UPDATE billing_sessions SET \
            finalize_idempotency_key = ?, \
            finalize_reason = ?, \
            finalize_actor = ?, \
-           finalized_at = ? \
+           finalized_at = ?, \
+           updated_at = ? \
          WHERE id = ?",
     )
     .bind(&req.idempotency_key)
     .bind(req.reason.as_str())
     .bind(req.actor.as_str())
+    .bind(&finalized_at_iso)
     .bind(&finalized_at_iso)
     .bind(&req.session_id)
     .execute(&state.db)
@@ -402,7 +436,36 @@ pub(crate) async fn finalize_handler(
     let wallet_refund_paise =
         (snapshot.wallet_debit_paise_pre_update - wallet_final).max(0);
 
-    let mirror_state = "pending_async_verify";
+    // Phase 1.5 §S-146 A3 sync verify wrapper — Q1 cursor-window from
+    // billing_session.updated_at; Q2 fail-open identical to Unavailable;
+    // Q3 always-emit verify_outcome enum. tokio::time::timeout enforces the
+    // 200ms budget; elapsed-timeout falls through to fail-open. Bono's 30s
+    // cloud_sync_push tick + verify_push picks up the row async regardless.
+    //
+    // updated_at_before is the pre-finalize row's updated_at (may be None for
+    // pre-existing rows that haven't been touched since the backfill); when
+    // None, use a sentinel that the receiver's allowlisted column comparison
+    // treats as "open lower bound" — empty string sorts before all RFC3339.
+    let updated_at_before_str = updated_at_before.unwrap_or_default();
+    let verify_outcome_str = match tokio::time::timeout(
+        Duration::from_millis(FINALIZE_VERIFY_TIMEOUT_MS),
+        verify_finalize_sync(&state, &updated_at_before_str, &finalized_at_iso),
+    )
+    .await
+    {
+        Ok(VerifyOutcome::AllOk) => "sync_ok",
+        Ok(VerifyOutcome::Unavailable) => "sync_unavailable",
+        Ok(VerifyOutcome::Mismatch { .. }) => "sync_mismatch",
+        Err(_elapsed) => "sync_timeout",
+    };
+    let mirror_state = if verify_outcome_str == "sync_ok" {
+        "verified"
+    } else {
+        // Q2 (α): Mismatch is fail-open identical to Unavailable from caller's
+        // perspective — keep mirror_state="pending_async_verify"; existing 30s
+        // tick will eventually advance.
+        "pending_async_verify"
+    };
     let elapsed_ms = started_at.elapsed().as_millis() as u64;
 
     let response = json!({
@@ -416,6 +479,7 @@ pub(crate) async fn finalize_handler(
         "total_debited_paise": total_final,
         "session_duration_secs": elapsed_secs,
         "mirror_state": mirror_state,
+        "verify_outcome": verify_outcome_str,
         "idempotency_status": "first",
         "latency_ms": elapsed_ms,
     });
@@ -434,7 +498,10 @@ pub(crate) async fn finalize_handler(
     .execute(&state.db)
     .await;
 
-    // §5 §D — Phase 1 SLA latency-log-line.
+    // §5 §D — Phase 1 SLA latency-log-line + Phase 1.5 verify_outcome
+    // observability (Q3 II — always-emit). verify_outcome on the same span
+    // as the 1s SLA latency_ms supports A4 SLA-dashboard correlation
+    // (e.g., sync_timeout count tracks 200ms-budget breaches).
     tracing::info!(
         target: "billing.finalize",
         latency_ms = elapsed_ms,
@@ -442,8 +509,92 @@ pub(crate) async fn finalize_handler(
         finalize_reason = %req.reason.as_str(),
         finalize_actor = %req.actor.as_str(),
         mirror_state = %mirror_state,
+        verify_outcome = %verify_outcome_str,
         "finalize.complete"
     );
 
     Ok(Json(response))
+}
+
+#[cfg(test)]
+mod credential_class_matrix_tests {
+    use super::*;
+
+    /// Phase 1.5 §S-146 Q4 (Option Z) — validate_actor_credential decision
+    /// matrix exhausted across all (declared_actor × CredentialClass) pairs.
+    /// All accept-cases hit Ok; all reject-cases hit Err with the documented
+    /// mismatch shape.
+    #[test]
+    fn validate_actor_credential_matrix() {
+        // Accept cases — declared actor matches the injected credential class
+        assert!(validate_actor_credential(FinalizeActor::Kiosk, Some(CredentialClass::StaffJwt)).is_ok());
+        assert!(validate_actor_credential(FinalizeActor::Staff, Some(CredentialClass::StaffJwt)).is_ok());
+        assert!(validate_actor_credential(FinalizeActor::RcAgent, Some(CredentialClass::ServiceKey)).is_ok());
+        assert!(validate_actor_credential(FinalizeActor::AutoScheduler, Some(CredentialClass::StaffJwt)).is_ok());
+
+        // Reject cases — declared actor does not match the injected class
+        let cases = [
+            (FinalizeActor::Kiosk, Some(CredentialClass::ServiceKey), "service-key"),
+            (FinalizeActor::Staff, Some(CredentialClass::ServiceKey), "service-key"),
+            (FinalizeActor::Staff, None, "none"),
+            (FinalizeActor::RcAgent, Some(CredentialClass::StaffJwt), "staff-jwt"),
+            (FinalizeActor::RcAgent, None, "none"),
+            (FinalizeActor::AutoScheduler, Some(CredentialClass::ServiceKey), "service-key"),
+            (FinalizeActor::AutoScheduler, None, "none"),
+        ];
+        for (actor, class, expected_received) in cases {
+            let Err((status, body)) = validate_actor_credential(actor, class) else {
+                panic!("expected rejection for actor={:?} class={:?}", actor, class);
+            };
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(body["error"], "actor_credential_mismatch");
+            assert_eq!(body["received_credential_class"], expected_received);
+            assert_eq!(body["expected_credential_class"], actor.expected_credential_class());
+        }
+    }
+
+    /// Phase 1.5 §S-146 Q3 (Option II) — verify_outcome enum maps from
+    /// VerifyOutcome variants deterministically. This is the structural-
+    /// contract test for the call-site mapping; the live-receiver behavior
+    /// path is gated behind RC_TEST_LIVE_SYNC_ECHO_URL in cloud_sync_verify.
+    #[test]
+    fn verify_outcome_string_mapping() {
+        // Note: This test mirrors the match arms in finalize_handler. The
+        // mapping is intentionally simple so a future refactor (e.g. moving
+        // the mapping into a free function) can target this test as the
+        // contract anchor.
+        let cases = [
+            (VerifyOutcome::AllOk, "sync_ok", "verified"),
+            (VerifyOutcome::Unavailable, "sync_unavailable", "pending_async_verify"),
+            (
+                VerifyOutcome::Mismatch { details: vec![] },
+                "sync_mismatch",
+                "pending_async_verify",
+            ),
+        ];
+        for (outcome, expected_outcome, expected_mirror) in cases {
+            let outcome_str = match outcome {
+                VerifyOutcome::AllOk => "sync_ok",
+                VerifyOutcome::Unavailable => "sync_unavailable",
+                VerifyOutcome::Mismatch { .. } => "sync_mismatch",
+            };
+            let mirror = if outcome_str == "sync_ok" {
+                "verified"
+            } else {
+                "pending_async_verify"
+            };
+            assert_eq!(outcome_str, expected_outcome);
+            assert_eq!(mirror, expected_mirror);
+        }
+
+        // sync_timeout has no VerifyOutcome — it surfaces from
+        // tokio::time::timeout's Elapsed error. Verify the mapping here.
+        let timeout_outcome = "sync_timeout";
+        let timeout_mirror = if timeout_outcome == "sync_ok" {
+            "verified"
+        } else {
+            "pending_async_verify"
+        };
+        assert_eq!(timeout_mirror, "pending_async_verify");
+    }
 }

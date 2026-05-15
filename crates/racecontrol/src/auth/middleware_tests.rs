@@ -12,9 +12,10 @@ mod tests {
     use tower::ServiceExt;
     use crate::auth::middleware::{
         create_staff_jwt, create_staff_jwt_with_role, extract_session_cookie, is_idle_expired,
-        require_role, require_staff_jwt, StaffClaims, STAFF_SESSION_COOKIE_NAME,
+        require_role, require_staff_jwt, CredentialClass, StaffClaims, STAFF_SESSION_COOKIE_NAME,
     };
     use crate::state::AppState;
+    use axum::Extension;
 
     const TEST_SECRET: &str = "test-secret-key-for-unit-tests-only";
 
@@ -95,6 +96,43 @@ mod tests {
         let app = test_router(state);
         let resp = app.oneshot(make_request(Some(&token))).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Phase 1.5 §S-146 Q4 (Option Z) — `require_staff_jwt` must inject
+    /// `CredentialClass::StaffJwt` into request extensions alongside the
+    /// existing `StaffClaims` so downstream handlers can read credential
+    /// class via `Extension<CredentialClass>` instead of header inference.
+    ///
+    /// Test method: build a router whose handler reads
+    /// `Extension<CredentialClass>` and reports it back in the response
+    /// body. Valid JWT → handler sees the extension and responds 200 with
+    /// the class name. Missing extension → 500 (debug surface — should not
+    /// occur on a route gated by `require_staff_jwt`).
+    #[tokio::test]
+    async fn middleware_injects_credential_class_staff_jwt() {
+        let state = test_state().await;
+
+        async fn echo_credential_class(
+            Extension(class): Extension<CredentialClass>,
+        ) -> &'static str {
+            match class {
+                CredentialClass::StaffJwt => "staff-jwt",
+                CredentialClass::ServiceKey => "service-key",
+                CredentialClass::AutoScheduler => "internal-caller",
+            }
+        }
+
+        let app = Router::new()
+            .route("/test", get(echo_credential_class))
+            .layer(from_fn_with_state(state.clone(), require_staff_jwt))
+            .with_state(state);
+
+        let token = create_staff_jwt_with_role(TEST_SECRET, "staff_1", "cashier", 24).unwrap();
+        let resp = app.oneshot(make_request(Some(&token))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(resp.into_body(), 64).await.unwrap();
+        assert_eq!(&body_bytes[..], b"staff-jwt");
     }
 
     #[tokio::test]

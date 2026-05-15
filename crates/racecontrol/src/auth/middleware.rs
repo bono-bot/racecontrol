@@ -59,6 +59,44 @@ impl StaffClaims {
     }
 }
 
+// ─── Credential class (V2 extension-pattern auth) ─────────────────────────
+
+/// Identifies the authentication path a request arrived through.
+///
+/// Inserted into request `Extensions` by the appropriate `require_*`
+/// middleware. Handlers downstream MUST read auth class from this extension
+/// rather than inferring it from raw headers (V1 anti-pattern: "auth-via-grep").
+///
+/// MMA Step 1 Q4 ratified (Option Z: middleware + first-consumer pattern,
+/// 2-of-3 consensus; qwen dissent dispositioned):
+/// - Phase 1.5: `StaffJwt` injected by `require_staff_jwt`. First consumer is
+///   `api::billing_finalize::finalize_handler`.
+/// - Forward-compat: `ServiceKey` reserved for a sibling `require_service_key`
+///   middleware that adds the service-key path for rc-agent and
+///   auto-scheduler-class routes (separate PR scope per §S-146 RCA §5).
+///
+/// Required mitigation (anthropic Risk #1): a tracking issue must enumerate
+/// all current `Authorization` header readers in the codebase with a 30-day
+/// migration deadline. Initial seed is attached to the Phase 1.5 PR
+/// description (grep `req.headers().get("authorization")` +
+/// `headers.get("Authorization")` over `crates/racecontrol/src/`).
+///
+/// Forward-compat for unknown variants: per Q3 ratify on `verify_outcome`
+/// enum-vocabulary lock-in, clients reading this enum on the wire MUST treat
+/// unknown variants as the safest equivalent. This enum is currently internal
+/// (request-scoped), so on-wire forward-compat is not yet required.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialClass {
+    /// Bearer JWT signed by `[auth].jwt_secret`, decoded into `StaffClaims`.
+    StaffJwt,
+    /// Service-key path (Phase 1.5+) — `x-service-key` header matches
+    /// `[pods].sentry_service_key`. Used by rc-agent + auto-scheduler routes.
+    ServiceKey,
+    /// Internal auto-scheduler caller — reserved for future
+    /// `require_internal_caller` middleware. Not yet wired in Phase 1.5.
+    AutoScheduler,
+}
+
 // ─── Token extraction helper ──────────────────────────────────────────────
 
 /// V2 row 7.6 cookie-auth substrate — session cookie name (Phase 1).
@@ -209,6 +247,13 @@ pub async fn require_staff_jwt(
     match extract_staff_claims(&state, &temp_req) {
         Ok(claims) => {
             parts.extensions.insert(claims);
+            // V2 extension-pattern auth — Phase 1.5 §S-146 Q4 (Option Z): inject
+            // CredentialClass alongside StaffClaims so downstream handlers can
+            // read the credential class via Extension<CredentialClass> instead
+            // of inferring it from raw Authorization-header prefix (V1
+            // anti-pattern: "auth-via-grep"). First consumer is
+            // `api::billing_finalize::finalize_handler`.
+            parts.extensions.insert(CredentialClass::StaffJwt);
             let req = Request::from_parts(parts, body);
             Ok(next.run(req).await)
         }
