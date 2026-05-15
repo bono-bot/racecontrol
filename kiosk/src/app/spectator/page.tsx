@@ -42,6 +42,14 @@ function prettyName(raw: string): string {
     .trim();
 }
 
+// TODO: V2 substrate ambiguity — game-brand badges (F1 red, ACR orange, ACE teal,
+//   FH5 yellow, AC green, iR purple, LMU/ACC blue, FRZ amber, default zinc) use
+//   Tailwind defaults because the V2 substrate defines only rp-red/green/yellow/purple
+//   plus neutrals. Collapsing 9 distinct game identifiers into the 4 substrate hues
+//   would lose UX information density (drivers visually identify their sim by badge
+//   color at a glance). Brand-color tokens are out of scope for the kiosk substrate
+//   and arguably belong to a separate "game brands" registry. Kept as Tailwind
+//   defaults pending substrate decision.
 function gameLabel(simType: string): { label: string; color: string } {
   const s = (simType || "").toLowerCase();
   if (s.includes("f1") || s === "f1_25" || s === "f1_24") return { label: "F1", color: "bg-red-600" };
@@ -288,7 +296,7 @@ function Speedometer({ speed, maxSpeed = 350 }: { speed: number; maxSpeed?: numb
       <path
         d={describeArc(startAngle, endAngle)}
         fill="none"
-        stroke="#333333"
+        stroke="var(--rp-border)"
         strokeWidth={strokeWidth}
         strokeLinecap="round"
       />
@@ -297,7 +305,7 @@ function Speedometer({ speed, maxSpeed = 350 }: { speed: number; maxSpeed?: numb
         <path
           d={describeArc(startAngle, activeAngle)}
           fill="none"
-          stroke="#E10600"
+          stroke="var(--rp-red)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />
@@ -319,7 +327,7 @@ function Speedometer({ speed, maxSpeed = 350 }: { speed: number; maxSpeed?: numb
         y={cy + 22}
         textAnchor="middle"
         dominantBaseline="central"
-        className="fill-[#5A5A5A]"
+        className="fill-rp-grey"
         fontSize="11"
       >
         km/h
@@ -338,17 +346,17 @@ function RPMBar({ rpm, maxRpm = 9000 }: { rpm: number; maxRpm?: number }) {
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wider text-[#5A5A5A]">RPM</span>
+        <span className="text-[10px] uppercase tracking-wider text-rp-grey">RPM</span>
         <span className="font-[family-name:var(--font-mono-jb)] text-sm text-white">{Math.round(rpm)}</span>
       </div>
       <div className="flex gap-[2px]">
         {Array.from({ length: segments }, (_, i) => {
           const segFraction = i / segments;
-          let color = "#333333"; // inactive
+          let color = "var(--rp-border)"; // inactive
           if (i < activeSegments) {
-            if (segFraction < 0.6) color = "#16a34a";
-            else if (segFraction < 0.8) color = "#ca8a04";
-            else color = "#E10600";
+            if (segFraction < 0.6) color = "var(--rp-green)";
+            else if (segFraction < 0.8) color = "var(--rp-yellow)";
+            else color = "var(--rp-red)";
           }
           return (
             <div
@@ -369,8 +377,8 @@ function GearBox({ gear }: { gear: number }) {
   const label = gear === 0 ? "N" : gear === -1 ? "R" : `${gear}`;
   return (
     <div className="flex flex-col items-center gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-[#5A5A5A]">Gear</span>
-      <div className="w-14 h-14 rounded-lg border-2 border-[#E10600] flex items-center justify-center bg-[#1A1A1A]">
+      <span className="text-[10px] uppercase tracking-wider text-rp-grey">Gear</span>
+      <div className="w-14 h-14 rounded-lg border-2 border-rp-red flex items-center justify-center bg-rp-black">
         <span className="text-3xl font-bold font-[family-name:var(--font-mono-jb)] text-white">
           {label}
         </span>
@@ -414,24 +422,24 @@ function InputTrace({ history }: { history: TracePoint[] }) {
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] uppercase tracking-wider text-[#5A5A5A]">Inputs (10s Trace)</span>
+        <span className="text-[10px] uppercase tracking-wider text-rp-grey">Inputs (10s Trace)</span>
         <div className="flex gap-3 text-[10px]">
-          <span className="text-green-500">THR</span>
-          <span className="text-red-500">BRK</span>
+          <span className="text-rp-green">THR</span>
+          <span className="text-rp-red">BRK</span>
         </div>
       </div>
       {/* Trace bars */}
-      <div className="relative h-20 bg-[#1A1A1A] rounded-lg overflow-hidden flex">
+      <div className="relative h-20 bg-rp-black rounded-lg overflow-hidden flex">
         {slices.map((s, i) => (
           <div key={i} className="flex-1 relative">
             {/* Throttle bar from bottom */}
             <div
-              className="absolute bottom-0 left-0 right-[1px] bg-green-500/60 transition-all duration-75"
+              className="absolute bottom-0 left-0 right-[1px] bg-rp-green/60 transition-all duration-75"
               style={{ height: `${s.throttle * 100}%` }}
             />
             {/* Brake bar from bottom, overlapping */}
             <div
-              className="absolute bottom-0 left-0 right-[1px] bg-red-500/60 transition-all duration-75"
+              className="absolute bottom-0 left-0 right-[1px] bg-rp-red/60 transition-all duration-75"
               style={{ height: `${s.brake * 100}%` }}
             />
           </div>
@@ -440,26 +448,26 @@ function InputTrace({ history }: { history: TracePoint[] }) {
       {/* Current percentage bars */}
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-green-500 w-6">THR</span>
-          <div className="flex-1 h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+          <span className="text-[10px] text-rp-green w-6">THR</span>
+          <div className="flex-1 h-2 bg-rp-black rounded-full overflow-hidden">
             <div
-              className="h-full bg-green-500 rounded-full transition-all duration-100"
+              className="h-full bg-rp-green rounded-full transition-all duration-100"
               style={{ width: `${currentThrottle * 100}%` }}
             />
           </div>
-          <span className="text-[10px] font-[family-name:var(--font-mono-jb)] text-green-500 w-8 text-right">
+          <span className="text-[10px] font-[family-name:var(--font-mono-jb)] text-rp-green w-8 text-right">
             {Math.round(currentThrottle * 100)}%
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-red-500 w-6">BRK</span>
-          <div className="flex-1 h-2 bg-[#1A1A1A] rounded-full overflow-hidden">
+          <span className="text-[10px] text-rp-red w-6">BRK</span>
+          <div className="flex-1 h-2 bg-rp-black rounded-full overflow-hidden">
             <div
-              className="h-full bg-red-500 rounded-full transition-all duration-100"
+              className="h-full bg-rp-red rounded-full transition-all duration-100"
               style={{ width: `${currentBrake * 100}%` }}
             />
           </div>
-          <span className="text-[10px] font-[family-name:var(--font-mono-jb)] text-red-500 w-8 text-right">
+          <span className="text-[10px] font-[family-name:var(--font-mono-jb)] text-rp-red w-8 text-right">
             {Math.round(currentBrake * 100)}%
           </span>
         </div>
@@ -473,21 +481,21 @@ function InputTrace({ history }: { history: TracePoint[] }) {
 function StatusBadge({ status }: { status: "live" | "pit" | "idle" }) {
   if (status === "live") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-green-600/20 text-green-400 text-xs font-semibold">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-400 pulse-dot" />
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rp-green/20 text-rp-green text-xs font-semibold">
+        <span className="w-1.5 h-1.5 rounded-full bg-rp-green pulse-dot" />
         LIVE
       </span>
     );
   }
   if (status === "pit") {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-600/20 text-amber-400 text-xs font-semibold">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rp-yellow/20 text-rp-yellow text-xs font-semibold">
         PIT
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-700/30 text-zinc-500 text-xs font-semibold">
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rp-card text-rp-grey text-xs font-semibold">
       IDLE
     </span>
   );
@@ -508,13 +516,13 @@ function GameBadge({ simType }: { simType: string }) {
 
 function ActivityDot({ type }: { type: ActivityItem["type"] }) {
   const colors: Record<string, string> = {
-    fastest: "bg-purple-500",
-    joined: "bg-green-500",
-    pit: "bg-yellow-500",
-    disconnect: "bg-red-500",
-    lap: "bg-zinc-500",
+    fastest: "bg-rp-purple",
+    joined: "bg-rp-green",
+    pit: "bg-rp-yellow",
+    disconnect: "bg-rp-red",
+    lap: "bg-rp-grey",
   };
-  return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${colors[type] || "bg-zinc-500"}`} />;
+  return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${colors[type] || "bg-rp-grey"}`} />;
 }
 
 // ─── Telemetry Sidebar ────────────────────────────────────────────────────────
@@ -568,18 +576,18 @@ function TelemetrySidebar({
         />
       )}
 
-      <div className="h-full bg-[#1A1A1A] border-l border-[#333333] flex flex-col overflow-y-auto">
+      <div className="h-full bg-rp-black border-l border-rp-border flex flex-col overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#333333]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-rp-border">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#E10600] pulse-dot" />
+            <span className="w-2.5 h-2.5 rounded-full bg-rp-red pulse-dot" />
             <span className="text-sm font-bold uppercase tracking-wider font-[family-name:var(--font-display)]">
               Rig {rig.podNumber} — Telemetry
             </span>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-rp-grey hover:text-white hover:bg-rp-surface transition-colors"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -588,16 +596,16 @@ function TelemetrySidebar({
         </div>
 
         {/* Driver Info */}
-        <div className="px-5 py-4 border-b border-[#333333]">
+        <div className="px-5 py-4 border-b border-rp-border">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full border-2 border-[#E10600] bg-[#2A2A2A] flex items-center justify-center text-lg font-bold text-white">
+            <div className="w-12 h-12 rounded-full border-2 border-rp-red bg-rp-surface flex items-center justify-center text-lg font-bold text-white">
               {driverName.charAt(0).toUpperCase()}
             </div>
             <div>
               <p className="text-base font-bold text-white font-[family-name:var(--font-display)]">
                 {driverName}
               </p>
-              <p className="text-xs text-[#5A5A5A]">
+              <p className="text-xs text-rp-grey">
                 {gameName} &middot; {car}
               </p>
             </div>
@@ -605,12 +613,12 @@ function TelemetrySidebar({
         </div>
 
         {/* Speedometer */}
-        <div className="px-5 py-3 flex justify-center border-b border-[#333333]">
+        <div className="px-5 py-3 flex justify-center border-b border-rp-border">
           <Speedometer speed={speed} />
         </div>
 
         {/* RPM + Gear */}
-        <div className="px-5 py-3 border-b border-[#333333]">
+        <div className="px-5 py-3 border-b border-rp-border">
           <div className="flex items-end gap-4">
             <div className="flex-1">
               <RPMBar rpm={rpm} />
@@ -620,30 +628,30 @@ function TelemetrySidebar({
         </div>
 
         {/* Inputs Trace */}
-        <div className="px-5 py-3 border-b border-[#333333]">
+        <div className="px-5 py-3 border-b border-rp-border">
           <InputTrace history={traceHistory} />
         </div>
 
         {/* Session Timing */}
         <div className="px-5 py-4">
-          <span className="text-[10px] uppercase tracking-wider text-[#5A5A5A] block mb-3">Session Timing</span>
+          <span className="text-[10px] uppercase tracking-wider text-rp-grey block mb-3">Session Timing</span>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Current Lap</span>
+              <span className="text-xs text-rp-grey">Current Lap</span>
               <span className="font-[family-name:var(--font-mono-jb)] text-sm text-white">
                 {currentLapMs > 0 ? formatLapTime(currentLapMs) : "--:--.---"}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Last Lap</span>
+              <span className="text-xs text-rp-grey">Last Lap</span>
               <span className="font-[family-name:var(--font-mono-jb)] text-sm text-white">
                 {lastLapMs > 0 ? formatLapTime(lastLapMs) : "--:--.---"}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Best Lap</span>
+              <span className="text-xs text-rp-grey">Best Lap</span>
               <span className={`font-[family-name:var(--font-mono-jb)] text-sm font-bold ${
-                bestIsOverall ? "text-purple-400" : bestLapMs > 0 ? "text-green-400" : "text-white"
+                bestIsOverall ? "text-rp-purple" : bestLapMs > 0 ? "text-rp-green" : "text-white"
               }`}>
                 {bestLapMs > 0 ? formatLapTime(bestLapMs) : "--:--.---"}
               </span>
@@ -805,15 +813,15 @@ export default function SpectatorMode() {
   ];
 
   return (
-    <div className="h-screen flex flex-col bg-[#230f0f] text-white overflow-hidden font-[family-name:var(--font-display)]">
+    <div className="h-screen flex flex-col bg-rp-black text-white overflow-hidden font-[family-name:var(--font-display)]">
       {/* ── Header ────────────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-[#333333] bg-[#1A1A1A] flex-shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 border-b border-rp-border bg-rp-black flex-shrink-0">
         {/* Left: Title + Timer */}
         <div className="flex items-center gap-5">
           <h1 className="text-lg font-bold tracking-[0.15em] uppercase">
             RacingPoint Race Control
           </h1>
-          <span className="font-[family-name:var(--font-mono-jb)] text-lg font-bold text-[#E10600] tabular-nums">
+          <span className="font-[family-name:var(--font-mono-jb)] text-lg font-bold text-rp-red tabular-nums">
             {formatSessionTimer(sessionSeconds)}
           </span>
         </div>
@@ -826,8 +834,8 @@ export default function SpectatorMode() {
               onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${
                 activeTab === tab.key
-                  ? "bg-[#E10600] text-white"
-                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                  ? "bg-rp-red text-white"
+                  : "text-rp-grey hover:text-white hover:bg-rp-surface/50"
               }`}
             >
               {tab.label}
@@ -842,8 +850,8 @@ export default function SpectatorMode() {
             onClick={toggleCamera}
             className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors ${
               cameraEnabled
-                ? "bg-[#E10600] text-white"
-                : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+                ? "bg-rp-red text-white"
+                : "bg-rp-surface text-rp-grey hover:text-white"
             }`}
           >
             CAM {cameraEnabled ? "ON" : "OFF"}
@@ -853,7 +861,7 @@ export default function SpectatorMode() {
             <select
               value={cameraMode}
               onChange={(e) => changeCameraMode(e.target.value)}
-              className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-zinc-800 text-zinc-400 hover:text-white rounded-lg border border-zinc-700 outline-none cursor-pointer"
+              className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-rp-surface text-rp-grey hover:text-white rounded-lg border border-rp-border outline-none cursor-pointer"
             >
               {cameraModes.map((m) => (
                 <option key={m.key} value={m.key}>
@@ -864,7 +872,7 @@ export default function SpectatorMode() {
           )}
 
           {/* End Session */}
-          <button className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider bg-zinc-800 text-[#E10600] border border-[#E10600]/30 hover:bg-[#E10600] hover:text-white rounded-lg transition-colors">
+          <button className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider bg-rp-surface text-rp-red border border-rp-red/30 hover:bg-rp-red hover:text-white rounded-lg transition-colors">
             End Session
           </button>
         </div>
@@ -881,22 +889,22 @@ export default function SpectatorMode() {
         <div className="flex-[65] flex flex-col overflow-hidden">
           <div className="flex-1 p-5 overflow-auto">
             {/* Live Timing Table */}
-            <div className="rounded-xl border border-[#333333] overflow-hidden">
+            <div className="rounded-xl border border-rp-border overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-[50px_1fr_80px_60px_120px_120px_100px_90px] gap-2 px-4 py-3 bg-[#E10600]/10 border-b border-[#333333]">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-center">Pos</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A]">Driver / Rig</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-center">Game</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-center">Lap</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-right">Last Lap</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-right">Best Lap</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-right">Gap</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] text-center">Status</span>
+              <div className="grid grid-cols-[50px_1fr_80px_60px_120px_120px_100px_90px] gap-2 px-4 py-3 bg-rp-red/10 border-b border-rp-border">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-center">Pos</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey">Driver / Rig</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-center">Game</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-center">Lap</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-right">Last Lap</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-right">Best Lap</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-right">Gap</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-rp-grey text-center">Status</span>
               </div>
 
               {/* Table Rows */}
               {rigRows.length === 0 ? (
-                <div className="px-4 py-8 text-center text-zinc-600 text-sm">
+                <div className="px-4 py-8 text-center text-rp-grey text-sm">
                   Waiting for pods to connect...
                 </div>
               ) : (
@@ -906,13 +914,13 @@ export default function SpectatorMode() {
                     <button
                       key={rig.podId}
                       onClick={() => openRigTelemetry(rig.podId)}
-                      className={`w-full grid grid-cols-[50px_1fr_80px_60px_120px_120px_100px_90px] gap-2 px-4 py-2.5 border-b border-[#333333]/50 text-left transition-colors hover:bg-white/5 cursor-pointer ${
+                      className={`w-full grid grid-cols-[50px_1fr_80px_60px_120px_120px_100px_90px] gap-2 px-4 py-2.5 border-b border-rp-border/50 text-left transition-colors hover:bg-white/5 cursor-pointer ${
                         isIdle ? "opacity-40" : ""
                       } ${selectedPodId === rig.podId && sidebarOpen ? "bg-white/5" : ""}`}
                     >
                       {/* Position */}
                       <span className={`text-center font-[family-name:var(--font-mono-jb)] text-sm font-bold ${
-                        !isIdle && i === 0 ? "text-[#E10600]" : "text-zinc-400"
+                        !isIdle && i === 0 ? "text-rp-red" : "text-rp-grey"
                       }`}>
                         {isIdle ? "-" : i + 1}
                       </span>
@@ -922,39 +930,39 @@ export default function SpectatorMode() {
                         <p className="text-sm font-semibold text-white truncate">
                           {rig.driverName || `Rig ${rig.podNumber}`}
                         </p>
-                        <p className="text-[10px] text-zinc-500">
+                        <p className="text-[10px] text-rp-grey">
                           Rig {rig.podNumber}
                         </p>
                       </div>
 
                       {/* Game */}
                       <div className="flex items-center justify-center">
-                        {rig.simType ? <GameBadge simType={rig.simType} /> : <span className="text-zinc-600">---</span>}
+                        {rig.simType ? <GameBadge simType={rig.simType} /> : <span className="text-rp-grey">---</span>}
                       </div>
 
                       {/* Lap */}
-                      <span className="text-center font-[family-name:var(--font-mono-jb)] text-sm text-zinc-300">
+                      <span className="text-center font-[family-name:var(--font-mono-jb)] text-sm text-white">
                         {rig.lapNumber > 0 ? rig.lapNumber : "-"}
                       </span>
 
                       {/* Last Lap */}
-                      <span className="text-right font-[family-name:var(--font-mono-jb)] text-sm text-zinc-300">
+                      <span className="text-right font-[family-name:var(--font-mono-jb)] text-sm text-white">
                         {rig.lastLapMs > 0 ? formatLapTime(rig.lastLapMs) : "--:--.---"}
                       </span>
 
                       {/* Best Lap */}
                       <span className={`text-right font-[family-name:var(--font-mono-jb)] text-sm font-bold ${
                         rig.isOverallBest
-                          ? "text-purple-400"
+                          ? "text-rp-purple"
                           : rig.isPersonalBest
-                          ? "text-green-400"
-                          : "text-zinc-300"
+                          ? "text-rp-green"
+                          : "text-white"
                       }`}>
                         {rig.bestLapMs > 0 ? formatLapTime(rig.bestLapMs) : "--:--.---"}
                       </span>
 
                       {/* Gap */}
-                      <span className="text-right font-[family-name:var(--font-mono-jb)] text-xs text-zinc-500">
+                      <span className="text-right font-[family-name:var(--font-mono-jb)] text-xs text-rp-grey">
                         {rig.gapMs > 0 ? formatGap(rig.gapMs) : (rig.bestLapMs > 0 && i === 0 ? "LEADER" : "")}
                       </span>
 
@@ -971,51 +979,51 @@ export default function SpectatorMode() {
         </div>
 
         {/* Right Section: Stats Sidebar (35%) */}
-        <div className="flex-[35] border-l border-[#333333] flex flex-col overflow-hidden bg-[#1A1A1A]/50">
+        <div className="flex-[35] border-l border-rp-border flex flex-col overflow-hidden bg-rp-black/50">
           <div className="flex-1 p-5 overflow-auto space-y-4">
             {/* Active Rigs Card */}
-            <div className="rounded-xl border border-[#333333] bg-[#2A2A2A] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] mb-1">Active Rigs</p>
+            <div className="rounded-xl border border-rp-border bg-rp-surface p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-rp-grey mb-1">Active Rigs</p>
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold font-[family-name:var(--font-mono-jb)] text-[#E10600]">
+                <span className="text-4xl font-bold font-[family-name:var(--font-mono-jb)] text-rp-red">
                   {activePodCount}
                 </span>
-                <span className="text-lg text-zinc-500 font-[family-name:var(--font-mono-jb)]">
+                <span className="text-lg text-rp-grey font-[family-name:var(--font-mono-jb)]">
                   / {pods.size}
                 </span>
               </div>
             </div>
 
             {/* Total Laps Card */}
-            <div className="rounded-xl border border-[#333333] bg-[#2A2A2A] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] mb-1">Total Laps</p>
+            <div className="rounded-xl border border-rp-border bg-rp-surface p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-rp-grey mb-1">Total Laps</p>
               <span className="text-4xl font-bold font-[family-name:var(--font-mono-jb)] text-white">
                 {totalLaps}
               </span>
             </div>
 
             {/* Fastest Lap Overall Card */}
-            <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-purple-400 mb-2">Fastest Lap Overall</p>
+            <div className="rounded-xl border border-rp-purple/30 bg-rp-purple/10 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-rp-purple mb-2">Fastest Lap Overall</p>
               {fastestLapInfo ? (
                 <>
                   <span className="text-3xl font-bold font-[family-name:var(--font-mono-jb)] text-white block mb-1">
                     {formatLapTime(fastestLapInfo.lapTimeMs)}
                   </span>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs text-rp-grey">
                     {fastestLapInfo.driverName} &middot; {prettyName(fastestLapInfo.car)}
                   </p>
                 </>
               ) : (
-                <span className="text-lg text-zinc-600 font-[family-name:var(--font-mono-jb)]">--:--.---</span>
+                <span className="text-lg text-rp-grey font-[family-name:var(--font-mono-jb)]">--:--.---</span>
               )}
             </div>
 
             {/* Recent Activity Feed */}
-            <div className="rounded-xl border border-[#333333] bg-[#2A2A2A] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#5A5A5A] mb-3">Recent Activity</p>
+            <div className="rounded-xl border border-rp-border bg-rp-surface p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-rp-grey mb-3">Recent Activity</p>
               {activityFeed.length === 0 ? (
-                <p className="text-xs text-zinc-600">No activity yet...</p>
+                <p className="text-xs text-rp-grey">No activity yet...</p>
               ) : (
                 <div className="space-y-2">
                   {activityFeed.slice(0, 10).map((item) => (
@@ -1023,12 +1031,12 @@ export default function SpectatorMode() {
                       {/* Timeline dot */}
                       <div className="flex flex-col items-center mt-1.5">
                         <ActivityDot type={item.type} />
-                        <div className="w-px h-3 bg-[#333333] mt-1" />
+                        <div className="w-px h-3 bg-rp-border mt-1" />
                       </div>
                       {/* Content */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-zinc-300 truncate">{item.text}</p>
-                        <p className="text-[10px] text-zinc-600">{item.time}</p>
+                        <p className="text-xs text-white truncate">{item.text}</p>
+                        <p className="text-[10px] text-rp-grey">{item.time}</p>
                       </div>
                     </div>
                   ))}
@@ -1054,12 +1062,12 @@ export default function SpectatorMode() {
 
       {/* ── Camera Focus Bar ──────────────────────────────────────────── */}
       {cameraEnabled && cameraFocus && cameraFocus.pod_id && (
-        <div className="flex items-center justify-center gap-3 px-8 py-1.5 bg-[#E10600]/10 border-t border-[#E10600]/30 flex-shrink-0">
-          <div className="w-2 h-2 bg-[#E10600] rounded-full pulse-dot" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-[#E10600]">
+        <div className="flex items-center justify-center gap-3 px-8 py-1.5 bg-rp-red/10 border-t border-rp-red/30 flex-shrink-0">
+          <div className="w-2 h-2 bg-rp-red rounded-full pulse-dot" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-rp-red">
             Camera: {cameraFocus.driver_name}
           </span>
-          <span className="text-[10px] text-[#5A5A5A] uppercase">
+          <span className="text-[10px] text-rp-grey uppercase">
             {cameraFocus.reason.replace("_", " ")}
           </span>
         </div>
@@ -1067,7 +1075,7 @@ export default function SpectatorMode() {
 
       {/* ── Connection Lost Overlay ────────────────────────────────────── */}
       {!connected && (
-        <div className="absolute bottom-0 left-0 right-0 bg-[#E10600]/90 text-white text-center py-2 text-sm font-semibold tracking-wider uppercase">
+        <div className="absolute bottom-0 left-0 right-0 bg-rp-red/90 text-white text-center py-2 text-sm font-semibold tracking-wider uppercase">
           Reconnecting to RaceControl...
         </div>
       )}
