@@ -94,6 +94,7 @@ export function BrandLogo({
         className="select-none object-contain block"
         style={{ height: heightPx, width: widthPx }}
       />
+      {alt ? <span className="sr-only">{alt}</span> : null}
       {subtitle ? (
         <span
           className={`text-rp-grey uppercase font-semibold ${SUBTITLE_CLASS[size]}`}
