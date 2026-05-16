@@ -101,7 +101,7 @@ export function RacingHUD({ telemetry, billing, recentLaps = [] }: RacingHUDProp
           {/* Lap number */}
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm text-zinc-500 font-mono uppercase">Lap</span>
-            <span className="text-3xl font-bold text-white tabular-nums" style={{ fontFamily: "var(--font-display, 'Orbitron'), sans-serif" }}>
+            <span className="text-3xl font-bold text-white tabular-nums" style={{ fontFamily: "var(--font-display, 'Chakra Petch'), sans-serif" }}>
               {telemetry.lap_number}
             </span>
           </div>
@@ -143,14 +143,14 @@ export function RacingHUD({ telemetry, billing, recentLaps = [] }: RacingHUDProp
           <div className="flex items-baseline gap-2">
             <span
               className="text-[68px] font-black text-white leading-none tabular-nums"
-              style={{ fontFamily: "var(--font-display, 'Orbitron'), sans-serif" }}
+              style={{ fontFamily: "var(--font-display, 'Chakra Petch'), sans-serif" }}
             >
               {speed}
             </span>
             <div className="flex flex-col items-center">
               <span
                 className="text-3xl font-black text-white/80"
-                style={{ fontFamily: "var(--font-display, 'Orbitron'), sans-serif" }}
+                style={{ fontFamily: "var(--font-display, 'Chakra Petch'), sans-serif" }}
               >
                 {gear}
               </span>
