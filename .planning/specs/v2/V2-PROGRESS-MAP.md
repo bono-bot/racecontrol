@@ -820,6 +820,58 @@ STALE-DISPOSITIONED breakdown:
 
 ---
 
+## §13.6 — Layer 14.1: ZIP Design System Adoption Tracker
+
+**Source-of-truth:** `C:/Users/bono/Downloads/Racing Point eSports.zip` (Claude Code Design 2026-05-02) → `HANDOFF.md` + `tokens.jsx` are the canonical V2 design brief. This sub-section catalogs each ZIP design element vs deployed state. Sibling to §13.5 (cross-surface cohesion) — this is **canonical-design-vs-deployed gap** scope, narrower than §13.5's cross-surface scope.
+
+**Rationale (added 2026-05-16 IST):** Captain G9 #1 2026-05-16 16:37 IST verbatim *"C:\Users\bono\Downloads\Racing Point eSports.zip - We have not implemented this design theme?"* + 16:40 IST *"Find why we didn't implement this. Why did you forget about this?"*. §S-114 brand-theme ratify (2026-05-08) ratified ~5 of these 17 elements; the other ~12 were never tabled for ratify, never substrate-tracked, never implementation-PR'd. The drift was caught when james §S-390 deploy (2026-05-16 kiosk V2-theme migration via Emergent-E2 patches) shipped Orbitron font despite §S-114 canonicalising Chakra Petch — codebase-state-as-doctrinal-ratify projection class (see [[ratify-vs-implementation-substrate-split]] G9 #1). Existence of this tracker makes the 17-element gap measurable; closure of items is per-row Captain disposition.
+
+**Status sub-states (per §S-221 F3 framing):**
+- `OPEN` — no ratify · no code · no branch
+- `RATIFIED-NOT-IMPLEMENTED` — Captain ratify exists (§S-N) but code substrate missing/drifted (the §S-114 Chakra Petch class)
+- `IN-FLIGHT` — code work in progress on feature branch · PR open or pending
+- `DONE` — ratify + code substrate + deployed + behavior-verified per CLD Step 5
+- `SUPERSEDED` — ratify replaced by later §S-N decision (e.g. shadcn-ui ratified §S-114 then SUPERSEDED 2026-05-09)
+- `DRIFTED` — code implements X but ratify says Y (e.g. Orbitron-in-code vs Chakra-Petch-in-§S-114 from 2026-05-08 → 2026-05-16)
+- `DEFERRED` — Captain-dispositioned post-V2.0
+
+**Canonical pointers per row:** ZIP file paths cite tokens.jsx line numbers; code paths cite repo file:line.
+
+| # | Element | ZIP spec (canonical) | Code state (deployed) | §S-N ratify? | Status | Captain action |
+|---|---|---|---|---|---|---|
+| **Z.1** | Display font | `tokens.jsx:52` "Chakra Petch (Enthocentric stand-in)" | `globals.css:38` was Orbitron (`b8032c32` 2026-03-24) · **flipped to Chakra Petch this session via §S-114 ratify honor** | §S-114 ✓ | **IN-FLIGHT** (PR pending) | Merge PR `style/chakra-petch-honor-s114-ratify` |
+| Z.2 | Body font: Montserrat | `tokens.jsx:53` | `layout.tsx:8` `next/font/google` Montserrat loaded | §S-114 ✓ (implicit) | **DONE** | none |
+| Z.3 | Mono font: JetBrains Mono | `tokens.jsx:54` | `layout.tsx:20` JetBrains_Mono loaded · `--font-mono-jb` exposed | §S-114 implicit | **DONE** | none |
+| Z.4 | Surface stack (6 levels: asphalt #0D0D0D → base #1A1A1A → card #1C1C1C → cardHi #262626 → border #2A2A2A → borderHi #3A3A3A) | `tokens.jsx:11-17` | `tokens.css` has 4: black/card/surface/border with **different shades** | OPEN | **DRIFTED** | Captain ratify 6-level vs re-ratify 4-level |
+| Z.5 | Ink scale (ink #F2F2F2 / inkDim #A8A8A8 / gunmetal #5A5A5A / inkFaint #3F3F3F) | `tokens.jsx:20-23` | only `--rp-grey #5A5A5A` (gunmetal level) | OPEN | **OPEN** | Adopt 4-level scale OR defer |
+| Z.6 | Semantic green `#00D26A` | `tokens.jsx:26` | `--rp-green #16a34a` (Tailwind-default muted) | OPEN | **DRIFTED** | Captain ratify ZIP shade vs current |
+| Z.7 | Semantic amber `#FFB000` | `tokens.jsx:28` | `--rp-yellow #ca8a04` (darker, renamed) | OPEN | **DRIFTED** | Captain ratify ZIP shade vs current |
+| Z.8 | Semantic blue `#3B82F6` (info / link / API layer) | `tokens.jsx:31` | none | OPEN | **OPEN** | Adopt as `--rp-blue` |
+| Z.9 | Telemetry channel palette (trThrottle #00D26A / trBrake #E10600 / trSpeed #FFB000 / trGhost #888 / trSelf #FFF) | `tokens.jsx:34-38` | none | OPEN | **OPEN** | Adopt when telemetry HUD lands (Wave 4 MI Ingestion) |
+| Z.10 | Driver class palette (Rookie #5A5A5A / Apex #FFB000 / Podium #00D26A / Champion #E10600) | `tokens.jsx:41-44` | none | OPEN | **OPEN** | Adopt when driver-class progression UI lands |
+| Z.11 | Type scale (12 levels: displayXL 64px → mono 13px · letter-spacing + line-height + uppercase rules per level) | `tokens.jsx:64-83` | Tailwind defaults | OPEN | **OPEN** | Author tailwind config extension OR defer |
+| Z.12 | Spacing scale (12-step 4px-base · 0/4/8/12/16/20/24/32/40/48/64/80) | `tokens.jsx:49` | Tailwind defaults (compatible but not RP-named) | OPEN | **OPEN** | Defer (Tailwind default already 4px-base; low-impact) |
+| Z.13 | Radius tokens (sm 2px / md 4px / lg 6px / pill 999) | `tokens.jsx:56-60` | none (Tailwind defaults vary) | OPEN | **OPEN** | Adopt as design-tokens |
+| Z.14 | Elevation system (flat / card / dialog / glow with explicit recipes) | `tokens.jsx:87-90` | none | OPEN | **OPEN** | Adopt as design-tokens |
+| Z.15 | Motion tokens (fast 150ms / std 250ms / slow 400ms + cubic-bezier curves) | `tokens.jsx:94-99` | Tailwind transition utilities only | OPEN | **OPEN** | Adopt as design-tokens |
+| Z.16 | Component library (ActionButton / Panel / StatusDot / StatusTile / Icon / FlagSwitch / PodCard) per HANDOFF §3 shadcn-ui mapping | `components.jsx` + HANDOFF.md §3 | BrandLogo + KioskHeader + StaffLoginScreen (different shapes, no library) | §S-114 ratified shadcn-ui then **SUPERSEDED 2026-05-09** | **SUPERSEDED** (shadcn-ui path) | Captain re-ratify component library WITHOUT shadcn-ui |
+| Z.17 | shadcn-ui integration | HANDOFF.md §3 component-mapping target | none | §S-114 ratified then Captain LOCK 2026-05-09 NO shadcn | **SUPERSEDED** | Honor LOCK — no shadcn (closed) |
+| Z.18 | Logo asset (`racing-point-logo-light.png` 50,475 bytes) | ZIP `assets/racing-point-logo-light.png` | `kiosk/public/brand/racing-point-logo-light.png` (byte-for-byte identical) + `<BrandLogo />` component | §S-114 implicit | **DONE** | none |
+| **A.1** | Architecture: "Single TypeScript codebase with FOUR runtime contexts (Admin/POS/Kiosk/PWA) sharing one design system, one auth, one event bus" | HANDOFF.md §1 | Four SEPARATE codebases (racecontrol/kiosk + racingpoint-admin + PR #69 PWA + POS-via-kiosk) | OPEN | **OPEN** | Architectural — major scope decision (post-V2.0?) |
+| A.2 | Feature flag system as spine (Postgres+Redis · SSE sub-500ms · 4-layer audit colors · Flag Hub UI · 30s rollback) | HANDOFF.md §4 | v22.0 feature flags exist but architecture differs · no Flag Hub UI | OPEN | **OPEN** | Captain disposition: implement ZIP spine vs keep v22.0 |
+| A.3 | Routing map per HANDOFF §6 (`/admin/cockpit`, `/admin/pods`, `/admin/customers`, `/admin/settings/flags`, `/pos/lookup`, `/pwa/laps/compare`, `/pwa/class`) | HANDOFF.md §6 | Different routing in kiosk (no /admin/cockpit, etc.) | OPEN | **OPEN** | Captain re-route OR defer |
+| A.4 | Tech stack: "Vite + React 18 + TypeScript + Tailwind + shadcn-ui" | HANDOFF.md preamble | Next.js 16 + React + TypeScript + Tailwind (NO Vite, NO shadcn-ui) | OPEN | **SUPERSEDED** (Next.js chosen instead of Vite; shadcn LOCK NO 2026-05-09) | Re-ratify the stack drift via §S-N |
+
+**Layer 14.1 totals: 21 items · 3 DONE · 1 IN-FLIGHT (today PR) · 3 DRIFTED · 3 SUPERSEDED · 11 OPEN.** Closure rate at birth: 3/21 = 14% (corrected from prior session-message estimate "~5%" which projected from a smaller catalog).
+
+**Composes-with:** §S-114 brand-theme ratify (anchor for Z.1-Z.3) · §S-390 v2-migration-export adoption (anchor for Z.18 BrandLogo deployment) · §13.5 Layer 14 (sibling — cross-surface scope) · [[ratify-vs-implementation-substrate-split]] G9 #1 (this section's authoring trigger) · racecontrol/CLAUDE.md Brand Identity (canonical color/font pointers) · `comms-link/v2-skeleton/10-ui-design-system.md` (Captain-ratified V2 design substrate spec — supplementary canonical).
+
+**Anchor:** Captain G9 #1 dispatch 2026-05-16 16:53 IST verbatim *"Flip kiosk globals.css:38 Orbitron → Chakra Petch, honor §S-114 ratify. Catalog the other 16 elements as V2-PROGRESS-MAP §13 ZIP Adoption Tracker."* (this section + concurrent feature branch `style/chakra-petch-honor-s114-ratify` execute the verb).
+
+**Stale-at:** 60d (2026-07-15). Per-row stale-at default = inherit parent. Row-level disposition refreshes counter.
+
+---
+
 ## §14 — Cross-layer leverage map (highest-impact closures)
 
 | Item | Closes count | Class | Captain action needed? |

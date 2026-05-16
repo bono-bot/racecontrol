@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Montserrat, Orbitron, JetBrains_Mono } from "next/font/google";
+import { Montserrat, Chakra_Petch, JetBrains_Mono } from "next/font/google";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/Toast";
 import { GameCatalogLoader } from "@/components/GameCatalogLoader";
@@ -11,10 +11,10 @@ const montserrat = Montserrat({
   weight: ["300", "400", "500", "600", "700"],
 });
 
-const orbitron = Orbitron({
+const chakraPetch = Chakra_Petch({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -36,7 +36,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${montserrat.variable} ${orbitron.variable} ${jetbrainsMono.variable} antialiased bg-rp-black text-white font-sans`}
+        className={`${montserrat.variable} ${chakraPetch.variable} ${jetbrainsMono.variable} antialiased bg-rp-black text-white font-sans`}
       >
         <ErrorBoundary>
           <ToastProvider>

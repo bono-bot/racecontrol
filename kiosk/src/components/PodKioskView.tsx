@@ -200,7 +200,7 @@ function IdleView({
               <h1
                 className="text-2xl font-bold text-white tracking-wide"
                 style={{
-                  fontFamily: "var(--font-display, 'Orbitron'), sans-serif",
+                  fontFamily: "var(--font-display, 'Chakra Petch'), sans-serif",
                 }}
               >
                 Select Experience
