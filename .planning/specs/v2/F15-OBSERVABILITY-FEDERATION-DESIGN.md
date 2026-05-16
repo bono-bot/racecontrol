@@ -163,4 +163,92 @@ Current v0.3.0 watches `RECONCILIATION DRIFT` event class. F15 extends:
 
 ---
 
+## §11 — bono-recommendations for Captain disposition (2026-05-16 ~10:45 IST)
+
+Authored post-/clear during V2-completion autonomous arc. Pure-design recommendations; Captain dispo selects → implementation PR can pre-commit on these inputs.
+
+### §11.1 — Q-F15-1 recommendation: **B (no stratum-label on `metric_alert_task_spawn_evidence`)**
+
+Cloud and venue emit this metric identically because it's a self-attestation of `tracing` EnvFilter health (§S-300 / §S-311 anchor). Adding a stratum-label would:
+
+- Increase metric cardinality 2x with no diagnostic differential (cloud/venue values are isomorphic by design)
+- **Mask EnvFilter regressions** — currently if cloud emits identically to venue, EnvFilter is verified-working on both. Stratum-label would let a future cloud-side regression hide behind "different stratum" framing
+- Violate §14.6.2.1 runtime-config-class doctrine spirit (stratification only where it serves observability, not for symmetry-aesthetic)
+
+**Alternative considered:** label only if cross-stratum drift detected (lazy-stratification). Rejected: adds metric-instability class (label appears/disappears mid-session).
+
+**Defer-revisit trigger:** cross-stratum debugging surfaces an actual need (forward-30d watch).
+
+### §11.2 — Q-F15-2 recommendation: **A (pure-observation v0.4.0 first · hook-enforce on N=2 anchor)**
+
+Follow §S-146 hook-install discipline strictly. Pure-observation v0.4.0:
+
+- Watchpoint emits JSONL events for 4 new sub-classes (`CLOUD_DB_OLDER_THAN_VENUE_BY_GT_300S` · `SCHEMA_VERSION_SKEW` · `PMRESTART_GT_3_PER_HOUR` · `DRIVE_OBJECT_MTIME_GT_900S`)
+- Zero runtime-blocking behavior · zero deploy-path interception
+- Empirically validates the 4 event sub-classes fire as designed across 30d before any hook-install consideration
+- N=2 hook-promotion criteria: 2 distinct in-the-wild incidents where post-mortem confirms a deploy-class action SHOULD have been blocked · then hook-install proposal authored
+
+**Empirical anchor for the discipline:** capability-claim-without-probe N=2 ACTIVE memory-only fix is still HELD-PENDING-N=3 per Captain 2026-05-14 ratify; same discipline applies here.
+
+**Forward path:** if N=2 anchors surface within 30d → propose `pre-cloud-deploy-schema-skew-gate.js` HOOK-INSTALL-BUNDLE with composite Captain auth.
+
+### §11.3 — Q-F15-3 recommendation: **A (separate PR · NOT in F15 milestone · defer to racecontrol/web team pickup)**
+
+Confirms §9 step 8 framing. Reasoning:
+
+- F15 backend is **self-contained** — emits structured fields (`observability_mode` top-level + `mode_emitted` per-subsystem); any dashboard can consume opportunistically
+- Front-end stratification is **operator-troubleshooting UX**, not customer-day blocker
+- racecontrol/web has its own milestone cadence; bolting front-end work onto a backend-class design contract risks scope-creep + cross-team coupling
+- §S-186 fast-lane NOT eligible (post-§S-146 date) → front-end PR would still face full §S-146 path · separate PR keeps RCA scope clean
+
+**Forward path:** racecontrol/web picks up after F15 backend ships + dashboards display raw stratum fields. Design doc for front-end stratification authored when web team has cycles.
+
+### §11.4 — Q-F15-4 recommendation: **C (emit `process_guard_violations` ONLY venue-side · NO mode_label)**
+
+Minimal-cardinality option. Cloud-mode skip-only is fundamental (no LAN pods to violate guard against). Reasoning:
+
+- Cloud-side `process_guard_violations: SKIPPED` is **redundant information** — dashboards can rely on "presence = venue-mode" since the metric is structurally venue-only
+- Symmetric labeling adds metric-storage cost + dashboard-query cost for no operator benefit
+- Anti-pattern from F15 §5 "Cloud-skip without cloud-emit": this metric is the **legitimate exception** because the underlying behavior (LAN pod allowlist enforcement) doesn't exist on cloud at all — not just "stratified differently"
+- Composes-with venue-only `cloud_sync_outbound` precedent (same structural rationale)
+
+**Future-proof note:** if cloud ever runs its own process-guard-class (against Bono VPS shell allowlist), THAT would be a NEW metric (`vps_shell_guard_violations`), not a stratum of the venue metric.
+
+### §11.5 — Cascade-order recommendation (RATIFY-PACK item U)
+
+**Tier 1 (mandatory first · single-PR · gates everything):**
+- **Step 1** — `get_observability_mode()` helper + unit test (5 LOC · ~30min · §S-146 full path · Class A-foundational-schema-billing-adjacent NO — pure observability scaffold, **NOT** billing-adjacent → reclassify to Class U audit-only OR Class Docs-equivalent · NO RESET per §14.6.2.1)
+
+**Tier 2 (parallel after Tier 1 · 3-4 independent PRs):**
+- **Step 6** — `/api/v1/health.observability_mode` top-level field (1-line · 5min · zero-risk · highest dashboard-convenience-per-LOC ratio)
+- **Step 2** — `fleet_connectivity` stratify with NO_LAN_PODS sentinel (resolves §S-383 visibility gap · highest current-state-confusion-reduction · ~2h · binary still emits cloud-skip path)
+- **Step 3** — `db_sync_lag` stratify with mode_label (~2h · informs schema-skew-watchpoint emit pattern downstream)
+- **Step 5** — `pm2_restart_count_24h` NEW cloud-only metric (~3h · audit-class scope · pm2 jlist shell-out)
+
+**Tier 3 (sequential after Tier 2):**
+- **Step 4** — `drive_pull_age_secs` NEW cloud-only metric (~3h · sync-status.json parsing · depends on Tier 2 emit-pattern conventions for cloud-only metric class)
+
+**Tier 4 (final · sequential after Tier 3):**
+- **Step 7** — Watchpoint v0.3.0 → v0.4.0 (~4h · 4 new RECONCILIATION DRIFT event sub-classes · depends on Step 4 source + Step 3 schema_version field landing)
+
+**Out of F15 scope (deferred):**
+- Step 8 — Front-end dashboard mode-stratification (separate PR · racecontrol/web team pickup · per §11.3 above)
+
+**Customer-priority ranking** (if forced to ship a subset):
+1. Step 1 (gates all) — foundation
+2. Step 2 (fleet_connectivity) — current-state confusion #1
+3. Step 6 (mode field) — 1-line tax · big dashboard value
+4. Step 7 (watchpoint v0.4.0) — forward-prevention §S-381→§S-385 class
+5. Step 3 (db_sync_lag stratify) — sustained dashboard utility
+6. Step 4 (drive_pull_age_secs) — cron-stall detection
+7. Step 5 (pm2_restart_count_24h) — audit-class · low-frequency-but-load-bearing-when-fires
+
+**Foundational-boundary §S-146 escalation note:** Steps 2 (fleet_connectivity touch) and Step 3 (db_sync_lag schema · billing-adjacent class indirectly via wallet-sync-status visibility) trip foundational-boundary on the existing classifier · each requires 5-section RCA + MMA Step 1 DIAGNOSE per §S-146. Step 1 / 4 / 5 / 6 / 7 are non-foundational (observability-scaffold class · cloud-only metric class · pm2 audit class · trivial field add · watchpoint emit-only extension).
+
+**MMA budget estimate (full implementation):** ~$3-4 if foundational scope DIAGNOSE applied to Tier 2 Steps 2+3 (OpenRouter 5-model · §14.1 MAOR Tier-1 batch per-cascade additional · ~$0.20-0.30 per cascade-class commit). Total F15 implementation MMA spend forecast: ~$5-6.
+
+**Time-to-ship estimate (sequential Tier 1→4 by one pilot):** ~16 working hours net code. Parallel-pilot Tier 2 execution can compress to ~10h wall-clock.
+
+---
+
 End of F15-OBSERVABILITY-FEDERATION-DESIGN v0.1.
