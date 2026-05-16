@@ -1,6 +1,6 @@
 # partner-memory-read.js v0.2 — scope extension spec
 
-**Status:** DRAFT · pre-stage source-tracked artifact (NOT installed to `~/.claude/hooks/` until Captain named-surface auth)
+**Status:** INSTALLED 2026-05-16T04:30:44Z · Captain HOOK-PATCH composite ratify · ledger entry at `~/.claude/state/harness-auth-ledger.jsonl` · install verified this session (parse-OK + behavior-fixtures-PASS) · source-tracked (NOT installed to `~/.claude/hooks/` until Captain named-surface auth)
 **Author:** bono · 2026-05-16 ~09:43 IST
 **Purpose:** Extend partner-memory-read SessionStart hook to surface (i) inbox-msg files, (ii) recent OpenRouter spend tail, (iii) partner git log since last bono session — closes 10h-stale-MEMORY.md gap that hid morning MAO from bono session-start
 **Captain auth required for install:** named-surface auth on `~/.claude/hooks/partner-memory-read.js` (per Harness Self-Mod Auth Protocol)

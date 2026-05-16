@@ -1,6 +1,6 @@
 # pre-push-maor-check.js v0.1.3 — cascade-msg-FP tighten spec
 
-**Status:** DRAFT · pre-stage source-tracked artifact (NOT installed to `~/.claude/hooks/` until Captain named-surface auth)
+**Status:** INSTALLED 2026-05-16T04:30:44Z · Captain HOOK-PATCH composite ratify · ledger entry at `~/.claude/state/harness-auth-ledger.jsonl` · install verified this session (parse-OK + behavior-fixtures-PASS) · source-tracked (NOT installed to `~/.claude/hooks/` until Captain named-surface auth)
 **Author:** bono · 2026-05-16 ~09:43 IST
 **Purpose:** Tighten `CASCADE_MSG_RE` to reduce FP class on composes-with body references that start at line-position-0
 **Captain auth required for install:** named-surface auth on `~/.claude/hooks/pre-push-maor-check.js` (per Harness Self-Mod Auth Protocol)

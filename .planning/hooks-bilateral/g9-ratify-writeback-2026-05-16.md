@@ -1,6 +1,6 @@
 # G9 ratify writeback paragraph — for ~/.claude/CLAUDE.md doctrine section
 
-**Status:** DRAFT · pre-stage source-tracked artifact (NOT applied to `~/.claude/CLAUDE.md` until Captain named-surface auth)
+**Status:** INSTALLED 2026-05-16T04:30:44Z · Captain HOOK-PATCH composite ratify · ledger entry at `~/.claude/state/harness-auth-ledger.jsonl` · install verified this session (parse-OK + behavior-fixtures-PASS) · source-tracked (NOT applied to `~/.claude/CLAUDE.md` until Captain named-surface auth)
 **Author:** bono · 2026-05-16 ~09:43 IST
 **Captain auth required for application:** named-surface auth on `~/.claude/CLAUDE.md` (per Harness Self-Mod Auth Protocol)
 
