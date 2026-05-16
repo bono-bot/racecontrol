@@ -20,6 +20,7 @@
   --rp-green:     #16a34a;   /* available / success */
   --rp-yellow:    #ca8a04;   /* warning / pending */
   --rp-purple:    #a855f7;   /* special / featured */
+  --rp-orange:    #f97316;   /* status orange — HTTP-only / partial. Distinct from DEPRECATED V1 #FF4400 */
 }
 
 @theme inline {
