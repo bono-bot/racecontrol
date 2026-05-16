@@ -1,6 +1,7 @@
 "use client";
 
 import { useKioskSocket } from "@/hooks/useKioskSocket";
+import { BrandLogo } from "@/components/BrandLogo";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { Lap, TelemetryFrame, BillingSession, Pod, GameLaunchInfo } from "@/lib/types";
 import { KioskLeaderboard } from "@/components/KioskLeaderboard";
@@ -818,8 +819,9 @@ export default function SpectatorMode() {
       <header className="flex items-center justify-between px-6 py-3 border-b border-rp-border bg-rp-black flex-shrink-0">
         {/* Left: Title + Timer */}
         <div className="flex items-center gap-5">
-          <h1 className="text-lg font-bold tracking-[0.15em] uppercase">
-            RacingPoint Race Control
+          <h1 className="flex items-center gap-3 text-lg font-bold tracking-[0.15em] uppercase">
+            <BrandLogo size="sm" alt="Racing Point" />
+            <span>Race Control</span>
           </h1>
           <span className="font-[family-name:var(--font-mono-jb)] text-lg font-bold text-rp-red tabular-nums">
             {formatSessionTimer(sessionSeconds)}

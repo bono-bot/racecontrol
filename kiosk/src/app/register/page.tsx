@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export default function VenueRegisterPage() {
   const [name, setName] = useState("");
@@ -70,13 +71,7 @@ export default function VenueRegisterPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-black tracking-tight">
-            <span className="text-rp-red">Racing</span>
-            <span className="text-white">Point</span>
-          </h1>
-          <p className="text-rp-grey text-sm mt-2 tracking-widest uppercase">
-            Quick Registration
-          </p>
+          <BrandLogo size="lg" priority subtitle="Quick Registration" />
         </div>
 
         {success ? (

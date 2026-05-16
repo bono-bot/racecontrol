@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { api } from "@/lib/api";
+import { BrandLogo } from "@/components/BrandLogo";
 import type { VenueShutdownResponse } from "@/lib/types";
 
 type ShutdownState =
@@ -142,12 +143,7 @@ export default function ShutdownPage() {
     <div className="min-h-screen bg-rp-black flex flex-col items-center justify-center p-6">
       {/* Branding */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold tracking-wide uppercase text-white">
-          RACING<span className="text-rp-red">POINT</span>
-        </h1>
-        <p className="text-rp-grey text-sm mt-1 tracking-widest uppercase">
-          Venue Shutdown
-        </p>
+        <BrandLogo size="md" priority subtitle="Venue Shutdown" />
       </div>
 
       {/* Main card */}

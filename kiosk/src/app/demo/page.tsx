@@ -2,6 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 
+import { BrandLogo } from "@/components/BrandLogo";
+
 // ─── Mock data to show the full design with active sessions ─────────────
 
 function formatLapTime(ms: number): string {
@@ -176,7 +178,7 @@ export default function DemoPage() {
       {/* ── Header ── */}
       <header className="flex items-center justify-between px-6 py-3 bg-[#141414] border-b border-rp-red">
         <h1 className="text-xl tracking-widest uppercase text-white font-display">
-          RACING <span className="text-rp-red">POINT</span>
+          <BrandLogo size="sm" priority alt="Racing Point Esports" />
         </h1>
 
         <div className="flex items-center gap-3">
