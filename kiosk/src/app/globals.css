@@ -14,6 +14,7 @@
   --rp-green:     #16a34a;
   --rp-yellow:    #ca8a04;
   --rp-purple:    #a855f7;
+  --rp-orange:    #f97316;
 }
 
 @theme inline {
@@ -27,6 +28,7 @@
   --color-rp-green:     var(--rp-green);
   --color-rp-yellow:    var(--rp-yellow);
   --color-rp-purple:    var(--rp-purple);
+  --color-rp-orange:    var(--rp-orange);
 }
 
 @custom-variant dark (&:is(.dark *));

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { BrandLogo } from "@/components/BrandLogo";
 
 interface StaffLoginScreenProps {
   onAuthenticated: (staffId: string, staffName: string, token?: string) => void;
@@ -76,14 +77,7 @@ export function StaffLoginScreen({ onAuthenticated }: StaffLoginScreenProps) {
   if (step === "idle") {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center gap-8 bg-rp-black">
-        <div className="text-center">
-          <h1 className="text-6xl font-bold tracking-tight font-[family-name:var(--font-display)]">
-            RACING<span className="text-rp-red">POINT</span>
-          </h1>
-          <p className="text-rp-grey text-lg mt-2 tracking-widest uppercase">
-            Staff Terminal
-          </p>
-        </div>
+        <BrandLogo size="xl" priority subtitle="Staff Terminal" />
 
         <button
           onClick={() => setStep("pin_entry")}

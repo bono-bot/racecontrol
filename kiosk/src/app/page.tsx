@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useKioskSocket } from "@/hooks/useKioskSocket";
 import { GAME_DISPLAY } from "@/lib/gameDisplayInfo";
+import { BrandLogo } from "@/components/BrandLogo";
 import type { Pod, TelemetryFrame, BillingSession, GameLaunchInfo, Lap } from "@/lib/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ export default function CustomerLanding() {
       <header className="flex items-center justify-between px-6 py-3 bg-[#141414] border-b border-rp-red">
         {/* Left: Brand */}
         <h1 className="text-xl tracking-widest uppercase text-white font-display">
-          RACING <span className="text-rp-red">POINT</span>
+          <BrandLogo size="sm" priority alt="Racing Point Esports" />
         </h1>
 
         {/* Center: Status pills */}

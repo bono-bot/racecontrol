@@ -127,7 +127,7 @@ export default function BlankingScreen() {
         .blanking-root {
           position: fixed;
           inset: 0;
-          background: #050508;
+          background: var(--rp-black);
           overflow: hidden;
           cursor: none;
           user-select: none;
@@ -164,7 +164,7 @@ export default function BlankingScreen() {
           right: 0;
           height: 45%;
           z-index: 0;
-          background: linear-gradient(to bottom, transparent 0%, rgba(10,10,16,.6) 20%, rgba(10,10,16,.95) 60%, #0A0A10 100%);
+          background: linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--rp-black) 60%, transparent) 20%, color-mix(in srgb, var(--rp-black) 95%, transparent) 60%, var(--rp-black) 100%);
         }
 
         .floor::before {
@@ -174,7 +174,7 @@ export default function BlankingScreen() {
           left: 10%;
           right: 10%;
           height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(220,38,38,.15) 20%, rgba(220,38,38,.3) 50%, rgba(220,38,38,.15) 80%, transparent);
+          background: linear-gradient(90deg, transparent, rgba(225,6,0,.15) 20%, rgba(225,6,0,.3) 50%, rgba(225,6,0,.15) 80%, transparent);
         }
 
         .beams {
@@ -190,7 +190,7 @@ export default function BlankingScreen() {
           top: -10%;
           width: 180px;
           height: 120%;
-          background: linear-gradient(180deg, rgba(220,38,38,.07) 0%, rgba(220,38,38,.02) 40%, transparent 70%);
+          background: linear-gradient(180deg, rgba(225,6,0,.07) 0%, rgba(225,6,0,.02) 40%, transparent 70%);
           transform-origin: top center;
           filter: blur(30px);
         }
@@ -207,7 +207,7 @@ export default function BlankingScreen() {
           height: 30%;
           z-index: 2;
           pointer-events: none;
-          background: radial-gradient(ellipse 80% 100% at 50% 100%, rgba(220,38,38,.06) 0%, transparent 70%);
+          background: radial-gradient(ellipse 80% 100% at 50% 100%, rgba(225,6,0,.06) 0%, transparent 70%);
           animation: fogPulse 8s ease-in-out infinite;
         }
 
@@ -232,7 +232,7 @@ export default function BlankingScreen() {
           width: 100%;
           height: 100%;
           object-fit: contain;
-          filter: drop-shadow(0 0 40px rgba(220,38,38,.35)) drop-shadow(0 0 80px rgba(220,38,38,.15));
+          filter: drop-shadow(0 0 40px rgba(225,6,0,.35)) drop-shadow(0 0 80px rgba(225,6,0,.15));
           animation: logoPulse 4s ease-in-out infinite;
         }
 
@@ -241,7 +241,7 @@ export default function BlankingScreen() {
           position: absolute;
           inset: -12%;
           border-radius: 50%;
-          background: radial-gradient(circle, rgba(220,38,38,.08) 0%, transparent 70%);
+          background: radial-gradient(circle, rgba(225,6,0,.08) 0%, transparent 70%);
           animation: ringPulse 4s ease-in-out infinite;
           pointer-events: none;
         }
@@ -251,7 +251,7 @@ export default function BlankingScreen() {
           position: absolute;
           inset: 15%;
           border-radius: 50%;
-          background: radial-gradient(circle, rgba(220,38,38,.12) 0%, transparent 60%);
+          background: radial-gradient(circle, rgba(225,6,0,.12) 0%, transparent 60%);
           animation: ringPulse 4s ease-in-out infinite 2s;
           pointer-events: none;
         }
@@ -275,8 +275,8 @@ export default function BlankingScreen() {
         }
 
         @keyframes logoPulse {
-          0%, 100% { filter: drop-shadow(0 0 40px rgba(220,38,38,.35)) drop-shadow(0 0 80px rgba(220,38,38,.15)); }
-          50%      { filter: drop-shadow(0 0 60px rgba(220,38,38,.55)) drop-shadow(0 0 120px rgba(220,38,38,.25)); }
+          0%, 100% { filter: drop-shadow(0 0 40px rgba(225,6,0,.35)) drop-shadow(0 0 80px rgba(225,6,0,.15)); }
+          50%      { filter: drop-shadow(0 0 60px rgba(225,6,0,.55)) drop-shadow(0 0 120px rgba(225,6,0,.25)); }
         }
 
         @keyframes ringPulse {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { BrandLogo } from "@/components/BrandLogo";
 import type { Pod } from "@/lib/types";
 
 interface KioskHeaderProps {
@@ -43,9 +44,7 @@ export function KioskHeader({ connected, pods, venueName = "Racing Point", staff
     <header className="flex items-center justify-between px-5 py-2.5 bg-[#0A0A0A] border-b-2 border-rp-red shrink-0">
       {/* Left: Brand */}
       <div className="flex items-center gap-4">
-        <h1 className="text-lg font-bold tracking-wider uppercase text-white font-[family-name:var(--font-display)]">
-          RACING<span className="text-rp-red">POINT</span>
-        </h1>
+        <BrandLogo size="sm" priority alt="Racing Point Esports" />
         {staffName && (
           <div className="flex items-center gap-2 border-l border-[#2A2A2A] pl-4">
             {[

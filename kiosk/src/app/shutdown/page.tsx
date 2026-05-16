@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { StaffLoginScreen } from "@/components/StaffLoginScreen";
 import { api } from "@/lib/api";
+import { BrandLogo } from "@/components/BrandLogo";
 import type { VenueShutdownResponse } from "@/lib/types";
 
 type ShutdownState =
@@ -142,12 +143,7 @@ export default function ShutdownPage() {
     <div className="min-h-screen bg-rp-black flex flex-col items-center justify-center p-6">
       {/* Branding */}
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold tracking-wide uppercase text-white">
-          RACING<span className="text-rp-red">POINT</span>
-        </h1>
-        <p className="text-rp-grey text-sm mt-1 tracking-widest uppercase">
-          Venue Shutdown
-        </p>
+        <BrandLogo size="md" priority subtitle="Venue Shutdown" />
       </div>
 
       {/* Main card */}
@@ -156,7 +152,7 @@ export default function ShutdownPage() {
         {/* ─── IDLE ─────────────────────────────────────────────────── */}
         {state === "idle" && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-red-900/30 border border-red-600/30 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full bg-rp-red/20 border border-rp-red/30 flex items-center justify-center">
               <svg className="w-8 h-8 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
               </svg>
@@ -189,8 +185,8 @@ export default function ShutdownPage() {
         {/* ─── CONFIRMING ───────────────────────────────────────────── */}
         {state === "confirming" && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-amber-900/30 border border-amber-600/30 flex items-center justify-center">
-              <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 rounded-full bg-rp-yellow/20 border border-rp-yellow/30 flex items-center justify-center">
+              <svg className="w-8 h-8 text-rp-yellow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
@@ -228,7 +224,7 @@ export default function ShutdownPage() {
               <h2 className="text-xl font-bold text-white mb-2">Running pre-shutdown audit...</h2>
               <p className="text-rp-grey text-sm leading-relaxed">
                 This checks for critical issues before shutdown. Please wait.<br />
-                <span className="text-zinc-500 text-xs">May take up to 2 minutes.</span>
+                <span className="text-rp-grey text-xs">May take up to 2 minutes.</span>
               </p>
             </div>
           </div>
@@ -237,8 +233,8 @@ export default function ShutdownPage() {
         {/* ─── SHUTTING DOWN ────────────────────────────────────────── */}
         {state === "shutting_down" && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-12 h-12 rounded-full bg-green-900/30 border border-green-600/30 flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-rp-green/20 border border-rp-green/30 flex items-center justify-center">
+              <svg className="w-6 h-6 text-rp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -265,8 +261,8 @@ export default function ShutdownPage() {
         {/* ─── COMPLETE ─────────────────────────────────────────────── */}
         {state === "complete" && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-green-900/30 border border-green-600/30 flex items-center justify-center">
-              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 rounded-full bg-rp-green/20 border border-rp-green/30 flex items-center justify-center">
+              <svg className="w-8 h-8 text-rp-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -292,8 +288,8 @@ export default function ShutdownPage() {
         {/* ─── AUDIT BLOCKED ────────────────────────────────────────── */}
         {state === "audit_blocked" && shutdownResponse && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-red-900/30 border border-red-600/30 flex items-center justify-center">
-              <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 rounded-full bg-rp-red/20 border border-rp-red/30 flex items-center justify-center">
+              <svg className="w-8 h-8 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </div>
@@ -302,7 +298,7 @@ export default function ShutdownPage() {
               <h2 className="text-xl font-bold text-white mb-3">Cannot Shutdown</h2>
 
               {shutdownResponse.reason === "billing_active" && (
-                <p className="text-amber-400 text-sm leading-relaxed">
+                <p className="text-rp-yellow text-sm leading-relaxed">
                   {shutdownResponse.active_sessions ?? "Some"} billing session
                   {(shutdownResponse.active_sessions ?? 0) !== 1 ? "s" : ""} still active.<br />
                   End all sessions first before shutting down.
@@ -311,9 +307,9 @@ export default function ShutdownPage() {
 
               {shutdownResponse.reason === "audit_failed" && (
                 <div className="text-left mt-3">
-                  <p className="text-red-400 text-sm mb-2">Pre-shutdown audit found critical issues:</p>
+                  <p className="text-rp-red text-sm mb-2">Pre-shutdown audit found critical issues:</p>
                   {shutdownResponse.output && (
-                    <pre className="bg-rp-black border border-rp-border rounded-lg p-3 text-xs text-zinc-400 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">
+                    <pre className="bg-rp-black border border-rp-border rounded-lg p-3 text-xs text-rp-grey overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">
                       {shutdownResponse.output.slice(0, 800)}
                     </pre>
                   )}
@@ -321,7 +317,7 @@ export default function ShutdownPage() {
               )}
 
               {shutdownResponse.reason === "james_offline" && (
-                <p className="text-amber-400 text-sm leading-relaxed">
+                <p className="text-rp-yellow text-sm leading-relaxed">
                   James is offline. Contact Bono for remote shutdown.
                 </p>
               )}
@@ -351,8 +347,8 @@ export default function ShutdownPage() {
         {/* ─── ERROR ────────────────────────────────────────────────── */}
         {state === "error" && (
           <div className="flex flex-col items-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-red-900/30 border border-red-600/30 flex items-center justify-center">
-              <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 rounded-full bg-rp-red/20 border border-rp-red/30 flex items-center justify-center">
+              <svg className="w-8 h-8 text-rp-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
@@ -381,9 +377,9 @@ export default function ShutdownPage() {
       </div>
 
       {/* Footer: staff info */}
-      <p className="mt-6 text-xs text-zinc-600">
-        Logged in as <span className="text-zinc-500">{staffName}</span>
-        {staffId && <span className="text-zinc-600"> ({staffId})</span>}
+      <p className="mt-6 text-xs text-rp-grey">
+        Logged in as <span className="text-rp-grey">{staffName}</span>
+        {staffId && <span className="text-rp-grey"> ({staffId})</span>}
       </p>
     </div>
   );
@@ -393,18 +389,18 @@ export default function ShutdownPage() {
 
 function DeviceStatusBadge({ status }: { status: DeviceStatus["status"] }) {
   if (status === "waiting") {
-    return <span className="text-xs text-zinc-500 font-medium">Waiting...</span>;
+    return <span className="text-xs text-rp-grey font-medium">Waiting...</span>;
   }
   if (status === "in_progress") {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-amber-400 font-medium">
-        <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+      <span className="flex items-center gap-1.5 text-xs text-rp-yellow font-medium">
+        <span className="w-3 h-3 border-2 border-rp-yellow border-t-transparent rounded-full animate-spin" />
         Shutting down...
       </span>
     );
   }
   return (
-    <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
+    <span className="flex items-center gap-1.5 text-xs text-rp-green font-medium">
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
       </svg>
