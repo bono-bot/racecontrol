@@ -2,34 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* Racing Point Design Tokens (inlined from packages/shared-tokens/tokens.css) */
-:root {
-  --rp-red:       #E10600;
-  --rp-red-hover: #FF1A1A;
-  --rp-black:     #1A1A1A;
-  --rp-grey:      #5A5A5A;
-  --rp-surface:   #2A2A2A;
-  --rp-card:      #222222;
-  --rp-border:    #333333;
-  --rp-green:     #16a34a;
-  --rp-yellow:    #ca8a04;
-  --rp-purple:    #a855f7;
-  --rp-orange:    #f97316;
-}
-
-@theme inline {
-  --color-rp-red:       var(--rp-red);
-  --color-rp-red-hover: var(--rp-red-hover);
-  --color-rp-black:     var(--rp-black);
-  --color-rp-grey:      var(--rp-grey);
-  --color-rp-surface:   var(--rp-surface);
-  --color-rp-card:      var(--rp-card);
-  --color-rp-border:    var(--rp-border);
-  --color-rp-green:     var(--rp-green);
-  --color-rp-yellow:    var(--rp-yellow);
-  --color-rp-purple:    var(--rp-purple);
-  --color-rp-orange:    var(--rp-orange);
-}
+/* Racing Point Design Tokens — canonical at packages/shared-tokens/tokens.css. */
+/* V2.0 port: tokens.jsx values from claude.ai/design 2026-05-17 bundle, Captain B1 lock. */
+@import "../../../packages/shared-tokens/tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 

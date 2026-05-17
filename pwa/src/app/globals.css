@@ -1,21 +1,17 @@
 @import "tailwindcss";
+/* Racing Point Design Tokens — canonical SSoT. V2.0 port per Build Order Step 1 (B1 lock). */
+@import "../../../packages/shared-tokens/tokens.css";
 
-@theme {
-  --color-rp-red: #E10600;
-  --color-rp-red-light: #FF1A1A;
-  --color-rp-red-hover: #FF1A1A;
-  --color-rp-dark: #1A1A1A;
-  --color-rp-black: #1A1A1A;
-  --color-rp-card: #222222;
-  --color-rp-border: #333333;
-  --color-rp-grey: #5A5A5A;
-  --color-rp-surface: #2A2A2A;
-  --color-rp-green: #16a34a;
-  --color-rp-yellow: #ca8a04;
-  --color-rp-purple: #a855f7;
+@theme inline {
+  /* App-specific fonts. Colors come from shared-tokens (imported above). */
+  /* Chakra Petch canonical per §S-114 ratify 2026-05-08 (Orbitron retired). */
+  --font-sans:    Montserrat, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Chakra Petch", Eurostile, "Bank Gothic", system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  --font-sans: Montserrat, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: Orbitron, system-ui, sans-serif;
+  /* PWA-local legacy color aliases — kept until consumers refactor. */
+  --color-rp-red-light: var(--rp-red-hover);
+  --color-rp-dark:      var(--rp-base);
 }
 
 @layer base {

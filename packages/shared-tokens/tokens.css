@@ -1,37 +1,118 @@
-/* Racing Point Design System Tokens — v1.0 */
-/* Single source of truth. Both web and kiosk globals.css import this. */
+/* Racing Point Design System Tokens — v2.0 */
+/* Single source of truth. Imported by kiosk, web, and pwa globals.css. */
+/* Ported from claude.ai/design tokens.jsx (2026-05-17 bundle) per Build Order Step 1 — Captain B1 lock: tokens.jsx wins. */
 /* Do NOT add font tokens here — fonts are app-specific. */
 
 :root {
-  /* Brand primary */
-  --rp-red:       #E10600;
-  --rp-red-hover: #FF1A1A;   /* canonical name — web previously used rp-red-light */
+  /* ── Brand ──────────────────────────────────────────── */
+  --rp-red:        #E10600;  /* primary action / brand identity */
+  --rp-red-deep:   #B40500;  /* pressed / hover-down */
+  --rp-red-glow:   #FF1A0E;  /* alert pulse / telemetry highlight */
+  --rp-red-hover:  #FF1A1A;  /* legacy hover — keep for backward-compat */
 
-  /* Neutral scale */
-  --rp-black:     #1A1A1A;
-  --rp-grey:      #5A5A5A;
+  /* ── Surfaces (dark-first; tuned for venue lighting) ─── */
+  --rp-asphalt:    #0D0D0D;  /* page background (darker than base — works in dark room) */
+  --rp-base:       #1A1A1A;  /* panel background */
+  --rp-card:       #1C1C1C;  /* elevated surface */
+  --rp-card-hi:    #262626;  /* hover / focus surface */
+  --rp-border:     #2A2A2A;  /* subtle separator */
+  --rp-border-hi:  #3A3A3A;  /* emphasized separator */
+  /* Legacy aliases — do NOT remove (in-flight refactor; Build Order Step 1+2). */
+  --rp-black:      var(--rp-base);
+  --rp-surface:    var(--rp-card-hi);  /* old --rp-surface was #2A2A2A; map to closest new semantic */
 
-  /* Surface scale (lighter = more elevated) */
-  --rp-surface:   #2A2A2A;   /* modals, elevated panels */
-  --rp-card:      #222222;   /* card background */
-  --rp-border:    #333333;   /* dividers and outlines */
+  /* ── Ink (text) ──────────────────────────────────────── */
+  --rp-ink:        #F2F2F2;  /* primary text */
+  --rp-ink-dim:    #A8A8A8;  /* secondary text */
+  --rp-gunmetal:   #5A5A5A;  /* dividers / tertiary text */
+  --rp-ink-faint:  #3F3F3F;  /* disabled / muted */
+  --rp-grey:       var(--rp-gunmetal); /* legacy alias */
 
-  /* Semantic status palette */
-  --rp-green:     #16a34a;   /* available / success */
-  --rp-yellow:    #ca8a04;   /* warning / pending */
-  --rp-purple:    #a855f7;   /* special / featured */
-  --rp-orange:    #f97316;   /* status orange — HTTP-only / partial. Distinct from DEPRECATED V1 #FF4400 */
+  /* ── Semantic status ─────────────────────────────────── */
+  --rp-green:      #00D26A;  /* healthy / online / success */
+  --rp-green-deep: #00A352;
+  --rp-amber:      #FFB000;  /* warn / pending */
+  --rp-amber-deep: #CC8C00;
+  --rp-blue:       #3B82F6;  /* info / link / API layer */
+  /* Legacy aliases (kept; mapped to closest new semantic) */
+  --rp-yellow:     var(--rp-amber);
+  --rp-purple:     #A855F7;
+  --rp-orange:     #F97316;  /* status orange — HTTP-only / partial. Distinct from DEPRECATED V1 #FF4400 */
+
+  /* ── Telemetry channels (charts; trGhost used in V2.1 ghost-compare) ─── */
+  --rp-tr-throttle: var(--rp-green);
+  --rp-tr-brake:    var(--rp-red);
+  --rp-tr-speed:    var(--rp-amber);
+  --rp-tr-ghost:    #888888;
+  --rp-tr-self:     #FFFFFF;
+
+  /* ── Driver class palette ────────────────────────────── */
+  /* Captain-confirmation pending: Champion=Racing-Red is a brand-collision risk      */
+  /* (staff could mistake a Champion badge for a primary CTA). Design recommendation  */
+  /* is Champion → black-with-red-stripe or platinum. Seeding tokens.jsx values now;  */
+  /* one-line rename when Captain decides. C3 class names ARE locked.                 */
+  --rp-class-rookie:   var(--rp-gunmetal);
+  --rp-class-apex:     var(--rp-amber);
+  --rp-class-podium:   var(--rp-green);
+  --rp-class-champion: var(--rp-red);
+
+  /* ── Motion timings ──────────────────────────────────── */
+  --rp-motion-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --rp-motion-std:  250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --rp-motion-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --rp-motion-enter: cubic-bezier(0, 0, 0.2, 1);
+  --rp-motion-exit:  cubic-bezier(0.4, 0, 1, 1);
+
+  /* ── Elevation ───────────────────────────────────────── */
+  --rp-elev-flat:   0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --rp-elev-card:   0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 12px rgba(0, 0, 0, 0.4);
+  --rp-elev-dialog: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
-  --color-rp-red:       var(--rp-red);
-  --color-rp-red-hover: var(--rp-red-hover);
-  --color-rp-black:     var(--rp-black);
-  --color-rp-grey:      var(--rp-grey);
-  --color-rp-surface:   var(--rp-surface);
-  --color-rp-card:      var(--rp-card);
-  --color-rp-border:    var(--rp-border);
-  --color-rp-green:     var(--rp-green);
-  --color-rp-yellow:    var(--rp-yellow);
-  --color-rp-purple:    var(--rp-purple);
+  /* Brand */
+  --color-rp-red:        var(--rp-red);
+  --color-rp-red-deep:   var(--rp-red-deep);
+  --color-rp-red-glow:   var(--rp-red-glow);
+  --color-rp-red-hover:  var(--rp-red-hover);
+
+  /* Surfaces */
+  --color-rp-asphalt:    var(--rp-asphalt);
+  --color-rp-base:       var(--rp-base);
+  --color-rp-card:       var(--rp-card);
+  --color-rp-card-hi:    var(--rp-card-hi);
+  --color-rp-border:     var(--rp-border);
+  --color-rp-border-hi:  var(--rp-border-hi);
+  --color-rp-black:      var(--rp-black);     /* legacy */
+  --color-rp-surface:    var(--rp-surface);   /* legacy */
+
+  /* Ink */
+  --color-rp-ink:        var(--rp-ink);
+  --color-rp-ink-dim:    var(--rp-ink-dim);
+  --color-rp-ink-faint:  var(--rp-ink-faint);
+  --color-rp-gunmetal:   var(--rp-gunmetal);
+  --color-rp-grey:       var(--rp-grey);      /* legacy */
+
+  /* Semantic */
+  --color-rp-green:      var(--rp-green);
+  --color-rp-green-deep: var(--rp-green-deep);
+  --color-rp-amber:      var(--rp-amber);
+  --color-rp-amber-deep: var(--rp-amber-deep);
+  --color-rp-blue:       var(--rp-blue);
+  --color-rp-yellow:     var(--rp-yellow);    /* legacy alias */
+  --color-rp-purple:     var(--rp-purple);
+  --color-rp-orange:     var(--rp-orange);
+
+  /* Telemetry */
+  --color-rp-tr-throttle: var(--rp-tr-throttle);
+  --color-rp-tr-brake:    var(--rp-tr-brake);
+  --color-rp-tr-speed:    var(--rp-tr-speed);
+  --color-rp-tr-ghost:    var(--rp-tr-ghost);
+  --color-rp-tr-self:     var(--rp-tr-self);
+
+  /* Driver class */
+  --color-rp-class-rookie:   var(--rp-class-rookie);
+  --color-rp-class-apex:     var(--rp-class-apex);
+  --color-rp-class-podium:   var(--rp-class-podium);
+  --color-rp-class-champion: var(--rp-class-champion);
 }
