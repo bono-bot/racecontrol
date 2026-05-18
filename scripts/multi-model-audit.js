@@ -65,11 +65,13 @@ const MODEL_REGISTRY = {
   // Reasoners
   'deepseek/deepseek-r1-0528':              { short: 'deepseek-r1',     vendor: 'deepseek', roles: ['reasoner'],    ctx: 163840,  priceIn: 0.45, priceOut: 2.15, timeout: 180000, maxOut: 16000 },
   'moonshotai/kimi-k2.5':                   { short: 'kimi-k2.5',      vendor: 'moonshot',  roles: ['reasoner'],    ctx: 131072,  priceIn: 0.35, priceOut: 1.40, timeout: 300000, maxOut: 16000 },
+  'anthropic/claude-opus-4.7':              { short: 'claude-opus-4.7', vendor: 'anthropic', roles: ['reasoner'],    ctx: 200000,  priceIn: 5.00, priceOut: 25.00, timeout: 300000, maxOut: 16000 },
   // Code Experts
   'deepseek/deepseek-chat-v3-0324':         { short: 'deepseek-v3',    vendor: 'deepseek', roles: ['code_expert'], ctx: 163840,  priceIn: 0.20, priceOut: 0.77, timeout: 180000, maxOut: 16000 },
   'x-ai/grok-code-fast-1':                  { short: 'grok-code',      vendor: 'xai',       roles: ['code_expert'], ctx: 256000,  priceIn: 0.20, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
   'qwen/qwen3-coder':                       { short: 'qwen3-coder',    vendor: 'qwen',      roles: ['code_expert'], ctx: 262144,  priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
   'inception/mercury-coder':                 { short: 'mercury-coder',  vendor: 'inception',  roles: ['code_expert'], ctx: 128000,  priceIn: 0.25, priceOut: 0.75, timeout: 180000, maxOut: 16000 },
+  'anthropic/claude-sonnet-4.6':            { short: 'claude-sonnet-4.6', vendor: 'anthropic', roles: ['code_expert'], ctx: 200000,  priceIn: 3.00, priceOut: 15.00, timeout: 300000, maxOut: 16000 },
   // SRE/Ops
   'xiaomi/mimo-v2-pro':                      { short: 'mimo-v2-pro',    vendor: 'xiaomi',    roles: ['sre'],         ctx: 1048576, priceIn: 1.00, priceOut: 3.00, timeout: 180000, maxOut: 16000 },
   'nvidia/nemotron-3-super-120b-a12b':       { short: 'nemotron-super', vendor: 'nvidia',    roles: ['sre'],         ctx: 262144,  priceIn: 0.10, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
@@ -77,6 +79,7 @@ const MODEL_REGISTRY = {
   'qwen/qwen3-235b-a22b-2507':              { short: 'qwen3-235b',     vendor: 'qwen',      roles: ['generalist'],  ctx: 262144,  priceIn: 0.07, priceOut: 0.10, timeout: 180000, maxOut: 16000 },
   'google/gemini-2.5-flash':                 { short: 'gemini-flash',   vendor: 'google',    roles: ['generalist'],  ctx: 1000000, priceIn: 0.15, priceOut: 0.60, timeout: 120000, maxOut: 16000 },
   'mistralai/mistral-small-2603':            { short: 'mistral-sm4',    vendor: 'mistral',   roles: ['generalist'],  ctx: 262144,  priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
+  'mistralai/mistral-large-2512':           { short: 'mistral-large',  vendor: 'mistral',   roles: ['generalist'],  ctx: 131072,  priceIn: 0.50, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
   // Additional pool
   'openai/gpt-5-mini':                       { short: 'gpt5-mini',      vendor: 'openai',    roles: ['generalist'],  ctx: 400000,  priceIn: 0.25, priceOut: 2.00, timeout: 180000, maxOut: 16000 },
   'x-ai/grok-4.1-fast':                      { short: 'grok-4.1',       vendor: 'xai',       roles: ['generalist'],  ctx: 2000000, priceIn: 0.20, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
@@ -91,6 +94,7 @@ const MODEL_REGISTRY = {
 // Priority ordering per domain — first 5 are primary, rest are secondary/reserves
 const DOMAIN_ROSTER = {
   rust_backend: [
+    'anthropic/claude-opus-4.7', 'anthropic/claude-sonnet-4.6',
     'deepseek/deepseek-r1-0528', 'deepseek/deepseek-chat-v3-0324', 'qwen/qwen3-coder',
     'x-ai/grok-code-fast-1', 'nvidia/nemotron-3-super-120b-a12b',
     'meta-llama/llama-4-maverick', 'inception/mercury-coder', 'mistralai/mistral-small-2603',
@@ -121,6 +125,7 @@ const DOMAIN_ROSTER = {
     'meta-llama/llama-4-maverick', 'openai/gpt-5-mini',
   ],
   cross_system: [
+    'anthropic/claude-opus-4.7', 'anthropic/claude-sonnet-4.6', 'mistralai/mistral-large-2512',
     'deepseek/deepseek-r1-0528', 'qwen/qwen3-235b-a22b-2507', 'google/gemini-2.5-flash',
     'xiaomi/mimo-v2-pro', 'moonshotai/kimi-k2.5',
     'deepseek/deepseek-chat-v3-0324', 'nvidia/nemotron-3-super-120b-a12b', 'x-ai/grok-4.1-fast',
