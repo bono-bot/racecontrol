@@ -35,6 +35,7 @@ const https = require('https');
 const { execSync } = require('child_process');
 
 const { recoverKey, is401Error, loadSavedKey, bootstrapKey } = require('./lib/openrouter-key-recovery');
+const { validateRoleAssignment } = require('./lib/mma-model-registry'); // §S-166 enforcement
 
 // Mutable key — updated in-process on 401 recovery
 // Bootstrap: if no key in env or saved file, auto-provision via management key
@@ -69,7 +70,6 @@ const MODEL_REGISTRY = {
   'x-ai/grok-code-fast-1':                  { short: 'grok-code',      vendor: 'xai',       roles: ['code_expert'], ctx: 256000,  priceIn: 0.20, priceOut: 1.50, timeout: 180000, maxOut: 16000 },
   'qwen/qwen3-coder':                       { short: 'qwen3-coder',    vendor: 'qwen',      roles: ['code_expert'], ctx: 262144,  priceIn: 0.22, priceOut: 1.00, timeout: 300000, maxOut: 16000 },
   'inception/mercury-coder':                 { short: 'mercury-coder',  vendor: 'inception',  roles: ['code_expert'], ctx: 128000,  priceIn: 0.25, priceOut: 0.75, timeout: 180000, maxOut: 16000 },
-  'openai/gpt-5.1-codex-mini':              { short: 'codex-mini',     vendor: 'openai',    roles: ['code_expert'], ctx: 400000,  priceIn: 0.25, priceOut: 2.00, timeout: 300000, maxOut: 16000 },
   // SRE/Ops
   'xiaomi/mimo-v2-pro':                      { short: 'mimo-v2-pro',    vendor: 'xiaomi',    roles: ['sre'],         ctx: 1048576, priceIn: 1.00, priceOut: 3.00, timeout: 180000, maxOut: 16000 },
   'nvidia/nemotron-3-super-120b-a12b':       { short: 'nemotron-super', vendor: 'nvidia',    roles: ['sre'],         ctx: 262144,  priceIn: 0.10, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
@@ -81,7 +81,6 @@ const MODEL_REGISTRY = {
   'openai/gpt-5-mini':                       { short: 'gpt5-mini',      vendor: 'openai',    roles: ['generalist'],  ctx: 400000,  priceIn: 0.25, priceOut: 2.00, timeout: 180000, maxOut: 16000 },
   'x-ai/grok-4.1-fast':                      { short: 'grok-4.1',       vendor: 'xai',       roles: ['generalist'],  ctx: 2000000, priceIn: 0.20, priceOut: 0.50, timeout: 180000, maxOut: 16000 },
   'meta-llama/llama-4-maverick':             { short: 'llama4-mav',     vendor: 'meta',      roles: ['generalist'],  ctx: 1048576, priceIn: 0.15, priceOut: 0.60, timeout: 180000, maxOut: 16000 },
-  'bytedance-seed/seed-2.0-mini':            { short: 'seed2-mini',     vendor: 'bytedance',  roles: ['code_expert'], ctx: 262144,  priceIn: 0.10, priceOut: 0.40, timeout: 180000, maxOut: 16000 },
   'z-ai/glm-4.7':                            { short: 'glm-4.7',        vendor: 'zhipu',     roles: ['generalist'],  ctx: 202752,  priceIn: 0.39, priceOut: 1.75, timeout: 180000, maxOut: 16000 },
   'tencent/hunyuan-a13b-instruct':           { short: 'hunyuan',        vendor: 'tencent',   roles: ['generalist'],  ctx: 131072,  priceIn: 0.14, priceOut: 0.57, timeout: 180000, maxOut: 16000 },
   'z-ai/glm-5':                              { short: 'glm-5',          vendor: 'zhipu',     roles: ['reasoner'],    ctx: 262144,  priceIn: 0.50, priceOut: 2.00, timeout: 300000, maxOut: 16000 },
@@ -100,7 +99,7 @@ const DOMAIN_ROSTER = {
   nodejs_frontend: [
     'x-ai/grok-4.1-fast', 'openai/gpt-5-mini', 'google/gemini-2.5-flash',
     'mistralai/mistral-small-2603', 'qwen/qwen3-235b-a22b-2507',
-    'deepseek/deepseek-chat-v3-0324', 'bytedance-seed/seed-2.0-mini', 'moonshotai/kimi-k2.5',
+    'deepseek/deepseek-chat-v3-0324', 'moonshotai/kimi-k2.5',
     'meta-llama/llama-4-maverick', 'xiaomi/mimo-v2-pro',
   ],
   windows_os: [
@@ -226,6 +225,17 @@ function selectModels(domain, count = 5, exclude = []) {
         selected[selected.length - 1] = id;
         break;
       }
+    }
+  }
+
+  // Step 4: §S-166 enforcement — each selected model's declared roles must pass CLAUDE.md
+  // May-2026 catalog. Throws on speed-class token in reasoner/code_expert role (allow-list:
+  // grok-code-fast-1 for code_expert only).
+  for (const id of selected) {
+    const cfg = MODEL_REGISTRY[id];
+    for (const role of cfg.roles) {
+      const r = validateRoleAssignment(id, role);
+      if (!r.valid) throw new Error(`§S-166 violation in selectModels: ${r.reason}`);
     }
   }
 
