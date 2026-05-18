@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-12 16:24 IST",
+  "generated_at": "2026-05-17 20:12 IST",
   "generator_version": 1,
   "source_root": "crates/racecontrol/src/db",
   "tables": [
@@ -220,7 +220,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:411"
+        "crates/racecontrol/src/db/migrate_billing.rs:457"
       ]
     },
     {
@@ -1450,7 +1450,40 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_billing.rs:39",
-        "crates/racecontrol/src/db/migrate_billing.rs:600"
+        "crates/racecontrol/src/db/migrate_billing.rs:646"
+      ]
+    },
+    {
+      "name": "billing_session_receipts",
+      "columns": [
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": true,
+          "unique": false,
+          "fk": {
+            "table": "billing_sessions",
+            "column": "id"
+          }
+        },
+        {
+          "name": "idempotency_response_blob",
+          "type": "TEXT",
+          "nullable": false,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "nullable": false,
+          "pk": false,
+          "unique": false
+        }
+      ],
+      "sources": [
+        "crates/racecontrol/src/db/migrate_billing.rs:422"
       ]
     },
     {
@@ -1682,6 +1715,34 @@
           "unique": false
         },
         {
+          "name": "finalize_idempotency_key",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "finalize_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "finalize_actor",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "finalized_at",
+          "type": "TEXT",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
           "name": "pause_count",
           "type": "INTEGER",
           "nullable": true,
@@ -1845,37 +1906,41 @@
         "crates/racecontrol/src/db/migrate_billing.rs:280",
         "crates/racecontrol/src/db/migrate_billing.rs:284",
         "crates/racecontrol/src/db/migrate_billing.rs:288",
-        "crates/racecontrol/src/db/migrate_billing.rs:342",
         "crates/racecontrol/src/db/migrate_billing.rs:346",
         "crates/racecontrol/src/db/migrate_billing.rs:350",
         "crates/racecontrol/src/db/migrate_billing.rs:354",
         "crates/racecontrol/src/db/migrate_billing.rs:358",
         "crates/racecontrol/src/db/migrate_billing.rs:362",
-        "crates/racecontrol/src/db/migrate_billing.rs:368",
+        "crates/racecontrol/src/db/migrate_billing.rs:366",
         "crates/racecontrol/src/db/migrate_billing.rs:372",
         "crates/racecontrol/src/db/migrate_billing.rs:376",
         "crates/racecontrol/src/db/migrate_billing.rs:380",
-        "crates/racecontrol/src/db/migrate_billing.rs:574",
-        "crates/racecontrol/src/db/migrate_billing.rs:578",
-        "crates/racecontrol/src/db/migrate_billing.rs:582",
-        "crates/racecontrol/src/db/migrate_billing.rs:586",
-        "crates/racecontrol/src/db/migrate_billing.rs:593",
-        "crates/racecontrol/src/db/migrate_billing.rs:641",
-        "crates/racecontrol/src/db/migrate_billing.rs:645",
-        "crates/racecontrol/src/db/migrate_billing.rs:660",
-        "crates/racecontrol/src/db/migrate_billing.rs:676",
-        "crates/racecontrol/src/db/migrate_billing.rs:717",
-        "crates/racecontrol/src/db/migrate_billing.rs:723",
-        "crates/racecontrol/src/db/migrate_billing.rs:729",
-        "crates/racecontrol/src/db/migrate_billing.rs:735",
-        "crates/racecontrol/src/db/migrate_billing.rs:810",
-        "crates/racecontrol/src/db/migrate_billing.rs:814",
-        "crates/racecontrol/src/db/migrate_billing.rs:818",
-        "crates/racecontrol/src/db/migrate_billing.rs:822",
-        "crates/racecontrol/src/db/migrate_billing.rs:826",
-        "crates/racecontrol/src/db/migrate_billing.rs:830",
-        "crates/racecontrol/src/db/migrate_billing.rs:835",
-        "crates/racecontrol/src/db/migrate_billing.rs:840",
+        "crates/racecontrol/src/db/migrate_billing.rs:384",
+        "crates/racecontrol/src/db/migrate_billing.rs:393",
+        "crates/racecontrol/src/db/migrate_billing.rs:397",
+        "crates/racecontrol/src/db/migrate_billing.rs:401",
+        "crates/racecontrol/src/db/migrate_billing.rs:405",
+        "crates/racecontrol/src/db/migrate_billing.rs:620",
+        "crates/racecontrol/src/db/migrate_billing.rs:624",
+        "crates/racecontrol/src/db/migrate_billing.rs:628",
+        "crates/racecontrol/src/db/migrate_billing.rs:632",
+        "crates/racecontrol/src/db/migrate_billing.rs:639",
+        "crates/racecontrol/src/db/migrate_billing.rs:687",
+        "crates/racecontrol/src/db/migrate_billing.rs:691",
+        "crates/racecontrol/src/db/migrate_billing.rs:706",
+        "crates/racecontrol/src/db/migrate_billing.rs:722",
+        "crates/racecontrol/src/db/migrate_billing.rs:763",
+        "crates/racecontrol/src/db/migrate_billing.rs:769",
+        "crates/racecontrol/src/db/migrate_billing.rs:775",
+        "crates/racecontrol/src/db/migrate_billing.rs:781",
+        "crates/racecontrol/src/db/migrate_billing.rs:856",
+        "crates/racecontrol/src/db/migrate_billing.rs:860",
+        "crates/racecontrol/src/db/migrate_billing.rs:864",
+        "crates/racecontrol/src/db/migrate_billing.rs:868",
+        "crates/racecontrol/src/db/migrate_billing.rs:872",
+        "crates/racecontrol/src/db/migrate_billing.rs:876",
+        "crates/racecontrol/src/db/migrate_billing.rs:881",
+        "crates/racecontrol/src/db/migrate_billing.rs:886",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:153",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:169",
         "crates/racecontrol/src/db/migrate_cross_domain.rs:174"
@@ -3458,7 +3523,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:610"
+        "crates/racecontrol/src/db/migrate_billing.rs:656"
       ]
     },
     {
@@ -3799,7 +3864,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:687"
+        "crates/racecontrol/src/db/migrate_billing.rs:733"
       ]
     },
     {
@@ -5471,7 +5536,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:558"
+        "crates/racecontrol/src/db/migrate_billing.rs:604"
       ]
     },
     {
@@ -5578,7 +5643,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:527"
+        "crates/racecontrol/src/db/migrate_billing.rs:573"
       ]
     },
     {
@@ -5685,7 +5750,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:475"
+        "crates/racecontrol/src/db/migrate_billing.rs:521"
       ]
     },
     {
@@ -5736,7 +5801,7 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:499"
+        "crates/racecontrol/src/db/migrate_billing.rs:545"
       ]
     },
     {
@@ -6000,11 +6065,7 @@
           "type": "TEXT",
           "nullable": true,
           "pk": false,
-          "unique": false,
-          "fk": {
-            "table": "sessions",
-            "column": "id"
-          }
+          "unique": false
         },
         {
           "name": "driver_id",
@@ -8489,8 +8550,8 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:392",
-        "crates/racecontrol/src/db/migrate_billing.rs:669"
+        "crates/racecontrol/src/db/migrate_billing.rs:438",
+        "crates/racecontrol/src/db/migrate_billing.rs:715"
       ]
     },
     {
@@ -10752,6 +10813,27 @@
           "unique": false
         },
         {
+          "name": "discount_clamped",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "original_pct",
+          "type": "REAL",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
+          "name": "clamped_pct",
+          "type": "REAL",
+          "nullable": true,
+          "pk": false,
+          "unique": false
+        },
+        {
           "name": "idempotency_key",
           "type": "TEXT",
           "nullable": true,
@@ -10767,9 +10849,12 @@
         }
       ],
       "sources": [
-        "crates/racecontrol/src/db/migrate_billing.rs:311",
-        "crates/racecontrol/src/db/migrate_billing.rs:664",
-        "crates/racecontrol/src/db/migrate_billing.rs:757"
+        "crates/racecontrol/src/db/migrate_billing.rs:317",
+        "crates/racecontrol/src/db/migrate_billing.rs:710",
+        "crates/racecontrol/src/db/migrate_billing.rs:803",
+        "crates/racecontrol/src/db/migrate_billing.rs:926",
+        "crates/racecontrol/src/db/migrate_billing.rs:929",
+        "crates/racecontrol/src/db/migrate_billing.rs:932"
       ]
     },
     {
@@ -10838,9 +10923,9 @@
       ],
       "sources": [
         "crates/racecontrol/src/db/migrate_billing.rs:294",
-        "crates/racecontrol/src/db/migrate_billing.rs:742",
-        "crates/racecontrol/src/db/migrate_billing.rs:747",
-        "crates/racecontrol/src/db/migrate_billing.rs:752"
+        "crates/racecontrol/src/db/migrate_billing.rs:788",
+        "crates/racecontrol/src/db/migrate_billing.rs:793",
+        "crates/racecontrol/src/db/migrate_billing.rs:798"
       ]
     }
   ],
@@ -10850,7 +10935,7 @@
       "src_column": "parent_id",
       "dst_table": "accounts",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:411",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:457",
       "enforced": true
     },
     {
@@ -10894,6 +10979,14 @@
       "enforced": true
     },
     {
+      "src_table": "billing_session_receipts",
+      "src_column": "session_id",
+      "dst_table": "billing_sessions",
+      "dst_column": "id",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:422",
+      "enforced": true
+    },
+    {
       "src_table": "billing_sessions",
       "src_column": "driver_id",
       "dst_table": "drivers",
@@ -10914,7 +11007,7 @@
       "src_column": "visit_id",
       "dst_table": "visits",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:729",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:775",
       "enforced": false
     },
     {
@@ -11002,7 +11095,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:610",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:656",
       "enforced": true
     },
     {
@@ -11114,7 +11207,7 @@
       "src_column": "billing_session_id",
       "dst_table": "billing_sessions",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:527",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:573",
       "enforced": true
     },
     {
@@ -11122,7 +11215,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:527",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:573",
       "enforced": true
     },
     {
@@ -11130,7 +11223,7 @@
       "src_column": "account_id",
       "dst_table": "accounts",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:499",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:545",
       "enforced": true
     },
     {
@@ -11138,7 +11231,7 @@
       "src_column": "journal_entry_id",
       "dst_table": "journal_entries",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:499",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:545",
       "enforced": true
     },
     {
@@ -11153,14 +11246,6 @@
       "src_table": "laps",
       "src_column": "pod_id",
       "dst_table": "pods",
-      "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_core.rs:66",
-      "enforced": true
-    },
-    {
-      "src_table": "laps",
-      "src_column": "session_id",
-      "dst_table": "sessions",
       "dst_column": "id",
       "source": "crates/racecontrol/src/db/migrate_core.rs:66",
       "enforced": true
@@ -11258,7 +11343,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:392",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:438",
       "enforced": true
     },
     {
@@ -11458,7 +11543,7 @@
       "src_column": "driver_id",
       "dst_table": "drivers",
       "dst_column": "id",
-      "source": "crates/racecontrol/src/db/migrate_billing.rs:311",
+      "source": "crates/racecontrol/src/db/migrate_billing.rs:317",
       "enforced": true
     },
     {
@@ -11471,11 +11556,11 @@
     }
   ],
   "counts": {
-    "tables": 140,
+    "tables": 141,
     "fk_edges": 78,
     "driver_fk_edges": 39,
     "laps_fk_edges": 6,
-    "billing_sessions_fk_edges": 4,
+    "billing_sessions_fk_edges": 5,
     "unenforced_fk_edges": 5
   }
 }
