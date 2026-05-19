@@ -194,7 +194,7 @@ pub fn spawn_all(
 
     // C.3 pricing-prewarm — closes JAMES-1 caveat C2 (first-access pricing-cache
     // cold-start gap). See .planning/audits/RCA-C3-PRICING-PREWARM-2026-05-19.md.
-    spawn_pricing_prewarm(state.clone());
+    cloud_sync::spawn_pricing_prewarm(state.clone());
 
     // v29.0 Phase 35: Spawn data collector + RUL threshold checks (15-min interval)
     if let Some(telem_pool) = state.telemetry_db.clone() {
@@ -443,74 +443,6 @@ fn spawn_hashmap_eviction(state: Arc<AppState>) {
                     tracing::debug!("RESIL-09: evicted {} stale pending_command_acks entries", evicted);
                 }
             }
-        }
-    });
-}
-
-/// Pricing-prewarm — nightly pull of cloud-authoritative pricing table.
-///
-/// Closes the C2 gap from JAMES-1 caveat 2: pricing is cached locally on first
-/// access; if Internet drops BEFORE first access to a new SKU, the pod-launch
-/// write for that SKU fails with "no local price". Nightly prewarm makes the
-/// "first access" the cron, not the customer launch during an outage.
-///
-/// Cadence: 60s after startup + every 24h ± 15min jitter (centered window).
-/// Best-effort: a failed pull logs a warning and re-tries on the next cadence
-/// tick. Does NOT block startup. Does NOT block any customer flow.
-///
-/// See .planning/audits/RCA-C3-PRICING-PREWARM-2026-05-19.md for the §S-146
-/// 5-section RCA backing this change.
-fn spawn_pricing_prewarm(state: Arc<AppState>) {
-    // Module-private cadence constants — kept in this function so the
-    // policy is auditable in one place.
-    const PRICING_PREWARM_STARTUP_DELAY: Duration = Duration::from_secs(60);
-    const PRICING_PREWARM_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-    const PRICING_PREWARM_JITTER_HALF: Duration = Duration::from_secs(15 * 60);
-
-    let prewarm_state = state;
-    tokio::spawn(async move {
-        tracing::info!(
-            target: "pricing_prewarm",
-            "pricing-prewarm task started (24h ± 15min cadence, startup-delay 60s)"
-        );
-
-        // Initial startup tick — gives the rest of startup (cloud_sync handshake,
-        // SQLite WAL replay, port binds) a moment to settle before we hit the
-        // cloud sync path for the first prewarm.
-        tokio::time::sleep(PRICING_PREWARM_STARTUP_DELAY).await;
-
-        loop {
-            // Best-effort: any error is logged + we continue on the next tick.
-            // Never panics out of the task.
-            match cloud_sync::pull_tables_now(&prewarm_state, &["pricing"]).await {
-                Ok(()) => {
-                    tracing::info!(
-                        target: "pricing_prewarm",
-                        "pricing table prewarmed from cloud_sync"
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "pricing_prewarm",
-                        error = %e,
-                        "pricing prewarm failed; will retry on next cadence tick (expected on Internet-down)"
-                    );
-                }
-            }
-
-            // Jittered 24h sleep ± 15min, centered on INTERVAL.
-            //   base = INTERVAL - JITTER_HALF
-            //   next = base + rand(0..2 * JITTER_HALF)
-            // Result range: [INTERVAL - JITTER_HALF, INTERVAL + JITTER_HALF].
-            // Jitter avoids alignment with cloud_sync 30s drain, audit-log
-            // rotation, and other scheduled tasks.
-            let window_ms = (2 * PRICING_PREWARM_JITTER_HALF.as_millis()) as u64;
-            let jitter_ms = rand::random::<u64>() % window_ms.max(1);
-            let base = PRICING_PREWARM_INTERVAL
-                .checked_sub(PRICING_PREWARM_JITTER_HALF)
-                .unwrap_or(PRICING_PREWARM_INTERVAL);
-            let next = base + Duration::from_millis(jitter_ms);
-            tokio::time::sleep(next).await;
         }
     });
 }
