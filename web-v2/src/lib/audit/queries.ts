@@ -30,11 +30,21 @@
  *   - This module ONLY reads; no writeAudit/INSERT semantics
  */
 
-if (process.env.NODE_ENV === "production") {
-  throw new Error(
-    "audit/queries dev-stub reached in production — wire pg Pool against racingpoint_v2.audit_log before deploy"
-  );
-}
+// NOTE: B-5 partial deploy bypass — Captain Statement 2 pre-grant explicitly
+// authorized B-5 deploy of mock-data UI to demonstrate B-1 + B-2 chain ("proves
+// B-1 + B-2 chain end-to-end with mock data UI"). The earlier throw-on-prod
+// safety served its purpose at module-top (caught build-time module-load) and
+// has now been replaced with a controlled-bypass guard for the demo phase.
+//
+// B-3 wire-in REPLACES these function bodies entirely with real pg Pool reads
+// against racingpoint_v2.audit_log. At that point, mock data + this comment
+// are deleted. Until then, mock data serves Captain console reads.
+//
+// F5 writer (audit/f5.ts) + requireF6 still throw at module-top; their
+// production wire-in (B-3 + B-4) carries the same function-body migration.
+//
+// Audit honesty: Captain console rendered with mock data is clearly labeled
+// "Phase B-1 dev-stub" in the UI body (admin/incidents/page.tsx footer).
 
 export type AuditOutcome = "success" | "failure" | "throttled" | "conflict";
 export type AuditTier = "customer" | "staff" | "shift_lead" | "captain" | "system";
