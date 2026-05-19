@@ -8,7 +8,7 @@
  *   - 24h TTL
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   checkIdempotency,
   storeIdempotency,
@@ -74,5 +74,57 @@ describe("idempotency · error envelope", () => {
     expect(err.status).toBe(409);
     expect(err.body.error).toBe("idempotency_conflict");
     expect(err.body.staff_detail).toContain("existing op=");
+  });
+});
+
+describe("idempotency · TTL expiry (24h sweep)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sweeps entries older than 24h on next checkIdempotency call", async () => {
+    vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+    const k = uniqueKey("ttl-sweep");
+    await storeIdempotency(k, { v: 1 }, 200);
+
+    const before = await checkIdempotency(k);
+    expect(before.hit).toBe("replay");
+
+    // Advance just past 24h boundary
+    vi.setSystemTime(new Date("2026-05-20T00:00:01Z"));
+    const after = await checkIdempotency(k);
+    expect(after.hit).toBe("miss");
+  });
+
+  it("does NOT sweep entries within 24h window", async () => {
+    vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+    const k = uniqueKey("ttl-within");
+    await storeIdempotency(k, { v: 1 }, 200);
+
+    // Advance 23h (within TTL)
+    vi.setSystemTime(new Date("2026-05-19T23:00:00Z"));
+    const result = await checkIdempotency(k);
+    expect(result.hit).toBe("replay");
+  });
+
+  it("sweep operates per-entry (mixed-age store: keeps fresh, removes stale)", async () => {
+    vi.setSystemTime(new Date("2026-05-19T00:00:00Z"));
+    const stale = uniqueKey("ttl-stale");
+    await storeIdempotency(stale, { age: "stale" }, 200);
+
+    // 12h later, store a fresh entry
+    vi.setSystemTime(new Date("2026-05-19T12:00:00Z"));
+    const fresh = uniqueKey("ttl-fresh");
+    await storeIdempotency(fresh, { age: "fresh" }, 200);
+
+    // 25h after t0: stale is past TTL, fresh is still within
+    vi.setSystemTime(new Date("2026-05-20T01:00:00Z"));
+    const staleResult = await checkIdempotency(stale);
+    const freshResult = await checkIdempotency(fresh);
+    expect(staleResult.hit).toBe("miss");
+    expect(freshResult.hit).toBe("replay");
   });
 });

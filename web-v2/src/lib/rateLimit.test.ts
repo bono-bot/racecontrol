@@ -69,6 +69,40 @@ describe("rateLimit · long-window enforcement", () => {
   });
 });
 
+describe("rateLimit · key isolation", () => {
+  it("different keys maintain independent buckets (saturated A does not block B)", async () => {
+    const kA = uniqueKey("isolation-A");
+    const kB = uniqueKey("isolation-B");
+    const t0 = Date.now();
+
+    // Saturate key A within short window
+    await hitWindows(kA, t0, SHORT, LONG);
+    const rA2 = await hitWindows(kA, t0 + 1000, SHORT, LONG);
+    expect(rA2.allowed).toBe(false);
+
+    // Key B at the same instant should still be allowed
+    const rB1 = await hitWindows(kB, t0 + 1000, SHORT, LONG);
+    expect(rB1.allowed).toBe(true);
+    expect(rB1.shortHits).toBe(1);
+  });
+
+  it("hits on one key do not appear in another key's long-window count", async () => {
+    const kA = uniqueKey("count-A");
+    const kB = uniqueKey("count-B");
+    const t0 = Date.now();
+
+    // 3 spaced hits on A (all allowed because each is past short window of the prior)
+    for (let i = 0; i < 3; i++) {
+      await hitWindows(kA, t0 + i * (SHORT.durationMs + 1), SHORT, LONG);
+    }
+
+    // Single hit on B should observe longHits=1, NOT 4 (proof of bucket separation)
+    const rB = await hitWindows(kB, t0 + 4 * (SHORT.durationMs + 1), SHORT, LONG);
+    expect(rB.longHits).toBe(1);
+    expect(rB.allowed).toBe(true);
+  });
+});
+
 describe("rateLimit · error envelopes", () => {
   it("rateLimitedError default posture exposes retry hint to customer", () => {
     const err = rateLimitedError(45_000);
