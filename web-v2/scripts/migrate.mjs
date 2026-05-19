@@ -20,7 +20,7 @@
 // aligned with V2 development (Captain 2026-05-19 ~15:19 IST scope).
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,10 +44,14 @@ function psql(sql, opts = {}) {
 }
 
 function psqlFile(absPath) {
+  // /root is mode 700 (root-only). Reading via shell redirect `< file` from
+  // sudo'd postgres user fails. Read the file in the parent process and pipe
+  // the SQL via stdin instead.
+  const sql = readFileSync(absPath, "utf-8");
   return execFileSync(
     "sudo",
-    ["-u", PG_USER, "bash", "-c", `psql -d ${PG_DB} -tAq -v ON_ERROR_STOP=1 < "${absPath}"`],
-    { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+    ["-u", PG_USER, "psql", "-d", PG_DB, "-tAq", "-v", "ON_ERROR_STOP=1"],
+    { input: sql, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
   );
 }
 
