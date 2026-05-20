@@ -46,6 +46,9 @@
 // Audit honesty: Captain console rendered with mock data is clearly labeled
 // "Phase B-1 dev-stub" in the UI body (admin/incidents/page.tsx footer).
 
+import { getPool } from "../db";
+import type { Pool } from "pg";
+
 export type AuditOutcome = "success" | "failure" | "throttled" | "conflict";
 export type AuditTier = "customer" | "staff" | "shift_lead" | "captain" | "system";
 
@@ -140,9 +143,75 @@ function isResolved(row: AuditLogRow): boolean {
   return row.outcome === "success" && row.operation_id === "incident_resolve";
 }
 
+const RESOLVED_SQL = "(outcome = 'success' AND operation_id = 'incident_resolve')";
+
+function rowToAuditLogRow(r: Record<string, unknown>): AuditLogRow {
+  const ts = r.ts instanceof Date ? r.ts.toISOString() : String(r.ts);
+  return {
+    id: String(r.id),
+    ts,
+    actor_id: String(r.actor_id),
+    actor_tier: r.actor_tier as AuditTier,
+    action: String(r.action),
+    target_type: String(r.target_type),
+    target_id: String(r.target_id),
+    outcome: r.outcome as AuditOutcome,
+    request_id: (r.request_id as string | null) ?? null,
+    operation_id: (r.operation_id as string | null) ?? null,
+    body_hash: (r.body_hash as string | null) ?? null,
+    detail: (r.detail as Record<string, unknown> | null) ?? null,
+  };
+}
+
+async function listIncidentsFromDb(
+  pool: Pool,
+  params: ListIncidentsParams,
+): Promise<ListIncidentsResponse> {
+  const status = params.status ?? "active";
+  const limit = Math.min(params.limit ?? 100, 1000);
+
+  const conds: string[] = ["action LIKE 'incident_%'"];
+  const args: unknown[] = [];
+  let i = 1;
+  if (params.since) {
+    conds.push(`ts >= $${i++}`);
+    args.push(params.since);
+  }
+  if (params.classPattern) {
+    conds.push(`action LIKE $${i++}`);
+    args.push(`%${params.classPattern}%`);
+  }
+  if (status === "active") conds.push(`NOT ${RESOLVED_SQL}`);
+  else if (status === "resolved") conds.push(RESOLVED_SQL);
+
+  const where = conds.join(" AND ");
+  const rowsRes = await pool.query(
+    `SELECT id, ts, actor_id, actor_tier, action, target_type, target_id,
+            outcome, request_id, operation_id, body_hash, detail
+     FROM audit_log WHERE ${where} ORDER BY ts DESC LIMIT $${i}`,
+    [...args, limit],
+  );
+  const activeRes = await pool.query(
+    `SELECT count(*)::int AS c FROM audit_log WHERE action LIKE 'incident_%' AND NOT ${RESOLVED_SQL}`,
+  );
+  const resolvedRes = await pool.query(
+    `SELECT count(*)::int AS c FROM audit_log WHERE action LIKE 'incident_%' AND ${RESOLVED_SQL} AND ts >= now() - interval '24 hours'`,
+  );
+
+  return {
+    incidents: rowsRes.rows.map(rowToAuditLogRow),
+    active_count: activeRes.rows[0].c,
+    resolved_24h: resolvedRes.rows[0].c,
+  };
+}
+
 export async function listIncidents(
   params: ListIncidentsParams = {},
 ): Promise<ListIncidentsResponse> {
+  const pool = getPool();
+  if (pool) return listIncidentsFromDb(pool, params);
+
+  // Dev-stub fallback: no DB credential configured → mock data.
   const status = params.status ?? "active";
   const limit = Math.min(params.limit ?? 100, 1000);
   const since = params.since ? new Date(params.since) : null;
@@ -176,5 +245,16 @@ export async function listIncidents(
 }
 
 export async function getIncidentById(id: string): Promise<AuditLogRow | null> {
+  const pool = getPool();
+  if (pool) {
+    const res = await pool.query(
+      `SELECT id, ts, actor_id, actor_tier, action, target_type, target_id,
+              outcome, request_id, operation_id, body_hash, detail
+       FROM audit_log WHERE id = $1`,
+      [id],
+    );
+    return res.rows.length ? rowToAuditLogRow(res.rows[0]) : null;
+  }
+  // Dev-stub fallback.
   return MOCK_INCIDENTS.find((r) => r.id === id) ?? null;
 }

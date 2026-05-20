@@ -15,12 +15,13 @@
 
 import { createHash } from "crypto";
 import type { Tier } from "../auth/requireF6";
+import { getPool } from "../db";
 
-if (process.env.NODE_ENV === "production") {
-  throw new Error(
-    "audit/f5 dev-stub reached in production — wire Postgres `audit_log` append-only table before deploy"
-  );
-}
+// B-3 wire-in: graceful degradation. PG_URL set → real append-only INSERT
+// against racingpoint_v2.audit_log as web_v2_audit role; unset → console.log
+// dev-stub. The earlier module-top throw-on-prod was removed (it broke Next.js
+// page-data collection when imported by routes — same class as queries.ts).
+// Append-only is enforced at the GRANT level (web_v2_audit has no UPDATE/DELETE).
 
 export type F5Outcome = "success" | "failure" | "throttled" | "conflict";
 
@@ -44,7 +45,31 @@ export function hashBody(body: unknown): string {
 }
 
 export async function writeAudit(row: F5AuditRow): Promise<void> {
-  console.log("[f5 audit]", JSON.stringify(row));
+  const pool = getPool();
+  if (!pool) {
+    // Dev-stub fallback: no DB credential configured.
+    console.log("[f5 audit]", JSON.stringify(row));
+    return;
+  }
+  await pool.query(
+    `INSERT INTO audit_log
+       (ts, actor_id, actor_tier, action, target_type, target_id,
+        outcome, request_id, operation_id, body_hash, detail)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      row.ts,
+      row.actor_id,
+      row.actor_tier,
+      row.action,
+      row.target_type,
+      row.target_id,
+      row.outcome,
+      row.request_id ?? null,
+      row.operation_id ?? null,
+      row.body_hash ?? null,
+      row.detail ?? null,
+    ],
+  );
 }
 
 export async function writeAuditOrFail(row: F5AuditRow): Promise<void> {
