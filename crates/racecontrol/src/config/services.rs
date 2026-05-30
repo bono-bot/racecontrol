@@ -59,6 +59,10 @@ pub struct AiDebuggerConfig {
     /// Key read from OPENROUTER_KEY env var or data/openrouter-mma-key.txt.
     #[serde(default = "default_openrouter_model")]
     pub openrouter_model: String,
+    /// Backup OpenRouter model — tried if `openrouter_model` errors, before
+    /// falling through to Ollama. Empty string disables the backup attempt.
+    #[serde(default = "default_openrouter_model_backup")]
+    pub openrouter_model_backup: String,
     #[serde(default = "default_true")]
     pub chat_enabled: bool,
     #[serde(default = "default_true")]
@@ -76,6 +80,7 @@ impl Default for AiDebuggerConfig {
             anthropic_api_key: None,
             anthropic_model: default_anthropic_model(),
             openrouter_model: default_openrouter_model(),
+            openrouter_model_backup: default_openrouter_model_backup(),
             chat_enabled: true,
             proactive_analysis: true,
         }
@@ -430,7 +435,8 @@ fn default_claude_cli_timeout() -> u32 { 30 }
 fn default_ollama_url() -> String { "http://192.168.31.27:11434".to_string() }
 fn default_ollama_model() -> String { "qwen2.5:3b".to_string() }
 fn default_anthropic_model() -> String { "claude-sonnet-4-20250514".to_string() }
-fn default_openrouter_model() -> String { "deepseek/deepseek-chat-v3-0324".to_string() }
+fn default_openrouter_model() -> String { "openai/gpt-oss-safeguard-20b:nitro".to_string() }
+fn default_openrouter_model_backup() -> String { "arcee-ai/trinity-mini".to_string() }
 fn default_acserver_path() -> String { "C:/RacingPoint/ac-server/acServer.exe".to_string() }
 fn default_ac_data_dir() -> String { "./data/ac_servers".to_string() }
 // v47.0 Phase 345-03 (Phase 343 C5): return empty so the dangerous default literal

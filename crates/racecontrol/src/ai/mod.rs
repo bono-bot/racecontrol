@@ -59,24 +59,38 @@ pub async fn query_ai(
         }
     }
 
-    // 2. OpenRouter (MMA-class cloud models — higher quality than Ollama)
+    // 2. OpenRouter (MMA-class cloud models — higher quality than Ollama).
+    //    Try the primary model, then the backup model, before falling through
+    //    to Ollama. Backup is skipped when empty or identical to primary.
     if read_openrouter_key().is_some() {
-        match query_openrouter(&config.openrouter_model, messages).await {
-            Ok(reply) => {
-                if let Some(db) = db {
-                    log_training_pair(
-                        db,
-                        &user_query,
-                        &reply,
-                        source.unwrap_or("unknown"),
-                        &format!("openrouter/{}", config.openrouter_model),
-                    )
-                    .await;
+        let mut or_models: Vec<&str> = vec![config.openrouter_model.as_str()];
+        if !config.openrouter_model_backup.is_empty()
+            && config.openrouter_model_backup != config.openrouter_model
+        {
+            or_models.push(config.openrouter_model_backup.as_str());
+        }
+        for or_model in or_models {
+            match query_openrouter(or_model, messages).await {
+                Ok(reply) => {
+                    if let Some(db) = db {
+                        log_training_pair(
+                            db,
+                            &user_query,
+                            &reply,
+                            source.unwrap_or("unknown"),
+                            &format!("openrouter/{}", or_model),
+                        )
+                        .await;
+                    }
+                    return Ok((reply, format!("openrouter/{}", or_model)));
                 }
-                return Ok((reply, format!("openrouter/{}", config.openrouter_model)));
-            }
-            Err(e) => {
-                tracing::warn!("OpenRouter failed: {}. Trying Ollama...", e);
+                Err(e) => {
+                    tracing::warn!(
+                        "OpenRouter {} failed: {}. Trying next provider...",
+                        or_model,
+                        e
+                    );
+                }
             }
         }
     }

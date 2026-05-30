@@ -202,6 +202,8 @@ use_steam = true
 enabled = true
 ollama_url = "http://192.168.31.27:11434"
 ollama_model = "qwen2.5:3b"
+openrouter_model = "openai/gpt-oss-safeguard-20b:nitro"
+openrouter_model_backup = "arcee-ai/trinity-mini"
 "#,
         pod_number = pod_number,
         pod_name = pod_name
