@@ -3,10 +3,32 @@ name = "rc-installer"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Opt-in to building the Windows-only V1 pendrive [[bin]] (src/main.rs:13
+# `#[cfg(not(windows))] compile_error!`). OFF by default so `cargo test` /
+# `cargo check` on a Linux dev host build only the trust-core lib + integration
+# tests — selecting an integration test otherwise forces the bin to compile
+# (cargo builds package binaries so integration tests can exec them via
+# CARGO_BIN_EXE_*). Windows / CI / the Tauri increment build with
+# `--features installer-bin`.
+installer-bin = []
+
 [[bin]]
 name = "rc-installer"
 path = "src/main.rs"
+required-features = ["installer-bin"]
 
-# Zero dependencies — just std.
-# Keeps binary tiny and eliminates supply chain risk.
-# The batch wrapper handles Defender; this handles everything else.
+[lib]
+name = "rc_installer"
+path = "src/lib.rs"
+
+[dependencies]
+# Trust core (V2 web-distributed installer). The V1 [[bin]] above is pure-std
+# Windows-only (#[cfg(not(windows))] compile_error!) and does not use these;
+# they serve the lib (ed25519 + sha256 release-trust verification, spec §7).
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+ed25519-dalek = { workspace = true }
