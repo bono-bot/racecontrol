@@ -1,5 +1,17 @@
 # Racing Point eSports — Project Context
 
+## 🧭 V2 Scope Freeze & Definition-of-Done — STANDING (Captain 2026-05-30 · BILATERAL)
+
+**Default understanding going forward.** V2 is COMPLETE when **two surfaces are both bug-free**: (1) **RacingPoint Ecosystem V2** (`rp-v2-apps`: PWA·POS·Kiosk·Pod-display·Launch-portal·admin-proxies·contracts·billing·SSE) + (2) **RaceControl** (Rust `racecontrol` heart · `rc-agent` · `rc-installer`).
+
+**Bug-free bar:** first-INR money path passes **e2e on a real pod** (register(OTP)→topup→launch(HOLD)→tick-debit→end→bill, ₹ reconciled) · **zero open CRITICAL/blocker bugs** · gate-clean (parity + tests green; no money-leak / double-spend / double-spawn).
+
+**Scope freeze:** **NO V2.1+ scope until BOTH pass.** Frozen → V2.1+: multiplayer green-light trio · pod-display error-display states · telemetry / leaderboards · any non-first-INR feature. Bug-fixes + hardening + the cutover / subscription-wiring / operator-physical unblocks are IN-SCOPE for V2 completion (they close the bar, they do not extend it).
+
+**Default test on ANY proposed work:** *does it close the first-INR bug-free bar, or is it V2.1+ (→ FROZEN, defer)?* "Done" for V2 = this bar, not feature-completeness.
+
+**Canonical:** Captain ratification `rp-v2-apps/coordinator/CAPTAIN-RATIFICATION-V2-SCOPE-FREEZE-2026-05-30.md` (`0ea33e7`) · bono memory `project_v2_scope_freeze_definition_of_done_20260530.md` · `§S-N` assigned by James on ratify-append.
+
 ## The Principle — Verify Before Generate (2026-04-11)
 
 **Before generating ANY output, verify the inputs it depends on.**
