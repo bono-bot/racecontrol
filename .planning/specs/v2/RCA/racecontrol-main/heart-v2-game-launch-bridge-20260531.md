@@ -92,3 +92,31 @@ No *unresolved* or *patched-only* V1 bug is being carried forward silently — e
 - **Owner of the bridge code:** Rust heart (this crate) per delta A/C, or split with the proxy per delta D? The overnight gap-find listed this owner as "unknown." This RCA's analysis points the *handshake* at the heart (it owns the pod-state-channel) with the proxy retaining wallet+green-light — but that is a recommendation for MMA to confirm, not a settled decision.
 - **Frozen-scope check:** the launch-failed **SSE event** is first-INR-in-scope; the launch-failed **display polish** is V2.1-FROZEN. Confirm the line.
 - **Sequencing vs. cluster-2 (Replit wallet HOLD+402):** the green-light precondition assumes the proxy's wallet HOLD+402 gate exists. It does **not** yet (gap-find cluster-2, Replit-owned). The heart bridge can be built and unit-tested against a mock green-light independently, but the *e2e* first-INR proof needs both. Recommend the heart bridge RCA→MMA→build proceeds in parallel with the Replit wallet gate, joined at the e2e smoke.
+
+---
+
+## §7 — MMA Step-1 DIAGNOSE outcome (2026-05-31 · delta A CONFIRMED + 2 refinements)
+
+**Run:** surface `MMA-HEART-V2-BRIDGE-DELTA-A-bono-2026-05-31`, 5 OpenRouter models / 5 vendor families called ($0.0637). 4 returned usable content (deepseek-r1, nvidia-nemotron, qwen3-coder fully substantive across all 5 Qs; gemini-2.5-pro truncated after Q1; kimi-k2.5 returned an empty body — all reasoning tokens, no message). Raw: `/tmp/mma-heart-v2-bridge-results/`; spend: `comms-link/data/openrouter-spend-bono.jsonl`. Consensus below is **unanimous among responders** (≥3 vendor families substantive on every question).
+
+**Verdict: delta A is the sound design.** No model proposed a better delta; all rejected delta D's split ownership. Two refinements are **adopted into the proposal** (they supersede §5 where they differ):
+
+**R1 — Extract, don't rewrite (blast-radius mitigation; Q4 unanimous). Refines §5 step 1.** Do NOT mutate `launch_game`'s body. Sequence: (1) extract `dispatch_launch_to_agent(...)` as a NEW fn; (2) `launch_game` calls it AFTER its billing gate, parity preserved — safest variant (nvidia): leave `launch_game` byte-unchanged + add a shim, migrate V1 callers in a follow-up PR; (3) heart-V2 calls `dispatch_...` directly; (4) **feature-flag the V2 launch path** until E2E-verified ("no partial rollouts on a money path"). Invariants the refactor MUST preserve (Q4 consensus): PIN-auth `launch_or_assist` tracker-insert-before-challenge ordering; `force_supersede` atomic stop-then-launch under one `active_games.write()`; **`relaunch_game` must preserve `billing_session_id`**; FSM-08 DB-before-launch; NeedsManualIntervention card emission.
+
+**R2 — Reconciler for the confirm-before-bill failure window (NEW; raised independently by deepseek + nvidia + qwen; Q3). Adds a step to §5.** The ordering fix (green-light only after Running) does not remove the failure — it *moves* it: game reaches Running but the heart crashes before persisting/sending `green_light_at` → customer plays **FREE**. Required mitigation: a boot/periodic **reconciler** that detects `active_games[pod] == Running` && the V2 session has no `green_light_at` → force-set `green_light_at` + persist + emit SSE. This composes with the L3-1 rehydrate path and is the **same mechanism** that resolves L3-1's accepted-residual C (stuck-Occupied) — one reconciler, two bugs. **Open:** first-INR-in-scope or fast-follow? Lean **in-scope** — without it the ordering fix merely trades overbill for free-play.
+
+**Per-question consensus:**
+- **Q1 (one tracker):** UNANIMOUS — reuse the single `active_games`. A parallel V2 tracker = split-brain/double-launch; BILL-12 would watch only the V1 tracker, leaving a V2 zombie that never times out. Delta A's funnel-through-`active_games` prevents it.
+- **Q2 (owner):** UNANIMOUS — the heart owns the handshake AND the closed-loop verify (it owns the pod-state-channel + the agent-WS telemetry the proxy cannot see). Delta D's double-SSE (V1 DashboardEvent vs V2 SSE) is a real correctness hazard → racey billing + customer disputes, not cosmetic.
+- **Q3 (ordering):** UNANIMOUS — confirm-before-bill is correct; bill-before-confirm overbills failed launches. (See R2 for the residual window.)
+- **Q5 (stale-verify):** UNANIMOUS — remove the 50ms mimic; every path to green-light/Running-SSE must traverse the real closed-loop verify (V1 `launch_game`→dispatch, V2 `HeartStore::launch`→dispatch, `relaunch_game`, rehydration-on-restart, and any error/else branch that currently pretends success).
+
+**MUST-FIX-BEFORE-MERGE (consensus, ranked — per-PR Captain-auth foundational surface):**
+1. **V1-isolation test** — a V2 launch creates **zero** V1 `active_timer` / `billing_sessions` rows (query DB after launch). *(deepseek + nvidia + qwen all rank top.)*
+2. **Closed-loop coverage** — mock agent never ACKs ⇒ no `green_light_at`, no Running SSE; ACK dropped after send ⇒ treated as failed.
+3. **Full `game_launcher_tests.rs` regression unchanged** — PIN-auth, force-supersede, relaunch, split-session, manual-intervention all green.
+4. **V1+V2 same-pod concurrency** — one wins via the `active_games` lock; the other is rejected.
+5. **Restart/reconciliation** — crash post-Running pre-green-light ⇒ reconciler (R2) sets green-light on boot.
+6. **BILL-12 timeout** ⇒ LaunchFailed ⇒ no billing.
+
+**Gate remaining:** MMA Step-1 = satisfied. The code change still requires **per-PR Captain auth** to implement (foundational pod-state-channel) — standing-autonomy verbs do NOT satisfy.
