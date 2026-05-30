@@ -153,6 +153,17 @@ async fn main() -> anyhow::Result<()> {
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let mut state = Arc::new(AppState::new(config, pool, v2db, field_cipher));
 
+    // L3-1 (2026-05-31): rehydrate heart-V2 sessions from the durable store so an
+    // in-flight pod session survives a heart restart (was in-memory-only → lost).
+    {
+        let loaded = racecontrol_crate::api::heart_v2::load_sessions(&state.v2db).await;
+        let recovered = loaded.len();
+        state.heart.write().await.apply_loaded_sessions(loaded);
+        if recovered > 0 {
+            tracing::info!(count = recovered, "heart-V2: rehydrated sessions from durable store on boot");
+        }
+    }
+
     // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
     init_telemetry(&mut state).await;
 
@@ -452,6 +463,11 @@ fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         // API routes
         .nest("/api/v1", api::routes::api_routes(state.clone()))
+        // Heart-V2 session surface — bare `/heart/...` at the ROOT (NOT under
+        // /api/v1) so the admin proxy's `RACECONTROL_HEART_URL + /heart/...`
+        // lands here (mock-heart drop-in parity). See api::heart_v2 + RCA at
+        // .planning/specs/v2/RCA/racecontrol-main/heart-v2-session-surface-20260530.md
+        .merge(api::heart_v2::heart_routes())
         // WebSocket endpoints
         .route("/ws/agent", get(ws::agent_ws))
         .route("/ws/dashboard", get(ws::dashboard_ws))
