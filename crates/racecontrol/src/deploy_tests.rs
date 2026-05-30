@@ -184,6 +184,16 @@ fn generate_pod_config_contains_games() {
     assert!(config.contains("[games.assetto_corsa]"));
     assert!(config.contains("[games.f1_25]"));
     assert!(config.contains("[ai_debugger]"));
+    // Captain directive: OpenRouter primary + backup models for AI escalation.
+    assert!(config.contains("openrouter_model = \"openai/gpt-oss-safeguard-20b:nitro\""));
+    assert!(config.contains("openrouter_model_backup = \"arcee-ai/trinity-mini\""));
+}
+
+#[test]
+fn ai_debugger_default_openrouter_models() {
+    let cfg = crate::config::AiDebuggerConfig::default();
+    assert_eq!(cfg.openrouter_model, "openai/gpt-oss-safeguard-20b:nitro");
+    assert_eq!(cfg.openrouter_model_backup, "arcee-ai/trinity-mini");
 }
 
 // ── is_deploy_window_locked tests (DEPLOY-03) ───────────────────────────

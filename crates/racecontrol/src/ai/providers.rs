@@ -152,7 +152,14 @@ pub async fn query_openrouter(
     }
     #[derive(Deserialize)]
     struct ChoiceMessage {
-        content: String,
+        // Reasoning models (e.g. openai/gpt-oss-safeguard-20b, arcee-ai/trinity-mini)
+        // emit the analysis in `reasoning` and may leave `content` null/empty when
+        // the completion budget is consumed by reasoning (finish_reason "length").
+        // Both fields are optional; we prefer content, then fall back to reasoning.
+        #[serde(default)]
+        content: Option<String>,
+        #[serde(default)]
+        reasoning: Option<String>,
     }
     #[derive(Deserialize)]
     struct OpenRouterResponse {
@@ -160,10 +167,15 @@ pub async fn query_openrouter(
     }
 
     let body: OpenRouterResponse = resp.json().await?;
-    body.choices
+    let msg = &body
+        .choices
         .first()
-        .map(|c| c.message.content.clone())
-        .ok_or_else(|| anyhow::anyhow!("OpenRouter returned empty choices"))
+        .ok_or_else(|| anyhow::anyhow!("OpenRouter returned empty choices"))?
+        .message;
+    let non_empty = |s: &Option<String>| s.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    non_empty(&msg.content)
+        .or_else(|| non_empty(&msg.reasoning))
+        .ok_or_else(|| anyhow::anyhow!("OpenRouter returned empty content and reasoning"))
 }
 
 /// Query Anthropic Messages API.
