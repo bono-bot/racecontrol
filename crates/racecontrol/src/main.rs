@@ -452,6 +452,11 @@ fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         // API routes
         .nest("/api/v1", api::routes::api_routes(state.clone()))
+        // Heart-V2 session surface — bare `/heart/...` at the ROOT (NOT under
+        // /api/v1) so the admin proxy's `RACECONTROL_HEART_URL + /heart/...`
+        // lands here (mock-heart drop-in parity). See api::heart_v2 + RCA at
+        // .planning/specs/v2/RCA/racecontrol-main/heart-v2-session-surface-20260530.md
+        .merge(api::heart_v2::heart_routes())
         // WebSocket endpoints
         .route("/ws/agent", get(ws::agent_ws))
         .route("/ws/dashboard", get(ws::dashboard_ws))

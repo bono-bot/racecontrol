@@ -7,6 +7,7 @@ pub mod pods;
 pub mod routes;
 pub mod security;
 pub mod survival;
+pub mod heart_v2;
 
 // Phase 445 — OpenApi umbrella module (feature-gated; only exists when gen-types feature is on).
 // Plan 02b populates with admin handler route annotations.

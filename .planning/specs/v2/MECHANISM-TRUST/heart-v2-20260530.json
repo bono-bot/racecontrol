@@ -1,0 +1,37 @@
+{
+  "surface": "racecontrol-rust-heart-transport-sse-state-schema",
+  "date": "2026-05-30",
+  "valid_until": "2026-06-29",
+  "author": "bono",
+  "context": "Heart-V2 port (/heart/sessions/* + /heart/pods/state/stream + PodStateSnapshot projection) depends on the racecontrol Rust heart's existing shared infrastructure: Axum 0.8 HTTP, tokio broadcast channels (SSE fan-out), Arc<RwLock<HashMap>> shared state, sqlx v1/v2 DB pools. Per Mechanism-Trust-Check doctrine (extends S-146), this 5-question check runs BEFORE the fix RCA. ALL 5 must be YES or the infra surface gets its own RCA.",
+  "questions": {
+    "q1_atomic_primitives": {
+      "answer": "YES",
+      "evidence": "tokio::sync::broadcast (lock-free MPMC fan-out, like AppState.dashboard_tx state.rs:~52) + Arc<RwLock<HashMap>> for shared maps + sqlx pool. Primitives are sound/atomic.",
+      "caveat": "V1 MISUSES the primitive in places (lock-across-await at billing.rs:416,425 per inherited-issue #10). The primitive is sound; usage discipline is the risk. Mitigation carried into RCA §4 + implementation: snapshot-read → drop guard → then .await/broadcast (mirror mock-heart state.ts lock-drop-before-broadcast)."
+    },
+    "q2_ttl_bounded_sentinels": {
+      "answer": "YES",
+      "evidence": "SSE 15s heartbeat (mock-heart server.ts:82-88) + CR-10 30s-silence trip-wire (pod-display offlineAfterMs) + heart-publisher-watchdog (proxy-side TTL detection of silent publisher death). broadcast channel has bounded buffer (lagged receivers get RecvError::Lagged — explicit, not silent)."
+    },
+    "q3_behavioral_verify_not_echo": {
+      "answer": "YES",
+      "evidence": "Verification = live POST .23:8080/heart/sessions/launch returns a REAL session object (not 404) + a PodStateSnapshot delta observed on the /heart/pods/state/stream SSE firehose (behavioral, not echo-string). Binary identity via build_id/GIT_HASH. health-200 alone is explicitly NOT accepted as proof."
+    },
+    "q4_single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "racecontrol runs locally (cargo run --bin racecontrol) on a non-prod port; curl the 6 heart endpoints + observe SSE against a single in-memory pod BEFORE any .23 deploy. cargo test gives a hermetic single-target path."
+    },
+    "q5_written_contracts_parser_allowlist": {
+      "answer": "YES",
+      "evidence": "proxy↔heart contract is session.yaml v0.1.10 (OpenAPI, machine-parseable) + zod schemas in packages/contracts/src/session.ts (parser, not regex) + the mock-heart byte-for-byte reference. Pod-path allowlist derives from canonical PODS_TOTAL substrate via podIdRegex(PODS_TOTAL) (Task #221), not hand-typed literals."
+    }
+  },
+  "verdict": "PASS (5/5 YES). Infrastructure surface is trustworthy to build the heart-V2 port on. No separate S-146 infra-RCA required. The q1 caveat (lock-across-await usage class) is carried as a hard implementation constraint into the heart-V2 fix RCA §4 and the port PLAN. Proceed to fix RCA.",
+  "carried_constraints": [
+    "No lock held across .await (snapshot+drop pattern) — inherited-issue #10",
+    "serde deny_unknown_fields on all heart request structs — inherited-issue #4 (silent serde-drop)",
+    "V1/V2 schema isolation preserved (heart-V2 state is in-memory + optional v2-db; never mutate V1 billing_sessions) — inherited-issue #11",
+    "Behavioral verify (session-not-404 + SSE delta), not health-200 — inherited-issue #6 (audit blind spots)"
+  ]
+}

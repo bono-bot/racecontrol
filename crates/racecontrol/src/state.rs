@@ -49,6 +49,12 @@ pub struct AppState {
     /// Session 2 added this field.
     pub v2db: v2_db::DbPool,
     pub pods: RwLock<HashMap<String, PodInfo>>,
+    /// Heart-V2 in-memory session/pod-state store (the V2 pod-state-channel).
+    /// Separate substrate from `pods` (V1 PodInfo) per heart-V2 RCA §1 V1/V2
+    /// isolation — never touches V1 billing_sessions.
+    pub heart: RwLock<crate::api::heart_v2::HeartStore>,
+    /// SSE fan-out of PodStateSnapshot deltas to `/heart/pods/state/stream`.
+    pub heart_stream_tx: broadcast::Sender<crate::api::heart_v2::PodState>,
     pub dashboard_tx: broadcast::Sender<DashboardEvent>,
     /// Broadcast channel for emitting events to Bono's VPS relay.
     /// Other modules send here; bono_relay::spawn() subscribes and pushes to webhook.
@@ -232,6 +238,7 @@ impl AppState {
     pub fn new(config: Config, db: SqlitePool, v2db: v2_db::DbPool, field_cipher: FieldCipher) -> Self {
         let (dashboard_tx, _) = broadcast::channel(1024);
         let (bono_event_tx, _) = broadcast::channel(256);
+        let (heart_stream_tx, _) = broadcast::channel(256);
         // Extract email alert config before config is moved into the struct
         let email_recipient = config.watchdog.email_recipient.clone();
         let email_script_path = config.watchdog.email_script_path.clone();
@@ -253,6 +260,8 @@ impl AppState {
             db,
             v2db,
             pods: RwLock::new(HashMap::new()),
+            heart: RwLock::new(crate::api::heart_v2::HeartStore::new()),
+            heart_stream_tx,
             dashboard_tx,
             bono_event_tx,
             billing: BillingManager::new(),
