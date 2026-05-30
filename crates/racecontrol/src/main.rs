@@ -153,6 +153,17 @@ async fn main() -> anyhow::Result<()> {
     let bind_addr = format!("{}:{}", config.server.host, config.server.port);
     let mut state = Arc::new(AppState::new(config, pool, v2db, field_cipher));
 
+    // L3-1 (2026-05-31): rehydrate heart-V2 sessions from the durable store so an
+    // in-flight pod session survives a heart restart (was in-memory-only → lost).
+    {
+        let loaded = racecontrol_crate::api::heart_v2::load_sessions(&state.v2db).await;
+        let recovered = loaded.len();
+        state.heart.write().await.apply_loaded_sessions(loaded);
+        if recovered > 0 {
+            tracing::info!(count = recovered, "heart-V2: rehydrated sessions from durable store on boot");
+        }
+    }
+
     // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
     init_telemetry(&mut state).await;
 

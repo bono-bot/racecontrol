@@ -97,23 +97,26 @@ pub struct BalanceRunoutAlarm {
     pub computed_at: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+// `Deserialize` (+ `default` on skip-serialized Options) added for L3-1: the
+// durable store round-trips a PodSession as a JSON blob. Additive — does not
+// change the serialized (wire) shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PodSession {
     pub id: String,
     pub household_id: String,
     pub profile_id: String,
     pub pod_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lobby_id: Option<String>,
     pub state: SessionState,
     pub tier: String,
     pub game: String,
     pub started_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub green_light_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused_at: Option<String>,
     pub pause_ms_total: i64,
     pub credits_debited: i64,
@@ -419,6 +422,129 @@ impl HeartStore {
     pub fn get_pod(&self, pod_id: &str) -> Option<PodState> {
         self.pods.get(pod_id).cloned()
     }
+
+    /// Rehydrate sessions from the durable store at boot (L3-1). Retains ENDED
+    /// sessions in the map (cross-restart idempotency: a re-delivered end/pause
+    /// must still find the session and return 200, not 404 — MMA nvidia/deepseek)
+    /// but relinks `pod.current_session` ONLY for live (non-ended) sessions.
+    /// MMA A2.RELINK edge handling:
+    ///  - two live sessions for one pod → newest `started_at` wins (logged);
+    ///  - session referencing an unknown pod → kept in map, pod not relinked (logged);
+    ///  - ended + newer running on a pod → the running session wins (ended never relinks).
+    pub fn apply_loaded_sessions(&mut self, loaded: Vec<PodSession>) {
+        for mut s in loaded {
+            // MMA-review fix A (CRITICAL): a session persisted as Loading means the
+            // heart crashed inside the 50ms switch_game→complete_switch window; the
+            // spawned completion task is gone and never re-fires. complete_switch
+            // ALWAYS lands Running, so recover deterministically (idempotent across
+            // repeated restarts) — otherwise the session hangs in Loading forever.
+            if s.state == SessionState::Loading {
+                tracing::warn!(sid = %s.id, "heart rehydrate: session was mid switch-game (Loading) at restart — recovering to Running");
+                s.state = SessionState::Running;
+            }
+            self.sessions.insert(s.id.clone(), s.clone());
+            let live = !matches!(s.state, SessionState::Ended | SessionState::AutoBilled);
+            if !live {
+                continue;
+            }
+            let Some(pod) = self.pods.get_mut(&s.pod_id) else {
+                tracing::warn!(sid = %s.id, pod = %s.pod_id, "heart rehydrate: live session references unknown pod — kept in session map, pod not relinked");
+                continue;
+            };
+            // started_at is RFC3339 UTC-millis from now_iso() (always 'Z'), so
+            // lexicographic == chronological ordering for the newest-wins tie-break.
+            if let Some(existing) = &pod.current_session {
+                if existing.started_at >= s.started_at {
+                    tracing::warn!(pod = %s.pod_id, kept = %existing.id, dropped = %s.id, "heart rehydrate: multiple live sessions for one pod — kept newest started_at");
+                    continue;
+                }
+                tracing::warn!(pod = %s.pod_id, replaced = %existing.id, with = %s.id, "heart rehydrate: multiple live sessions for one pod — replaced with newer started_at");
+            }
+            pod.lifecycle = PodLifecycle::Occupied;
+            // MMA-review fix B (IMPORTANT): derive the display from the rehydrated
+            // state (was hardcoded "RUNNING · …" → a Paused session showed RUNNING
+            // on the kiosk after a restart).
+            pod.display_message = match s.state {
+                SessionState::Paused => "SESSION PAUSED".to_string(),
+                SessionState::Ending => "ENDING...".to_string(),
+                _ => format!("RUNNING · {}", s.game),
+            };
+            pod.updated_at = now_iso();
+            pod.current_session = Some(s);
+        }
+    }
+}
+
+// ─── Durable persistence (L3-1: survive heart restart) — MMA Step-1 consensus ──
+// Per-mutation SQLite UPSERT write-through with memory-then-DB ordering;
+// last-writer-wins on `updated_at`; boot rehydrates ALL sessions (incl. ended)
+// so a re-delivered end/pause after a restart stays idempotent (200, not 404).
+// No age-prune (would break that idempotency). V2-isolated: v2db only, no FK
+// into V1 (heart-V2 RCA §1). Best-effort: a DB error is logged, never fails the
+// live request — in-memory is authoritative and no money is held in the heart.
+
+fn session_state_str(state: &SessionState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Write-through one session to the durable store (UPSERT, last-writer-wins on
+/// `updated_at`). Best-effort; logs on failure (in-memory remains authoritative).
+pub async fn persist_session(v2db: &v2_db::DbPool, session: &PodSession) {
+    let data = match serde_json::to_string(session) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!(sid = %session.id, error = %e, "heart persist: serialize failed — session not durably stored");
+            return;
+        }
+    };
+    let updated_at = chrono::Utc::now().timestamp_millis();
+    let state = session_state_str(&session.state);
+    let res = sqlx::query(
+        "INSERT INTO heart_v2_sessions (id, pod_id, state, updated_at, data) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(id) DO UPDATE SET \
+             pod_id = excluded.pod_id, state = excluded.state, \
+             updated_at = excluded.updated_at, data = excluded.data \
+         WHERE excluded.updated_at >= heart_v2_sessions.updated_at",
+    )
+    .bind(&session.id)
+    .bind(&session.pod_id)
+    .bind(&state)
+    .bind(updated_at)
+    .bind(&data)
+    .execute(v2db)
+    .await;
+    if let Err(e) = res {
+        tracing::error!(sid = %session.id, error = %e, "heart persist: write-through UPSERT failed — durability degraded (in-memory authoritative)");
+    }
+}
+
+/// Load all persisted sessions (running + ended) for boot rehydration.
+pub async fn load_sessions(v2db: &v2_db::DbPool) -> Vec<PodSession> {
+    let rows: Vec<String> = match sqlx::query_scalar(
+        "SELECT data FROM heart_v2_sessions ORDER BY updated_at ASC",
+    )
+    .fetch_all(v2db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(error = %e, "heart load: query failed — starting with empty sessions");
+            return Vec::new();
+        }
+    };
+    rows.into_iter()
+        .filter_map(|data| match serde_json::from_str::<PodSession>(&data) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::error!(error = %e, "heart load: skipping un-deserializable session row");
+                None
+            }
+        })
+        .collect()
 }
 
 // ─── HTTP handlers (thin wrappers: lock → mutate → drop → broadcast) ──────────
@@ -447,6 +573,7 @@ async fn launch(State(state): State<Arc<AppState>>, Json(req): Json<LaunchReq>) 
     };
     match outcome {
         LaunchOutcome::Ok { session, snapshot } => {
+            persist_session(&state.v2db, &session).await;
             let _ = state.heart_stream_tx.send(snapshot);
             (StatusCode::OK, Json(json!({ "session": session }))).into_response()
         }
@@ -464,10 +591,18 @@ async fn launch(State(state): State<Arc<AppState>>, Json(req): Json<LaunchReq>) 
     }
 }
 
-/// Shared tail for pause/resume/end: broadcast the snapshot, return the session.
-fn session_response(result: Option<(PodSession, Option<PodState>)>, state: &Arc<AppState>) -> Response {
+/// Shared tail for pause/resume/switch-game/end: persist the session durably
+/// (write-through BEFORE the SSE delta becomes observable — MMA A1 ordering, so
+/// a subscriber never sees a state the store hasn't committed), then broadcast
+/// the snapshot + return the session. `None` = unknown session (404). Persist is
+/// best-effort (logged on failure; in-memory remains authoritative).
+async fn persist_and_respond(
+    result: Option<(PodSession, Option<PodState>)>,
+    state: &Arc<AppState>,
+) -> Response {
     match result {
         Some((session, snap)) => {
+            persist_session(&state.v2db, &session).await;
             if let Some(s) = snap {
                 let _ = state.heart_stream_tx.send(s);
             }
@@ -479,12 +614,12 @@ fn session_response(result: Option<(PodSession, Option<PodState>)>, state: &Arc<
 
 async fn pause(State(state): State<Arc<AppState>>, Path(sid): Path<String>) -> Response {
     let result = state.heart.write().await.pause(&sid);
-    session_response(result, &state)
+    persist_and_respond(result, &state).await
 }
 
 async fn resume(State(state): State<Arc<AppState>>, Path(sid): Path<String>) -> Response {
     let result = state.heart.write().await.resume(&sid);
-    session_response(result, &state)
+    persist_and_respond(result, &state).await
 }
 
 async fn switch_game(
@@ -493,7 +628,7 @@ async fn switch_game(
     Json(req): Json<SwitchGameReq>,
 ) -> Response {
     let result = state.heart.write().await.switch_game(&sid, req.game);
-    let resp = session_response(result, &state);
+    let resp = persist_and_respond(result, &state).await;
     // Mimic the launcher: flip loading→running after a short delay (mock-heart
     // 50ms). Spawned task re-checks state==loading before flipping.
     if resp.status() == StatusCode::OK {
@@ -503,6 +638,10 @@ async fn switch_game(
             tokio::time::sleep(Duration::from_millis(50)).await;
             let snap = state2.heart.write().await.complete_switch(&sid2);
             if let Some(s) = snap {
+                // Persist the post-flip Running state before broadcasting it.
+                if let Some(sess) = s.current_session.clone() {
+                    persist_session(&state2.v2db, &sess).await;
+                }
                 let _ = state2.heart_stream_tx.send(s);
             }
         });
@@ -512,7 +651,7 @@ async fn switch_game(
 
 async fn end(State(state): State<Arc<AppState>>, Path(sid): Path<String>, Json(req): Json<EndReq>) -> Response {
     let result = state.heart.write().await.end(&sid, &req.end_reason);
-    session_response(result, &state)
+    persist_and_respond(result, &state).await
 }
 
 async fn set_alarm(
@@ -793,6 +932,21 @@ mod http_tests {
         heart_routes().with_state(state)
     }
 
+    /// Like test_app, but with a MIGRATED file-based v2db (so heart_v2_sessions
+    /// exists + a single shared DB across pool connections). Returns the AppState
+    /// so a test can read the durable rows the handlers wrote. (new_with_test_v2db
+    /// builds an unmigrated lazy in-memory pool — handler persists no-op there.)
+    async fn test_app_with_migrated_v2db() -> (Router, Arc<AppState>) {
+        let db = sqlx::SqlitePool::connect(":memory:").await.expect("memory db");
+        let path = std::env::temp_dir().join(format!("heart_v2_http_{}.db", Uuid::new_v4()));
+        let v2db = v2_db::open(path.to_str().unwrap()).await.expect("open v2db");
+        v2_db::migrate(&v2db).await.expect("migrate v2db");
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new(config, db, v2db, field_cipher));
+        (heart_routes().with_state(state.clone()), state)
+    }
+
     async fn call(
         app: &Router,
         method: &str,
@@ -890,5 +1044,218 @@ mod http_tests {
         assert_eq!(resp.status().as_u16(), 200);
         let ct = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
         assert!(ct.starts_with("text/event-stream"), "expected SSE content-type, got: {ct}");
+    }
+
+    /// MMA-review fix D (CRITICAL test-validity): the unit-level persistence tests
+    /// call persist_session directly, bypassing the axum handlers — removing the
+    /// persist from persist_and_respond/launch would still pass all of them. This
+    /// drives the PRODUCTION handler path over HTTP, then reads the durable row
+    /// back to prove the handler wired the write-through.
+    #[tokio::test]
+    async fn http_handler_write_through_persists_to_db() {
+        let (app, state) = test_app_with_migrated_v2db().await;
+        let (status, json) = call(&app, "POST", "/heart/sessions/launch", Some(launch_body("pod-1"))).await;
+        assert_eq!(status, 200);
+        let sid = json["session"]["id"].as_str().unwrap().to_string();
+        let row: Option<(String,)> = sqlx::query_as("SELECT state FROM heart_v2_sessions WHERE id = ?")
+            .bind(&sid)
+            .fetch_optional(&state.v2db)
+            .await
+            .unwrap();
+        assert_eq!(row.map(|r| r.0), Some("running".to_string()), "launch handler must write the session through to the durable store");
+        let (es, _) = call(&app, "POST", &format!("/heart/sessions/{sid}/end"), Some(serde_json::json!({"end_reason": "customer_stop"}))).await;
+        assert_eq!(es, 200);
+        let row2: Option<(String,)> = sqlx::query_as("SELECT state FROM heart_v2_sessions WHERE id = ?")
+            .bind(&sid)
+            .fetch_optional(&state.v2db)
+            .await
+            .unwrap();
+        assert_eq!(row2.map(|r| r.0), Some("ended".to_string()), "end handler must write the ended state through");
+    }
+}
+
+// ─── Persistence / restart-survival tests (L3-1) ──────────────────────────────
+// Each test simulates a heart restart: write a session through to a real v2db,
+// then rehydrate a FRESH HeartStore from it and assert the live state survived.
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    /// A real on-disk v2db (WAL) with all migrations applied (incl. the L3-1
+    /// heart_v2_sessions table). Unique temp path per test so they don't collide.
+    async fn mem_v2db() -> v2_db::DbPool {
+        let path = std::env::temp_dir().join(format!("heart_v2_persist_{}.db", Uuid::new_v4()));
+        let pool = v2_db::open(path.to_str().unwrap()).await.expect("open v2db");
+        v2_db::migrate(&pool).await.expect("migrate v2db");
+        pool
+    }
+
+    fn req(pod: &str) -> LaunchReq {
+        LaunchReq {
+            pod_id: pod.to_string(),
+            household_id: "hh-1".to_string(),
+            profile_id: "pf-1".to_string(),
+            tier: "tier_1_full_skeleton".to_string(),
+            game: "ac_sp".to_string(),
+            lobby_id: None,
+            preset_id: None,
+        }
+    }
+
+    fn launch(store: &mut HeartStore, pod: &str) -> PodSession {
+        match store.launch(req(pod)) {
+            LaunchOutcome::Ok { session, .. } => session,
+            _ => panic!("expected launch ok"),
+        }
+    }
+
+    /// THE L3-1 closure: a running session written through survives a heart
+    /// restart — recovered into a fresh HeartStore with the pod relinked.
+    #[tokio::test]
+    async fn running_session_survives_restart() {
+        let v2db = mem_v2db().await;
+        let session = {
+            let mut store = HeartStore::new();
+            let s = launch(&mut store, "pod-1");
+            persist_session(&v2db, &s).await;
+            s
+        };
+        // Restart: a brand-new HeartStore (empty sessions, the pre-fix state)…
+        let mut restarted = HeartStore::new();
+        assert!(restarted.sessions.is_empty(), "fresh store starts empty — that was the gap");
+        // …rehydrates from the durable store.
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let recovered = restarted.sessions.get(&session.id).expect("session recovered after restart");
+        assert_eq!(recovered.state, SessionState::Running);
+        assert_eq!(recovered.green_light_at, session.green_light_at, "billing signal preserved");
+        let pod = restarted.get_pod("pod-1").unwrap();
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied, "pod relinked to recovered session");
+        assert_eq!(pod.current_session.unwrap().id, session.id);
+    }
+
+    /// Paused state + accumulated pause_ms survive a restart.
+    #[tokio::test]
+    async fn paused_state_survives_restart() {
+        let v2db = mem_v2db().await;
+        let sid = {
+            let mut store = HeartStore::new();
+            let s = launch(&mut store, "pod-2");
+            persist_session(&v2db, &s).await;
+            let (paused, _) = store.pause(&s.id).unwrap();
+            persist_session(&v2db, &paused).await;
+            s.id
+        };
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        assert_eq!(restarted.sessions.get(&sid).unwrap().state, SessionState::Paused);
+        // MMA-review fix B: pod display must reflect Paused, not "RUNNING · …".
+        assert_eq!(restarted.get_pod("pod-2").unwrap().display_message, "SESSION PAUSED");
+    }
+
+    /// MMA idempotency catch (nvidia/deepseek): an ENDED session is retained
+    /// across restart so a re-delivered end returns 200 (found), not 404 — and
+    /// the pod is NOT relinked to the ended session.
+    #[tokio::test]
+    async fn ended_session_retained_and_pod_not_relinked() {
+        let v2db = mem_v2db().await;
+        let sid = {
+            let mut store = HeartStore::new();
+            let s = launch(&mut store, "pod-3");
+            persist_session(&v2db, &s).await;
+            let (ended, _) = store.end(&s.id, "customer_stop").unwrap();
+            persist_session(&v2db, &ended).await;
+            s.id
+        };
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let (again, snap) = restarted
+            .end(&sid, "customer_stop")
+            .expect("ended session retained across restart → re-delivered end is 200 not 404");
+        assert_eq!(again.state, SessionState::Ended);
+        assert!(snap.is_none(), "no-op re-end does not re-broadcast");
+        assert_eq!(restarted.get_pod("pod-3").unwrap().lifecycle, PodLifecycle::Empty, "ended session must not relink the pod");
+    }
+
+    /// MMA A2.RELINK(c): an ended + a newer running session on the same pod →
+    /// the pod relinks to the RUNNING one, never the ended one.
+    #[tokio::test]
+    async fn running_wins_over_ended_on_same_pod() {
+        let v2db = mem_v2db().await;
+        {
+            let mut store = HeartStore::new();
+            let s1 = launch(&mut store, "pod-4");
+            let (e1, _) = store.end(&s1.id, "customer_stop").unwrap();
+            persist_session(&v2db, &e1).await;
+            let s2 = launch(&mut store, "pod-4");
+            persist_session(&v2db, &s2).await;
+        }
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let pod = restarted.get_pod("pod-4").unwrap();
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied);
+        assert_eq!(
+            pod.current_session.unwrap().state,
+            SessionState::Running,
+            "the running session wins relink, not the ended one"
+        );
+    }
+
+    /// Empty store with no rows rehydrates cleanly (no panic, no spurious sessions).
+    #[tokio::test]
+    async fn empty_store_rehydrates_to_clean_state() {
+        let v2db = mem_v2db().await;
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        assert!(restarted.sessions.is_empty());
+        assert!(restarted.pods.values().all(|p| p.lifecycle == PodLifecycle::Empty));
+    }
+
+    /// MMA-review fix A (CRITICAL): a session persisted mid switch-game (Loading)
+    /// — the heart crashed in the 50ms complete_switch window — must recover to
+    /// Running on rehydration (the spawned completion task is gone forever), not
+    /// hang in Loading. Pod display must read RUNNING, not LOADING.
+    #[tokio::test]
+    async fn loading_session_recovers_to_running_on_restart() {
+        let v2db = mem_v2db().await;
+        let sid = {
+            let mut store = HeartStore::new();
+            let s = launch(&mut store, "pod-5");
+            persist_session(&v2db, &s).await;
+            let (loading, _) = store.switch_game(&s.id, "f1_25".to_string()).unwrap();
+            assert_eq!(loading.state, SessionState::Loading);
+            // Persist Loading, then "crash" BEFORE complete_switch persists Running.
+            persist_session(&v2db, &loading).await;
+            s.id
+        };
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let rec = restarted.sessions.get(&sid).unwrap();
+        assert_eq!(rec.state, SessionState::Running, "Loading must recover to Running, not hang");
+        let pod = restarted.get_pod("pod-5").unwrap();
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied);
+        assert_eq!(pod.display_message, "RUNNING · f1_25");
+    }
+
+    /// MMA-review fix E (MINOR): two live (Running) sessions on one pod →
+    /// rehydration relinks the NEWER started_at. (The launch guard prevents this
+    /// in practice; rehydration must still be robust to a duplicated DB state.)
+    #[tokio::test]
+    async fn two_running_sessions_same_pod_newest_wins() {
+        let v2db = mem_v2db().await;
+        let (older, newer) = {
+            let mut store = HeartStore::new();
+            let s1 = launch(&mut store, "pod-6");
+            let mut s2 = s1.clone();
+            s2.id = format!("{}-newer", s1.id);
+            s2.started_at = "2099-01-01T00:00:00.000Z".to_string(); // strictly later
+            persist_session(&v2db, &s1).await;
+            persist_session(&v2db, &s2).await;
+            (s1.id, s2.id)
+        };
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let linked = restarted.get_pod("pod-6").unwrap().current_session.unwrap().id;
+        assert_eq!(linked, newer, "pod must relink the newer started_at session");
+        assert_ne!(linked, older);
     }
 }
