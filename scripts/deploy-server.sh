@@ -29,6 +29,10 @@ SERVER_TS="100.125.108.37"
 SERVER_USER="ADMIN"
 REMOTE_DIR="C:\\RacingPoint"
 HTTP_SERVER="http://192.168.31.27:18889"
+# DEPLOY_DRY_RUN=1 → REHEARSE only: connectivity + local truth-gate + stage-to-server,
+# then STOP before the swap/kill/restart (single-target dry-run; closes mechanism-trust
+# Q4 "no dry-run path"). Leaves racecontrol-${HASH}.exe staged on the server (not swapped).
+DRY_RUN="${DEPLOY_DRY_RUN:-}"
 
 # ─── Rollback helper ─────────────────────────────────────────────────────────
 # StartRCTemp is RETIRED per Phase 413.1-04 (silent no-op when ADMIN is not
@@ -155,6 +159,16 @@ if [ -z "$REMOTE_SIZE" ] || [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
   exit 1
 fi
 echo "  Downloaded ($REMOTE_SIZE bytes, verified)"
+
+# ─── DRY-RUN gate (MTC Q4): rehearse up to here, then STOP before any mutation ──
+if [ -n "$DRY_RUN" ]; then
+  echo "[DRY-RUN] PASS — reach OK ($SERVER_IP), truth-gate OK (embedded=$LOCAL_EMBEDDED == $HASH), staged on server ($REMOTE_SIZE bytes); NO swap/kill performed."
+  echo "[DRY-RUN] Rollback-binary presence on server:"
+  $SSH "cd /d ${REMOTE_DIR} && if exist racecontrol-prev.exe (echo PREV_PRESENT) else (echo NO_PREV - first swap will create it)" 2>/dev/null || echo "  (check failed)"
+  echo "[DRY-RUN] Would next: del prev & ren racecontrol.exe->prev & ren ${BINARY}->racecontrol.exe & taskkill & watchdog-restart & verify build_id=$HASH + smoke."
+  echo "[DRY-RUN] Cleanup staged file: ssh ${SERVER_USER}@${SERVER_IP} \"del ${REMOTE_DIR}\\\\${BINARY}\""
+  exit 0
+fi
 
 # ─── Step 3: Kill old process with confirmed death ────────────────────────────
 echo "[3/8] Atomic binary swap WHILE old process runs (Windows allows rename of running exe)..."

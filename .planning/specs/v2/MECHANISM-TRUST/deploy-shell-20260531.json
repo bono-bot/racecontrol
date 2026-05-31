@@ -1,0 +1,16 @@
+{
+  "surface": "deploy-shell",
+  "file": "scripts/deploy-server.sh",
+  "date": "2026-05-31",
+  "validity_days": 30,
+  "author": "bono",
+  "context": "Mechanism-trust-check on the .23 racecontrol binary-DEPLOY surface, run before the heart-V2 cutover (and before the DEPLOY_DRY_RUN patch that remediates Q4). Ran via the cutover-readiness workflow (agent verify:mtc-and-build). Persisted here to satisfy the §S-146/§S-174 pre-v2-edit-rca-check gate.",
+  "questions": [
+    {"q": "Q1 atomic primitives?", "answer": "PARTIAL", "evidence": "Step-3 swap is a 3-step rename (del prev -> ren current->prev -> ren new->current), atomic-ish on Windows; but the cutover as a whole is taskkill + watchdog/StartRCDirect respawn (a bounded downtime window, not an atomic handoff). Singleton mutex forbids side-by-side."},
+    {"q": "Q2 TTL-bounded sentinels integrated with the atomic primitive?", "answer": "PARTIAL", "evidence": "OTA_DEPLOYING sentinel exists in the OTA path but is NOT integrated into deploy-server.sh's swap; no TTL-bounded DEPLOY_IN_PROGRESS sentinel around the taskkill+respawn window in this script."},
+    {"q": "Q3 behavioral-verify success = binary hash / build_id, not echo-string?", "answer": "YES", "evidence": "Step-1 truth-gate runs `racecontrol --build-id` and aborts on mismatch (lines 136-142); Step-6/7 verify deployed build_id + smoke endpoints; SWAPLOG records SHA. Not echo-as-success."},
+    {"q": "Q4 single-target dry-run path?", "answer": "NO", "evidence": "grep of deploy-server.sh for --dry-run / DRY_RUN returned 0 matches. First invocation mutates the live process. THIS IS THE GAP being remediated by the DEPLOY_DRY_RUN patch (2026-05-31) which gates steps 3-4 behind a default-off env flag."},
+    {"q": "Q5 guards have written contracts (parser-not-regex + allowlist)?", "answer": "PARTIAL", "evidence": "rollback() helper has explicit class handling (SWAP_OK/NO_PREV_BINARY/FAILED) and deploy-lock.js guards concurrent deploys; but the swap-result detection uses grep on cmd.exe echo output (regex-ish), not a structured contract."}
+  ],
+  "verdict": "NOT 5/5 (1 YES / 3 PARTIAL / 1 NO). Per §S-174, the deploy-shell surface does not pass a clean mechanism-trust-check. Remediation in progress: the DEPLOY_DRY_RUN patch closes Q4 (adds the single-target rehearsal path). Q1/Q2/Q5 remain PARTIAL — tracked as follow-up hardening (TTL sentinel around the swap window; structured swap-result contract). The heart-V2 cutover uses this surface WITH the new dry-run rehearsal + held msvc rollback + behavioral verify (/heart/pods 200, no exit-101) as compensating controls."
+}
