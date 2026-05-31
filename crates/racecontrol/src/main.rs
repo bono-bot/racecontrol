@@ -164,22 +164,12 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // DELTA-A R2 (heart-V2 ↔ game_launch bridge RCA §7): periodic green-light
-    // reconciler. The `active_games` tracker is also in-memory (lost on heart
-    // restart), so once the rc-agent reconnects and reports a pod Running, grant
-    // green-light to any live heart session that has none — closes the
-    // post-restart free-play window (game running but heart crashed pre-green-
-    // light). No-op unless the heart_v2_real_launch path is in use.
-    {
-        let recon_state = state.clone();
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
-            loop {
-                tick.tick().await;
-                racecontrol_crate::api::heart_v2::reconcile_heart_green_light_once(&recon_state).await;
-            }
-        });
-    }
+    // DELTA-A R2 green-light reconciler: spawn was here originally but does
+    // `state.clone()`, which (before the Arc::get_mut exclusive-ownership init
+    // phase at L185-252) bumped the strong-count and made every subsequent
+    // Arc::get_mut panic ("no other Arc refs yet", exit 101). MOVED to the
+    // post-init spawn phase (just before spawn_alert_checker). See RCA
+    // .planning/specs/v2/RCA/racecontrol-main/heart-v2-main-arc-getmut-panic-20260531.md
 
     // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
     init_telemetry(&mut state).await;
@@ -271,6 +261,25 @@ async fn main() -> anyhow::Result<()> {
 
     // v22.0 Phase 179: Check for interrupted OTA pipeline on startup
     racecontrol_crate::ota_pipeline::check_interrupted_pipeline();
+
+    // DELTA-A R2 (heart-V2 ↔ game_launch bridge RCA §7): periodic green-light
+    // reconciler. The `active_games` tracker is in-memory (lost on heart restart),
+    // so once the rc-agent reconnects and reports a pod Running, grant green-light
+    // to any live heart session that has none — closes the post-restart free-play
+    // window. No-op unless the heart_v2_real_launch path is in use. MUST stay in
+    // this post-init spawn phase: it clones `state`, which breaks the Arc::get_mut
+    // exclusive-ownership init phase (L185-252) if placed earlier. See RCA
+    // .planning/specs/v2/RCA/racecontrol-main/heart-v2-main-arc-getmut-panic-20260531.md
+    {
+        let recon_state = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+            loop {
+                tick.tick().await;
+                racecontrol_crate::api::heart_v2::reconcile_heart_green_light_once(&recon_state).await;
+            }
+        });
+    }
 
     // Phase 30 (v29.0): Spawn business alert checker (every 30 min)
     racecontrol_crate::alert_engine::spawn_alert_checker(state.clone());
