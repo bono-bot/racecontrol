@@ -331,6 +331,120 @@ impl HeartStore {
         self.sync_pod_running(&session, msg)
     }
 
+    // ─── DELTA-A real-launch mutators (flag heart_v2_real_launch) ────────────
+    // bridge RCA §5/§7: green-light is granted AFTER the rc-agent confirms the
+    // game is Running (confirm-before-bill), never at request time.
+
+    /// Reserve the pod with a LOADING session and NO green-light. Mirrors
+    /// [`launch`] except `state=Loading` + `green_light_at=None`.
+    pub fn launch_loading(&mut self, req: LaunchReq) -> LaunchOutcome {
+        match self.pods.get(&req.pod_id) {
+            None => return LaunchOutcome::PodNotFound,
+            Some(pod) => {
+                if let Some(s) = &pod.current_session {
+                    return LaunchOutcome::PodNotEmpty(s.id.clone());
+                }
+                if pod.lifecycle == PodLifecycle::Maintenance {
+                    return LaunchOutcome::Maintenance;
+                }
+            }
+        }
+        let now = now_iso();
+        let session = PodSession {
+            id: Uuid::new_v4().to_string(),
+            household_id: req.household_id,
+            profile_id: req.profile_id,
+            pod_id: req.pod_id.clone(),
+            preset_id: req.preset_id,
+            lobby_id: req.lobby_id,
+            state: SessionState::Loading,
+            tier: req.tier,
+            game: req.game.clone(),
+            started_at: now.clone(),
+            green_light_at: None, // ← NOT granted until the agent confirms Running
+            paused_at: None,
+            pause_ms_total: 0,
+            credits_debited: 0,
+        };
+        self.sessions.insert(session.id.clone(), session.clone());
+        let pod = self.pods.get_mut(&req.pod_id).expect("pod existence checked above");
+        pod.lifecycle = PodLifecycle::Occupied;
+        pod.current_session = Some(session.clone());
+        pod.display_message = format!("LOADING · {}", req.game);
+        pod.updated_at = now;
+        pod.alarm = None;
+        let snapshot = pod.clone();
+        LaunchOutcome::Ok { session, snapshot }
+    }
+
+    /// Promote a Loading session to Running + grant green-light. Called ONLY
+    /// after the rc-agent closed-loop verify confirms the game is running.
+    /// Idempotent: a re-delivered promote on an already-green-lit session no-ops.
+    pub fn promote_to_running(&mut self, sid: &str) -> Option<(PodSession, Option<PodState>)> {
+        let session = self.sessions.get_mut(sid)?;
+        if session.state == SessionState::Running && session.green_light_at.is_some() {
+            return Some((session.clone(), None));
+        }
+        session.state = SessionState::Running;
+        if session.green_light_at.is_none() {
+            session.green_light_at = Some(now_iso());
+        }
+        let session = session.clone();
+        let msg = format!("RUNNING · {}", session.game);
+        let snap = self.sync_pod_running(&session, msg);
+        Some((session, snap))
+    }
+
+    /// Fail an in-flight launch: end the session WITHOUT green-light + free the
+    /// pod. No money harm — the proxy never billed (green-light never granted).
+    pub fn fail_launch(&mut self, sid: &str, reason: &str) -> Option<(PodSession, Option<PodState>)> {
+        let session = self.sessions.get_mut(sid)?;
+        if matches!(session.state, SessionState::Ended | SessionState::AutoBilled) {
+            return Some((session.clone(), None));
+        }
+        tracing::warn!(sid, reason, "heart real-launch failed — ending session without green-light + freeing pod");
+        session.state = SessionState::Ended;
+        let session = session.clone();
+        let snap = if let Some(pod) = self.pods.get_mut(&session.pod_id) {
+            pod.current_session = None;
+            pod.lifecycle = PodLifecycle::Empty;
+            pod.display_message = "WELCOME".to_string();
+            pod.updated_at = now_iso();
+            pod.alarm = None;
+            Some(pod.clone())
+        } else {
+            None
+        };
+        Some((session, snap))
+    }
+
+    /// R2 reconciler (bridge RCA §7): close the confirm-before-bill window. For
+    /// each pod the rc-agent reports Running (`running_pods`), if the heart's
+    /// live session has no green-light — the heart crashed post-Running,
+    /// pre-green-light, so the customer would play FREE — grant it now. Returns
+    /// the repaired sessions (caller persists + broadcasts). Idempotent: a pod
+    /// whose session already has green-light is skipped.
+    pub fn reconcile_green_light(&mut self, running_pods: &[String]) -> Vec<(PodSession, Option<PodState>)> {
+        let mut repaired = Vec::new();
+        for pod_id in running_pods {
+            let sid = match self.pods.get(pod_id).and_then(|p| p.current_session.as_ref()) {
+                Some(s) if matches!(s.state, SessionState::Running | SessionState::Loading)
+                    && s.green_light_at.is_none() => s.id.clone(),
+                _ => continue,
+            };
+            if let Some(s) = self.sessions.get_mut(&sid) {
+                s.state = SessionState::Running;
+                s.green_light_at = Some(now_iso());
+                let s2 = s.clone();
+                tracing::warn!(sid = %sid, pod = %pod_id, "R2 reconcile: agent reports Running but session had no green-light — granting now (closes free-play window)");
+                let msg = format!("RUNNING · {}", s2.game);
+                let snap = self.sync_pod_running(&s2, msg);
+                repaired.push((s2, snap));
+            }
+        }
+        repaired
+    }
+
     pub fn end(&mut self, sid: &str, reason: &str) -> Option<(PodSession, Option<PodState>)> {
         let session = self.sessions.get_mut(sid)?;
         if session.state == SessionState::Ended || session.state == SessionState::AutoBilled {
@@ -566,6 +680,20 @@ async fn get_pod(State(state): State<Arc<AppState>>, Path(pod_id): Path<String>)
 }
 
 async fn launch(State(state): State<Arc<AppState>>, Json(req): Json<LaunchReq>) -> Response {
+    // DELTA-A (bridge RCA §7): when the `heart_v2_real_launch` flag is ON, the
+    // heart dispatches to the real rc-agent and grants green-light only after
+    // confirmed-Running. Default OFF → unchanged sandbox behavior (mock
+    // green-light at launch; keeps the existing sandbox/test suite green).
+    let real_launch = state
+        .feature_flags
+        .read()
+        .await
+        .get("heart_v2_real_launch")
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+    if real_launch {
+        return launch_real(state, req).await;
+    }
     let pod_id = req.pod_id.clone();
     let outcome = {
         let mut store = state.heart.write().await;
@@ -587,6 +715,131 @@ async fn launch(State(state): State<Arc<AppState>>, Json(req): Json<LaunchReq>) 
         ),
         LaunchOutcome::Maintenance => {
             err(StatusCode::CONFLICT, "pod_in_maintenance", format!("pod {pod_id} is in maintenance"))
+        }
+    }
+}
+
+/// DELTA-A real launch (flag `heart_v2_real_launch`): reserve a Loading session
+/// (NO green-light) → dispatch to the rc-agent + closed-loop verify with the
+/// heart lock DROPPED → promote to Running + green-light only on confirmed
+/// Running, else fail (no green-light, pod freed). V2-isolated:
+/// `billing_session_id=None` → creates no V1 billing row. Mock-green-light
+/// scope: the proxy wallet HOLD+402 is cluster-2; full preset→launch_args is a
+/// follow-up (dispatched with `None` args this increment — the PATH is proven,
+/// the car/track content is deferred).
+async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
+    use crate::game_launcher_ops::{AgentDispatchCtx, default_verify_timeout, dispatch_launch_to_agent};
+    let pod_id = req.pod_id.clone();
+    let game = req.game.clone();
+    // 1) Reserve the pod with a Loading session (no green-light yet).
+    let session = match { state.heart.write().await.launch_loading(req) } {
+        LaunchOutcome::Ok { session, snapshot } => {
+            persist_session(&state.v2db, &session).await;
+            let _ = state.heart_stream_tx.send(snapshot);
+            session
+        }
+        LaunchOutcome::PodNotFound => {
+            return err(StatusCode::NOT_FOUND, "pod_not_found", format!("unknown pod {pod_id}"));
+        }
+        LaunchOutcome::PodNotEmpty(sid) => {
+            return err(StatusCode::CONFLICT, "pod_not_empty", format!("pod {pod_id} already running {sid}"));
+        }
+        LaunchOutcome::Maintenance => {
+            return err(StatusCode::CONFLICT, "pod_in_maintenance", format!("pod {pod_id} is in maintenance"));
+        }
+    };
+    // 2) Dispatch to the rc-agent + closed-loop verify (heart lock NOT held).
+    let sim_type = heart_game_to_sim_type(&game);
+    let ctx = AgentDispatchCtx {
+        launch_id: Uuid::new_v4().to_string(),
+        billing_session_id: None, // V2-isolated — no V1 billing row
+        duration_minutes: None,   // TODO follow-up: derive from the V2 tier
+        origin: rc_common::protocol::LaunchOrigin::Customer,
+        verify_timeout: default_verify_timeout(sim_type),
+    };
+    let dispatch = dispatch_launch_to_agent(&state, &pod_id, sim_type, None, ctx).await;
+    // 3) Promote (confirmed Running → green-light) or fail (no green-light).
+    match dispatch {
+        Ok(o) if o.verified_running => {
+            let promoted = { state.heart.write().await.promote_to_running(&session.id) };
+            if let Some((sess, snap)) = promoted {
+                persist_session(&state.v2db, &sess).await;
+                if let Some(s) = snap {
+                    let _ = state.heart_stream_tx.send(s);
+                }
+                (StatusCode::OK, Json(json!({ "session": sess }))).into_response()
+            } else {
+                // MAOR (google IMPORTANT): promote returning None means the
+                // just-created session vanished from the store (state
+                // corruption). The game IS running but the heart has no
+                // green-lit session — do NOT report success; surface a 500.
+                tracing::error!(sid = %session.id, pod = %pod_id, "real-launch: session missing at promote — state corruption");
+                err(StatusCode::INTERNAL_SERVER_ERROR, "promote_failed", format!("pod {pod_id} launch verified but session state lost"))
+            }
+        }
+        result => {
+            let reason = match result {
+                Ok(o) => format!("game not confirmed running (state {:?})", o.final_state),
+                Err(e) => e,
+            };
+            let failed = { state.heart.write().await.fail_launch(&session.id, &reason) };
+            if let Some((sess, snap)) = failed {
+                persist_session(&state.v2db, &sess).await;
+                if let Some(s) = snap {
+                    let _ = state.heart_stream_tx.send(s);
+                }
+            }
+            err(StatusCode::BAD_GATEWAY, "launch_failed", format!("pod {pod_id} launch not confirmed: {reason}"))
+        }
+    }
+}
+
+/// Map the heart session `game` string → rc-agent `SimType`. Best-effort:
+/// serde first, then common aliases, else AssettoCorsa (documented fallback).
+/// FOLLOW-UP: a real V2 game catalog (overlaps the preset surface).
+fn heart_game_to_sim_type(game: &str) -> rc_common::types::SimType {
+    use rc_common::types::SimType;
+    if let Ok(st) = serde_json::from_value::<SimType>(serde_json::Value::String(game.to_string())) {
+        return st;
+    }
+    match game.to_ascii_lowercase().as_str() {
+        g if g.starts_with("ac") || g.contains("assetto") => SimType::AssettoCorsa,
+        g if g.contains("f1") => SimType::F125,
+        g if g.contains("iracing") => SimType::IRacing,
+        g if g.contains("lmu") || g.contains("lemans") => SimType::LeMansUltimate,
+        other => {
+            tracing::warn!(game = other, "heart real-launch: unknown game string — defaulting to AssettoCorsa (follow-up: V2 game catalog)");
+            SimType::AssettoCorsa
+        }
+    }
+}
+
+/// R2 (bridge RCA §7): one reconcile pass — for every pod the rc-agent reports
+/// Running, grant green-light to a live heart session that has none (closes the
+/// post-restart free-play window; also resolves the L3-1 stuck-Occupied
+/// residual once the agent reconnects). Persists + broadcasts each repair.
+/// Called at boot (after rehydrate) + periodically from `main.rs`.
+pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
+    use rc_common::types::GameState;
+    let running_pods: Vec<String> = {
+        let games = state.game_launcher.active_games.read().await;
+        games
+            .iter()
+            // MAOR consistency: only a confirmed Running pod justifies granting
+            // green-light (matches the dispatch verify tightening) — not a
+            // transient Loading.
+            .filter(|(_, t)| matches!(t.game_state, GameState::Running))
+            .map(|(pod, _)| pod.clone())
+            .collect()
+    };
+    if running_pods.is_empty() {
+        return;
+    }
+    let repaired = { state.heart.write().await.reconcile_green_light(&running_pods) };
+    for (sess, snap) in repaired {
+        persist_session(&state.v2db, &sess).await;
+        if let Some(s) = snap {
+            let _ = state.heart_stream_tx.send(s);
         }
     }
 }
@@ -1257,5 +1510,220 @@ mod persistence_tests {
         let linked = restarted.get_pod("pod-6").unwrap().current_session.unwrap().id;
         assert_eq!(linked, newer, "pod must relink the newer started_at session");
         assert_ne!(linked, older);
+    }
+}
+
+// ─── DELTA-A bridge tests (heart-V2 ↔ game_launch) — the 6 must-fix items ─────
+// (bridge RCA §7 MUST-FIX-BEFORE-MERGE list.) Self-contained: exercises the real
+// dispatch core + the heart real-launch mutators without the HTTP router.
+#[cfg(test)]
+mod bridge_tests {
+    use super::*;
+    use crate::game_launcher::GameTracker;
+    use crate::game_launcher_ops::{AgentDispatchCtx, dispatch_launch_to_agent};
+    use crate::state::AppState;
+    use crate::state::CommandAckResult;
+    use rc_common::protocol::{CoreMessage, LaunchOrigin};
+    use rc_common::types::{GameState, SimType};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// Minimal AppState for dispatch tests. `dispatch_launch_to_agent` never
+    /// touches `state.db`, so a bare in-memory pool is sufficient.
+    async fn build_state() -> Arc<AppState> {
+        let db = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite");
+        let config = crate::config::Config::default_test();
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
+    }
+
+    fn req(pod: &str) -> LaunchReq {
+        LaunchReq {
+            pod_id: pod.to_string(),
+            household_id: "hh".to_string(),
+            profile_id: "pf".to_string(),
+            tier: "tier_1_full_skeleton".to_string(),
+            game: "ac_sp".to_string(),
+            lobby_id: None,
+            preset_id: None,
+        }
+    }
+
+    fn ctx(timeout_ms: u64) -> AgentDispatchCtx {
+        AgentDispatchCtx {
+            launch_id: "L-test".to_string(),
+            billing_session_id: None,
+            duration_minutes: None,
+            origin: LaunchOrigin::Customer,
+            verify_timeout: Duration::from_millis(timeout_ms),
+        }
+    }
+
+    fn running_tracker(pod: &str) -> GameTracker {
+        GameTracker {
+            pod_id: pod.to_string(),
+            sim_type: SimType::AssettoCorsa,
+            game_state: GameState::Running,
+            pid: None,
+            launched_at: Some(chrono::Utc::now()),
+            error_message: None,
+            launch_args: None,
+            auto_relaunch_count: 0,
+            externally_tracked: false,
+            dynamic_timeout_secs: None,
+            exit_codes: Vec::new(),
+            max_auto_relaunch: 2,
+            playable_at: None,
+            ready_delay_ms: None,
+            billing_session_id: None,
+            launch_id: "v1-existing".to_string(),
+        }
+    }
+
+    /// Register a mock pod agent on `pod` (normalized form, e.g. "pod_1"): drain
+    /// the launch command, ACK it, and optionally flip the tracker to Running
+    /// (what `handle_game_state_update` does when the real agent reports Live).
+    async fn mock_agent(state: &Arc<AppState>, pod: &str, set_running: bool) -> tokio::task::JoinHandle<()> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<CoreMessage>(4);
+        state.agent_senders.write().await.insert(pod.to_string(), tx);
+        let st = state.clone();
+        let pod = pod.to_string();
+        tokio::spawn(async move {
+            if let Some(msg) = rx.recv().await {
+                let cid = msg.command_id.clone().unwrap_or_default();
+                if let Some(ack) = st.pending_command_acks.write().await.remove(&cid) {
+                    let _ = ack.send(CommandAckResult { success: true, error: None });
+                }
+                if set_running {
+                    if let Some(t) = st.game_launcher.active_games.write().await.get_mut(&pod) {
+                        t.game_state = GameState::Running;
+                    }
+                }
+            }
+        })
+    }
+
+    // MUST-FIX #2 (closed-loop, happy path) + #1 (V1 isolation): ACK + Running
+    // verifies, and the V2 dispatch creates NO V1 billing state.
+    #[tokio::test]
+    async fn dispatch_verifies_running_and_creates_no_v1_billing_state() {
+        let state = build_state().await;
+        let agent = mock_agent(&state, "pod_1", true).await;
+        let out = dispatch_launch_to_agent(&state, "pod_1", SimType::AssettoCorsa, None, ctx(3000))
+            .await
+            .expect("dispatch ok");
+        assert!(out.verified_running, "ACK + Running status must verify");
+        // V1 isolation: the V2 launch must not create any V1 billing state.
+        assert!(state.billing.active_timers.read().await.is_empty(), "V2 launch created a V1 active_timer");
+        assert!(state.billing.waiting_for_game.read().await.is_empty(), "V2 launch created a V1 waiting_for_game entry");
+        let bsid = state.game_launcher.active_games.read().await.get("pod_1").and_then(|t| t.billing_session_id.clone());
+        assert!(bsid.is_none(), "V2 launch tracker must carry no V1 billing_session_id");
+        let _ = agent.await;
+    }
+
+    // MUST-FIX #2/#6 (closed-loop / no false-positive): ACK but the game never
+    // reaches Running within the verify budget → NOT verified (caller grants no
+    // green-light → no billing). This is the anti-stale-verify guarantee (Q5).
+    #[tokio::test]
+    async fn dispatch_not_verified_when_game_never_reaches_running() {
+        let state = build_state().await;
+        let agent = mock_agent(&state, "pod_1", false).await; // ACK only, never Running
+        let out = dispatch_launch_to_agent(&state, "pod_1", SimType::AssettoCorsa, None, ctx(800))
+            .await
+            .expect("dispatch ok");
+        assert!(!out.verified_running, "ACK without a Running status must NOT verify");
+        let _ = agent.await;
+    }
+
+    // MAOR (google CRITICAL) regression lock: a transient Loading state must NOT
+    // count as verified — only Running grants green-light (anti-stale-verify).
+    #[tokio::test]
+    async fn dispatch_not_verified_on_loading_alone() {
+        let state = build_state().await;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<CoreMessage>(4);
+        state.agent_senders.write().await.insert("pod_1".to_string(), tx);
+        let st = state.clone();
+        let agent = tokio::spawn(async move {
+            if let Some(msg) = rx.recv().await {
+                let cid = msg.command_id.clone().unwrap_or_default();
+                if let Some(ack) = st.pending_command_acks.write().await.remove(&cid) {
+                    let _ = ack.send(CommandAckResult { success: true, error: None });
+                }
+                if let Some(t) = st.game_launcher.active_games.write().await.get_mut("pod_1") {
+                    t.game_state = GameState::Loading; // stuck Loading, never Running
+                }
+            }
+        });
+        let out = dispatch_launch_to_agent(&state, "pod_1", SimType::AssettoCorsa, None, ctx(800))
+            .await
+            .expect("dispatch ok");
+        assert!(!out.verified_running, "Loading alone must NOT verify — only Running confirms");
+        let _ = agent.await;
+    }
+
+    // MUST-FIX #4 (concurrency / split-brain): a pod already Running (e.g. a V1
+    // kiosk launch) must reject a V2 dispatch — the SINGLE shared active_games
+    // tracker is the one launch authority (Q1).
+    #[tokio::test]
+    async fn dispatch_rejected_when_pod_already_active() {
+        let state = build_state().await;
+        state.game_launcher.active_games.write().await.insert("pod_1".to_string(), running_tracker("pod_1"));
+        let res = dispatch_launch_to_agent(&state, "pod_1", SimType::AssettoCorsa, None, ctx(200)).await;
+        assert!(res.is_err(), "a V2 launch on a pod already active (V1) must be rejected");
+        assert!(res.unwrap_err().contains("already has a game active"));
+    }
+
+    // MUST-FIX #6 (no agent → not confirmed → no green-light): the ORDERING fix.
+    // launch_loading grants NO green-light; only a confirmed launch promotes.
+    #[test]
+    fn launch_loading_withholds_green_light_until_promote() {
+        let mut store = HeartStore::new();
+        let session = match store.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            other => panic!("expected Ok, got {:?}", std::mem::discriminant(&other)),
+        };
+        assert_eq!(session.state, SessionState::Loading, "reserved session must be Loading, not Running");
+        assert!(session.green_light_at.is_none(), "green-light must NOT be granted at reserve time (confirm-before-bill)");
+        // confirmed-Running → promote grants green-light.
+        let (promoted, _) = store.promote_to_running(&session.id).expect("promote");
+        assert_eq!(promoted.state, SessionState::Running);
+        assert!(promoted.green_light_at.is_some(), "promote must grant green-light");
+    }
+
+    // MUST-FIX #6 (failed launch leaves no money trail): fail_launch ends the
+    // session WITHOUT green-light and frees the pod.
+    #[test]
+    fn fail_launch_frees_pod_and_grants_no_green_light() {
+        let mut store = HeartStore::new();
+        let session = match store.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            _ => panic!("expected Ok"),
+        };
+        let (failed, snap) = store.fail_launch(&session.id, "agent did not ACK").expect("fail_launch");
+        assert_eq!(failed.state, SessionState::Ended);
+        assert!(failed.green_light_at.is_none(), "failed launch must never have green-light");
+        let pod = snap.expect("pod snapshot");
+        assert_eq!(pod.lifecycle, PodLifecycle::Empty, "failed launch must free the pod");
+        assert!(pod.current_session.is_none());
+    }
+
+    // MUST-FIX #5 (restart/reconciliation): after a restart, if the agent
+    // reports a pod Running but the rehydrated session has no green-light (heart
+    // crashed post-Running, pre-green-light → free play), reconcile grants it.
+    #[test]
+    fn reconcile_grants_green_light_when_agent_running_but_session_has_none() {
+        let mut store = HeartStore::new();
+        // A real-launch reserved a Loading session (no green-light); the heart
+        // then "restarted" (state rehydrated as-is); the agent now reports Running.
+        let _ = store.launch_loading(req("pod-1"));
+        let repaired = store.reconcile_green_light(&["pod-1".to_string()]);
+        assert_eq!(repaired.len(), 1, "the session with no green-light must be repaired");
+        let (sess, _) = &repaired[0];
+        assert!(sess.green_light_at.is_some(), "reconcile must grant green-light");
+        assert_eq!(sess.state, SessionState::Running);
+        // Idempotent: a second pass repairs nothing.
+        assert!(store.reconcile_green_light(&["pod-1".to_string()]).is_empty(), "reconcile must be idempotent once green-light is granted");
     }
 }

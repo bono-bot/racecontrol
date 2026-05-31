@@ -1,0 +1,32 @@
+{
+  "surface": "rc-agent-WS / game_launcher launch transport (the shared infra a heart-V2 launch bridge would depend on)",
+  "date": "2026-05-31",
+  "task": "blocker-cluster-1: heart-V2 /heart/sessions/launch never triggers the rc-agent game-launch handshake; MTC on the V1 launch transport BEFORE authoring the bridge fix RCA (per mechanism-trust-check-upstream-of-fix-rca doctrine, §S-146/§S-172)",
+  "depends_on_infra": "rc_common::protocol typed agent-command transport (CoreToAgentMessage::LaunchGame) + agent_senders WS map + pending_command_acks ACK correlation + game_launcher.active_games tracker + launch_semaphore + check_launch_timeouts reconciler",
+  "questions": {
+    "q1_atomic_primitives": {
+      "answer": "YES",
+      "evidence": "Launch is serialized + guarded by multiple atomic primitives: RESIL-06 launch_semaphore (Semaphore, max 4 concurrent, 30s acquire timeout) game_launcher_ops.rs:36-50; LIFE-04/LAUNCH-05 double-launch guard reads active_games and rejects Launching|Running|Stopping game_launcher_ops.rs:190-200; LAUNCH-04 TOCTOU re-check under the active_games write-guard before tracker insert game_launcher_ops.rs:246-270; WSCMD-01/Phase-312 ACK correlation via tokio::sync::oneshot registered in pending_command_acks keyed by command_id BEFORE send game_launcher_ops.rs:316-320. GameTracker insert is under active_games.write()."
+    },
+    "q2_ttl_bounded_sentinels": {
+      "answer": "YES",
+      "evidence": "The in-flight sentinel GameState::Launching is TTL-bounded: GameTracker carries launched_at (game_launcher.rs:29) + dynamic_timeout_secs (LAUNCH-08, default 90-120s game_launcher_ops.rs:204-216), and a reconciler check_launch_timeouts/check_launch_timeouts_from_manager (BILL-12, launch_timeout_per_attempt_secs default 180s) billing_game_status_defer.rs:20-34 transitions stuck launches to timed-out (cancel-with-no-charge, billing_tests.rs:851). No unbounded stuck-Launching."
+    },
+    "q3_behavioral_verify": {
+      "answer": "YES",
+      "evidence": "Success is verified behaviorally, NOT by a 'command sent' echo: the closed-loop check reads this pod's actual tracker state games.get(pod_id).game_state == GameState::Running (api/game_launch.rs:370-386) and returns verification_warning if not confirmed running within the window. The comment explicitly records the FIX away from a stale global AtomicBool (last_launch_verified) that returned stale cross-pod results. ACK is correlated by command_id, not a blind fire."
+    },
+    "q4_single_target_dry_run": {
+      "answer": "YES",
+      "evidence": "Launch is single-pod-targeted: pod_id normalized at entry (normalize_pod_id), the WS sender resolved per-pod from agent_senders.get(pod_id) (game_launcher_ops.rs:325-330), semaphore-bounded; a launch on one pod cannot fan out. force_supersede explicitly gates the stop-first-then-launch path (api/game_launch.rs:96-120). A bridge can dispatch to exactly one pod for a dry-run."
+    },
+    "q5_guard_written_contracts": {
+      "answer": "YES",
+      "evidence": "The delivery contract is parser-not-regex: DashboardCommand / CoreToAgentMessage::LaunchGame / CoreMessage are typed protocol enums in rc_common::protocol (game_launcher.rs:183-219, handle_dashboard_command game_launcher.rs:233), command_id ACK correlation is an explicit oneshot contract, and launch args are allowlisted by launcher.validate_args (LAUNCH-06) + catalog::validate_launch_combo against the pod content manifest (game_launcher_ops.rs:58-69). No string/regex command construction on the dispatch path."
+    }
+  },
+  "verdict": "PASS",
+  "rationale": "All 5 questions = YES. The rc-agent WS launch TRANSPORT (semaphore, typed protocol, ACK correlation, behavioral closed-loop verify, TTL'd Launching sentinel, single-pod targeting) is mature and trustworthy; no separate infrastructure-surface RCA is required and the bridge fix RCA may proceed. CRITICAL CAVEAT (carried into the fix RCA, NOT a transport defect): this transport is BILLING-COUPLED — game_launcher_ops::launch_game gates on V1 state (FSM-03 free-gaming guard rejects launch with no active_timer game_launcher_ops.rs:96-115; FSM-08 DB-before-launch split guard; TOCTOU re-check captures billing_session_id; duration_minutes pulled from the V1 billing timer to arm SessionEnforcer). Heart-V2 deliberately moved billing OUT of the heart (proxy owns wallet+402, 'no money in the heart'). So a naive heart-V2 -> launch_game call would be REJECTED by FSM-03. The fix RCA must resolve this billing-coupling seam (decouple the dispatch core from the V1 billing gate, or replace the V1 gate with the proxy green-light) — that decision is an MMA Step-1 + per-PR-Captain-auth foundational-boundary change, not the transport's fault.",
+  "validity_days": 30,
+  "expires": "2026-06-30"
+}
