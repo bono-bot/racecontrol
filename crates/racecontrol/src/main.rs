@@ -164,6 +164,23 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // DELTA-A R2 (heart-V2 ↔ game_launch bridge RCA §7): periodic green-light
+    // reconciler. The `active_games` tracker is also in-memory (lost on heart
+    // restart), so once the rc-agent reconnects and reports a pod Running, grant
+    // green-light to any live heart session that has none — closes the
+    // post-restart free-play window (game running but heart crashed pre-green-
+    // light). No-op unless the heart_v2_real_launch path is in use.
+    {
+        let recon_state = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+            loop {
+                tick.tick().await;
+                racecontrol_crate::api::heart_v2::reconcile_heart_green_light_once(&recon_state).await;
+            }
+        });
+    }
+
     // Phase 251: Initialize telemetry.db (separate from main racecontrol.db)
     init_telemetry(&mut state).await;
 

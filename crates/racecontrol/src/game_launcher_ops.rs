@@ -502,3 +502,259 @@ pub async fn launch_game(
     Ok(())
 }
 
+// ─── DELTA-A: billing-agnostic dispatch core for the heart-V2 launch bridge ───
+// (heart-V2 ↔ game_launch bridge RCA §5 + §7 R1.)
+//
+// `dispatch_launch_to_agent` is the FULL-STRENGTH rc-agent launch transport,
+// decoupled from V1 billing: RESIL-06 semaphore, LAUNCH-06 arg validation, the
+// LIFE-04/LAUNCH-05 double-launch guard on the SINGLE shared `active_games`
+// tracker (so a V1 kiosk launch and a V2 heart launch on the same pod cannot
+// split-brain — MMA Q1 consensus), tracker insert, WSCMD-01 ACK-correlated WS
+// send (retry-once / GAP-1), and the closed-loop `GameState::Running` verify.
+// It reads NO `active_timers`, creates NO V1 billing row, and never touches the
+// global `last_launch_verified` flag (the source of the stale-verify bug —
+// MMA Q5); it returns its OWN per-call outcome instead.
+//
+// Callers own their launch context: V1 would pass its billing-derived
+// `billing_session_id`/`duration_minutes`; the V2 heart path passes `None`/the
+// V2 session tier and owns green-light AFTER `verified_running` (confirm-before-
+// bill, ordering fix RCA §7 R2).
+//
+// INTENTIONAL DUPLICATION (this increment): this parallels the dispatch TAIL of
+// `launch_game`, which is left BYTE-UNCHANGED so the deployed V1 launch path's
+// regression suite stays green (MMA Q4 "safest" variant). FOLLOW-UP: converge
+// `launch_game` onto this core once the V1 suite is re-validated against it.
+
+/// Context a caller supplies to [`dispatch_launch_to_agent`]. Billing-agnostic.
+pub struct AgentDispatchCtx {
+    /// Pre-minted launch id (caller owns it so it can correlate cards/events).
+    pub launch_id: String,
+    /// V1 passes its billing session id; the V2 heart path passes `None`.
+    pub billing_session_id: Option<String>,
+    /// Session-enforcer duration. V1: from the billing timer; V2: from the tier.
+    pub duration_minutes: Option<u32>,
+    pub origin: rc_common::protocol::LaunchOrigin,
+    /// Closed-loop verify budget. V2 prod passes the per-sim default; tests short.
+    pub verify_timeout: std::time::Duration,
+}
+
+/// Outcome of [`dispatch_launch_to_agent`]. `verified_running` is the ONLY
+/// signal a caller may use to start billing (confirm-before-bill).
+#[derive(Debug)]
+pub struct DispatchOutcome {
+    pub verified_running: bool,
+    pub final_state: GameState,
+}
+
+/// Per-sim closed-loop verify budget (mirrors `launch_game`'s `verify_secs`).
+pub fn default_verify_timeout(sim_type: SimType) -> std::time::Duration {
+    let secs = match sim_type {
+        SimType::AssettoCorsa | SimType::AssettoCorsaEvo | SimType::AssettoCorsaRally => 30,
+        _ => 60,
+    };
+    std::time::Duration::from_secs(secs)
+}
+
+pub async fn dispatch_launch_to_agent(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    sim_type: SimType,
+    launch_args: Option<String>,
+    ctx: AgentDispatchCtx,
+) -> Result<DispatchOutcome, String> {
+    // RESIL-06: launch semaphore (shared with V1 — port-starvation guard).
+    let _permit = match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        state.game_launcher.launch_semaphore.acquire(),
+    )
+    .await
+    {
+        Ok(Ok(p)) => p,
+        Ok(Err(_)) => return Err("Launch semaphore closed".to_string()),
+        Err(_) => {
+            tracing::warn!("RESIL-06: V2 launch semaphore timeout (30s) for pod {}", pod_id);
+            return Err("Server busy — too many concurrent game launches.".to_string());
+        }
+    };
+
+    let pod_id_owned = normalize_pod_id(pod_id).map_err(|e| format!("Invalid pod ID: {}", e))?;
+    let pod_id = pod_id_owned.as_str();
+
+    // LAUNCH-06: validate launch args via the per-game launcher.
+    let launcher = launcher_for(sim_type);
+    launcher
+        .validate_args(launch_args.as_deref())
+        .map_err(|e| {
+            tracing::warn!("V2 launch rejected for pod {}: {}", pod_id, e);
+            e
+        })?;
+
+    // LIFE-04/LAUNCH-05: double-launch guard on the SINGLE shared tracker.
+    {
+        let games = state.game_launcher.active_games.read().await;
+        if let Some(t) = games.get(pod_id)
+            && matches!(
+                t.game_state,
+                GameState::Launching | GameState::Running | GameState::Stopping
+            )
+        {
+            return Err(format!("Pod {} already has a game active", pod_id));
+        }
+    }
+
+    let launch_id = ctx.launch_id.clone();
+
+    // LaunchStarted card (start_launch uses its own internal lock-and-drop).
+    let launch_card = state
+        .launch_state_machine
+        .start_launch(
+            launch_id.clone(),
+            pod_id.to_string(),
+            sim_type.to_string(),
+            ctx.origin,
+        )
+        .await;
+    let _ = state
+        .dashboard_tx
+        .send(DashboardEvent::LaunchStatusChanged(launch_card));
+
+    // Insert the Launching tracker on the shared map (TOCTOU re-check under the
+    // write lock); capture `info` for the dashboard broadcast.
+    let info = {
+        let mut games = state.game_launcher.active_games.write().await;
+        if let Some(t) = games.get(pod_id)
+            && matches!(
+                t.game_state,
+                GameState::Launching | GameState::Running | GameState::Stopping
+            )
+        {
+            return Err(format!("Pod {} already has a game active", pod_id));
+        }
+        let tracker = GameTracker {
+            pod_id: pod_id.to_string(),
+            sim_type,
+            game_state: GameState::Launching,
+            pid: None,
+            launched_at: Some(Utc::now()),
+            error_message: None,
+            launch_args: launch_args.clone(),
+            auto_relaunch_count: 0,
+            externally_tracked: false,
+            dynamic_timeout_secs: None,
+            exit_codes: Vec::new(),
+            max_auto_relaunch: 2,
+            playable_at: None,
+            ready_delay_ms: None,
+            billing_session_id: ctx.billing_session_id.clone(),
+            launch_id: launch_id.clone(),
+        };
+        let info = tracker.to_info();
+        games.insert(pod_id.to_string(), tracker);
+        info
+    };
+
+    // WSCMD-01: register the ACK waiter BEFORE sending; GAP-1: retry-once.
+    let launch_inner =
+        launcher.make_launch_message(sim_type, launch_args, ctx.duration_minutes, launch_id.clone());
+    let launch_msg = CoreMessage::wrap(launch_inner);
+    let command_id = launch_msg.command_id.clone().unwrap_or_default();
+    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+    state
+        .pending_command_acks
+        .write()
+        .await
+        .insert(command_id.clone(), ack_tx);
+
+    let mut send_ok = false;
+    for attempt in 1..=2 {
+        let sender = { state.agent_senders.read().await.get(pod_id).cloned() };
+        if let Some(tx) = sender {
+            match tx.send(launch_msg.clone()).await {
+                Ok(_) => {
+                    send_ok = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("V2 LaunchGame send {}/2 failed for pod {}: {}", attempt, pod_id, e);
+                    if attempt == 1 {
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    }
+                }
+            }
+        } else if attempt == 1 {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            continue;
+        } else {
+            break;
+        }
+    }
+    if !send_ok {
+        state.pending_command_acks.write().await.remove(&command_id);
+        if let Some(t) = state
+            .game_launcher
+            .active_games
+            .write()
+            .await
+            .get_mut(pod_id)
+        {
+            t.game_state = GameState::Error;
+            t.error_message = Some("No agent connected".to_string());
+        }
+        return Err(format!("No agent connected for pod {}", pod_id));
+    }
+
+    // WSCMD-03: wait for agent ACK (5s).
+    match tokio::time::timeout(std::time::Duration::from_secs(5), ack_rx).await {
+        Ok(Ok(result)) => {
+            if !result.success {
+                return Err(format!(
+                    "Agent failed to launch on pod {}: {}",
+                    pod_id,
+                    result.error.unwrap_or_else(|| "unknown error".to_string())
+                ));
+            }
+        }
+        Ok(Err(_)) => {
+            return Err(format!("Agent disconnected before acknowledging launch on pod {}", pod_id));
+        }
+        Err(_) => {
+            state.pending_command_acks.write().await.remove(&command_id);
+            return Err(format!("Agent did not acknowledge launch within 5s (pod {})", pod_id));
+        }
+    }
+
+    let _ = state
+        .dashboard_tx
+        .send(DashboardEvent::GameStateChanged(info));
+
+    // CLOSED-LOOP verify: poll the SHARED tracker for Running/Loading. This is
+    // the ONLY truthful signal — never the WS-send echo (MMA Q5).
+    let mut verified = false;
+    let mut final_state = GameState::Launching;
+    let verify_start = std::time::Instant::now();
+    while verify_start.elapsed() < ctx.verify_timeout {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let games = state.game_launcher.active_games.read().await;
+        match games.get(pod_id).map(|t| t.game_state) {
+            Some(GameState::Running) | Some(GameState::Loading) => {
+                verified = true;
+                final_state = GameState::Running;
+                break;
+            }
+            Some(s @ (GameState::Error | GameState::Idle)) => {
+                final_state = s;
+                break;
+            }
+            Some(s) => {
+                final_state = s; // still Launching — keep waiting
+            }
+            None => break, // tracker removed
+        }
+    }
+
+    Ok(DispatchOutcome {
+        verified_running: verified,
+        final_state,
+    })
+}
+
