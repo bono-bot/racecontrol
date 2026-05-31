@@ -163,21 +163,16 @@ pub struct EndReq {
     pub end_reason: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AckReq {
     pub acknowledged_by_staff_user_id: Option<String>,
 }
 
-impl Default for AckReq {
-    fn default() -> Self {
-        Self { acknowledged_by_staff_user_id: None }
-    }
-}
-
 // ─── In-memory store (pods + sessions behind ONE lock; mock-heart parity) ─────
 
 /// Outcome of `HeartStore::launch`.
+#[allow(clippy::large_enum_variant)]
 pub enum LaunchOutcome {
     Ok { session: PodSession, snapshot: PodState },
     PodNotFound,
@@ -732,7 +727,7 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
     let pod_id = req.pod_id.clone();
     let game = req.game.clone();
     // 1) Reserve the pod with a Loading session (no green-light yet).
-    let session = match { state.heart.write().await.launch_loading(req) } {
+    let session = match state.heart.write().await.launch_loading(req) {
         LaunchOutcome::Ok { session, snapshot } => {
             persist_session(&state.v2db, &session).await;
             let _ = state.heart_stream_tx.send(snapshot);
