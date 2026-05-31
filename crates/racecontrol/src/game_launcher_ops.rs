@@ -736,7 +736,13 @@ pub async fn dispatch_launch_to_agent(
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let games = state.game_launcher.active_games.read().await;
         match games.get(pod_id).map(|t| t.game_state) {
-            Some(GameState::Running) | Some(GameState::Loading) => {
+            Some(GameState::Running) => {
+                // MAOR (google CRITICAL): ONLY Running confirms. Loading is a
+                // transient state the agent can still fail out of — granting
+                // green-light on Loading would bill a game that may never become
+                // playable (confirm-before-bill / anti-stale-verify). V1
+                // launch_game accepts Loading for its own reasons; the V2 money
+                // path is stricter.
                 verified = true;
                 final_state = GameState::Running;
                 break;
@@ -746,7 +752,7 @@ pub async fn dispatch_launch_to_agent(
                 break;
             }
             Some(s) => {
-                final_state = s; // still Launching — keep waiting
+                final_state = s; // Launching/Loading — keep waiting for Running
             }
             None => break, // tracker removed
         }

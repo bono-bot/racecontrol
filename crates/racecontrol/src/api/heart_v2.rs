@@ -769,7 +769,12 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
                 }
                 (StatusCode::OK, Json(json!({ "session": sess }))).into_response()
             } else {
-                (StatusCode::OK, Json(json!({ "session": session }))).into_response()
+                // MAOR (google IMPORTANT): promote returning None means the
+                // just-created session vanished from the store (state
+                // corruption). The game IS running but the heart has no
+                // green-lit session — do NOT report success; surface a 500.
+                tracing::error!(sid = %session.id, pod = %pod_id, "real-launch: session missing at promote — state corruption");
+                err(StatusCode::INTERNAL_SERVER_ERROR, "promote_failed", format!("pod {pod_id} launch verified but session state lost"))
             }
         }
         result => {
@@ -820,7 +825,10 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
         let games = state.game_launcher.active_games.read().await;
         games
             .iter()
-            .filter(|(_, t)| matches!(t.game_state, GameState::Running | GameState::Loading))
+            // MAOR consistency: only a confirmed Running pod justifies granting
+            // green-light (matches the dispatch verify tightening) — not a
+            // transient Loading.
+            .filter(|(_, t)| matches!(t.game_state, GameState::Running))
             .map(|(pod, _)| pod.clone())
             .collect()
     };
@@ -1626,6 +1634,32 @@ mod bridge_tests {
             .await
             .expect("dispatch ok");
         assert!(!out.verified_running, "ACK without a Running status must NOT verify");
+        let _ = agent.await;
+    }
+
+    // MAOR (google CRITICAL) regression lock: a transient Loading state must NOT
+    // count as verified — only Running grants green-light (anti-stale-verify).
+    #[tokio::test]
+    async fn dispatch_not_verified_on_loading_alone() {
+        let state = build_state().await;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<CoreMessage>(4);
+        state.agent_senders.write().await.insert("pod_1".to_string(), tx);
+        let st = state.clone();
+        let agent = tokio::spawn(async move {
+            if let Some(msg) = rx.recv().await {
+                let cid = msg.command_id.clone().unwrap_or_default();
+                if let Some(ack) = st.pending_command_acks.write().await.remove(&cid) {
+                    let _ = ack.send(CommandAckResult { success: true, error: None });
+                }
+                if let Some(t) = st.game_launcher.active_games.write().await.get_mut("pod_1") {
+                    t.game_state = GameState::Loading; // stuck Loading, never Running
+                }
+            }
+        });
+        let out = dispatch_launch_to_agent(&state, "pod_1", SimType::AssettoCorsa, None, ctx(800))
+            .await
+            .expect("dispatch ok");
+        assert!(!out.verified_running, "Loading alone must NOT verify — only Running confirms");
         let _ = agent.await;
     }
 
