@@ -11,12 +11,21 @@
 //!
 //! Canonical data model: `rp-v2-apps/packages/contracts/src/release.ts`.
 
+pub mod artifact_stager;
 pub mod config;
 pub mod error;
+#[cfg(feature = "redeem_client")]
+pub mod http_fetch;
+pub mod identity;
 pub mod manifest;
+pub mod manifest_fetcher;
 pub mod profile;
+#[cfg(feature = "redeem_client")]
+pub mod redeem_client;
 pub mod signature_verifier;
 pub mod trusted_keys;
 
+pub use identity::{RedeemError, RedeemedIdentity};
 pub use manifest::ReleaseManifest;
+pub use manifest_fetcher::{FetchError, Fetcher};
 pub use profile::Profile;

@@ -33,7 +33,7 @@ fn valid_fixture() -> (ReleaseManifest, TrustedKeySet) {
     let installer_artifact = InstallerArtifact {
         sha256: sha256_hex(b"installer-binary-bytes"),
         size_bytes: 21,
-        download_url: "https://console.racecontrol.app/install/bootstrapper".into(),
+        download_url: "https://console.racecontrol.in/install/bootstrapper".into(),
         signing_key_id: KID.into(),
     };
     let artifacts = vec![ReleaseArtifact {

@@ -13,6 +13,10 @@ edition.workspace = true
 # `--features installer-bin`.
 installer-bin = []
 
+# Opt-in HTTP redeem client (INC-2). Gated so the default `--lib` build stays
+# pure (no network/TLS deps); enable with `--features redeem_client`.
+redeem_client = ["dep:ureq"]
+
 [[bin]]
 name = "rc-installer"
 path = "src/main.rs"
@@ -32,3 +36,8 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 ed25519-dalek = { workspace = true }
+
+# INC-2 redeem client (optional, behind the `redeem_client` feature). ureq:
+# tiny, blocking, rustls — clean `x86_64-pc-windows-gnu` cross-compile, no async
+# runtime. Default `--lib`/`--tests` builds do not pull it in.
+ureq = { version = "3", optional = true }

@@ -26,7 +26,7 @@ fn single_installer_artifact_per_manifest() {
     let json = r#"{
       "release_id":"rel-0001","release_class":"feature","release_ring":"general",
       "artifacts":[{"artifact_id":"a1","sha256":"00","size_bytes":1,"target":"rc-agent"}],
-      "installer_artifact":{"sha256":"00","size_bytes":1,"download_url":"https://console.racecontrol.app/install/bootstrapper","signing_key_id":"k"},
+      "installer_artifact":{"sha256":"00","size_bytes":1,"download_url":"https://console.racecontrol.in/install/bootstrapper","signing_key_id":"k"},
       "previous_release_id":null,"cut_at":1,"signing_key_id":"k","signature":"x"
     }"#;
     let m = ReleaseManifest::from_json(json).unwrap();

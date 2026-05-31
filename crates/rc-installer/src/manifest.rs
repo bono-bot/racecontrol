@@ -30,7 +30,7 @@ pub struct ReleaseArtifact {
 
 /// The installer bootstrapper's own artifact (contract: `InstallerArtifact`).
 ///
-/// `download_url` MUST be a child of `https://console.racecontrol.app/install/`
+/// `download_url` MUST be a child of `https://console.racecontrol.in/install/`
 /// (R-129; enforced at the validation layer, not here).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

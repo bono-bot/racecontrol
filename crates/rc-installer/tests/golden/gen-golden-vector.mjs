@@ -85,7 +85,7 @@ const firstRelease = {
   installer_artifact: {
     sha256: sha("installer-binary-bytes"),
     size_bytes: 21,
-    download_url: "https://console.racecontrol.app/install/bootstrapper",
+    download_url: "https://console.racecontrol.in/install/bootstrapper",
     signing_key_id: "rc-golden-test-001",
   },
   previous_release_id: null,
@@ -105,7 +105,7 @@ const upgrade = {
   installer_artifact: {
     sha256: sha("installer-binary-bytes-v2"),
     size_bytes: 42,
-    download_url: "https://console.racecontrol.app/install/bootstrapper-v2",
+    download_url: "https://console.racecontrol.in/install/bootstrapper-v2",
     signing_key_id: "rc-golden-test-002",
   },
   previous_release_id: "rel-2026Q1-prior",

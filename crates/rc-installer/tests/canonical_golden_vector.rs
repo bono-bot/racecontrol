@@ -26,7 +26,7 @@ const GOLDEN: &str = include_str!("golden/release-manifest-golden.json");
 /// signed bytes for the first-release (previous_release_id=null) vector. If
 /// CanonicalManifest field order/format drifts, `canonical_signed_bytes` diverges
 /// from this even after a fixture regenerate, so a silent recipe change fails here.
-const EXPECTED_FIRST_RELEASE_CANONICAL: &str = r#"{"release_id":"rel-2026Q2-golden","release_class":"feature","release_ring":"general","artifacts":[{"artifact_id":"rc-agent-2026Q2-001","sha256":"bd77425d29ddbe042bc9343ed565ad6c958b17f60b443453585e7085ed20e82f","size_bytes":16,"target":"rc-agent"}],"installer_artifact":{"sha256":"917ff608ad6b12559ba50bf481b6e1530d04a0a656dd176ee9c651000a5bd2c4","size_bytes":21,"download_url":"https://console.racecontrol.app/install/bootstrapper","signing_key_id":"rc-golden-test-001"},"previous_release_id":null,"cut_at":1748649600000,"signing_key_id":"rc-golden-test-001"}"#;
+const EXPECTED_FIRST_RELEASE_CANONICAL: &str = r#"{"release_id":"rel-2026Q2-golden","release_class":"feature","release_ring":"general","artifacts":[{"artifact_id":"rc-agent-2026Q2-001","sha256":"bd77425d29ddbe042bc9343ed565ad6c958b17f60b443453585e7085ed20e82f","size_bytes":16,"target":"rc-agent"}],"installer_artifact":{"sha256":"917ff608ad6b12559ba50bf481b6e1530d04a0a656dd176ee9c651000a5bd2c4","size_bytes":21,"download_url":"https://console.racecontrol.in/install/bootstrapper","signing_key_id":"rc-golden-test-001"},"previous_release_id":null,"cut_at":1748649600000,"signing_key_id":"rc-golden-test-001"}"#;
 
 fn fixture() -> serde_json::Value {
     serde_json::from_str(GOLDEN).expect("parse golden fixture")
