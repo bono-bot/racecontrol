@@ -1,0 +1,45 @@
+{
+  "surface": "pod-state-channel",
+  "date": "2026-06-01",
+  "valid_until": "2026-07-01",
+  "reviewer": "bono",
+  "context": "Mechanism-trust-check (~/.claude/CLAUDE.md '5-question check') on the shared infrastructure rc-installer INC-4/INC-4B will reuse: kill+swap of rc-agent during reinstall, pod WS auth (agent_auth), pod register/upsert (agent_register), mDNS discovery. Gate: PASS only if all 5 == YES; else rca_required and the surface gets its own 5-section §S-146 RCA BEFORE the INC-4/4B fix RCA proceeds.",
+  "repo": "/root/racecontrol @ feat/rc-installer-trust-core (c2506a6d)",
+  "questions": [
+    {
+      "q": "Q1 atomic primitives?",
+      "verdict": "NO",
+      "evidence": "rc-agent kill+swap is non-atomic: scripts/deploy-pod.sh swaps via a single `move /Y` (~:188-191) across THREE separate rc-sentry /exec calls (kill :172-178, preserve-copy :180-185, swap :188-191) with no auto-recover guard if the move half-completes. start-rcagent.bat:67-83 boot-swap is a non-atomic ren-chain that can leave no rc-agent.exe. This is the PR #66 CF-1 'non-atomic kill+swap' class. (The DB upsert agent_register.rs:108-122 IS atomic, and failure_state.rs uses atomic tmp+rename, but the BINARY swap that reinstall reuses is not.)"
+    },
+    {
+      "q": "Q2 TTL-bounded sentinels integrated with the atomic primitive?",
+      "verdict": "YES",
+      "evidence": "deploy-pod.sh writes a TTL-stamped OTA_DEPLOYING sentinel (:164-170, auto-expires 10 min); rc-watchdog/src/service.rs:287-290 honors it (check_sentinel(OtaDeploying) before is_rc_agent_running, continues poll loop while active). MAINTENANCE_MODE has 30-min JSON-timestamp auto-clear (service.rs:257-268). CF-2 (sentinel-no-TTL) is genuinely closed."
+    },
+    {
+      "q": "Q3 behavioral-verify success (hash/mtime/ws_uptime, not echo-string)?",
+      "verdict": "YES",
+      "evidence": "Pre-swap SHA256 compare (deploy-pod.sh :291-298 LOCAL_SHA256 vs pod certutil :136-155, abort on mismatch) + size floor + mtime staleness gate. Watchdog binary_validator.rs SHA256 + PE-header validation vs release-manifest.toml, rollback on fail. Post-swap /health build_id verify (:229-242) + Session-1 Console check (:250-261) + verify-fix.sh. ws_reconnect_count/last_seen server-side. Not echo-as-success."
+    },
+    {
+      "q": "Q4 single-target dry-run path?",
+      "verdict": "PARTIAL",
+      "evidence": "Single-target YES (deploy-pod.sh takes <pod-N>, deploy lock, staggered restarts, Pod-8 canary). Dry-run NO on this path: grep -c DRY_RUN scripts/deploy-pod.sh = 0; the destructive download->swap->start runs unconditionally. (deploy-server.sh HAS DEPLOY_DRY_RUN, but that is the SERVER heart deploy, not the rc-agent pod-deploy INC-4/4B reuses.)"
+    },
+    {
+      "q": "Q5 guards have written contracts with delivery script (parser-not-regex + allowlist)?",
+      "verdict": "PARTIAL",
+      "evidence": "rc-sentry /exec parses JSON for the request envelope (main.rs:710-712, parser not regex) and a documented BLOCKED_PATTERNS contract exists (deploy-pod.sh:134-135 references it). BUT the command-content check is substring matching (cmd_lower.contains, :742/:750/:752) not parsed-token/AST, and it is a deny-BLOCKLIST not the allowlist the question requires."
+    }
+  ],
+  "overall": "FAIL",
+  "rca_required": true,
+  "blocks": ["INC-4", "INC-4B"],
+  "disposition": "Healthier than the PR #66 baseline (CF-2 + echo-as-success closed). Remaining open: Q1 non-atomic rc-agent kill+swap (CF-1, the load-bearing reuse for reinstall), Q4 no pod-path dry-run, Q5 blocklist-substring not allowlist-parser. Per the mechanism-trust-check-upstream-of-fix-RCA rule, the POD-STATE-CHANNEL gets its own 5-section §S-146 RCA scoped to {Q1, Q4, Q5} BEFORE the INC-4/4B fix RCA proceeds.",
+  "required_before_inc4_4b": [
+    "5-section §S-146 RCA scoped to {Q1 non-atomic swap, Q4 missing pod dry-run, Q5 blocklist-vs-allowlist} on the rc-agent reinstall path (CF-1 confirmed open; CF-2/echo-as-success = ROOT-CAUSED-AND-FIXED).",
+    "Close Q1: atomic swap + no-binary-left recovery guard in deploy-pod.sh (port deploy-server.sh auto-recover).",
+    "Close Q4: single-target --dry-run rehearse path in deploy-pod.sh (mirror deploy-server.sh DEPLOY_DRY_RUN).",
+    "Close Q5 (or document kaizen-correct V1-retention with follow-up trigger): parsed-token matching + a deploy-path command allowlist in rc-sentry /exec."
+  ]
+}
