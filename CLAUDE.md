@@ -1,5 +1,9 @@
 # Racing Point eSports — Project Context
 
+## 🧭 James pilot REDUNDANT — bono sole pilot (Captain RATIFIED §S-448, 2026-06-01)
+
+**Operating-model change.** The on-site parallel AI **pilot** "James" (codename *James Vowles*) is **redundant**; **bono (Peter Bonnington) is the sole AI pilot**, owning cloud + venue lanes. The "bilateral" / two-pilot rules referenced in this file are now **solo (bono-only)**; bono appends `§S-N` solo. **Bilateral hooks + comms infra are RETAINED but DORMANT** (Captain kept them for a future Server-operator). **Pilot-vs-service:** `admin-proxy-james` / `deploy-agent-james` SERVICES + Server .23 are UNCHANGED + live (bono owns their code). **Canonical:** `§S-448` (comms-link `V2-MASTER-STATE.md`) · `rp-v2-apps/coordinator/CAPTAIN-RATIFY-JAMES-PILOT-REDUNDANT-2026-06-01.md`.
+
 ## 🧭 V2 Scope Freeze & Definition-of-Done — STANDING (Captain 2026-05-30 · BILATERAL)
 
 **Default understanding going forward.** V2 is COMPLETE when **two surfaces are both bug-free**: (1) **RacingPoint Ecosystem V2** (`rp-v2-apps`: PWA·POS·Kiosk·Pod-display·Launch-portal·admin-proxies·contracts·billing·SSE) + (2) **RaceControl** (Rust `racecontrol` heart · `rc-agent` · `rc-installer`).
