@@ -8,8 +8,10 @@
 //! generator's string form — if they produced different bytes, verify would fail.
 
 use base64::Engine;
-use rc_installer::heartbeat::{verify_heartbeat, HeartbeatError, LicenseHeartbeat, SignedLicenseHeartbeat, VerifyContext};
+use rc_installer::fingerprint::machine_fingerprint_composite;
+use rc_installer::heartbeat::{verify_heartbeat, HeartbeatError, LicenseClass, LicenseHeartbeat, SignedLicenseHeartbeat, VerifyContext};
 use rc_installer::trusted_keys::{TrustedKey, TrustedKeySet};
+use std::collections::BTreeMap;
 
 const GOLDEN: &str = include_str!("golden/license-heartbeat-golden.json");
 
@@ -252,4 +254,54 @@ fn malformed_signature_rejected() {
         min_valid_until_ms: None,
     };
     assert_eq!(verify_heartbeat(&fx.signed, &ctx), Err(HeartbeatError::MalformedSignature));
+}
+
+/// End-to-end against Replit's PRODUCTION-signed sample (INC-7b contract, 2026-06-01):
+/// real ed25519 signature by the production key `lic-sign-2026-06-1` over the canonical
+/// bytes, with `machine_fingerprint` = the GV1 composite. The envelope is the agreed
+/// schema (signature is a SIBLING of `license_heartbeat`) — NOT the mis-rendered sample
+/// that nested `signature` inside the payload. Proves the shipped verifier + the composite
+/// recipe accept a real production heartbeat with Gate-4 byte-match.
+#[test]
+fn production_signed_sample_verifies_with_prod_key() {
+    let mut feature_opt_in = BTreeMap::new();
+    feature_opt_in.insert("multiplayer".to_string(), true);
+    feature_opt_in.insert("telemetry".to_string(), false);
+    let signed = SignedLicenseHeartbeat {
+        license_heartbeat: LicenseHeartbeat {
+            tenant_id: "rp-hyd".into(),
+            machine_fingerprint: "4d81ea8f4ab8be575a087222ffc13cc2cedb8a8f521981758d64e4a3c1b69312".into(),
+            issued_at: 1748649600000,
+            valid_until: 1748653200000,
+            signing_key_id: "lic-sign-2026-06-1".into(),
+            license_class: LicenseClass::Production,
+            feature_opt_in,
+        },
+        signature: "OqNmmWIFe74W5wWsIE12eEvgoxlxVN5oBiB81YZpo1OdzDhBZ9tWX/4Z6ESYiwpRRNW5822dxP41u5R2UlyxBA==".into(),
+        next_refresh_after: 1748652300000,
+    };
+    let ks = TrustedKeySet {
+        keys: vec![TrustedKey {
+            kid: "lic-sign-2026-06-1".into(),
+            public_key: "51f0bf799b31aa7e80d7b2714450a33fcb59219a69a746c25c55bb7b21da9340".into(),
+            status: "active".into(),
+        }],
+    };
+    // The client recomputes the composite from the GV1 hardware components — Gate-4 input.
+    let local_fp = machine_fingerprint_composite(
+        "d3b07384-d9a4-4f1e-8c2a-1b6f5e0a7c91",
+        Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+        "S3PWNF0M812345",
+    );
+    assert_eq!(local_fp, "4d81ea8f4ab8be575a087222ffc13cc2cedb8a8f521981758d64e4a3c1b69312", "composite must equal GV1 (Gate-4 pre-image)");
+    let ctx = VerifyContext {
+        trusted_keys: &ks,
+        local_machine_fingerprint: &local_fp,
+        expected_tenant_id: "rp-hyd",
+        now_ms: 1748649600000 + 60_000,
+        max_ttl_ms: 5_400_000,
+        clock_skew_ms: 300_000,
+        min_valid_until_ms: None,
+    };
+    assert_eq!(verify_heartbeat(&signed, &ctx), Ok(()));
 }

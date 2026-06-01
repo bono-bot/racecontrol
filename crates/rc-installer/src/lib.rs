@@ -32,8 +32,11 @@ pub mod tls_pin;
 
 // INC-7a license-heartbeat verifier (pure; runtime inputs via VerifyContext).
 pub mod heartbeat;
+// INC-7a machine-fingerprint composite recipe (pure; Gate-4 pre-image).
+pub mod fingerprint;
 
 pub use error::InstallError;
+pub use fingerprint::machine_fingerprint_composite;
 pub use heartbeat::{
     verify_heartbeat, HeartbeatError, LicenseClass, LicenseHeartbeat, SignedLicenseHeartbeat,
     VerifyContext,
