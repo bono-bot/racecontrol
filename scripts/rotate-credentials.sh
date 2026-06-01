@@ -52,16 +52,14 @@ SERVER_SSH="ssh -o ConnectTimeout=5 ADMIN@100.125.108.37"
 # Backup current config
 $SERVER_SSH "copy C:\\RacingPoint\\racecontrol.toml C:\\RacingPoint\\racecontrol.toml.bak-${TIMESTAMP}" 2>/dev/null || true
 
-# Use PowerShell to do in-place replacements (TOML values)
-$SERVER_SSH "powershell -Command \"
-  \$f = 'C:\\RacingPoint\\racecontrol.toml'
-  \$c = Get-Content \$f -Raw
-  \$c = \$c -replace 'jwt_secret = \"[^\"]*\"', 'jwt_secret = \"${NEW_JWT_SECRET}\"'
-  \$c = \$c -replace 'relay_secret = \"[^\"]*\"', 'relay_secret = \"${NEW_RELAY_SECRET}\"'
-  \$c = \$c -replace 'sentry_service_key = \"[^\"]*\"', 'sentry_service_key = \"${NEW_SENTRY_KEY}\"'
-  Set-Content \$f \$c -NoNewline
-  Write-Host 'Server TOML updated'
-\"" 2>/dev/null && echo "  OK" || echo "  FAILED — update manually"
+# Safe pattern (RCA 2026-06-01 §5 P1): scp a committed .ps1 (CRLF via .gitattributes) then run -File.
+# NEVER inline PowerShell over SSH — Git-Bash mangles $_/$env: and a syntax slip makes Set-Content
+# write an empty/corrupt TOML (the 2026-04-08 fleet-wipe class). The .ps1 does its own read-back verify.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+scp -o ConnectTimeout=5 "${SCRIPT_DIR}/deploy/rotate-server-toml.ps1" \
+  ADMIN@100.125.108.37:C:/RacingPoint/rotate-server-toml.ps1 2>/dev/null || echo "  WARN: scp .ps1 failed"
+SRV_OUT=$($SERVER_SSH "powershell -ExecutionPolicy Bypass -File C:\\RacingPoint\\rotate-server-toml.ps1 -Jwt \"${NEW_JWT_SECRET}\" -Relay \"${NEW_RELAY_SECRET}\" -Sentry \"${NEW_SENTRY_KEY}\"" 2>/dev/null)
+echo "$SRV_OUT" | grep -q 'VERIFY_OK' && echo "  OK (read-back verified)" || echo "  FAILED — verify manually ($SRV_OUT)"
 
 # ─── Step 3: Update Bono VPS racecontrol.toml ─────────────────────────────────
 echo "[3/6] Updating Bono VPS racecontrol.toml..."
@@ -96,14 +94,28 @@ POD_IPS=(192.168.31.89 192.168.31.33 192.168.31.28 192.168.31.88 192.168.31.86 1
 POD_NAMES=(Pod-1 Pod-2 Pod-3 Pod-4 Pod-5 Pod-6 Pod-7 Pod-8)
 SENTRY_PORT=8091
 
+# Safe pattern (RCA 2026-06-01 §5 P1): deliver committed rotate-pod-toml.ps1 as base64 via /exec
+# (cmd-safe — base64 has no quotes/metachars to mangle) then run -File. NEVER inline-PS Set-Content
+# of the config over /exec. Canary: CANARY_POD=8 restricts to one pod first (single-target, RCA §4).
+POD_PS1_B64=$(base64 -w0 "${SCRIPT_DIR}/deploy/rotate-pod-toml.ps1" 2>/dev/null || base64 "${SCRIPT_DIR}/deploy/rotate-pod-toml.ps1" | tr -d '\n')
 for i in "${!POD_IPS[@]}"; do
   pod_ip="${POD_IPS[$i]}"
   pod_name="${POD_NAMES[$i]}"
-  RESULT=$(curl -s --connect-timeout 3 -X POST "http://${pod_ip}:${SENTRY_PORT}/exec" \
+  pod_num=$((i+1))
+  if [ -n "${CANARY_POD:-}" ] && [ "${CANARY_POD}" != "${pod_num}" ]; then
+    echo "  $pod_name: SKIP (canary=${CANARY_POD})"; continue
+  fi
+  # 1) deliver the .ps1 to the pod (base64 -> WriteAllBytes; robust, not a config Set-Content)
+  curl -s --connect-timeout 3 -X POST "http://${pod_ip}:${SENTRY_PORT}/exec" \
     -H "Content-Type: application/json" \
-    -d "{\"cmd\":\"powershell -Command \\\"(Get-Content C:\\\\RacingPoint\\\\rc-agent.toml -Raw) -replace 'sentry_service_key = \\\\\\\"[^\\\\\\\"]*\\\\\\\"', 'sentry_service_key = \\\\\\\"${NEW_SENTRY_KEY}\\\\\\\"' | Set-Content C:\\\\RacingPoint\\\\rc-agent.toml -NoNewline\\\"\"}" \
+    -d "{\"cmd\":\"powershell -NoProfile -Command \\\"[IO.File]::WriteAllBytes('C:\\\\RacingPoint\\\\rotate-pod-toml.ps1',[Convert]::FromBase64String('${POD_PS1_B64}'))\\\"\"}" \
+    >/dev/null 2>&1
+  # 2) run it -File; behavioral read-back verify is inside the .ps1 (emits VERIFY_OK)
+  RESULT=$(curl -s --connect-timeout 5 -X POST "http://${pod_ip}:${SENTRY_PORT}/exec" \
+    -H "Content-Type: application/json" \
+    -d "{\"cmd\":\"powershell -ExecutionPolicy Bypass -File C:\\\\RacingPoint\\\\rotate-pod-toml.ps1 -Sentry '${NEW_SENTRY_KEY}'\"}" \
     2>/dev/null || echo '{"error":"unreachable"}')
-  echo "  $pod_name: $(echo $RESULT | grep -q 'success' && echo 'OK' || echo 'SKIP (update on next deploy)')"
+  echo "  $pod_name: $(echo "$RESULT" | grep -q 'VERIFY_OK' && echo 'OK (read-back verified)' || echo 'SKIP (update on next deploy)')"
 done
 
 # ─── Step 6: Restart services ─────────────────────────────────────────────────

@@ -1,0 +1,41 @@
+{
+  "surface": "rc-agent OTA delivery + Windows registry/PowerShell deploy-edit",
+  "date": "2026-06-01",
+  "author": "bono",
+  "authority": "Captain full-authority-for-session 2026-06-01 ~22:00 IST",
+  "validity_days": 30,
+  "rca_ref": ".planning/audits/RCA-windows-registry-powershell-deploy-2026-06-01.md",
+  "two_distinct_paths": {
+    "path_A_rc_agent_OTA_swap": "the re-rollout mechanism — rc-sentry :8091/exec atomic kill+rename swap + staged HTTP download (deploy-server.sh v3.0 lineage)",
+    "path_B_inline_ps_over_ssh": "rotate-credentials.sh credential-rotation — the FAIL surface this RCA fixes; NOT used by the re-rollout"
+  },
+  "five_question_check_path_A_OTA_swap": {
+    "Q1_atomic_primitives": {
+      "verdict": "YES",
+      "evidence": "single /exec cmd.exe chain: taskkill /F /IM rc-agent.exe & del /Q rc-agent-prev.exe & ren rc-agent.exe rc-agent-prev.exe & ren rc-agent-<hash>.exe rc-agent.exe — one call, not a multi-step pipeline racing the watchdog"
+    },
+    "Q2_ttl_bounded_sentinels": {
+      "verdict": "PARTIAL",
+      "evidence": "OTA_DEPLOYING sentinel is written at start / cleared on complete|rollback but has NO TTL (PR-66 CF-2 class). Residual risk: a swap that dies mid-way strands the sentinel.",
+      "mitigation": "canary-one-pod-first contains blast radius to a single pod; manual sentinel clear documented",
+      "followup": "P2 — add TTL to OTA_DEPLOYING"
+    },
+    "Q3_behavioral_verify": {
+      "verdict": "YES",
+      "evidence": "post-swap verify = build_id on :8090/health (== expected short-HEAD) + fleet/health ws+http + tasklist Session column == Console. Not echo-string, not exit-code."
+    },
+    "Q4_single_target_dry_run": {
+      "verdict": "YES",
+      "evidence": "pod-8 canary-FIRST is the single-target path; bono verifies pod-8 behaviorally before authorizing pods 1,2,4,5,6,7 one-at-a-time (PR-66 CF — no-canary fleet-wide — is directly closed)"
+    },
+    "Q5_guard_contracts": {
+      "verdict": "PARTIAL",
+      "evidence": "rc-sentry /exec requires X-Service-Key (auth present, bono holds it). But no written parser-not-regex allowlist contract on /exec command bodies.",
+      "mitigation": "operator-authored exact command strings (no untrusted input); cmd.exe-hostile-quoting rules followed (PID/file-based targeting)",
+      "followup": "P2 — written /exec command-allowlist contract"
+    }
+  },
+  "verdict_path_A": "CONDITIONAL-PASS (3 YES / 2 PARTIAL) — re-rollout MAY proceed CANARY-FIRST. The 2 PARTIALs are the PR-66 residual classes; canary-first + behavioral-verify are the compensating controls that contain them to one pod. PARTIALs tracked as P2 hardening, NOT rollout blockers.",
+  "verdict_path_B": "FAIL — inline-PS-over-SSH Set-Content (rotate-credentials.sh) violates Q1 (Git-Bash mangles PS vars) + Q3 (echo-as-success) + Q4 (no canary). FIXED in this RCA (P1): write-local-.ps1 -> SCP -> -File + --canary + read-back verify. New occurrences blocked by scripts/check-no-inline-ps-ssh.sh gate.",
+  "gate_decision": "re-rollout GATE A: CLEARED for canary-first execution. Path-B fix + mechanical gate land with this RCA."
+}
