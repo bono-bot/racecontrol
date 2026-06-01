@@ -9,6 +9,7 @@
 //!   - for BOTH previous_release_id=null (first release) and Some (upgrade), and
 //!     1 vs 2 artifacts,
 //!   - non-vacuity on both axes: a wrong key and a tampered field each fail.
+//!
 //! A hardcoded spec anchor pins the first-release canonical bytes independent of
 //! fixture regeneration (catches a silent canonicalization-recipe change).
 //!
