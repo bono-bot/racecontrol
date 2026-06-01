@@ -30,7 +30,14 @@ pub mod host_allowlist;
 pub mod journal;
 pub mod tls_pin;
 
+// INC-7a license-heartbeat verifier (pure; runtime inputs via VerifyContext).
+pub mod heartbeat;
+
 pub use error::InstallError;
+pub use heartbeat::{
+    verify_heartbeat, HeartbeatError, LicenseClass, LicenseHeartbeat, SignedLicenseHeartbeat,
+    VerifyContext,
+};
 pub use identity::{RedeemError, RedeemedIdentity};
 pub use manifest::ReleaseManifest;
 pub use manifest_fetcher::{FetchError, Fetcher};

@@ -36,6 +36,9 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 ed25519-dalek = { workspace = true }
+# INC-7a: decode the base64 wire signature on SignedLicenseHeartbeat (the heartbeat
+# envelope uses base64; ReleaseManifest uses hex). Pure-Rust, cross-compiles to gnu.
+base64 = "0.22"
 
 # INC-2 redeem client (optional, behind the `redeem_client` feature). ureq:
 # tiny, blocking, rustls — clean `x86_64-pc-windows-gnu` cross-compile, no async
