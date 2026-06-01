@@ -25,6 +25,12 @@ pub mod redeem_client;
 pub mod signature_verifier;
 pub mod trusted_keys;
 
+// INC-2H hardening (pure cores — testable in the default build, no new deps).
+pub mod host_allowlist;
+pub mod journal;
+pub mod tls_pin;
+
+pub use error::InstallError;
 pub use identity::{RedeemError, RedeemedIdentity};
 pub use manifest::ReleaseManifest;
 pub use manifest_fetcher::{FetchError, Fetcher};
