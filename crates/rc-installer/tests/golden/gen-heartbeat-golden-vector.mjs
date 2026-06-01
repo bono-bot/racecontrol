@@ -1,32 +1,30 @@
 #!/usr/bin/env node
-// MIRROR of the Captain-PINNED (2026-06-01) license_heartbeat canonical recipe.
+// MIRROR of the Captain-PINNED license_heartbeat recipe, now carrying Replit's
+// CEREMONY-SIGNED golden vectors (B9 ceremony executed 2026-06-01, rule #5 ratified).
 //
 // CANONICAL HOME = packages/contracts (license.yaml + src/license.ts) — Replit-owned,
 // parity-gated source of truth. This generator + canonical_heartbeat_golden_vector.rs
-// MIRROR it and MUST NOT drift from the pinned recipe.
+// MIRROR it and MUST NOT drift.
 //
-// HARD GATE (Replit 2026-06-01): the B9 ed25519 key is NOT generated until the Captain
-// ratifies the AUTH-MEMO-1 rule #5 packet. This generator therefore mints NO keys and
-// produces NO signatures — it pins STRUCTURE + canonical BYTES + LENGTH only. The real
-// signature/pubkey are fixed at the key ceremony; signature-axis verification lands at
-// INC-7 with the real key (the existing ReleaseManifest vectors already prove the
-// ed25519 verify mechanism). Fixture is fully deterministic (no randomness).
+// CEREMONY (Replit 2026-06-01): vectors signed by the ceremony TEST key
+// rc-hb-test-001. The production B9 key lic-sign-2026-06-1 was generated + custodied
+// (private half never left Replit's sandbox; bono holds NO private material) and is
+// RESERVED for live INC-7 issuance — it did NOT sign these test vectors. bono holds
+// only PUBLIC keys (below). Cross-implementation parity was confirmed independently:
+// Replit's ed25519 signatures verify against bono's reconstructed canonical bytes
+// (any 1-byte diff fails verify ⇒ byte-identical canonicalizers).
 //
-// Recipe (= packages/contracts canonicalJson(), same as audit-chain.mjs):
-//   - compact JSON, no whitespace, UTF-8,
-//   - SIGNED PAYLOAD field order (declaration, NOT alphabetical):
-//       tenant_id, machine_fingerprint, issued_at, valid_until, signing_key_id,
-//       license_class, feature_opt_in
-//   - feature_opt_in = OPEN Record<string,boolean>, keys SORTED lexically, ALWAYS
-//     present ({} when empty), boolean values only,
-//   - issued_at / valid_until = Unix-ms integers,
-//   - signature EXCLUDED. signature (base64) + next_refresh_after are 200-body siblings
-//     OUTSIDE the signed payload (envelope SignedLicenseHeartbeat).
-//
-// Byte-length is fingerprint-VALUE-independent (any 64-hex ⇒ production 284 / trial 243).
-// machine_fingerprint values here are fixed placeholders; the real value is pinned at
-// the ceremony. Regenerate:
+// This generator does NOT mint keys or sign — it emits the canonical bytes
+// (deterministic) and EMBEDS Replit's ceremony signatures + the public keys. The Rust
+// test re-verifies them. Regenerate:
 //   node crates/rc-installer/tests/golden/gen-heartbeat-golden-vector.mjs
+//
+// Recipe (= packages/contracts canonicalJson()): compact JSON, declaration-order top
+// level, signature EXCLUDED, feature_opt_in OPEN Record<string,boolean> keys sorted
+// always present, issued_at/valid_until Unix-ms. Envelope SignedLicenseHeartbeat
+// { license_heartbeat, signature, next_refresh_after }; signature + next_refresh_after
+// are 200-body siblings OUTSIDE the signed bytes. Byte-length is fingerprint-value-
+// independent (any 64-hex ⇒ production 284 / trial 243).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -34,9 +32,6 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// feature_opt_in must serialize with SORTED keys for cross-language determinism
-// (Rust BTreeMap does this implicitly; JS objects preserve insertion order, so
-// we sort explicitly).
 function sortedObj(o) {
   const out = {};
   for (const k of Object.keys(o).sort()) out[k] = o[k];
@@ -56,31 +51,35 @@ function canonicalOf(hb) {
   };
 }
 
-function buildVector(label, hb) {
+function buildVector(label, hb, signatureHex) {
   const canonicalJson = JSON.stringify(canonicalOf(hb));
   const canonicalBytes = Buffer.from(canonicalJson, "utf8");
   return {
     label,
-    license_heartbeat: hb, // the signed-payload fields (NO signature — gate)
+    license_heartbeat: hb,
     canonical_bytes_hex: canonicalBytes.toString("hex"),
     canonical_json: canonicalJson,
     canonical_byte_len: canonicalBytes.length,
+    signature_hex: signatureHex, // Replit ceremony signature (rc-hb-test-001)
   };
 }
 
-// Fixed 64-hex machine fingerprints (composite sha256-hex shape per Q-INSTALLER-32 /
-// R-135) — fixed literals, NOT runtime shas, so the canonical bytes (and the Rust
-// frozen anchors) are hand-computable. Real value is pinned at the ceremony.
-const FP_PROD = "f0e1d2c3b4a5968778695a4b3c2d1e0f00112233445566778899aabbccddeeff";
-const FP_TRIAL = "1a2b3c4d5e6f70819293a4b5c6d7e8f9000102030405060708090a0b0c0d0e0f";
-
+// Replit's fixed test machine_fingerprint for the ceremony vectors (one value, both).
+const FP = "0123456789abcdef".repeat(4);
 const ISSUED_AT = 1748649600000; // Unix ms
 const VALID_UNTIL = ISSUED_AT + 3600000; // +1h TTL
 
-// production class with a NON-EMPTY feature_opt_in (sorted: multiplayer < telemetry).
+// Public keys (ed25519 raw hex) from the ceremony — PUBLIC halves only.
+const VECTOR_SIGNING_PUBLIC_KEY_HEX = "9114c4da985c888b413f1f0a1b48bf099d382011d2198bf7498083ac1a555805"; // rc-hb-test-001 (signed the vectors)
+const PRODUCTION_RESERVED_PUBLIC_KEY_HEX = "51f0bf799b31aa7e80d7b2714450a33fcb59219a69a746c25c55bb7b21da9340"; // lic-sign-2026-06-1 (reserved; did NOT sign these)
+
+// Replit ceremony signatures (ed25519, hex) over the canonical bytes below.
+const SIG_PROD_HEX = "1b0d3accd3f61827c999f21601bba25be1e82d40c64dbb75e93c4f1b092347eae55b46f33c8f189522a55813a881f8f3e1ac7107cc461b68caa1b627bc075a03";
+const SIG_TRIAL_HEX = "a8fc1863507f1388e13ba6b5b8a28202c02a614ad196c3972468062537cd2e5f78ffb21f5c271c0b21be17489f71718b45e831316fc101b3a8113c56c49e7c0e";
+
 const production = {
   tenant_id: "rp-hyd",
-  machine_fingerprint: FP_PROD,
+  machine_fingerprint: FP,
   issued_at: ISSUED_AT,
   valid_until: VALID_UNTIL,
   signing_key_id: "rc-hb-test-001",
@@ -88,11 +87,9 @@ const production = {
   feature_opt_in: { telemetry: false, multiplayer: true },
 };
 
-// trial class with an EMPTY feature_opt_in. signing_key_id = rc-hb-test-001 (PINNED:
-// same kid as production, per Replit's pinned trial vector 2026-06-01).
 const trial = {
   tenant_id: "rp-hyd",
-  machine_fingerprint: FP_TRIAL,
+  machine_fingerprint: FP,
   issued_at: ISSUED_AT,
   valid_until: VALID_UNTIL,
   signing_key_id: "rc-hb-test-001",
@@ -102,11 +99,14 @@ const trial = {
 
 const fixture = {
   _comment:
-    "MIRROR of the Captain-pinned license_heartbeat canonical recipe (2026-06-01). Canonical home = packages/contracts (license.yaml + src/license.ts). STRUCTURE + canonical bytes + LENGTH only; NO signatures (B9 key + signature deferred to the rule #5 ceremony). The Rust test asserts byte-parity + frozen anchors + length (production 284 / trial 243). Generated by gen-heartbeat-golden-vector.mjs.",
-  recipe_status: "PINNED-2026-06-01-signature-deferred-to-ceremony",
+    "MIRROR of the Captain-pinned license_heartbeat recipe with Replit's CEREMONY-SIGNED vectors (2026-06-01). Canonical home = packages/contracts. Each vector's signature (rc-hb-test-001 ceremony test key) verifies against the canonical bytes; the Rust test asserts byte-parity + length (284/243) + ed25519 verify + frozen anchors. production_reserved_public_key (lic-sign-2026-06-1) did NOT sign these (wrong-key non-vacuity). PUBLIC keys only. Generated by gen-heartbeat-golden-vector.mjs.",
+  recipe_status: "PINNED-2026-06-01-ceremony-signed",
+  vector_signing_public_key_hex: VECTOR_SIGNING_PUBLIC_KEY_HEX,
+  production_reserved_public_key_hex: PRODUCTION_RESERVED_PUBLIC_KEY_HEX,
+  next_refresh_after: 1748652300000, // PROPOSED (issued_at + 45min); envelope sibling, NOT signed
   vectors: [
-    buildVector("production-non-empty-feature-opt-in", production),
-    buildVector("trial-empty-feature-opt-in", trial),
+    buildVector("production-non-empty-feature-opt-in", production, SIG_PROD_HEX),
+    buildVector("trial-empty-feature-opt-in", trial, SIG_TRIAL_HEX),
   ],
 };
 
