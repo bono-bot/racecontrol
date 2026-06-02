@@ -5,8 +5,8 @@ use crate::state::AppState;
 use rc_common::protocol::{CoreMessage, CoreToAgentMessage, DashboardEvent};
 
 use super::{
-    launch_or_assist, todays_debug_pin, validate_employee_pin, CUSTOMER_PIN_LOCKOUT_THRESHOLD,
-    INVALID_PIN_MESSAGE, PinSource,
+    ct_pin_eq, launch_or_assist, todays_debug_pin, validate_employee_pin,
+    CUSTOMER_PIN_LOCKOUT_THRESHOLD, INVALID_PIN_MESSAGE, PinSource,
 };
 
 // ─── Validate PIN ──────────────────────────────────────────────────────────
@@ -16,9 +16,12 @@ pub async fn validate_pin(
     pod_id: String,
     pin: String,
 ) -> Result<String, String> {
-    // Check employee debug PIN first (4-digit daily rotating PIN)
+    // Check employee debug PIN first (4-digit daily rotating PIN).
+    // A2.7 / RCA C11: constant-time compare — this debug-PIN check runs BEFORE
+    // the customer-lockout gate below and is unthrottled, so a `==` timing
+    // oracle could recover the jwt_secret-derived daily PIN digit-by-digit.
     let daily_pin = todays_debug_pin(&state.config.auth.jwt_secret);
-    if pin == daily_pin {
+    if ct_pin_eq(&pin, &daily_pin) {
         return validate_employee_pin(state, pod_id, pin).await;
     }
 

@@ -1,0 +1,41 @@
+{
+  "surface": "msg91-otp",
+  "title": "MSG91 OTP Widget (Mode A verify-access-token) + SendOTP (Mode B) delivery/verify mechanism",
+  "authored_by": "bono",
+  "date": "2026-06-02",
+  "valid_until": "2026-07-02",
+  "context": "Forced OTP-provider pivot Evolution(self-hosted WhatsApp, ToS-banned 919059833001) -> Wati(WhatsApp transport) + MSG91 OTP Widget(SMS/voice). Captain-ratified 2026-06-02. This MTC gates the S-146 fix RCA per the mechanism-trust-check-upstream-of-fix-RCA doctrine: MSG91 is a 3rd-party delivery+verify surface the V2 fix depends on.",
+  "questions": {
+    "q1_atomic_primitives": {
+      "verdict": "YES",
+      "evidence": "bono server-side verifyAccessToken is a single HTTP POST (authkey header + {access-token}) -> verified phone. No multi-step pipeline racing a watchdog. Widget client->MSG91 send is MSG91-owned (atomic to us). Downstream issue-opaque-token + pushOtpIssued(HMAC) are existing atomic steps (registration-forwarders.ts)."
+    },
+    "q2_ttl_bounded_sentinels": {
+      "verdict": "YES",
+      "evidence": "MSG91 access token (15-min widget expiry) + bono otp_verify_token_opaque (<=5min, single-use, phone-bound; registration-store.ts:5-6) are both TTL-bounded and integrated with the verify primitive. No OTA/deploy-sentinel class applies (this is not a binary rollout)."
+    },
+    "q3_behavioral_verify_success": {
+      "verdict": "YES-CONDITIONAL",
+      "evidence": "Success = MSG91 returns the verified mobile number (binary: valid token -> phone; invalid -> reject), not an echo-string/exit-code. e2e behavioral chain: SMS arrives -> widget access token -> bono verify succeeds -> otp_state row on Server -> createHousehold issues.",
+      "condition": "The EXACT verifyAccessToken endpoint/shape must be captured from the MSG91 dashboard Server-Side Integration panel (provisioning item #5) before the behavioral path is fully pinned. Do NOT hardcode from memory. Mock covers tests; live behavioral verify gated on provisioning."
+    },
+    "q4_single_target_dry_run": {
+      "verdict": "YES",
+      "evidence": "Flag-gated rollout (default-OFF). MSG91 default template + single test phone before DLT-registered production. No fleet exposure before single-target behavioral pass. Evolution stays live until flag-on cutover."
+    },
+    "q5_guard_written_contracts": {
+      "verdict": "YES-TO-AUTHOR",
+      "evidence": "Guard contract = the new typed packages/contracts/src/msg91.ts (zod parse = parser-not-regex; parity-gated via check-parity.mjs). Existing guards retained: no-phone-leak gate (assertNoLeakInLogLines), HMAC otp-issued bridge (written contract), env-only secrets (MSG91_WIDGET_ID/_TOKEN/_AUTHKEY). Allowlist: IP whitelist venue 49.204.31.37 (Mode A end-user IP) + Bono VPS 72.60.101.58 (Mode B server IP).",
+      "condition": "msg91.ts must be authored (item #3 / ask B) as the typed guard contract; until then the guard contract is specified-not-landed."
+    }
+  },
+  "verdict": "PASS-CONDITIONAL",
+  "verdict_rationale": "All 5 questions YES. Two conditions to discharge before flag-on cutover (not before the RCA): (Q3) capture the real verifyAccessToken endpoint/shape from the MSG91 dashboard; (Q5) author msg91.ts as the typed guard contract. No question FAILS -> no separate delivery-chain S-146 RCA required; proceed to the OTP fix RCA.",
+  "composes_with": [
+    "S-146 V1<->V2 RCA gate (this MTC is upstream of it)",
+    "feedback_mechanism_trust_check_upstream_of_fix_rca_20260510",
+    "RCA draft msg91-otp-s146 (Evolution->MSG91, .27-staged, bono-finalized)",
+    "Security-debt item #2 (jwt_secret/evolution_key/admin_pin_hash rotation) - Captain/operator-owned"
+  ],
+  "next_step": "Finalize the S-146 5-section RCA (with the 3 bono AMPLIFIER corrections: A2.6 bcrypt-unverified, A2.7 ref token_consume.rs:21, A2.7 framing derived-daily-PIN), then MMA Step 1 DIAGNOSE (>=5 models, OpenRouter) focused on the A2.6 two-layer convergence, then per-PR Captain merge auth."
+}

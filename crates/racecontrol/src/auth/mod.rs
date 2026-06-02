@@ -305,6 +305,60 @@ pub fn todays_debug_pin(secret: &str) -> String {
     generate_daily_pin(secret, &today)
 }
 
+/// Constant-time comparison of a user-supplied PIN against the expected daily
+/// debug PIN (A2.7 / RCA §S-146 OTP-MSG91 finding C11).
+///
+/// A plain `==`/`!=` on the derived PIN leaks, via timing, how many leading
+/// bytes matched — letting an attacker recover the `jwt_secret`-derived daily
+/// PIN digit-by-digit on the *unthrottled* employee-debug path (the debug-PIN
+/// check runs before the customer-lockout gate). `subtle::ConstantTimeEq`
+/// compares every byte regardless of mismatch position. Length is not secret
+/// here — the daily PIN is always 4 digits — so the slice-length short-circuit
+/// in `ct_eq` is fine; a malformed (non-4-digit) supplied PIN is simply rejected.
+///
+/// The *forgeability-if-`jwt_secret`-leaks* half of this finding is closed by
+/// secret rotation (Captain item #2), not by this compare.
+pub(crate) fn ct_pin_eq(supplied: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    supplied.as_bytes().ct_eq(expected.as_bytes()).into()
+}
+
+#[cfg(test)]
+mod ct_pin_eq_tests {
+    use super::{ct_pin_eq, todays_debug_pin};
+
+    #[test]
+    fn matches_identical_pin() {
+        assert!(ct_pin_eq("4271", "4271"));
+    }
+
+    #[test]
+    fn rejects_wrong_pin() {
+        assert!(!ct_pin_eq("4271", "4272"));
+        assert!(!ct_pin_eq("0000", "4271"));
+        // Differs only in the last byte — the case a naive short-circuit `==`
+        // would distinguish by timing from a first-byte mismatch.
+        assert!(!ct_pin_eq("4270", "4271"));
+    }
+
+    #[test]
+    fn rejects_length_mismatch_without_panic() {
+        // A malformed supplied PIN must be rejected, never panic.
+        assert!(!ct_pin_eq("427", "4271"));
+        assert!(!ct_pin_eq("42710", "4271"));
+        assert!(!ct_pin_eq("", "4271"));
+    }
+
+    #[test]
+    fn real_derived_pin_validates_against_itself() {
+        // Guards against an off-by-one in the constant-time swap: the derived
+        // daily PIN must still validate against itself.
+        let pin = todays_debug_pin("test-secret-xyz");
+        assert_eq!(pin.len(), 4);
+        assert!(ct_pin_eq(&pin, &pin));
+    }
+}
+
 /// Validate an employee debug PIN on a specific pod.
 /// If valid: clears lock screen, enters debug mode, no billing.
 /// PIN-02 invariant: this function NEVER reads or writes customer_pin_failures.
@@ -314,7 +368,7 @@ pub async fn validate_employee_pin(
     pin: String,
 ) -> Result<String, String> {
     let expected = todays_debug_pin(&state.config.auth.jwt_secret);
-    if pin != expected {
+    if !ct_pin_eq(&pin, &expected) {
         // PIN-01: increment STAFF failure counter — never customer counter
         {
             let mut failures = state.staff_pin_failures.write().await;
@@ -350,7 +404,7 @@ pub async fn validate_employee_pin_kiosk(
     pod_id: Option<String>,
 ) -> Result<String, String> {
     let expected = todays_debug_pin(&state.config.auth.jwt_secret);
-    if pin != expected {
+    if !ct_pin_eq(&pin, &expected) {
         return Err("Invalid employee PIN".to_string());
     }
 
