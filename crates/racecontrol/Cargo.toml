@@ -71,6 +71,9 @@ aes-gcm = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+# A2.7 / RCA C11 — constant-time equality for the daily debug PIN compare.
+# Already in the dependency tree (transitive via argon2/rustls), pinned 2.6.1.
+subtle = "2"
 
 # AI/HTTP client
 reqwest = { version = "0.12", features = ["json"] }
