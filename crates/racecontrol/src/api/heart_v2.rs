@@ -466,6 +466,50 @@ impl HeartStore {
         Some((session, snap))
     }
 
+    /// I3 bridge (DIAGNOSE D3, unanimous): the rc-agent reported `Error` (crash)
+    /// for a live session. Billing-NEUTRAL — keep the session + `green_light_at`
+    /// intact (the proxy owns billing; a transient crash must NOT stop billing or
+    /// free a billed pod), surface the interruption on the pod display so staff
+    /// can act. Idempotent: terminal sessions + already-marked displays no-op
+    /// (no double-broadcast). NEVER frees the pod, NEVER touches `green_light_at`.
+    pub fn mark_crashed(&mut self, sid: &str) -> Option<(PodSession, Option<PodState>)> {
+        let session = match self.sessions.get(sid) {
+            Some(s) if !matches!(s.state, SessionState::Ended | SessionState::AutoBilled) => s.clone(),
+            Some(s) => return Some((s.clone(), None)), // terminal — idempotent no-op
+            None => return None,
+        };
+        let msg = format!("INTERRUPTED · {}", session.game);
+        let snap = match self.pods.get_mut(&session.pod_id) {
+            Some(pod) if pod.display_message != msg => {
+                pod.display_message = msg;
+                pod.updated_at = now_iso();
+                Some(pod.clone())
+            }
+            _ => None, // pod gone or already marked — idempotent (no re-broadcast)
+        };
+        Some((session, snap))
+    }
+
+    /// All live (non-terminal) sessions for the reconciler diff: `(normalized_pod,
+    /// sid, state, has_green_light)`. The pod id is normalized to canonical `pod_N`
+    /// form so the caller can match against the rc-agent's `active_games`, which is
+    /// keyed canonically (both `handle_game_state_update` and
+    /// `dispatch_launch_to_agent` call `normalize_pod_id`). The heart keys pods as
+    /// `pod-N` (hyphen) — WITHOUT this normalization the diff (and the legacy
+    /// green-light reconcile) silently never match (hyphen vs underscore).
+    pub fn live_sessions_normalized(&self) -> Vec<(String, String, SessionState, bool)> {
+        self.pods
+            .values()
+            .filter_map(|p| {
+                p.current_session.as_ref().map(|s| {
+                    let norm = rc_common::pod_id::normalize_pod_id(&p.pod_id)
+                        .unwrap_or_else(|_| p.pod_id.clone());
+                    (norm, s.id.clone(), s.state, s.green_light_at.is_some())
+                })
+            })
+            .collect()
+    }
+
     /// Project a balance-runout alarm onto the pod. Idempotent: same
     /// phase+runout_at preserves the original grace timestamps (mock-heart).
     pub fn set_alarm(&mut self, pod_id: &str, next: BalanceRunoutAlarm) -> Option<PodState> {
@@ -719,13 +763,21 @@ async fn launch(State(state): State<Arc<AppState>>, Json(req): Json<LaunchReq>) 
 /// heart lock DROPPED → promote to Running + green-light only on confirmed
 /// Running, else fail (no green-light, pod freed). V2-isolated:
 /// `billing_session_id=None` → creates no V1 billing row. Mock-green-light
-/// scope: the proxy wallet HOLD+402 is cluster-2; full preset→launch_args is a
-/// follow-up (dispatched with `None` args this increment — the PATH is proven,
-/// the car/track content is deferred).
+/// scope: the proxy wallet HOLD+402 is cluster-2. I2 (Gap-2, Captain auth
+/// 2026-06-03): `launch_args` now carries real car/track (`build_launch_args`,
+/// A-then-B) so the agent boots real content instead of an empty launch — closing
+/// the delivery-integrity break (bill moving with no real game). Full
+/// preset→car/track resolution (A) remains forward-work (see `build_launch_args`).
 async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
     use crate::game_launcher_ops::{AgentDispatchCtx, default_verify_timeout, dispatch_launch_to_agent};
     let pod_id = req.pod_id.clone();
     let game = req.game.clone();
+    // I2: build the real launch content (car/track) + duration BEFORE `req` is
+    // moved into launch_loading below. `None` here was the delivery-integrity
+    // break — the agent booted with no car/track, so the bill could move with no
+    // real game on the rig.
+    let launch_args = build_launch_args(&req);
+    let duration_minutes = tier_to_duration(&req.tier);
     // 1) Reserve the pod with a Loading session (no green-light yet).
     let session = match state.heart.write().await.launch_loading(req) {
         LaunchOutcome::Ok { session, snapshot } => {
@@ -748,11 +800,11 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
     let ctx = AgentDispatchCtx {
         launch_id: Uuid::new_v4().to_string(),
         billing_session_id: None, // V2-isolated — no V1 billing row
-        duration_minutes: None,   // TODO follow-up: derive from the V2 tier
+        duration_minutes,         // I2: from the V2 tier (None = wallet-bounded; 402-gate + autobill tick bound spend)
         origin: rc_common::protocol::LaunchOrigin::Customer,
         verify_timeout: default_verify_timeout(sim_type),
     };
-    let dispatch = dispatch_launch_to_agent(&state, &pod_id, sim_type, None, ctx).await;
+    let dispatch = dispatch_launch_to_agent(&state, &pod_id, sim_type, launch_args, ctx).await;
     // 3) Promote (confirmed Running → green-light) or fail (no green-light).
     match dispatch {
         Ok(o) if o.verified_running => {
@@ -809,29 +861,139 @@ fn heart_game_to_sim_type(game: &str) -> rc_common::types::SimType {
     }
 }
 
+/// FIRST-INR default AC single-player content (path B). MUST match a car/track
+/// folder actually provisioned on the pods (operator-confirmed) — the rc-agent
+/// content check (`rc-agent::steam_checks::check_ac_content`) fails the launch if
+/// the dir is missing. These are base-AC free-content ids; override per venue via
+/// `RC_FIRST_INR_AC_CAR` / `RC_FIRST_INR_AC_TRACK`.
+const DEFAULT_AC_CAR: &str = "abarth500";
+const DEFAULT_AC_TRACK: &str = "magione";
+
+/// I2 (Gap-2, Captain auth 2026-06-03): build the rc-agent `launch_args` JSON for
+/// a real launch. The agent consumes the `{"car","track"}` string fields
+/// (`rc-agent::steam_checks::check_ac_content` + the race-config builder);
+/// `AcLauncher::validate_args` only checks valid-JSON, so the agent fields are the
+/// binding contract — emit ONLY fields the agent reads (serde drops unknowns).
+///
+/// A-then-B (Captain 2026-06-03):
+///  - (A) preset-resolved car/track — FORWARD-SEAM, not yet wired: the heart has
+///    no preset registry and `LaunchReq` carries no car/track, so full A needs the
+///    proxy to resolve `preset_id`→car/track into `LaunchReq`, or an agent-side
+///    preset lookup. A bare `preset_id` would be silently dropped by the agent.
+///  - (B) operator-configured first-INR default (env), falling back to base-AC.
+/// MP/lobby launch_args = V2.1-FROZEN → `None`.
+fn build_launch_args(req: &LaunchReq) -> Option<String> {
+    use rc_common::types::SimType;
+    match heart_game_to_sim_type(&req.game) {
+        SimType::AssettoCorsa | SimType::AssettoCorsaRally | SimType::AssettoCorsaEvo => {
+            let car = std::env::var("RC_FIRST_INR_AC_CAR")
+                .unwrap_or_else(|_| DEFAULT_AC_CAR.to_string());
+            let track = std::env::var("RC_FIRST_INR_AC_TRACK")
+                .unwrap_or_else(|_| DEFAULT_AC_TRACK.to_string());
+            serde_json::to_string(&serde_json::json!({ "car": car, "track": track })).ok()
+        }
+        _ => None, // non-AC / multiplayer first-INR content = V2.1-frozen
+    }
+}
+
+/// I2: derive the agent session duration cap from the V2 tier. V2.0 → `None`
+/// (no agent-side cap): the wallet 402 launch-gate + the per-minute autobill tick
+/// already bound spend; an agent cap shorter than the wallet would end a paid
+/// session early. Explicit seam for a future tier-based cap (V2.1).
+fn tier_to_duration(_tier: &str) -> Option<u32> {
+    None
+}
+
 /// R2 (bridge RCA §7): one reconcile pass — for every pod the rc-agent reports
 /// Running, grant green-light to a live heart session that has none (closes the
 /// post-restart free-play window; also resolves the L3-1 stuck-Occupied
 /// residual once the agent reconnects). Persists + broadcasts each repair.
 /// Called at boot (after rehydrate) + periodically from `main.rs`.
 pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
+    use rc_common::pod_id::normalize_pod_id;
     use rc_common::types::GameState;
-    let running_pods: Vec<String> = {
+    use std::collections::HashMap;
+    // Snapshot the rc-agent's runtime view ONCE, keyed by CANONICAL pod id
+    // (`pod_N`). active_games is already canonical (handle_game_state_update +
+    // dispatch_launch_to_agent both normalize); normalize again defensively and, on
+    // any duplicate key (pod-id format drift), prefer the most-live state. The
+    // active_games lock is taken + dropped here and is NEVER held together with the
+    // heart lock, so the lock order (active_games → heart) can never invert
+    // (DIAGNOSE D1 #1 CRITICAL: lock-order deadlock).
+    let agent_view: HashMap<String, GameState> = {
         let games = state.game_launcher.active_games.read().await;
-        games
-            .iter()
-            // MAOR consistency: only a confirmed Running pod justifies granting
-            // green-light (matches the dispatch verify tightening) — not a
-            // transient Loading.
-            .filter(|(_, t)| matches!(t.game_state, GameState::Running))
-            .map(|(pod, _)| pod.clone())
+        let mut m: HashMap<String, GameState> = HashMap::new();
+        for (pod, t) in games.iter() {
+            let k = normalize_pod_id(pod).unwrap_or_else(|_| pod.clone());
+            m.entry(k)
+                .and_modify(|g| {
+                    if t.game_state == GameState::Running {
+                        *g = GameState::Running;
+                    }
+                })
+                .or_insert(t.game_state);
+        }
+        m
+    };
+
+    let real_launch = state
+        .feature_flags
+        .read()
+        .await
+        .get("heart_v2_real_launch")
+        .map(|f| f.enabled)
+        .unwrap_or(false);
+
+    // Diff the heart's live sessions (normalized pod) vs the agent view and decide
+    // every transition WITHOUT holding the heart lock. Operate by `sid` (a UUID) so
+    // pod-id key format is irrelevant past the agent_view match (DIAGNOSE D3).
+    enum Act {
+        Promote,
+        Crash,
+        Exit,
+    }
+    let acts: Vec<(String, Act)> = {
+        let live = state.heart.read().await.live_sessions_normalized();
+        live.into_iter()
+            .filter_map(|(norm_pod, sid, st, has_gl)| match agent_view.get(&norm_pod) {
+                // Agent confirms Running but the heart session has no green-light:
+                // close the free-play window (post-restart / missed promote). NOT
+                // flag-gated — a no-op with the flag OFF (mock-launch green-lights
+                // at launch, so has_gl is already true).
+                Some(GameState::Running)
+                    if !has_gl && matches!(st, SessionState::Running | SessionState::Loading) =>
+                {
+                    Some((sid, Act::Promote))
+                }
+                // Agent reports a crash (flag-gated): billing-NEUTRAL mark.
+                Some(GameState::Error) if real_launch && st == SessionState::Running => {
+                    Some((sid, Act::Crash))
+                }
+                // Agent tracker gone (Idle removed it) = clean exit (flag-gated).
+                // ONLY a confirmed Running heart session — a Loading session is owned
+                // by launch_real's synchronous dispatch and must NOT be mis-detected
+                // as an exit (bridge RCA §5 race-safety note).
+                None if real_launch && st == SessionState::Running => Some((sid, Act::Exit)),
+                _ => None, // healthy / Launching / loading-in-flight
+            })
             .collect()
     };
-    if running_pods.is_empty() {
+    if acts.is_empty() {
         return;
     }
-    let repaired = { state.heart.write().await.reconcile_green_light(&running_pods) };
-    for (sess, snap) in repaired {
+    // Apply under the write lock; mutators are idempotent so a TOCTOU between the
+    // read snapshot and this write (e.g. a concurrent proxy /end) is safe.
+    let results: Vec<(PodSession, Option<PodState>)> = {
+        let mut heart = state.heart.write().await;
+        acts.into_iter()
+            .filter_map(|(sid, act)| match act {
+                Act::Promote => heart.promote_to_running(&sid),
+                Act::Crash => heart.mark_crashed(&sid),
+                Act::Exit => heart.end(&sid, "game_exit"),
+            })
+            .collect()
+    };
+    for (sess, snap) in results {
         persist_session(&state.v2db, &sess).await;
         if let Some(s) = snap {
             let _ = state.heart_stream_tx.send(s);
@@ -1671,6 +1833,42 @@ mod bridge_tests {
     }
 
     // MUST-FIX #6 (no agent → not confirmed → no green-light): the ORDERING fix.
+    // I2 (Gap-2): build_launch_args carries real AC car/track so the agent boots
+    // real content (delivery integrity) — and the JSON satisfies the agent's
+    // binding contract (AcLauncher::validate_args + the {"car","track"} fields).
+    #[test]
+    fn build_launch_args_ac_emits_valid_car_track_json() {
+        use crate::game_launcher::{AcLauncher, GameLauncherImpl};
+        let r = LaunchReq {
+            pod_id: "pod-1".into(), household_id: "h".into(), profile_id: "p".into(),
+            tier: "tier_1_full_skeleton".into(), game: "ac_sp".into(),
+            lobby_id: None, preset_id: None,
+        };
+        let args = build_launch_args(&r).expect("AC launch must carry launch_args, never None");
+        AcLauncher.validate_args(Some(&args)).expect("agent validate_args must accept built launch_args");
+        let v: serde_json::Value = serde_json::from_str(&args).expect("valid JSON");
+        assert!(v.get("car").and_then(|c| c.as_str()).map(|s| !s.is_empty()).unwrap_or(false), "car field required by check_ac_content");
+        assert!(v.get("track").and_then(|t| t.as_str()).map(|s| !s.is_empty()).unwrap_or(false), "track field required by check_ac_content");
+    }
+
+    // Non-AC / multiplayer launch content is V2.1-frozen → None (no invented fields).
+    #[test]
+    fn build_launch_args_non_ac_is_frozen_none() {
+        let r = LaunchReq {
+            pod_id: "pod-1".into(), household_id: "h".into(), profile_id: "p".into(),
+            tier: "tier_1_full_skeleton".into(), game: "f1_25".into(),
+            lobby_id: None, preset_id: None,
+        };
+        assert!(build_launch_args(&r).is_none(), "non-AC first-INR content is V2.1-frozen");
+    }
+
+    // V2.0 duration is wallet-bounded (None): the 402-gate + autobill tick bound spend.
+    #[test]
+    fn tier_to_duration_v2_0_is_wallet_bounded_none() {
+        assert_eq!(tier_to_duration("tier_1_full_skeleton"), None);
+        assert_eq!(tier_to_duration("tier_2_desktop_workaround"), None);
+    }
+
     // launch_loading grants NO green-light; only a confirmed launch promotes.
     #[test]
     fn launch_loading_withholds_green_light_until_promote() {
@@ -1720,5 +1918,125 @@ mod bridge_tests {
         assert_eq!(sess.state, SessionState::Running);
         // Idempotent: a second pass repairs nothing.
         assert!(store.reconcile_green_light(&["pod-1".to_string()]).is_empty(), "reconcile must be idempotent once green-light is granted");
+    }
+
+    // ───────────────────────── I3 bridge: reconciler crash/exit ──────────────
+    // Seam B (MMA DIAGNOSE 2026-06-02): crash/exit detection lives in the
+    // reconciler, matched on the NORMALIZED pod key (heart "pod-1" ↔ agent "pod_1").
+
+    async fn set_real_launch(state: &Arc<AppState>, on: bool) {
+        state.feature_flags.write().await.insert(
+            "heart_v2_real_launch".to_string(),
+            crate::flags::FeatureFlagRow {
+                name: "heart_v2_real_launch".to_string(),
+                enabled: on,
+                default_value: false,
+                overrides: "{}".to_string(),
+                version: 1,
+                updated_at: None,
+            },
+        );
+    }
+
+    /// Seed a Running, green-lit heart session on `pod-1`; return its sid.
+    async fn seed_running(state: &Arc<AppState>) -> String {
+        let mut h = state.heart.write().await;
+        let s = match h.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            _ => panic!("launch_loading failed"),
+        };
+        h.promote_to_running(&s.id).expect("promote");
+        s.id
+    }
+
+    // DIAGNOSE D3/D4: a real crash (agent Error) marks the pod INTERRUPTED but is
+    // BILLING-NEUTRAL — session stays Running, green-light preserved, pod NOT freed.
+    #[tokio::test]
+    async fn reconcile_crash_marks_interrupted_billing_neutral() {
+        let state = build_state().await;
+        set_real_launch(&state, true).await;
+        let sid = seed_running(&state).await;
+        let green_before = state
+            .heart
+            .read()
+            .await
+            .get_pod("pod-1")
+            .unwrap()
+            .current_session
+            .unwrap()
+            .green_light_at
+            .clone();
+        let mut t = running_tracker("pod_1");
+        t.game_state = GameState::Error;
+        state.game_launcher.active_games.write().await.insert("pod_1".to_string(), t);
+
+        reconcile_heart_green_light_once(&state).await;
+
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.display_message.starts_with("INTERRUPTED"), "crash must surface INTERRUPTED, got {}", pod.display_message);
+        let sess = pod.current_session.as_ref().expect("crash must NOT free a billed pod");
+        assert_eq!(sess.id, sid);
+        assert_eq!(sess.state, SessionState::Running, "crash is billing-neutral — session stays Running");
+        assert_eq!(sess.green_light_at, green_before, "crash must NEVER revoke green-light");
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied);
+    }
+
+    // DIAGNOSE D4: a clean exit (agent Idle removed the tracker → absent) frees the
+    // pod so staff can re-launch.
+    #[tokio::test]
+    async fn reconcile_exit_frees_pod() {
+        let state = build_state().await;
+        set_real_launch(&state, true).await;
+        let _sid = seed_running(&state).await;
+        // active_games is empty (Idle removed the tracker) → clean exit.
+        reconcile_heart_green_light_once(&state).await;
+
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.current_session.is_none(), "clean exit must free the pod");
+        assert_eq!(pod.lifecycle, PodLifecycle::Empty);
+    }
+
+    // The pod-id normalization fix: heart keys "pod-1", active_games keys "pod_1".
+    // A Loading heart session + agent Running on "pod_1" must promote ACROSS the
+    // hyphen/underscore boundary (otherwise the reconcile silently never fires).
+    #[tokio::test]
+    async fn reconcile_promote_matches_across_hyphen_underscore_keys() {
+        let state = build_state().await;
+        set_real_launch(&state, true).await;
+        let sid = {
+            let mut h = state.heart.write().await;
+            match h.launch_loading(req("pod-1")) {
+                LaunchOutcome::Ok { session, .. } => session.id,
+                _ => panic!(),
+            }
+        };
+        state.game_launcher.active_games.write().await.insert("pod_1".to_string(), running_tracker("pod_1"));
+
+        reconcile_heart_green_light_once(&state).await;
+
+        let sess = state.heart.read().await.get_pod("pod-1").unwrap().current_session.unwrap();
+        assert_eq!(sess.id, sid);
+        assert_eq!(sess.state, SessionState::Running, "agent-Running across the key boundary must promote");
+        assert!(sess.green_light_at.is_some(), "promote must grant green-light (closes the free-play window)");
+    }
+
+    // Flag gating: with heart_v2_real_launch OFF, the reconciler must NOT apply
+    // crash/exit (the proxy /end owns session lifecycle in the mock path).
+    #[tokio::test]
+    async fn reconcile_flag_off_ignores_crash_exit() {
+        let state = build_state().await;
+        set_real_launch(&state, false).await;
+        let sid = seed_running(&state).await;
+        let mut t = running_tracker("pod_1");
+        t.game_state = GameState::Error;
+        state.game_launcher.active_games.write().await.insert("pod_1".to_string(), t);
+
+        reconcile_heart_green_light_once(&state).await;
+
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        let sess = pod.current_session.as_ref().expect("flag OFF: pod must be untouched");
+        assert_eq!(sess.id, sid);
+        assert_eq!(sess.state, SessionState::Running);
+        assert!(!pod.display_message.starts_with("INTERRUPTED"), "flag OFF must not mark crashed");
     }
 }
