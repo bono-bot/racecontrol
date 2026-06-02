@@ -72,15 +72,13 @@ Make the staff/customer panels render **real** heart state. The in-memory SSE fi
 
 **I2 (launch_args):** populate `launch_real`'s `launch_args` from `req.preset_id`/`tier`/`game` (AC single-player first-INR scope) + derive `duration_minutes` from the V2 tier, so the agent launches the correct car/track and `validate_args` passes. Multiplayer/lobby args = V2.1-frozen.
 
-**I3 (the bridge — core wire):** in `game_launcher_state.rs:handle_game_state_update`, **after the `active_games` write lock drops**, when the flag `heart_v2_real_launch` is ON and the pod has a live heart session, propagate to `state.heart`:
+**I3 (the bridge — core wire, seam B / reconciler):** extend the 15s `reconcile_heart_green_light_once` (and tighten its interval / event-wake it) so that, when the flag `heart_v2_real_launch` is ON, it diffs `active_games` vs live heart sessions and propagates to `state.heart` (V1 `handle_game_state_update` left byte-unchanged):
 - agent `Running` (re-deliver) → idempotent `promote_to_running` (covers a missed dispatch-poll window);
 - agent `Error` → a new billing-NEUTRAL `mark_crashed` (sets `display_message`, keeps the session for reconciliation; **never grants/revokes `green_light_at`**); must respect the zombie `window_secs` reject and ignore transient Error on a green-lit pod per policy decided by MMA;
 - agent `Idle` (clean exit/stop) → heart `end(sid, "game_exit")` → frees the pod;
 then `heart_stream_tx.send(snapshot)`. Flag-gated (prod unchanged until I5); idempotent; the 15s reconciler is the backstop for dropped `GameStateUpdate`.
 
-**Seam decision (→ MMA Step-1 adjudicates):**
-- **Option A** — mutate `state.heart` inside `handle_game_state_update` (lowest latency; touches the V1 hot path; lock-ordering risk).
-- **Option B** — extend the existing 15s `reconcile_heart_green_light_once` to also detect Idle/Error and end/mark heart sessions (V1 hot path byte-unchanged; up to 15s latency on the panel).
+**Seam decision — RESOLVED by MMA Step-1 DIAGNOSE (2026-06-02) → Option B (reconciler-based).** See `heart-v2-real-pod-state-DIAGNOSE-20260602.md`. All 4 responding models flagged the Option-A hot-path mutation as the **#1 CRITICAL lock-order-deadlock** risk; 2/2 that reached the seam question rejected pure A. Decision: **crash/exit (Idle/Error) detection lives in the existing reconciler, NOT the V1 hot path** — it already reads `active_games` + writes `state.heart` in the correct lock order, eliminating the deadlock by construction and leaving `handle_game_state_update` byte-unchanged. `Running`→promote is already covered by the launch dispatch-poll. Latency mitigated by tightening the reconcile interval (15s→~2s) and/or event-waking on WS receipt.
 
 **I4 (cutover/guard):** set `.23` `RACECONTROL_HEART_URL=:8080`; change `m5-handlers.ts:17` default to **fail-closed** (throw if unset in prod) — closes the silent-mock-fallback (MTC Q5).
 
