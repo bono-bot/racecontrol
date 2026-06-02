@@ -1,0 +1,47 @@
+{
+  "surface": "heart-v2-real-pod-state",
+  "date": "2026-06-02",
+  "valid_until": "2026-07-02",
+  "author": "bono",
+  "context": "Mechanism-trust-check upstream of the Facet-7 end-to-end pod-state fix RCA (§S-172 / §S-146). The fix (I2 launch_args + I3 agent->heart bridge) depends on shared infrastructure: the SSE broadcast delivery, the agent WS GameStateUpdate transport, the heart binary deploy to .23, and the heart_v2_real_launch flag config_push. Per doctrine ALL 5 questions must answer YES; any FAIL gives that surface its own RCA first.",
+  "dependent_infra_surfaces": [
+    "SSE broadcast delivery (heart_stream_tx tokio broadcast)",
+    "agent WS transport (AgentMessage::GameStateUpdate)",
+    "heart binary deploy to Server .23",
+    "feature-flag config_push (heart_v2_real_launch)",
+    "admin-proxy SSE bridge (RACECONTROL_HEART_URL -> /heart/pods/state/stream)"
+  ],
+  "questions": {
+    "q1_atomic_primitives": {
+      "verdict": "YES",
+      "evidence": "SSE = tokio broadcast::Sender, send never panics on no-subscribers (`let _ = tx.send()`), Lagged -> full-snapshot resync (heart_v2.rs:958-992 pods_state_stream, no silent skip). active_games + state.heart are RwLock-guarded; transition mutators (launch_loading/promote_to_running/fail_launch/end, heart_v2.rs:335-470) are atomic under the heart write lock. Flag write is atomic per-row with a version column (flags.rs:184-245).",
+      "caveat": "The I3 bridge MUST drop the active_games write lock (game_launcher_state.rs:34) BEFORE taking state.heart.write() and MUST NOT hold either across `.await` (CLAUDE.md never-hold-lock-across-await). Enforced by code review + MAOR, not by the primitive itself."
+    },
+    "q2_ttl_bounded_sentinels": {
+      "verdict": "YES",
+      "evidence": "Real-launch promotion is bounded: dispatch-poll grants green-light ONLY on verified_running within a bounded poll (confirm-before-bill); the 15s reconcile_heart_green_light_once (reconcile_green_light heart_v2.rs:422) is the TTL backstop for missed promotions; SSE keep-alive 15s. Flag read is at request-time (no stale sentinel).",
+      "caveat": "I3 must NOT introduce an un-TTL'd sentinel: a `crashed` PodState must be terminal/transient and cleared idempotently by the next launch on that pod (no permanent stuck state — cf. GameTracker-stuck-in-Launching class)."
+    },
+    "q3_behavioral_verify": {
+      "verdict": "YES",
+      "evidence": "Deploy verifies build_id + 4-endpoint smoke (behavioral, not echo). Probe 2026-06-02: .23:8080/api/v1/health build_id=21531f31, /heart/pods HTTP 200. Fix verification (Layer B) is behavioral: real launch -> agent GameStateUpdate -> heart PodState -> SSE -> panel renders + crash preserves green_light + exit frees pod + ₹ reconciled. No echo-string proxies."
+    },
+    "q4_single_target_dry_run": {
+      "verdict": "YES",
+      "evidence": "Pod-8 canary is the single-target dry-run for the real-pod path. Heart deploy targets the single .23 heart. Flag flip is single-target (.23). Mock-heart + CI (heart_v2.rs unit tests, admin-proxy session-e2e) provide a no-real-pod dry-run for the wire shape."
+    },
+    "q5_guards_written_contracts": {
+      "verdict": "PARTIAL",
+      "evidence": "Agent->heart input contract is the typed GameLaunchInfo struct (serde parser, not regex). heart_routes are unauthenticated LAN-internal with the admin-proxy as the written auth boundary (RACECONTROL_HEART_URL + /heart/... contract). Deploy guard = deploy-server.sh SWAPLOG + manifest.",
+      "gap": "admin-proxy m5-handlers.ts:17 defaults RACECONTROL_HEART_URL to mock-heart :8090 — if unset in prod it SILENTLY serves mock state with no error (the V1-shaped silent-failure class this check exists to catch). Agent GameStateUpdate WS push is fire-and-forget (not acked) — a dropped WS loses a state update.",
+      "mitigations_required": [
+        "I1: probe-confirm .23 admin-proxy RACECONTROL_HEART_URL=:8080 before I5.",
+        "I4: change m5-handlers.ts default to fail-closed (throw if unset in prod) so it can never silently serve mock.",
+        "I3: make the bridge idempotent and rely on the 15s reconciler as the backstop for dropped GameStateUpdate (do not assume every push arrives)."
+      ]
+    }
+  },
+  "verdict": "PASS-WITH-MITIGATIONS",
+  "rationale": "Q1-Q4 YES. Q5 PARTIAL is a config/env silent-mock-fallback with a clear in-scope mitigation (I4 fail-closed + I1 probe-confirm) and a typed (not regex) data contract — it does not warrant a separate §S-146 RCA for the delivery surface; it is folded into the main fix RCA as mandatory mitigations gating I5. The delivery mechanism (deploy-server.sh, flag config_push, SSE broadcast) is V2-clean and atomic — this fix is NOT shipping via a V1-shaped delivery mechanism (the PR #66 anti-pattern).",
+  "gates_into": "RCA .planning/specs/v2/RCA/racecontrol-main/heart-v2-real-pod-state-bridge-20260602.md"
+}
