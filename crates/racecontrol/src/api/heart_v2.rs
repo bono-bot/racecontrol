@@ -850,6 +850,12 @@ fn heart_game_to_sim_type(game: &str) -> rc_common::types::SimType {
         return st;
     }
     match game.to_ascii_lowercase().as_str() {
+        // NOTE (cluster-D): this alias resolves to CLASSIC AssettoCorsa only and
+        // CANNOT distinguish Rally/Evo — a non-canonical Rally/Evo alias that misses
+        // the serde-first parse above would mis-route here and (per build_launch_args)
+        // wrongly receive AC1 {car,track}. Canonical snake_case strings
+        // (`assetto_corsa_rally`/`_evo`) parse correctly above, so first-INR (classic
+        // AC) is safe; harden this with a real V2 game catalog before MP/Rally/Evo.
         g if g.starts_with("ac") || g.contains("assetto") => SimType::AssettoCorsa,
         g if g.contains("f1") => SimType::F125,
         g if g.contains("iracing") => SimType::IRacing,
@@ -882,17 +888,31 @@ const DEFAULT_AC_TRACK: &str = "magione";
 ///    preset lookup. A bare `preset_id` would be silently dropped by the agent.
 ///  - (B) operator-configured first-INR default (env), falling back to base-AC.
 /// MP/lobby launch_args = V2.1-FROZEN → `None`.
+///
+/// CONTENT CONTRACT (bugs #13/#14, §S-146 cluster-D fix 2026-06-03): emit
+/// `{car,track}` ONLY for **classic** AssettoCorsa. The `DEFAULT_AC_CAR/TRACK`
+/// (`abarth500`/`magione`) are AC1-classic content ids that the classic agent
+/// launcher writes into `race.ini` (`MODEL=`/`TRACK=`). They are WRONG for the
+/// other AC engines and must NOT be emitted there:
+///  - **AssettoCorsaRally** never applies `{car,track}` (the Rally launch path has
+///    no config-write) → the JSON is silently ignored → wrong/blank content (#13).
+///  - **AssettoCorsaEvo** lives in an Unreal content namespace where `abarth500`/
+///    `magione` do not exist → launch fails / wrong content (#14).
+/// Per-sim content maps for Rally/Evo are V2.1-FROZEN. Until then they get `None`
+/// → the agent boots its own configured default content (correct, not broken).
 fn build_launch_args(req: &LaunchReq) -> Option<String> {
     use rc_common::types::SimType;
     match heart_game_to_sim_type(&req.game) {
-        SimType::AssettoCorsa | SimType::AssettoCorsaRally | SimType::AssettoCorsaEvo => {
+        SimType::AssettoCorsa => {
             let car = std::env::var("RC_FIRST_INR_AC_CAR")
                 .unwrap_or_else(|_| DEFAULT_AC_CAR.to_string());
             let track = std::env::var("RC_FIRST_INR_AC_TRACK")
                 .unwrap_or_else(|_| DEFAULT_AC_TRACK.to_string());
             serde_json::to_string(&serde_json::json!({ "car": car, "track": track })).ok()
         }
-        _ => None, // non-AC / multiplayer first-INR content = V2.1-frozen
+        // AC Rally / AC Evo (wrong-namespace for AC1 ids) + non-AC / multiplayer
+        // first-INR content = V2.1-frozen → None (agent uses its own default).
+        _ => None,
     }
 }
 
@@ -1292,6 +1312,29 @@ mod tests {
             LaunchOutcome::Ok { session, .. } => session,
             _ => panic!("expected launch ok"),
         }
+    }
+
+    /// Cluster-D (#13/#14): launch_args `{car,track}` is emitted ONLY for classic
+    /// AssettoCorsa. AC Rally (never applies them) + AC Evo (wrong content
+    /// namespace) + non-AC games get `None` so the agent uses its own default
+    /// content instead of the wrong AC1 ids.
+    #[test]
+    fn build_launch_args_only_classic_ac_gets_car_track() {
+        let with_game = |g: &str| {
+            let mut r = launch_req("pod-1");
+            r.game = g.to_string();
+            build_launch_args(&r)
+        };
+        // classic AC (canonical snake_case name + the `ac_sp` alias) → Some {car,track}
+        let args = with_game("assetto_corsa").expect("classic AC must emit launch_args");
+        assert!(args.contains("\"car\"") && args.contains("\"track\""), "classic AC carries car+track: {args}");
+        assert!(with_game("ac_sp").is_some(), "ac_sp alias resolves to classic AC");
+        // AC Rally → None (#13: the Rally launch path never applies car/track)
+        assert_eq!(with_game("assetto_corsa_rally"), None, "Rally must NOT get AC1 launch_args (#13)");
+        // AC Evo → None (#14: abarth500/magione are not in Evo's Unreal namespace)
+        assert_eq!(with_game("assetto_corsa_evo"), None, "Evo must NOT get AC1-namespace launch_args (#14)");
+        // non-AC → None
+        assert_eq!(with_game("f1_25"), None, "non-AC games get no launch_args");
     }
 
     /// Cluster-A (#3/#4): exhaustive restart-safety matrix for the pure reconcile
