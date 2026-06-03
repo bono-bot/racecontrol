@@ -904,11 +904,100 @@ fn tier_to_duration(_tier: &str) -> Option<u32> {
     None
 }
 
+/// Cluster-A (#3/#4, §S-146 reconciler restart-safety) two-timer constants. The
+/// heart must NEVER end a billed session from the ABSENCE of an agent signal —
+/// only from a positive agent report or a bounded sustained-absence. (MMA Step-1
+/// DIAGNOSE: two-timer model; RCA-HEART-V2-LAUNCH-RECONCILER-RESTART-SAFETY.)
+const RECONCILE_STARTUP_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
+const RECONCILE_SUSTAINED_ABSENCE: std::time::Duration = std::time::Duration::from_secs(900); // 15 min
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReconcileAct {
+    Promote,
+    Crash,
+    Exit,
+    Abandon,
+}
+
+/// Pure per-session reconcile decision — unit-tested exhaustively so the
+/// restart-safety invariant is verifiable without a live `AppState` (#3/#4).
+/// - `agent_state`: the rc-agent `active_games` view for this pod (`None` = no tracker).
+/// - `agent_connected`: a live WS sender exists for this pod on THIS heart now.
+/// - `heart_uptime`: this heart instance's uptime (startup grace).
+/// - `since_disconnect`: time since this pod's agent last disconnected from THIS
+///   heart (`None` = never connected this instance → absent the whole uptime).
+#[allow(clippy::too_many_arguments)]
+fn reconcile_act(
+    agent_state: Option<rc_common::types::GameState>,
+    agent_connected: bool,
+    heart_uptime: std::time::Duration,
+    since_disconnect: Option<std::time::Duration>,
+    real_launch: bool,
+    session_state: SessionState,
+    has_green_light: bool,
+) -> Option<ReconcileAct> {
+    use rc_common::types::GameState;
+    match agent_state {
+        // Agent confirms Running but the session has no green-light → promote (closes
+        // the post-restart free-play window). NOT flag-gated; non-destructive.
+        Some(GameState::Running)
+            if !has_green_light
+                && matches!(session_state, SessionState::Running | SessionState::Loading) =>
+        {
+            Some(ReconcileAct::Promote)
+        }
+        // Agent reports a crash (flag-gated) → billing-NEUTRAL mark (safe path).
+        Some(GameState::Error) if real_launch && session_state == SessionState::Running => {
+            Some(ReconcileAct::Crash)
+        }
+        // Agent tracker GONE for a Running billed session. #3/#4: an absent agent_view
+        // is NOT proof the game exited — apply the two-timer guard before ending.
+        None if real_launch && session_state == SessionState::Running => {
+            // (1) Startup grace: right after a heart restart the agents have not
+            // reconnected yet, so active_games is empty for EVERY pod — never end a
+            // billed session in this window (#3 fires on any heart redeploy).
+            if heart_uptime < RECONCILE_STARTUP_GRACE {
+                return None;
+            }
+            // A RECENT disconnect stamp means the agent's WS just flapped (or is
+            // mid-reconnect). Even if the `agent_senders` snapshot shows it connected,
+            // that snapshot is read in a SEPARATE lock from the disconnect stamp and may
+            // be stale; and a just-reconnected agent has not re-reported its game yet.
+            // Either way, do NOT end a billed session until the connection settles —
+            // this closes the TOCTOU between the two snapshots (MAOR ISSUE-1).
+            let recently_flapped = since_disconnect.is_some_and(|d| d < RECONCILE_STARTUP_GRACE);
+            if agent_connected && !recently_flapped {
+                // Agent is connected AND stable, and reports no game → genuine exit.
+                Some(ReconcileAct::Exit)
+            } else if !agent_connected {
+                // Agent not connected. Distinguish a transient WS blip (hold the billed
+                // session) from a sustained absence (pod powered off / dead → end as
+                // abandoned so the pod isn't stranded; per-tick billing is already
+                // wallet-bounded by the proxy 402-gate). `since_disconnect == None`
+                // means the agent never connected to THIS heart instance → it has been
+                // absent for the whole heart uptime.
+                let absent_for = since_disconnect.unwrap_or(heart_uptime);
+                if absent_for >= RECONCILE_SUSTAINED_ABSENCE {
+                    Some(ReconcileAct::Abandon)
+                } else {
+                    None // transient / not-yet-sustained absence → hold
+                }
+            } else {
+                // Connected but recently flapped → hold until the connection settles.
+                None
+            }
+        }
+        _ => None, // healthy / Launching / loading-in-flight
+    }
+}
+
 /// R2 (bridge RCA §7): one reconcile pass — for every pod the rc-agent reports
 /// Running, grant green-light to a live heart session that has none (closes the
 /// post-restart free-play window; also resolves the L3-1 stuck-Occupied
-/// residual once the agent reconnects). Persists + broadcasts each repair.
-/// Called at boot (after rehydrate) + periodically from `main.rs`.
+/// residual once the agent reconnects). #3/#4: NEVER ends a billed session from an
+/// absent agent_view during the startup grace or a transient WS blip — only on a
+/// connected-agent's no-game report or a bounded sustained absence. Persists +
+/// broadcasts each repair. Called at boot (after rehydrate) + periodically.
 pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
     use rc_common::pod_id::normalize_pod_id;
     use rc_common::types::GameState;
@@ -944,37 +1033,42 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
         .map(|f| f.enabled)
         .unwrap_or(false);
 
-    // Diff the heart's live sessions (normalized pod) vs the agent view and decide
-    // every transition WITHOUT holding the heart lock. Operate by `sid` (a UUID) so
-    // pod-id key format is irrelevant past the agent_view match (DIAGNOSE D3).
-    enum Act {
-        Promote,
-        Crash,
-        Exit,
-    }
-    let acts: Vec<(String, Act)> = {
+    // #3/#4 restart-safety inputs: this heart instance's uptime (startup grace) +
+    // per-pod agent presence (a live, non-closed WS sender on THIS heart) + the age
+    // of each pod's last disconnect. Snapshot each lock once, keyed CANONICAL.
+    let heart_uptime = state.started_at.elapsed();
+    let connected: std::collections::HashSet<String> = {
+        let senders = state.agent_senders.read().await;
+        senders
+            .iter()
+            .filter(|(_, s)| !s.is_closed())
+            .map(|(k, _)| normalize_pod_id(k).unwrap_or_else(|_| k.clone()))
+            .collect()
+    };
+    let disconnects: HashMap<String, std::time::Duration> = {
+        let d = state.last_agent_disconnect.read().await;
+        d.iter()
+            .map(|(k, i)| (normalize_pod_id(k).unwrap_or_else(|_| k.clone()), i.elapsed()))
+            .collect()
+    };
+
+    // Diff the heart's live sessions (normalized pod) vs the agent view; decide every
+    // transition via the pure `reconcile_act` WITHOUT holding the heart lock. Operate
+    // by `sid` (a UUID) so pod-id key format is irrelevant past the match (DIAGNOSE D3).
+    let acts: Vec<(String, ReconcileAct)> = {
         let live = state.heart.read().await.live_sessions_normalized();
         live.into_iter()
-            .filter_map(|(norm_pod, sid, st, has_gl)| match agent_view.get(&norm_pod) {
-                // Agent confirms Running but the heart session has no green-light:
-                // close the free-play window (post-restart / missed promote). NOT
-                // flag-gated — a no-op with the flag OFF (mock-launch green-lights
-                // at launch, so has_gl is already true).
-                Some(GameState::Running)
-                    if !has_gl && matches!(st, SessionState::Running | SessionState::Loading) =>
-                {
-                    Some((sid, Act::Promote))
-                }
-                // Agent reports a crash (flag-gated): billing-NEUTRAL mark.
-                Some(GameState::Error) if real_launch && st == SessionState::Running => {
-                    Some((sid, Act::Crash))
-                }
-                // Agent tracker gone (Idle removed it) = clean exit (flag-gated).
-                // ONLY a confirmed Running heart session — a Loading session is owned
-                // by launch_real's synchronous dispatch and must NOT be mis-detected
-                // as an exit (bridge RCA §5 race-safety note).
-                None if real_launch && st == SessionState::Running => Some((sid, Act::Exit)),
-                _ => None, // healthy / Launching / loading-in-flight
+            .filter_map(|(norm_pod, sid, st, has_gl)| {
+                reconcile_act(
+                    agent_view.get(&norm_pod).copied(),
+                    connected.contains(&norm_pod),
+                    heart_uptime,
+                    disconnects.get(&norm_pod).copied(),
+                    real_launch,
+                    st,
+                    has_gl,
+                )
+                .map(|act| (sid, act))
             })
             .collect()
     };
@@ -987,9 +1081,10 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
         let mut heart = state.heart.write().await;
         acts.into_iter()
             .filter_map(|(sid, act)| match act {
-                Act::Promote => heart.promote_to_running(&sid),
-                Act::Crash => heart.mark_crashed(&sid),
-                Act::Exit => heart.end(&sid, "game_exit"),
+                ReconcileAct::Promote => heart.promote_to_running(&sid),
+                ReconcileAct::Crash => heart.mark_crashed(&sid),
+                ReconcileAct::Exit => heart.end(&sid, "game_exit"),
+                ReconcileAct::Abandon => heart.end(&sid, "agent_abandoned"),
             })
             .collect()
     };
@@ -1197,6 +1292,58 @@ mod tests {
             LaunchOutcome::Ok { session, .. } => session,
             _ => panic!("expected launch ok"),
         }
+    }
+
+    /// Cluster-A (#3/#4): exhaustive restart-safety matrix for the pure reconcile
+    /// decision. The heart must NEVER end a billed (Running) session from an absent
+    /// agent_view during the startup grace or a transient WS blip.
+    #[test]
+    fn reconcile_act_restart_safety_matrix() {
+        use rc_common::types::GameState;
+        let r = SessionState::Running;
+        let s = std::time::Duration::from_secs;
+        let grace = RECONCILE_STARTUP_GRACE;
+        let absent = RECONCILE_SUSTAINED_ABSENCE;
+
+        // #3 — heart restart: empty agent_view, agent not yet reconnected, WITHIN the
+        // startup grace → MUST hold the billed session (the mass-end-on-redeploy bug).
+        assert_eq!(reconcile_act(None, false, s(10), None, true, r, true), None,
+            "#3: must NOT end a billed session during the startup grace");
+        // post-grace, agent connected, reports no game → genuine exit.
+        assert_eq!(reconcile_act(None, true, s(200), None, true, r, true), Some(ReconcileAct::Exit),
+            "connected agent with no game = real exit");
+        // #4 — post-grace, agent NOT connected, recently disconnected (transient blip) → hold.
+        assert_eq!(reconcile_act(None, false, s(3600), Some(s(10)), true, r, true), None,
+            "#4: a transient WS blip must NOT end a billed session");
+        // post-grace, agent NOT connected, disconnected ≥ sustained-absence → abandon.
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, r, true), Some(ReconcileAct::Abandon),
+            "sustained absence (dead pod) → abandon");
+        // post-grace, never-connected pod, heart up ≥ sustained-absence → abandon.
+        assert_eq!(reconcile_act(None, false, absent, None, true, r, true), Some(ReconcileAct::Abandon),
+            "never-seen pod after long uptime → abandon");
+        // FLAG OFF: an absent agent_view is ALWAYS a no-op (no destructive action).
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), false, r, true), None,
+            "flag OFF: reconciler never ends a session");
+        // grace boundary is exclusive-below: exactly at grace + connected + settled → exit.
+        assert_eq!(reconcile_act(None, true, grace, None, true, r, true), Some(ReconcileAct::Exit));
+        // MAOR ISSUE-1: connected snapshot but a RECENT disconnect stamp (WS flap /
+        // stale snapshot) → HOLD, never end a billed session on a flapped agent.
+        assert_eq!(reconcile_act(None, true, s(3600), Some(s(10)), true, r, true), None,
+            "ISSUE-1: connected-but-recently-flapped must hold, not Exit");
+        // connected + the flap is old (reconnected & stable past the settle window) → exit.
+        assert_eq!(reconcile_act(None, true, s(3600), Some(grace), true, r, true), Some(ReconcileAct::Exit),
+            "a settled reconnected agent reporting no game = exit");
+
+        // Non-destructive arms unchanged:
+        // agent reports Running without green-light → promote (NOT flag-gated).
+        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, false, r, false), Some(ReconcileAct::Promote));
+        // agent reports Error (flag ON) → crash (billing-neutral mark).
+        assert_eq!(reconcile_act(Some(GameState::Error), true, s(3600), None, true, r, true), Some(ReconcileAct::Crash));
+        // agent reports Running + already green-lit → no-op.
+        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, true, r, true), None);
+        // a Loading session (not Running) with absent agent_view → no-op (owned by launch_real).
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, SessionState::Loading, false), None,
+            "Loading session must not be ended by the reconciler");
     }
 
     #[test]
@@ -1688,12 +1835,31 @@ mod bridge_tests {
     /// Minimal AppState for dispatch tests. `dispatch_launch_to_agent` never
     /// touches `state.db`, so a bare in-memory pool is sufficient.
     async fn build_state() -> Arc<AppState> {
+        build_state_aged(0).await
+    }
+    /// Build a test heart with `secs_ago` of simulated uptime so the reconciler's
+    /// startup-grace timer (cluster-A #3/#4) can be exercised deterministically.
+    async fn build_state_aged(secs_ago: u64) -> Arc<AppState> {
         let db = sqlx::SqlitePool::connect("sqlite::memory:")
             .await
             .expect("in-memory sqlite");
         let config = crate::config::Config::default_test();
         let field_cipher = crate::crypto::encryption::test_field_cipher();
-        Arc::new(AppState::new_with_test_v2db(config, db, field_cipher))
+        let mut st = AppState::new_with_test_v2db(config, db, field_cipher);
+        if secs_ago > 0 {
+            st.started_at = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(secs_ago))
+                .expect("monotonic clock is past the requested age");
+        }
+        Arc::new(st)
+    }
+    /// Mark a pod's agent as connected (a live, non-closed WS sender). The returned
+    /// receiver MUST be held by the caller — dropping it closes the sender and the
+    /// reconciler would see the agent as disconnected.
+    async fn connect_agent(state: &Arc<AppState>, pod: &str) -> tokio::sync::mpsc::Receiver<CoreMessage> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<CoreMessage>(4);
+        state.agent_senders.write().await.insert(pod.to_string(), tx);
+        rx
     }
 
     fn req(pod: &str) -> LaunchReq {
@@ -1985,15 +2151,55 @@ mod bridge_tests {
     // pod so staff can re-launch.
     #[tokio::test]
     async fn reconcile_exit_frees_pod() {
-        let state = build_state().await;
+        // Post-grace + the pod's agent connected-and-reporting-no-game = a GENUINE
+        // exit → free the pod. (The within-grace / transient-absence cases are held;
+        // see reconcile_within_grace_holds_billed_pod + the pure decision matrix.)
+        let state = build_state_aged(RECONCILE_STARTUP_GRACE.as_secs() + 60).await;
         set_real_launch(&state, true).await;
         let _sid = seed_running(&state).await;
-        // active_games is empty (Idle removed the tracker) → clean exit.
+        let _rx = connect_agent(&state, "pod_1").await; // agent present, active_games empty
         reconcile_heart_green_light_once(&state).await;
 
         let pod = state.heart.read().await.get_pod("pod-1").unwrap();
-        assert!(pod.current_session.is_none(), "clean exit must free the pod");
+        assert!(pod.current_session.is_none(), "a connected agent reporting no game = clean exit must free the pod");
         assert_eq!(pod.lifecycle, PodLifecycle::Empty);
+    }
+
+    /// Cluster-A #3 (integration): a heart restart (uptime within the startup grace)
+    /// with an empty agent_view must NOT end/free a Running billed session — the
+    /// reconciler holds it until agents reconnect. This is the mass-end-on-redeploy fix.
+    #[tokio::test]
+    async fn reconcile_within_grace_holds_billed_pod() {
+        let state = build_state().await; // uptime ~0 < startup grace
+        set_real_launch(&state, true).await;
+        let _sid = seed_running(&state).await;
+        // active_games empty + no agent connected = post-restart, agents not back yet.
+        reconcile_heart_green_light_once(&state).await;
+
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.current_session.is_some(), "#3: must NOT free a billed pod during the startup grace");
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied);
+        assert_eq!(pod.current_session.unwrap().state, SessionState::Running,
+            "billed session preserved across the restart window");
+    }
+
+    /// Cluster-A (integration): a billed pod whose agent has been disconnected longer
+    /// than the sustained-absence bound is ended as abandoned, so the pod isn't
+    /// stranded (per-tick billing is already wallet-bounded by the proxy 402-gate).
+    #[tokio::test]
+    async fn reconcile_sustained_absence_abandons_pod() {
+        let state = build_state_aged(RECONCILE_STARTUP_GRACE.as_secs() + 60).await;
+        set_real_launch(&state, true).await;
+        let _sid = seed_running(&state).await;
+        // agent NOT connected; stamp a disconnect older than the sustained-absence bound.
+        let old = std::time::Instant::now()
+            .checked_sub(RECONCILE_SUSTAINED_ABSENCE + std::time::Duration::from_secs(60))
+            .expect("monotonic past");
+        state.last_agent_disconnect.write().await.insert("pod_1".to_string(), old);
+        reconcile_heart_green_light_once(&state).await;
+
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.current_session.is_none(), "sustained absence (dead pod) → abandoned, pod freed");
     }
 
     // The pod-id normalization fix: heart keys "pod-1", active_games keys "pod_1".

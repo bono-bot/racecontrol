@@ -1,0 +1,40 @@
+{
+  "surface": "heart-v2-launch-reconciler (reconcile_heart_green_light_once + launch_real + the rc-agent active_games state channel)",
+  "date": "2026-06-03",
+  "author": "bono",
+  "boundary_class": "FOUNDATIONAL (pod-state-channel / billing-adjacent)",
+  "rca": "/root/.bono-staging/RCA-HEART-V2-LAUNCH-RECONCILER-RESTART-SAFETY-20260603.md",
+  "questions": {
+    "Q1_atomic_primitives": {
+      "result": "PARTIAL",
+      "note": "Reconciler snapshots active_games (RwLock read, heart_v2.rs:923-937) then applies idempotent heart mutations under a separate write lock (:986-995); TOCTOU called safe (:984-985). BUT the input active_games has no per-entry liveness/recency stamp — an empty map is indistinguishable from 'all agents disconnected' (the root defect)."
+    },
+    "Q2_ttl_sentinels": {
+      "result": "FAIL",
+      "note": "No startup-grace / agent-last-seen TTL gates the Exit decision. None-agent-view arm (:976) fires immediately with no 'agent had T seconds to reconnect+report' sentinel."
+    },
+    "Q3_behavioral_verify": {
+      "result": "PARTIAL",
+      "note": "Launch verify is behavioral (waits for real GameState::Running, not echo) BUT verify_timeout (default_verify_timeout AC=30s, game_launcher_ops.rs:550-555) < cold AC launch, so a true late-Running is discarded after the heart declares failure."
+    },
+    "Q4_single_target_dryrun": {
+      "result": "PARTIAL",
+      "note": "launch_real is per-pod (single-target), but the reconciler is fleet-wide with no per-pod observe-only/dry-run; a guard bug ends ALL billed pods at once."
+    },
+    "Q5_written_guard_contracts": {
+      "result": "FAIL",
+      "note": "Failure arm (:827-840) issues no StopGame back to the agent; no written contract that 'heart abandoned launch => agent stops game.' Heart and agent silently diverge."
+    }
+  },
+  "verdict": "Q2 + Q5 FAIL, Q1/Q3/Q4 PARTIAL. Two structural holes: (i) no agent-presence/recency gate on termination decisions; (ii) no heart->agent StopGame contract on launch abandonment. These are load-bearing design fixes (RCA §5/§7), not a one-line patch.",
+  "mma_step1": {
+    "ran": "2026-06-03",
+    "models_ok": 4,
+    "vendors_ok": 4,
+    "threshold": ">=3 vendors MET",
+    "runner": "/tmp/mma-heart-reconciler-runner.mjs",
+    "results": "/tmp/mma-heart-reconciler-results/",
+    "consensus": "TWO-TIMER model: short GRACE (~20-60s, ws_connected+connected-duration) gates the EXIT arm; separate long T_terminate (~10-30min) ends sustained-absence sessions as ABANDONED with billing CAPPED to last-positive-contact. Slow-launch fix = (b) keep recoverable pending-verify + reconciler resolves on positive agent truth + StopGame on abandon (unanimous). Flapping => gate on cumulative-absence not per-connection grace. Heart emits in_grace/abandoned to billing proxy + persist/retry StopGame."
+  },
+  "next": "FIX PR (heart_v2.rs termination/launch logic) — per-PR Captain auth required; never self-merge. Flag-gated: latent while heart_v2_real_launch OFF; must-fix BEFORE flag ON for go-live."
+}
