@@ -29,6 +29,20 @@ pub(crate) async fn cleanup_on_disconnect(
     state.agent_senders.write().await.remove(pod_id);
     state.agent_conn_ids.write().await.remove(pod_id);
 
+    // Cluster-A (#3/#4): stamp this disconnect (canonical key) so the heart-V2
+    // reconciler can distinguish a transient WS blip (hold a billed session) from a
+    // sustained absence (abandon). Re-stamped on every disconnect; reconnect makes it
+    // irrelevant (agent_senders presence short-circuits the reconciler's absence path).
+    {
+        let key = rc_common::pod_id::normalize_pod_id(pod_id)
+            .unwrap_or_else(|_| pod_id.to_string());
+        state
+            .last_agent_disconnect
+            .write()
+            .await
+            .insert(key, std::time::Instant::now());
+    }
+
     // Clear fleet health version/uptime on ungraceful disconnect.
     {
         let mut fleet = state.pod_fleet_health.write().await;

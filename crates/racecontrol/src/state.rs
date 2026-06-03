@@ -70,6 +70,15 @@ pub struct AppState {
     pub agent_senders: RwLock<HashMap<String, mpsc::Sender<CoreMessage>>>,
     /// Map of pod_id -> connection ID (monotonic counter) to detect stale disconnects
     pub agent_conn_ids: RwLock<HashMap<String, u64>>,
+    /// Cluster-A (#3/#4 reconciler restart-safety): this heart process's start
+    /// instant. The heart-V2 reconciler's startup-grace reads `started_at.elapsed()`
+    /// so a heart restart never mass-ends billed sessions before agents reconnect.
+    pub started_at: std::time::Instant,
+    /// Cluster-A: canonical pod_id -> last time that pod's agent disconnected from
+    /// THIS heart instance. The reconciler distinguishes a transient WS blip (hold)
+    /// from a sustained absence (abandon). Re-stamped on each disconnect; irrelevant
+    /// while the agent is connected.
+    pub last_agent_disconnect: RwLock<HashMap<String, std::time::Instant>>,
     /// v22.0 Phase 177: In-memory feature flag cache. Populated from DB at startup.
     pub feature_flags: RwLock<HashMap<String, FeatureFlagRow>>,
     /// v22.0 Phase 177: Monotonic sequence counter for config push queue entries.
@@ -271,6 +280,8 @@ impl AppState {
             camera: CameraController::new(),
             agent_senders: RwLock::new(HashMap::new()),
             agent_conn_ids: RwLock::new(HashMap::new()),
+            started_at: Instant::now(),
+            last_agent_disconnect: RwLock::new(HashMap::new()),
             feature_flags: RwLock::new(HashMap::new()),
             config_push_seq: AtomicU64::new(1),
             http_client,
