@@ -820,7 +820,12 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
                 // just-created session vanished from the store (state
                 // corruption). The game IS running but the heart has no
                 // green-lit session — do NOT report success; surface a 500.
+                // MAOR IMPROVEMENT-2: this is the same free-play gap as the
+                // failure arm — the game runs with no green-lit session to bill
+                // it. Stop it (best-effort) so the customer doesn't play unbilled
+                // until the reconciler's sustained-absence sweep.
                 tracing::error!(sid = %session.id, pod = %pod_id, "real-launch: session missing at promote — state corruption");
+                stop_game_best_effort(&state, &pod_id, "promote-None state corruption").await;
                 err(StatusCode::INTERNAL_SERVER_ERROR, "promote_failed", format!("pod {pod_id} launch verified but session state lost"))
             }
         }
@@ -829,7 +834,14 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
                 Ok(o) => format!("game not confirmed running (state {:?})", o.final_state),
                 Err(e) => e,
             };
-            let failed = { state.heart.write().await.fail_launch(&session.id, &reason) };
+            // Cluster-A #1/#2: abandonment is TWO acts that must happen together
+            // — StopGame to the agent AND fail_launch in the heart. The rc-agent
+            // may have started the game AFTER our verify_timeout (slow Steam
+            // cold-start); fail_launch alone frees the pod in the heart but
+            // leaves that late game running unbilled (free-play) with an orphaned
+            // active_games tracker that bricks the next launch. abandon_launch
+            // closes both.
+            let failed = abandon_launch(&state, &pod_id, &session.id, &reason).await;
             if let Some((sess, snap)) = failed {
                 persist_session(&state.v2db, &sess).await;
                 if let Some(s) = snap {
@@ -839,6 +851,60 @@ async fn launch_real(state: Arc<AppState>, req: LaunchReq) -> Response {
             err(StatusCode::BAD_GATEWAY, "launch_failed", format!("pod {pod_id} launch not confirmed: {reason}"))
         }
     }
+}
+
+/// Best-effort StopGame to a pod's agent (cluster-A #1/#2). The rc-agent may
+/// have started the game AFTER our verify_timeout (slow Steam cold-start);
+/// without StopGame that late game runs unbilled (free-play, #1) and leaves an
+/// orphaned active_games tracker that bricks the next launch (#2). The agent's
+/// StopGame handler zeroes FFB, kills the game, and clears the tracker. Safe in
+/// EVERY case — StopGame on an idle pod is a no-op (FFB-zero is always safe).
+///
+/// NON-BLOCKING (`try_send`, MAOR BLOCK-1): this runs on the HTTP launch path,
+/// so a wedged/slow agent consumer (full channel) must NEVER hang the request.
+/// On a full or closed channel the StopGame is dropped + logged; the
+/// reconciler's sustained-absence path (#3/#4) is the backstop.
+///
+/// `StopGame` is pod-wide + unkeyed (no launch_id). This is safe here because
+/// the caller sends it BEFORE `fail_launch` frees the pod: the pod stays
+/// `Loading` (so a concurrent `launch_loading` gets `PodNotEmpty`) until then,
+/// and the per-pod mpsc is FIFO — so any later session's `LaunchGame` is
+/// enqueued AFTER this StopGame and the agent processes it second. The
+/// StopGame-before-fail_launch order is therefore load-bearing. (Defense-in-
+/// depth follow-on: bind StopGame to a launch_id so the agent only stops the
+/// matching game — a protocol change, §S-146-gated, tracked separately.)
+async fn stop_game_best_effort(state: &Arc<AppState>, pod_id: &str, why: &str) {
+    use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
+    use tokio::sync::mpsc::error::TrySendError;
+    // Clone the sender out of the read guard (the guard drops at the block end).
+    let sender = { state.agent_senders.read().await.get(pod_id).cloned() };
+    let Some(tx) = sender else {
+        tracing::warn!(pod = %pod_id, "StopGame skipped — agent not connected ({why}); reconciler backstops");
+        return;
+    };
+    match tx.try_send(CoreMessage::wrap(CoreToAgentMessage::StopGame)) {
+        Ok(()) => tracing::info!(pod = %pod_id, "StopGame sent ({why}) — closes late-start free-play + orphan tracker"),
+        Err(TrySendError::Full(_)) => tracing::warn!(pod = %pod_id, "StopGame dropped — agent channel full ({why}); reconciler backstops"),
+        Err(TrySendError::Closed(_)) => tracing::warn!(pod = %pod_id, "StopGame not sent — agent disconnected ({why}); reconciler backstops"),
+    }
+}
+
+/// Abandon an in-flight launch that never confirmed Running (cluster-A #1/#2,
+/// RCA-HEART-V2-LAUNCH-RECONCILER-RESTART-SAFETY §5(ii)). Two parts that MUST
+/// happen together, IN THIS ORDER:
+///   (a) StopGame to the agent (see `stop_game_best_effort` — the ordering
+///       safety argument lives there); THEN
+///   (b) fail_launch in the heart — end the session WITHOUT green-light + free
+///       the pod (no money harm; the proxy never billed — green-light never
+///       granted).
+async fn abandon_launch(
+    state: &Arc<AppState>,
+    pod_id: &str,
+    session_id: &str,
+    reason: &str,
+) -> Option<(PodSession, Option<PodState>)> {
+    stop_game_best_effort(state, pod_id, "real-launch abandon").await; // (a) BEFORE (b)
+    state.heart.write().await.fail_launch(session_id, reason) // (b)
 }
 
 /// Map the heart session `game` string → rc-agent `SimType`. Best-effort:
@@ -2066,6 +2132,90 @@ mod bridge_tests {
         let pod = snap.expect("pod snapshot");
         assert_eq!(pod.lifecycle, PodLifecycle::Empty, "failed launch must free the pod");
         assert!(pod.current_session.is_none());
+    }
+
+    // Cluster-A #1/#2 (slow-launch StopGame contract): abandoning an in-flight
+    // launch must (a) tell the agent to StopGame — so a game the rc-agent
+    // started AFTER our verify_timeout is killed (no free-play, #1) and its
+    // active_games tracker cleared (no pod-brick, #2) — AND (b) free the pod in
+    // the heart. The pre-fix failure arm did only (b), leaving a late game
+    // running unbilled. This must FAIL pre-fix (no StopGame was ever sent).
+    #[tokio::test]
+    async fn abandon_launch_sends_stopgame_and_frees_pod() {
+        let state = build_state().await;
+        let session = match state.heart.write().await.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            other => panic!("expected Ok, got {:?}", std::mem::discriminant(&other)),
+        };
+        // The agent is connected and may have a late game running on it.
+        let mut rx = connect_agent(&state, "pod-1").await;
+
+        let failed =
+            abandon_launch(&state, "pod-1", &session.id, "game not confirmed running").await;
+
+        // (a) the agent was told to stop — closes free-play + orphan tracker.
+        let msg = rx.try_recv().expect("abandon must send a command to the agent");
+        assert!(
+            matches!(msg.inner, rc_common::protocol::CoreToAgentMessage::StopGame),
+            "abandon must send StopGame, got {:?}",
+            msg.inner
+        );
+        // (b) the pod is freed in the heart, no green-light.
+        let (sess, snap) = failed.expect("fail_launch result");
+        assert_eq!(sess.state, SessionState::Ended);
+        assert!(sess.green_light_at.is_none(), "abandoned launch must never have green-light");
+        let pod = snap.expect("pod snapshot");
+        assert_eq!(pod.lifecycle, PodLifecycle::Empty, "abandon must free the pod");
+        assert!(pod.current_session.is_none());
+    }
+
+    // Backstop: when the agent is NOT connected, abandon must still free the pod
+    // (StopGame is best-effort; the reconciler's sustained-absence path is the
+    // safety net). Must not panic or hang.
+    #[tokio::test]
+    async fn abandon_launch_frees_pod_even_when_agent_disconnected() {
+        let state = build_state().await;
+        let session = match state.heart.write().await.launch_loading(req("pod-2")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            other => panic!("expected Ok, got {:?}", std::mem::discriminant(&other)),
+        };
+        // No connect_agent → agent_senders has no entry for pod-2.
+        let failed = abandon_launch(&state, "pod-2", &session.id, "agent did not ACK").await;
+        let (sess, snap) = failed.expect("fail_launch result");
+        assert_eq!(sess.state, SessionState::Ended);
+        assert_eq!(snap.expect("pod snapshot").lifecycle, PodLifecycle::Empty);
+    }
+
+    // MAOR BLOCK-1 regression: abandon_launch runs on the HTTP launch path, so a
+    // FULL agent channel (slow/wedged consumer) must NOT hang it. try_send drops
+    // the StopGame and the pod is still freed. With the old blocking
+    // `send().await` this test would hang and time out.
+    #[tokio::test]
+    async fn abandon_launch_does_not_hang_on_full_agent_channel() {
+        use rc_common::protocol::{CoreMessage, CoreToAgentMessage};
+        let state = build_state().await;
+        let session = match state.heart.write().await.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            other => panic!("expected Ok, got {:?}", std::mem::discriminant(&other)),
+        };
+        // connect_agent uses a capacity-4 channel; hold the rx (do NOT drain) and
+        // fill it so a blocking send would wait forever.
+        let _rx = connect_agent(&state, "pod-1").await;
+        let tx = state.agent_senders.read().await.get("pod-1").cloned().unwrap();
+        for _ in 0..4 {
+            tx.try_send(CoreMessage::wrap(CoreToAgentMessage::StopGame)).expect("prefill the channel");
+        }
+        // Must return promptly despite the full channel.
+        let failed = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            abandon_launch(&state, "pod-1", &session.id, "verify timeout"),
+        )
+        .await
+        .expect("abandon_launch must NOT hang on a full agent channel (MAOR BLOCK-1)");
+        // The pod is still freed even though the StopGame was dropped.
+        let (sess, snap) = failed.expect("fail_launch result");
+        assert_eq!(sess.state, SessionState::Ended);
+        assert_eq!(snap.expect("pod snapshot").lifecycle, PodLifecycle::Empty);
     }
 
     // MUST-FIX #5 (restart/reconciliation): after a restart, if the agent
