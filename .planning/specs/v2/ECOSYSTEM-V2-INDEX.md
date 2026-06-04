@@ -24,6 +24,8 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 
 **The single test for any proposed work:** *does it close the first-INR bug-free bar, or is it V2.1+ (frozen → defer)?*
 
+> **Note on "topup" (workflow-verified 2026-06-04):** the DoD's `topup` is **staff cash-at-POS** — there is **no** online payment gateway (V2.1+ frozen); a free **REG-BONUS** covers the customer's literal first play. The credit-IN rail is the other half of cluster #2 — see **§1.5C**.
+
 ---
 
 ## PART 1 — FIRST-INR GAP MAP (process of elimination)
@@ -51,7 +53,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 | Cluster | What | Owner | Status |
 |---|---|---|---|
 | **#1 — game launches on pod** | heart-V2 → rc-agent launch handshake | bono (built) → **Captain + operator** (gates) | ⛔ built+merged+deployed, **flag `heart_v2_real_launch` OFF + runtime-unverified at scale**; `launch_args` now real (#116). Half-proven live on pod_1 (2026-06-01): launcher fired, session `Running` confirmed. Remaining: flag ON [Captain] + pods power [operator] |
-| **#2 — money actually moves** | durable wallet + HOLD/402 + tick debit | bono (built; was Replit) | ⛔ **code merged (#22)**; remaining = **`.23` cutover `WALLET_STORE=pg`** [operator, not started] — MUST precede flag-ON |
+| **#2 — money moves (IN *and* out)** | durable wallet + **credit-IN (cash-topup SEAM)** + HOLD/402 + tick debit | bono (built; was Replit) | ⛔ **code merged (#22)**; remaining = **`.23` cutover `WALLET_STORE=pg`** [operator, not started] — MUST precede flag-ON. Covers BOTH the debit/spend side AND the money-IN rail (cash-at-POS) — see §1.5C |
 | **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **Evolution OTP needs QR re-pair (or MSG91 cutover)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
 | **#4 — billing-start semantics** | `green_light_at` (launch-time vs loading-complete) | **Captain** (decision) → bono | ✅ DECIDED (delta A = confirm-before-bill on `verified_running`); awaiting Captain explicit §S-N ratify |
 
@@ -104,6 +106,75 @@ One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RC
 
 ---
 
+## PART 1.5 — CUSTOMER & STAFF JOURNEY MAPS (workflow lens)
+
+> Added 2026-06-04 from a customer/staff workflow audit (3 Explore agents + a direct payment-rail probe). **Process of elimination against Part 1:** most steps map to already-tracked items (`§1A`/`§1B`); the **NEW** rows are the residue the money/launch-*pipeline* view missed. Source RCA: `.bono-staging/RCA-CUSTOMER-STAFF-WORKFLOWS-HUMAN-PERSPECTIVE-20260603.md` + `memory/project_customer_staff_workflow_rca_human_perspective_20260603.md`.
+> **Legend** (same as Part 1): ✅ built · 🟡 partial/in-flight · 🔴 missing · ⛔ gated.
+
+### 1.5A — Customer journey (arrival → leave)
+
+| # | Step | Touchpoint / component | Status | Index ref / note |
+|---|------|------------------------|--------|------------------|
+| 1 | Onboard | PWA `/register` (phone +91) | ✅ built | §1A register; **V2.0 onboarding is PWA, not kiosk** |
+| 2 | Verify identity | OTP `/register/verify` (Evolution→MSG91) | ✅ built; provider migrating | §1A · rc #115, rp #27/#28 |
+| 3 | First credits (free) | `/register/welcome` REG-BONUS-1 (tier-1 × 5 min) | ✅ built | NEW — the *free* first-play; **not a paid ₹** |
+| 4 | **Money IN (real ₹)** | **staff cash-at-POS** `/wallet/topup/pos-cash` (+ manual-ref digital) | ⛔ gated | NEW — no gateway; SEAM stub; needs `WALLET_STORE=pg` (credit-IN half of cluster #2) |
+| 5 | Launch gated by balance | 402 gate (side-effect-free) | ✅ built | §1A 402 launch-gate |
+| 6 | Game starts on pod | heart-V2 → rc-agent; pod-display loading→active | ⛔ flag-OFF | §1B cluster #1; launch_args real for AC-SP (#116) |
+| 7 | Racing + live balance | pod-display in-session (game + ₹ remaining) | ✅ built | §1A tick-debit |
+| 8 | Low-balance alert | pod-display runout `pre_warning` | ✅ built; 🟡 no rate-card (G2) | NEW |
+| 9 | Exhausted alert | pod-display runout `active` (red pulse) | ✅ built; 🟡 no in-pod top-up (G4) | NEW |
+| 10 | **Grace countdown** | pod-display grace — **customer STATIC "2 MIN" / staff LIVE mm:ss** | ⛔ asymmetry | NEW — sharpest finding; **PR #25** resolves (`POD_LIVE_TIMERS`) |
+| 11 | Session ends + settle | tick-debit → settle/reconcile; pod "THANK YOU" | ✅ built | §1A settle/reconcile |
+| 12 | Customer receipt | session-end receipt to customer = **none** (topup receipt exists) | 🔴 missing | NEW — E1 |
+| 13 | Leave / replay | pod freed (idempotent close) | ✅ built | §1A |
+| 14 | Return visit | PWA profile / POS phone-lookup — identity must match | 🟡 partial | NEW — **C identity-propagation** POS↔PWA |
+
+### 1.5B — Staff journey (open venue → close)
+
+| # | Step | Touchpoint / component | Status | Index ref / note |
+|---|------|------------------------|--------|------------------|
+| 1 | Open venue | power pods, boot heart `.23` | ⛔ operator | §1B cluster #3 (pods 0/8 OFF) |
+| 2 | Staff login | F6 StaffJWT (staff/shift_lead/captain), 8h TTL | ✅ built | NEW — cluster #1 names "staff JWT" |
+| 3 | Onboard walk-in | POS household lookup (phone); on-the-fly reg = Phase-2 | 🟡 partial | NEW — walk-in reg V2.1+ |
+| 4 | **Take cash → credit wallet** | POS `/wallet/topup/pos-cash` (+ digital-ref) | ⛔ gated | NEW — same money-IN rail as customer #4 |
+| 5 | Launch customer session | launch-portal `/launch/[pod]` | ⛔ flag-OFF | §1B cluster #1 |
+| 6 | Monitor floor | staff-tablet 8-pod grid (SSE) + **live grace countdown** + −30s chirp | ✅ built | NEW — the half the customer lacks |
+| 7 | Handle runout | tap alarming pod → pause / deep-link POS top-up | ✅ built | NEW |
+| 8 | Handle incident | billing-incident store **records** (#29) — **no staff VIEW/RESOLVE UI** | 🔴 capture-only | §2F A4; resolver open (Replit) |
+| 9 | Refund / correct charge | **no refund/manual-adjust UI** (apology-credit only) | 🔴 frozen | NEW — `manual.adjust` FROZEN |
+| 10 | End-of-day reconcile | POS .130 close-of-shift (7-channel) only; **floor staff has no EOD**; venue aggregator pending | 🟡 partial | NEW — I3 |
+
+### 1.5C — Money-IN rail (the credit-IN half of cluster #2)
+
+> **Workflow-verified 2026-06-04:** No online payment gateway (no Razorpay/Stripe/UPI SDK in `rp-v2-apps`). Real ₹ enter only via **staff cash-at-POS** (`/wallet/topup/pos-cash`) or **manual PSP-reference** digital entry (paste an external txn-id; credits the wallet *without* bank-clearing verification). The customer's literal first play runs on **REG-BONUS-1** (free grant at OTP-verified registration). ⇒ **"first *paid* INR" = the credit-IN half of cluster #2** (cash-topup handler SEAM wired + `WALLET_STORE=pg` cutover), previously framed only as the debit/spend side. Online self-serve pay = **V2.1+ FROZEN**. Evidence: gateway-SDK grep empty; SEAM at `coordinator/reference-handlers/.../pos-cash-topup/route.ts`; REG-BONUS at `apps/pwa/app/register/welcome/page.tsx`; endpoints `apps/pos/lib/api.ts:314,367`.
+
+### 1.5D — Workflow gap register (classified)
+
+| Gap (workflow-surfaced) | Class | Owner | Note |
+|---|---|---|---|
+| Money-IN cutover (cash-topup SEAM + `WALLET_STORE=pg`) | **BLOCKING** (first *paid* ₹) | operator + bono | credit-IN half of cluster #2 |
+| C — identity-propagation POS↔PWA | **BLOCKING** (money-trust) | bono + contract | cash to right profile |
+| A1 — under-bill incident *consumer* (`reconcile_required` 0 consumers) | **BLOCKING-adjacent** | Replit/bono | #29 stores; consumer open |
+| Grace-countdown asymmetry | **UX-exception** (full-UX-pass) | James **PR #25** | `POD_LIVE_TIMERS`; supersedes bono E2 |
+| E1 — customer session-end receipt | HARDENING | bono | wire fields exist, not rendered |
+| B2 — orphaned-session pod lock (`forceFreePod`) | HARDENING | bono/contract | no force-free contract |
+| A2 — free-play across restart | HARDENING | bono | #119 mitigates; recovery-incident open |
+| A3 — durable-vs-mirror ledger health probe | HARDENING | bono | |
+| E3 — staff auto-end audit receipt | HARDENING | bono/Replit | machine events only |
+| I3 — floor-staff daily till-reconcile | HARDENING | Replit/bono | POS .130 only; aggregator pending |
+| I5 — pause-cap auto-end pod notice | HARDENING | bono | |
+| Incident VIEW/RESOLVE staff UI | HARDENING | Replit (`GET /billing/incidents`) | A4 = records-not-resolves stopgap |
+| Refund / manual-adjust / dispute UI | **FROZEN** V2.0 | — | apology-credit is the path |
+| Kiosk-based customer onboarding wizard | **FROZEN / clarify** | — | V2.0 onboarding is PWA (built) — see §2B |
+| pod-display error states | **FROZEN** V2.1+ | — | already in §1E |
+
+### 1.5E — Audit corrections to elsewhere in this Index
+- **§2B kiosk-wizard:** V2.0 customer onboarding is **PWA** (`/register`→OTP→profile→welcome-bonus, built); `apps/kiosk` is the **staff gaming-hall grid**, not customer registration. The "L1 Kiosk-Wizard 2/20" progress-map figure is a separate planned surface, **not the V2.0 onboarding path**.
+- **§1B cluster #2:** now reads as covering **both** the credit-IN (cash-topup SEAM) and the debit/spend side — see §1.5C.
+
+---
+
 ## PART 2 — FULL ECOSYSTEM INVENTORY (appendix)
 
 ### 2A. Two surfaces
@@ -113,7 +184,7 @@ One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RC
 
 ### 2B. 13-layer V2-PROGRESS-MAP rollup (doctrine-ledger lens — **~18 days stale, predates 06-02→06-04 merges; refresh recommended**)
 
-~40% LIVE-BLOCKING DONE (mixed framing) / ~45% F3-pure (DONE+ENG). Largest remaining surface = ~23 TEST-SCAFFOLDED rows. By layer: L1 Kiosk-Wizard 2/20 · L4 comms-link batch done · L7 wallet/billing 3/8 (Phase-β deployed, soak) · L10 cloud-sync 1/3 · L14 operations 0/6 (runbooks). File: [`V2-PROGRESS-MAP.md`](./V2-PROGRESS-MAP.md).
+~40% LIVE-BLOCKING DONE (mixed framing) / ~45% F3-pure (DONE+ENG). Largest remaining surface = ~23 TEST-SCAFFOLDED rows. By layer: L1 Kiosk-Wizard 2/20 · L4 comms-link batch done · L7 wallet/billing 3/8 (Phase-β deployed, soak) · L10 cloud-sync 1/3 · L14 operations 0/6 (runbooks). File: [`V2-PROGRESS-MAP.md`](./V2-PROGRESS-MAP.md). **⚠️ Clarifier (workflow audit 2026-06-04):** "L1 Kiosk-Wizard" is a *separate planned* customer-kiosk surface — **NOT** the V2.0 onboarding path. V2.0 customer onboarding is **PWA** (`/register`→OTP→profile→welcome-bonus, built); `apps/kiosk` is the staff gaming-hall grid. See §1.5A / §1.5E.
 
 ### 2C. Closed-loop component map
 
