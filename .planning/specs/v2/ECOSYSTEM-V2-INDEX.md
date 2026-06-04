@@ -1,9 +1,9 @@
 # 🧭 INDEX — Ecosystem V2 (read-first status + first-INR gap map)
 
 > **Purpose:** one place to see "what's done / what's left / who owns each gap" for V2, so a session doesn't re-discover it across ~20 memory files, ~50 `.bono-staging/` handoffs, the §S-N ledger, the progress map, and two repos' PR queues.
-> **Compiled:** 2026-06-04 (bono). **Method:** 3 parallel Explore agents (memory+handoffs · ledger+progress-map+roadmap · live git/PR) + direct read-only probes (`gh pr list`, §S-N grep). All facts are file-/probe-backed, not memory-projected.
+> **Compiled:** 2026-06-04 ~05:30 IST (bono); **refreshed 2026-06-04 ~23:00 IST** (live `gh pr list` re-probe — 6 PRs merged since compile, see §1D Δ). **Method:** 3 parallel Explore agents (memory+handoffs · ledger+progress-map+roadmap · live git/PR) + direct read-only probes (`gh pr list`, §S-N grep). All facts are file-/probe-backed, not memory-projected.
 > **Companion (doctrine-ledger lens):** [`V2-PROGRESS-MAP.md`](./V2-PROGRESS-MAP.md). **Canonical ledger:** `comms-link/V2-MASTER-STATE.md` (§S-N). This index is a *navigation + gap* layer, not a replacement.
-> **Freshness:** numbers verified 2026-06-04 ~05:30 IST. Re-run the §Verification probes before trusting on a later date.
+> **Freshness:** numbers verified 2026-06-04 ~05:30 IST, **refreshed ~23:00 IST** (live `gh pr list` re-probe; 6 PRs merged in the interval — see §1D Δ). Re-run the §Verification probes before trusting on a later date.
 
 ---
 
@@ -52,7 +52,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 
 | Cluster | What | Owner | Status |
 |---|---|---|---|
-| **#1 — game launches on pod** | heart-V2 → rc-agent launch handshake | bono (built) → **Captain + operator** (gates) | ⛔ built+merged+deployed, **flag `heart_v2_real_launch` OFF + runtime-unverified at scale**; `launch_args` now real (#116). Half-proven live on pod_1 (2026-06-01): launcher fired, session `Running` confirmed. Remaining: flag ON [Captain] + pods power [operator] |
+| **#1 — game launches on pod** | heart-V2 → rc-agent launch handshake | bono (built) → **Captain + operator** (gates) | ⛔ built+merged+deployed, **flag `heart_v2_real_launch` OFF + runtime-unverified at scale**; `launch_args` now real (#116); stale-`Loading`-session reaper merged (#125 `55b70092`) closes the dropped-launch-task stuck-pod path. Half-proven live on pod_1 (2026-06-01): launcher fired, session `Running` confirmed. Remaining: flag ON [Captain] + pods power [operator] |
 | **#2 — money moves (IN *and* out)** | durable wallet + **credit-IN (cash-topup SEAM)** + HOLD/402 + tick debit | bono (built; was Replit) | ⛔ **code merged (#22)**; remaining = **`.23` cutover `WALLET_STORE=pg`** [operator, not started] — MUST precede flag-ON. Covers BOTH the debit/spend side AND the money-IN rail (cash-at-POS) — see §1.5C |
 | **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **OTP delivery gate: Evolution(WhatsApp) re-pair OR MSG91 cutover — operator owes `MSG91_AUTHKEY`+DLT (§1.5F)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
 | **#4 — billing-start semantics** | `green_light_at` (launch-time vs loading-complete) | **Captain** (decision) → bono | ✅ DECIDED (delta A = confirm-before-bill on `verified_running`); awaiting Captain explicit §S-N ratify |
@@ -71,12 +71,15 @@ Runbooks: `.bono-staging/RUNBOOK-FIRST-INR-GATES-INDEX-20260603.md` · `RUNBOOK-
 
 ### 1D. Open-PR ledger (verified 2026-06-04 via `gh pr list`)
 
+> **Δ since the 05:30 compile (re-probed ~23:00 IST):** 6 PRs flipped **open→merged** — racecontrol **#124** leaderboard `20065a6d` · **#125** stale-`Loading` reaper `55b70092` · **#126** `preflight_acserver` `e81bf72d`; rp-v2-apps **#34** pod-display RECONNECTING `2eaaf94` · **#35** leaderboard proxy mount `430537e` · **#36** billing-incidents staff-read `803801a`. **No money-path PR merged in this interval** — all 3 rc (#122/#117/#113) + 11 rp-v2-apps money-path PRs stay OPEN; §S-N head still §S-450; `feat/wallet-durable-tick` still local-only.
+
 **racecontrol (base `main`) — bono money-path OPEN:**
 - **#122** heart money-loop integration tests — MERGEABLE *(test-only; Captain-merge)*
 - **#117** OTP→MSG91 GO-LIVE runbook — MERGEABLE *(docs)*
 - **#113** loading-complete route (confirm-before-bill, G-NEW-9) — MERGEABLE
+- **#123** Ecosystem V2 INDEX (this doc) — MERGEABLE *(docs; Captain-merge)*
 
-*Merged this wave (SHAs from main merge-commits):* #112 panic-fix `78691c9e` · #115 const-time PIN+OTP RCA `66a02154` · #116 launch_args I2 `690a8616` · #118 launch_args gate (merge `23e12d4c`) · #119 reconciler restart (merge `3e9c7c39`) · #121 slow-launch StopGame (merge `759fb68e`).
+*Merged this wave (SHAs from main merge-commits):* #112 panic-fix `78691c9e` · #115 const-time PIN+OTP RCA `66a02154` · #116 launch_args I2 `690a8616` · #118 launch_args gate (merge `23e12d4c`) · #119 reconciler restart (merge `3e9c7c39`) · #121 slow-launch StopGame (merge `759fb68e`) · #124 cross-venue AC leaderboard (V2.1) `20065a6d` · #125 stale-`Loading`-session reaper `55b70092` · #126 `preflight_acserver` (MP S0) `e81bf72d`.
 
 *racecontrol james-authored OPEN (UI/docs lane — NOT money-path):* #82/#86/#89/#95/#96 (docs/RCA/health) · **#90, #97 CONFLICTING** (pricing-ceiling, --rp-orange token) · #98–#106 kiosk V2-theme-migration cluster (11 style PRs) · #103 (preview-hud delete-flag). These are James's bounded UI lane — complementary, off the rupee path.
 
@@ -95,15 +98,15 @@ Runbooks: `.bono-staging/RUNBOOK-FIRST-INR-GATES-INDEX-20260603.md` · `RUNBOOK-
 
 *rp-v2-apps james-authored OPEN (UI lane, default-OFF):* #26 MSG91 OTP widget client · #25 pod-display grace/runout timers (base `feat/v3-ui-scaffold`) · #3 scope-map docs (base `main`) · #1 D-04 4-of-5 bundle (base `main`).
 
-*Merged:* #22 durable wallet `27eb7923` · #29 incident store `f7f1fdcc` · #18/#19 OTP `92d5950`/`d47b4d3` · #13/#14 contracts `46e683`/`7e0b976` · #20/#30/#31/#32/#33 V3-UI+fixes · #6/#10/#11 console.
+*Merged:* #22 durable wallet `27eb7923` · #29 incident store `f7f1fdcc` · #18/#19 OTP `92d5950`/`d47b4d3` · #13/#14 contracts `46e683`/`7e0b976` · #20/#30/#31/#32/#33 V3-UI+fixes · #6/#10/#11 console · #34 pod-display RECONNECTING `2eaaf94` · #35 leaderboard proxy mount `430537e` · #36 admin-proxy-james billing-incidents staff-read `803801a`.
 **#21 = CLOSED** (squash-subsumed by #22; lacks the fixes — do not reopen).
 
 ### 1E. Scope-freeze status (updated — Captain `/goal` unfreeze 2026-06-04)
 
 **⚠️ UNFROZEN 2026-06-04 (Captain `/goal`) → now an in-flight V2.1 integration program** (substrate-grounded plan in `.claude/plans/`; most items already have partial code):
-- **Multiplayer racing** — `lobby.rs` state-machine + `/lobbies` UI ~95% built; open unknown = AC-server-pool slot allocator.
-- **Pod-display error screens** (server-lost/updating/crash) — **Phase 1 server-lost SHIPPED → rp-v2-apps PR #34**; updating/OTA + crash-relaunch = Phase 2 (need heart `display_message` signal plumbing).
-- **Telemetry & leaderboards** — lap-persistence V1-mature. **Cross-venue AC leaderboard: racecontrol data endpoint SHIPPED → racecontrol PR #124** (`GET /api/v1/public/ac/leaderboard/cross-venue`, PII-bounded closed shape, cargo 3/3). ⚠️ **Correction:** the earlier "only the Rust endpoint pending" read was WRONG — `JAMES_URL`=`:3201`=admin-proxy-james, and there is **no `/api/v2/ac/*` server impl anywhere**. e2e chain now in code: (1) ✅ racecontrol endpoint [PR #124, cargo 3/3] · (2) ✅ admin-proxy-james `/api/v2/ac/leaderboard/cross-venue` mount [PR #35, test 5/5 + tsc clean] · (3) ⬜ Server-.23 deploy of both binaries (operator). **→ axis CODE-COMPLETE, deploy-gated only.** Contract/BFF/bono-forwarder already existed; the two SERVER layers (now both built) were the real gap. Per-game leaderboards generalize from AC/F1 (separate slice, not started).
+- **Multiplayer racing** — `lobby.rs` state-machine + `/lobbies` UI ~95% built; **MP S0 building block MERGED** (`preflight_acserver` reusable acServer-exists check — rc #126 `e81bf72d`); open unknown = AC-server-pool slot allocator.
+- **Pod-display error screens** (server-lost/updating/crash) — **Phase 1 server-lost MERGED** (rp-v2-apps #34 `2eaaf94`, distinct "RECONNECTING" screen); updating/OTA + crash-relaunch = Phase 2 (need heart `display_message` signal plumbing).
+- **Telemetry & leaderboards** — lap-persistence V1-mature. **Cross-venue AC leaderboard: racecontrol data endpoint MERGED → racecontrol #124 `20065a6d`** (`GET /api/v1/public/ac/leaderboard/cross-venue`, PII-bounded closed shape, cargo 3/3). ⚠️ **Correction:** the earlier "only the Rust endpoint pending" read was WRONG — `JAMES_URL`=`:3201`=admin-proxy-james, and there is **no `/api/v2/ac/*` server impl anywhere**. e2e chain now MERGED in code: (1) ✅ racecontrol endpoint [#124 **MERGED** `20065a6d`, cargo 3/3] · (2) ✅ admin-proxy-james `/api/v2/ac/leaderboard/cross-venue` mount [#35 **MERGED** `430537e`, test 5/5 + tsc clean] · (3) ⬜ Server-.23 deploy of both binaries (operator). **→ axis CODE-COMPLETE-AND-MERGED, deploy-gated only.** Contract/BFF/bono-forwarder already existed; the two SERVER layers (now both built) were the real gap. Per-game leaderboards generalize from AC/F1 (separate slice, not started).
 
 > **Doctrine reconcile is Captain-owed:** `racecontrol/CLAUDE.md` scope-freeze text + a §S-N ratify-append still mark these frozen. This Index records the lift; the canonical doctrine update is Captain's.
 
@@ -148,7 +151,7 @@ One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+st
 | 5 | Launch customer session | launch-portal `/launch/[pod]` | ⛔ flag-OFF | §1B cluster #1 |
 | 6 | Monitor floor | staff-tablet 8-pod grid (SSE) + **live grace countdown** + −30s chirp | ✅ built | NEW — the half the customer lacks |
 | 7 | Handle runout | tap alarming pod → pause / deep-link POS top-up | ✅ built | NEW |
-| 8 | Handle incident | billing-incident store **records** (#29) — **no staff VIEW/RESOLVE UI** | 🔴 capture-only | §2F A4; resolver open (Replit) |
+| 8 | Handle incident | billing-incident store **records** (#29); staff **VIEW/read route MERGED** (admin-proxy-james #36 `803801a` `GET /api/v2/admin/billing-incidents`) — **RESOLVE UI + live cadence still open** | 🟡 view-merged, resolve-open | §2F A4; resolver open |
 | 9 | Refund / correct charge | **no refund/manual-adjust UI** (apology-credit only) | 🔴 frozen | NEW — `manual.adjust` FROZEN |
 | 10 | End-of-day reconcile | POS .130 close-of-shift (7-channel) only; **floor staff has no EOD**; venue aggregator pending | 🟡 partial | NEW — I3 |
 
@@ -171,7 +174,7 @@ One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+st
 | E3 — staff auto-end audit receipt | HARDENING | bono/Replit | machine events only |
 | I3 — floor-staff daily till-reconcile | HARDENING | Replit/bono | POS .130 only; aggregator pending |
 | I5 — pause-cap auto-end pod notice | HARDENING | bono | |
-| Incident VIEW/RESOLVE staff UI | HARDENING | Replit (`GET /billing/incidents`) | A4 = records-not-resolves stopgap |
+| Incident VIEW/RESOLVE staff UI | HARDENING | bono (read route landed #36) | read/visibility half **MERGED** (admin-proxy-james `GET /api/v2/admin/billing-incidents` #36 `803801a`); RESOLVE half + live resolver cadence still open; A4 = records-not-resolves stopgap |
 | Refund / manual-adjust / dispute UI | **FROZEN** V2.0 | — | apology-credit is the path |
 | Kiosk-based customer onboarding wizard | **FROZEN / clarify** | — | V2.0 onboarding is PWA (built) — see §2B |
 | pod-display error states | **FROZEN** V2.1+ | — | already in §1E |
@@ -231,7 +234,7 @@ bono = **sole pilot + sole §S-N appender**; owns `racecontrol/**` + `comms-link
 
 ### 2F. Doc-ledger state & owed records
 
-- **§S-N head = §S-450** (2026-06-02), confirmed by probe (`grep -oE '§S-[0-9]+' | sort -n | tail` → 450; last heading file-line 46377). **~2 days behind** the 06-03/06-04 merges → **bono-owed close-anchor** (gap-1/2 + OTP + #29–#33 + A1/A2). Bono is sole appender.
+- **§S-N head = §S-450** (2026-06-02), confirmed by probe (`grep -oE '§S-[0-9]+' | sort -n | tail` → 450; **re-verified ~23:00 IST 2026-06-04 = still 450**). **Now ~2 days behind** the 06-03/06-04 merge wave → **bono-owed close-anchor** (gap-1/2 + OTP + #29–#33 + A1/A2 + the 6 latest merges: rc #124/#125/#126, rp #34/#35/#36). Bono is sole appender.
 - **At-risk / unpushed:** `rp-v2-apps feat/wallet-durable-tick` HEAD **`c684a761`** (tick tag-fix; A3's dependency) is **committed local-only** (origin tip `7963355`) — the one genuine off-remote surface. **A3-base decision pending Captain:** (a, recommended) push+PR the tag-fix first, then ship A3 on top; (b) stack A3 directly; (c) ship A3's unentangled subset. Large stash counts + `[ahead N]` = automated/squash-merge artifacts, **not** lost work.
 
 ### 2G. Resolved contradictions (caught by elimination during this compile)
@@ -251,6 +254,7 @@ bono = **sole pilot + sole §S-N appender**; owns `racecontrol/**` + `comms-link
 | Definition of done / scope freeze | `memory/project_v2_scope_freeze_definition_of_done_20260530.md` |
 | First-INR gap clusters | `memory/project_3layer_sync_debug_structure_and_first_inr_gapmap_20260531.md` + `.bono-staging/HANDOFF-OVERNITE-SYNC-DEBUG-20260531.md` |
 | Latest session (A1–A4 rollout-confidence) | `memory/project_rollout_confidence_tests_20260604.md` + `.claude/plans/sorted-waddling-zephyr.md` |
+| First-INR deploy execution matrix (console-less) | `.bono-staging/HANDOFF-VLM-DEPLOY-CONSOLE-LESS-20260604.md` + `memory/project_vlm_deploy_handoff_console_less_20260604.md` |
 | Canonical §S-N ledger | `comms-link/V2-MASTER-STATE.md` (head §S-450) |
 | % complete / 13-layer grid | [`V2-PROGRESS-MAP.md`](./V2-PROGRESS-MAP.md) |
 | First-INR roadmap (9-blocker table) | `rp-v2-apps/coordinator/ROADMAP-TO-FIRST-INR-HYDERABAD-2026-05-30.md` |
