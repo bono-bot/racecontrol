@@ -103,7 +103,7 @@ Runbooks: `.bono-staging/RUNBOOK-FIRST-INR-GATES-INDEX-20260603.md` · `RUNBOOK-
 **⚠️ UNFROZEN 2026-06-04 (Captain `/goal`) → now an in-flight V2.1 integration program** (substrate-grounded plan in `.claude/plans/`; most items already have partial code):
 - **Multiplayer racing** — `lobby.rs` state-machine + `/lobbies` UI ~95% built; open unknown = AC-server-pool slot allocator.
 - **Pod-display error screens** (server-lost/updating/crash) — **Phase 1 server-lost SHIPPED → rp-v2-apps PR #34**; updating/OTA + crash-relaunch = Phase 2 (need heart `display_message` signal plumbing).
-- **Telemetry & leaderboards** — lap-persistence V1-mature; cross-venue contract/BFF/UI built, only the Rust endpoint pending; per-game leaderboards generalize from AC/F1.
+- **Telemetry & leaderboards** — lap-persistence V1-mature. **Cross-venue AC leaderboard: racecontrol data endpoint SHIPPED → racecontrol PR #124** (`GET /api/v1/public/ac/leaderboard/cross-venue`, PII-bounded closed shape, cargo 3/3). ⚠️ **Correction:** the earlier "only the Rust endpoint pending" read was WRONG — `JAMES_URL`=`:3201`=admin-proxy-james, and there is **no `/api/v2/ac/*` server impl anywhere**. Full e2e still needs: (1) ✅ racecontrol endpoint [PR #124] · (2) ⬜ admin-proxy-james `/api/v2/ac/leaderboard/cross-venue` TS mount · (3) ⬜ Server-.23 deploy (operator). Contract/BFF/bono-forwarder already exist; the two SERVER layers were the real gap. Per-game leaderboards generalize from AC/F1 (separate slice).
 
 > **Doctrine reconcile is Captain-owed:** `racecontrol/CLAUDE.md` scope-freeze text + a §S-N ratify-append still mark these frozen. This Index records the lift; the canonical doctrine update is Captain's.
 
