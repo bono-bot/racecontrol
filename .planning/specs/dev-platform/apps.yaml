@@ -1,0 +1,332 @@
+meta:
+  registry: applications
+  phase: P0
+  schema: ./SCHEMA.md
+  authored: "2026-06-05"
+  refresh_mode: manual
+  stale_at: "2026-06-12"
+  note: >-
+    Product applications only (DEV-PLATFORM-DESIGN.md §2 membership rule).
+    Internal tooling / proxies / libs / dev-only excluded. dev_metrics record
+    SOURCE; values are "TBD (P1)" until P1 wires live pulls. CTQ targets are
+    TBD-Captain (never invented).
+
+apps:
+  # ---- Line A — RaceControl Captain's Console (SEPARATE product) ----
+  - id: racecontrol-console
+    name: RaceControl Captain's Console
+    product_line: A
+    repo: rp-v2-apps
+    path: apps/racecontrol-console
+    role: "tier-1 HQ / vendor control plane (tenant directory, deployment dashboard, access grant/revoke)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + integration:pg"
+    deploy_target: "Bono VPS — console.racecontrol.in"
+    toolchain: ["pnpm", "Next.js 16", "@rp/ui", "@rp/contracts"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "@rp/ui"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+      open_prs: { source: "gh pr list --search 'racecontrol-console'", class: probe, value: "TBD (P1)" }
+      staleness: { source: "git log <deployed>..HEAD -- apps/racecontrol-console", class: probe, value: "TBD (P1)" }
+    ctq_metrics:
+      console_availability: { source: "curl https://console.racecontrol.in", class: partial, target: "TBD-Captain" }
+    active_developments: ["dev-multi-tenant-control-plane", "dev-console-v2"]
+    freeze_status: live
+    evidence_anchors: ["§S-449 RaceControl Structure V1", "console.racecontrol.in HTTP 200"]
+
+  # ---- Line B — Ecosystem V2 (per-venue product): venue/web apps ----
+  - id: pod-display
+    name: Pod Display
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/pod-display
+    role: "per-pod customer-visible state surface (separate screen per pod)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "tsc --noEmit"
+    deploy_target: "Pods :3340"
+    toolchain: ["pnpm", "Next.js 16", "@rp/tokens"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "racecontrol(API)"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+      open_prs: { source: "gh pr list --search 'pod-display'", class: probe, value: "TBD (P1)" }
+    ctq_metrics:
+      sse_reconnect_gap: { source: "pod-display offline short-circuit (30s SSE gap)", class: partial, target: "TBD-Captain" }
+    active_developments: ["dev-pod-display-error-screens", "dev-grace-countdown-symmetry"]
+    freeze_status: live
+    evidence_anchors: ["PR #34 (RECONNECTING) 2eaaf94", "PR #20 (V3 UI)"]
+
+  - id: pos
+    name: POS (reception)
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/pos
+    role: "staff reception top-up terminal (cash/UPI/card, household lookup)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + playwright test"
+    deploy_target: "Server .23 :3200"
+    toolchain: ["pnpm", "Next.js 16"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "@rp/wallet-ui"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics:
+      topup_to_wallet_accuracy: { source: "billing/wallet_ledger SQL", class: probe, target: "TBD-Captain" }
+    active_developments: ["dev-walk-in-registration", "dev-refund-adjust-ui"]
+    freeze_status: live
+    evidence_anchors: ["§1.5C cash-at-POS rail"]
+
+  - id: pos130
+    name: POS .130
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/pos130
+    role: "reception payment terminal + cafe order create (Scenario E link-by-phone)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + playwright test"
+    deploy_target: "Server .23 :3130"
+    toolchain: ["pnpm", "Next.js 16"]
+    dependencies: ["@rp/contracts", "@rp/tokens"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    evidence_anchors: ["§1.5B EOD reconcile"]
+
+  - id: staff-tablet
+    name: Staff Tablet
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/staff-tablet
+    role: "floor-staff 8-pod monitor + live grace countdown + runout alarm"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + playwright test"
+    deploy_target: "admin-proxy .23:3201"
+    toolchain: ["pnpm", "Next.js 16", "@rp/wallet-ui"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "@rp/wallet-ui", "@rp/wallet-client"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: ["dev-grace-countdown-symmetry", "dev-incident-resolve-ui"]
+    freeze_status: live
+    evidence_anchors: ["§1.5B floor monitor"]
+
+  - id: kiosk
+    name: Kiosk
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/kiosk
+    role: "gaming-hall customer kiosk (balance/runout alarm)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run"
+    deploy_target: "Venue :3300"
+    toolchain: ["pnpm", "Next.js 16", "@rp/tokens"]
+    dependencies: ["@rp/contracts", "@rp/tokens"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+      open_prs: { source: "gh pr list (kiosk V2-theme cluster, James lane)", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    evidence_anchors: ["kiosk V2-theme migration PRs (James)"]
+
+  - id: pwa
+    name: Customer PWA
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/pwa
+    role: "customer registration (OTP) + wallet/household view"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + playwright test"
+    deploy_target: "Bono VPS :3300 (app.racingpoint.cloud)"
+    toolchain: ["pnpm", "Next.js 16", "@rp/wallet-ui"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "@rp/wallet-ui"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics:
+      otp_delivery: { source: "OTP provider (Evolution->MSG91); operator AUTHKEY+DLT", class: manual, target: "TBD-Captain" }
+    active_developments: ["dev-customer-email-messaging", "dev-walk-in-registration"]
+    freeze_status: live
+    evidence_anchors: ["OTP F1/F2/F3 PR #27", "MSG91 widget PR #26 (James)"]
+
+  - id: launch-portal
+    name: Launch Portal
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/launch-portal
+    role: "staff 8-pod launch grid (lookup -> game -> pricing -> green-light)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run"
+    deploy_target: "Server .23 :3360"
+    toolchain: ["pnpm", "Next.js 16"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "racecontrol(API)"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: ["dev-multiplayer-racing"]
+    freeze_status: live
+    evidence_anchors: ["first-INR launch path (Index §1A)"]
+
+  - id: chef-display
+    name: Chef Display
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/chef-display
+    role: "kitchen wall-mount order/prep state surface (V0.1)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "tsc --noEmit"
+    deploy_target: "Venue :3350"
+    toolchain: ["pnpm", "Next.js 16", "@rp/tokens"]
+    dependencies: ["@rp/contracts", "@rp/tokens"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    evidence_anchors: ["Chef's Panel V0.1 (Task #985)"]
+
+  - id: captain-console
+    name: Captain Console (venue)
+    product_line: B
+    repo: rp-v2-apps
+    path: apps/captain-console
+    role: "venue operator console (Reason-Class Monitor, pricing, apology summary)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "vitest run + playwright test"
+    deploy_target: "Bono VPS :3210"
+    toolchain: ["pnpm", "Next.js 16", "@rp/wallet-ui"]
+    dependencies: ["@rp/contracts", "@rp/tokens", "@rp/wallet-ui", "@rp/wallet-client"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: ["dev-incident-resolve-ui", "dev-refund-adjust-ui"]
+    freeze_status: live
+    note: "NOT the RaceControl Captain's Console (Line A) — distinct product, naming-guarded."
+    evidence_anchors: ["captain-console V3 rebuild PR #33"]
+
+  # ---- Line B — Ecosystem V2: RaceControl Rust products ----
+  - id: racecontrol-heart
+    name: RaceControl Heart
+    product_line: B
+    repo: racecontrol
+    path: crates/racecontrol
+    role: "venue server heart (Axum HTTP + WS): sessions, billing, pod-state, MP lobby"
+    owner: bono
+    framework: "Rust / Axum"
+    build: "cargo build --release --bin racecontrol"
+    test: "cargo test -p racecontrol-crate"
+    deploy_target: "Server .23 :8080"
+    toolchain: ["cargo", "tokio", "axum", "sqlx", "+crt-static"]
+    dependencies: ["rc-common", "v2-db"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/racecontrol (ci/contract/e2e/quality-gate)", class: probe, value: "TBD (P1)" }
+      build_id: { source: "GET /api/v1/fleet/health + SWAPLOG.md", class: probe, value: "TBD (P1)" }
+    ctq_metrics:
+      money_path_integrity: { source: "check-parity + billing_sessions SQL", class: probe, target: "TBD-Captain" }
+      pod_health_score: { source: "GET /api/v1/fleet/intelligence", class: probe, target: "TBD-Captain" }
+    active_developments: ["dev-multiplayer-racing", "dev-cross-venue-leaderboard", "dev-pod-display-error-screens", "dev-per-game-leaderboards", "dev-multi-tenant-control-plane", "dev-customer-email-messaging", "dev-v1-decommission"]
+    freeze_status: live
+    evidence_anchors: ["heart-V2 surface live", "first-INR money/launch merged flag-OFF"]
+
+  - id: rc-agent
+    name: rc-agent (pod)
+    product_line: B
+    repo: racecontrol
+    path: crates/rc-agent
+    role: "per-pod agent: game launch, blanking, overlay HUD, session state (8 pods)"
+    owner: bono
+    framework: "Rust"
+    build: "cargo build --release --bin rc-agent"
+    test: "cargo test -p rc-agent-crate"
+    deploy_target: "Pods :8090"
+    toolchain: ["cargo", "tokio", "+crt-static"]
+    dependencies: ["rc-common", "rc-guardian", "rc-process-manager", "v2-db"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/racecontrol", class: probe, value: "TBD (P1)" }
+      build_id: { source: "GET /api/v1/fleet/health (per pod)", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: ["dev-multiplayer-racing"]
+    freeze_status: live
+    evidence_anchors: ["fleet uniform a826b100 (2026-06-02)"]
+
+  - id: rc-installer
+    name: rc-installer
+    product_line: B
+    repo: racecontrol
+    path: crates/rc-installer
+    role: "release-trust verification (ed25519+sha256) + web-distributed installer"
+    owner: bono
+    framework: "Rust"
+    build: "cargo build --release --bin rc-installer --features installer-bin"
+    test: "cargo test (integration)"
+    deploy_target: "web-distributed"
+    toolchain: ["cargo", "ed25519", "sha256"]
+    dependencies: ["rc-common"]
+    dev_metrics:
+      ci: { source: "gh run list -R bono-bot/racecontrol", class: probe, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    evidence_anchors: ["cross-language golden vectors L1-5", "LicenseHeartbeat contract PR #12"]
+
+  # ---- Line C — cloud product surfaces (CANDIDATE — Captain to confirm, design §10.2) ----
+  - id: cloud-dashboard
+    name: Cloud Dashboard
+    product_line: C
+    repo: racingpoint-cloud-dashboard
+    path: /
+    role: "cloud operations observability (fleet health, server metrics, deploy history)"
+    owner: bono
+    framework: "Next.js 16"
+    build: "next build"
+    test: "next lint"
+    deploy_target: "Bono VPS :3600"
+    toolchain: ["pnpm", "Next.js 16"]
+    dependencies: ["racecontrol(API)"]
+    dev_metrics:
+      ci: { source: "gh run list (repo TBD)", class: partial, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    candidate: true
+    evidence_anchors: ["Captain to confirm Line-C scope (design §10.2)"]
+
+  - id: api-gateway
+    name: API Gateway
+    product_line: C
+    repo: racingpoint-api-gateway
+    path: /
+    role: "cloud request router (racecontrol/billing/auth/captain)"
+    owner: bono
+    framework: "Node"
+    build: "TBD"
+    test: "TBD"
+    deploy_target: "Bono VPS :3000"
+    toolchain: ["Node", "pm2"]
+    dependencies: ["racecontrol(API)"]
+    dev_metrics:
+      ci: { source: "gh run list (repo TBD)", class: partial, value: "TBD (P1)" }
+    ctq_metrics: {}
+    active_developments: []
+    freeze_status: live
+    candidate: true
+    evidence_anchors: ["Captain to confirm Line-C scope (design §10.2)"]
