@@ -124,7 +124,7 @@ One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RC
 | 7 | Racing + live balance | pod-display in-session (game + ₹ remaining) | ✅ built | §1A tick-debit |
 | 8 | Low-balance alert | pod-display runout `pre_warning` | ✅ built; 🟡 no rate-card (G2) | NEW |
 | 9 | Exhausted alert | pod-display runout `active` (red pulse) | ✅ built; 🟡 no in-pod top-up (G4) | NEW |
-| 10 | **Grace countdown** | pod-display grace — **customer STATIC "2 MIN" / staff LIVE mm:ss** | ⛔ asymmetry | NEW — sharpest finding; **PR #25** resolves (`POD_LIVE_TIMERS`) |
+| 10 | **Grace countdown** | pod-display grace — **customer STATIC "2 MIN" / staff LIVE mm:ss** | ⛔ asymmetry | NEW — sharpest finding; **PR #25** resolves (`pod.live_timers`) |
 | 11 | Session ends + settle | tick-debit → settle/reconcile; pod "THANK YOU" | ✅ built | §1A settle/reconcile |
 | 12 | Customer receipt | session-end receipt to customer = **none** (topup receipt exists) | 🔴 missing | NEW — E1 |
 | 13 | Leave / replay | pod freed (idempotent close) | ✅ built | §1A |
@@ -156,7 +156,7 @@ One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RC
 | Money-IN cutover (cash-topup SEAM + `WALLET_STORE=pg`) | **BLOCKING** (first *paid* ₹) | operator + bono | credit-IN half of cluster #2 |
 | C — identity-propagation POS↔PWA | **BLOCKING** (money-trust) | bono + contract | cash to right profile |
 | A1 — under-bill incident *consumer* (`reconcile_required` 0 consumers) | **BLOCKING-adjacent** | Replit/bono | #29 stores; consumer open |
-| Grace-countdown asymmetry | **UX-exception** (full-UX-pass) | James **PR #25** | `POD_LIVE_TIMERS`; supersedes bono E2 |
+| Grace-countdown asymmetry | **UX-exception** (full-UX-pass) | James **PR #25** | `pod.live_timers`; supersedes bono E2 |
 | E1 — customer session-end receipt | HARDENING | bono | wire fields exist, not rendered |
 | B2 — orphaned-session pod lock (`forceFreePod`) | HARDENING | bono/contract | no force-free contract |
 | A2 — free-play across restart | HARDENING | bono | #119 mitigates; recovery-incident open |
