@@ -36,7 +36,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 
 | Step in the rupee path | State | Where |
 |---|---|---|
-| Register via OTP | ✅ contract+wiring merged; provider migrating Evolution→MSG91 | rp-v2-apps #18/#19 merged; #27/#28 open; rc #115 merged |
+| Register via OTP | ✅ contract+wiring merged; provider migrating **Evolution(WhatsApp)→MSG91(SMS)** — see §1.5F | rp-v2-apps #18/#19 merged; #27/#28 open; rc #115 merged |
 | Topup → **durable** wallet (PgWalletStore) | ✅ code merged (incl. 2 MAOR money-bugs fixed) | rp-v2-apps #22 `27eb7923` |
 | Launch **gated by balance** (402 HOLD) | ✅ in #22 (`402 launch-gate`); companion gate #17 open (CONFLICTING) | #22 merged; #17 open |
 | Heart-V2 → rc-agent **game actually launches** on pod | ✅ built+merged+deployed (**flag-OFF**) | rc `b7067829` (delta A `c0a74c9f`); `.23`=`21531f31` |
@@ -54,7 +54,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 |---|---|---|---|
 | **#1 — game launches on pod** | heart-V2 → rc-agent launch handshake | bono (built) → **Captain + operator** (gates) | ⛔ built+merged+deployed, **flag `heart_v2_real_launch` OFF + runtime-unverified at scale**; `launch_args` now real (#116). Half-proven live on pod_1 (2026-06-01): launcher fired, session `Running` confirmed. Remaining: flag ON [Captain] + pods power [operator] |
 | **#2 — money moves (IN *and* out)** | durable wallet + **credit-IN (cash-topup SEAM)** + HOLD/402 + tick debit | bono (built; was Replit) | ⛔ **code merged (#22)**; remaining = **`.23` cutover `WALLET_STORE=pg`** [operator, not started] — MUST precede flag-ON. Covers BOTH the debit/spend side AND the money-IN rail (cash-at-POS) — see §1.5C |
-| **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **Evolution OTP needs QR re-pair (or MSG91 cutover)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
+| **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **OTP delivery gate: Evolution(WhatsApp) re-pair OR MSG91 cutover — operator owes `MSG91_AUTHKEY`+DLT (§1.5F)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
 | **#4 — billing-start semantics** | `green_light_at` (launch-time vs loading-complete) | **Captain** (decision) → bono | ✅ DECIDED (delta A = confirm-before-bill on `verified_running`); awaiting Captain explicit §S-N ratify |
 
 **14 money/launch bugs ledger:** 13 fixed+merged; only **#6** (sub-1-min 0-tick rate-reconstruction) open = **documented non-flip-blocker**.
@@ -172,6 +172,20 @@ One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RC
 ### 1.5E — Audit corrections to elsewhere in this Index
 - **§2B kiosk-wizard:** V2.0 customer onboarding is **PWA** (`/register`→OTP→profile→welcome-bonus, built); `apps/kiosk` is the **staff gaming-hall grid**, not customer registration. The "L1 Kiosk-Wizard 2/20" progress-map figure is a separate planned surface, **not the V2.0 onboarding path**.
 - **§1B cluster #2:** now reads as covering **both** the credit-IN (cash-topup SEAM) and the debit/spend side — see §1.5C.
+
+### 1.5F — Comms / OTP provider state (2026-06-02 record, confirmed w/ Captain 2026-06-04)
+
+Three distinct pieces — they are **alternatives, not layered** (Wati is **not** "via" Evolution):
+
+| Provider | Role | State |
+|---|---|---|
+| **Evolution API** | self-hosted **WhatsApp** gateway — the **current/live** OTP sender | ⚠️ WhatsApp **banned** it (ToS); still the runtime **default** (`RP_OTP_PROVIDER=evolution`) only because the replacement is merged-but-not-deployed |
+| **MSG91** | the **OTP forward path** — **SMS + voice** widget (MSG91 owns gen/send/verify client-side; bono only `verifyAccessToken` server-side) | contract + wiring **MERGED**, **cutover-gated**, **nothing deployed**. Operator owes **`MSG91_AUTHKEY` + India DLT** registration (lead-time) |
+| **Wati** | the official WhatsApp **BSP transport** that *replaces* the banned self-hosted Evolution gateway | **alert-track = stub** (owed) → **DEFERRED / not built** |
+
+**Net direction:** OTP is moving **off WhatsApp → onto SMS** (Evolution→MSG91); the **WhatsApp channel (Wati) is parked**. `OtpChannel` enum went whatsapp-only (V2.0 lock, INVENTORY §C) → **+`sms`** via PR #27 F2 (Captain-confirmed 2026-06-03). Cutover is gated: **C1** (delete-not-bypass) + **C2** (guardian-migrate) must **not** ship pre-cutover — `otp.rs::send_otp_whatsapp` (Evolution egress) is shared by the live guardian path; 5-condition retire-trigger at `.planning/specs/v2/CUTOVER/otp-msg91-v1-retire-20260602.md`.
+
+**First-INR impact:** registration (journey step 2 / §1.5A) needs OTP to actually deliver — so the operator **`MSG91_AUTHKEY` + DLT** (or an Evolution WhatsApp re-pair) is a **cluster-#3 operator gate**, not just a migration. Source: `memory/project_otp_msg91_a27_merged_cutover_gated_20260602.md` · `memory/project_otp_contract_f1f2f3_pr27_20260603.md`.
 
 ---
 
