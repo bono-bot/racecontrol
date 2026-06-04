@@ -5,6 +5,25 @@ use rc_common::types::*;
 
 // ─── INI Generation ──────────────────────────────────────────────────────────
 
+/// Read-only pre-flight: the configured acServer binary exists on disk.
+/// Extracted from the inline check in `ac_server::start_ac_server` so the
+/// existence guard is reusable + unit-testable. Read-only (`Path::exists`) —
+/// no billing/wallet/pod-state mutation. The AC-LAN launch trigger
+/// (`start_ac_lan_for_group`) should call this BEFORE any side effects
+/// (port alloc / dir creation / per-pod dispatch) so a missing binary fails at
+/// launch-trigger time, not at race-start with customers seated (follow-on S0b).
+pub fn preflight_acserver(acserver_path: &str) -> Result<(), String> {
+    if std::path::Path::new(acserver_path).exists() {
+        Ok(())
+    } else {
+        Err(format!(
+            "acServer binary not found at '{}'. Install the AC dedicated server or update \
+             [ac_server] acserver_path in racecontrol.toml. Multiplayer AC cannot start without it.",
+            acserver_path
+        ))
+    }
+}
+
 pub fn generate_admin_password(session_name: &str, udp_port: u16) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

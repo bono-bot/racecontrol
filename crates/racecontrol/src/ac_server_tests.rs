@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn test_preflight_acserver() {
+    use crate::ac_server_config::preflight_acserver;
+    // Missing binary → Err with the operator-actionable message.
+    let err = preflight_acserver("/no/such/path/acServer.exe").unwrap_err();
+    assert!(err.contains("acServer binary not found"), "got: {err}");
+    assert!(err.contains("racecontrol.toml"), "got: {err}");
+    // An existing path (this test binary itself) → Ok.
+    let exists = std::env::current_exe().expect("current_exe");
+    assert!(preflight_acserver(exists.to_str().expect("utf8 path")).is_ok());
+}
+
+#[test]
 fn test_ac_result_file_deserialization() {
     let json = r#"{
         "TrackName": "monza",

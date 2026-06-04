@@ -140,18 +140,14 @@ pub async fn start_ac_server(
         lan_ip, config.http_port
     );
 
-    // Spawn acServer process — binary MUST exist (no silent dry-run)
+    // Spawn acServer process — binary MUST exist (no silent dry-run).
+    // Existence check via the reusable pure `preflight_acserver` (S0).
     let acserver_path = &state.config.ac_server.acserver_path;
-    if !Path::new(acserver_path).exists() {
-        // Clean up allocated ports before failing
+    if let Err(e) = crate::ac_server_config::preflight_acserver(acserver_path) {
+        // Clean up allocated ports + created directory before failing.
         state.port_allocator.release(&session_id).await;
-        // Clean up created directory
         let _ = std::fs::remove_dir_all(&server_dir);
-        anyhow::bail!(
-            "acServer binary not found at '{}'. Install the AC dedicated server or update \
-             [ac_server] acserver_path in racecontrol.toml. Multiplayer AC cannot start without it.",
-            acserver_path
-        );
+        anyhow::bail!("{}", e);
     }
     // CWD must be the acServer's own directory (where content/ lives), NOT the session
     // directory. The vanilla Kunos acServer reads tracks/cars from content/ relative to CWD.
