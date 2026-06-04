@@ -202,6 +202,10 @@ fn public_routes() -> Router<Arc<AppState>> {
         .route("/public/drivers", get(public_drivers_search))
         .route("/public/drivers/{id}", get(public_driver_profile))
         .route("/public/time-trial", get(public_time_trial))
+        // V2.1 cross-venue AC leaderboard (PII-bounded closed shape; Captain
+        // /goal unfreeze 2026-06-04). Single-venue scope; admin-proxy-james
+        // /api/v2/ac/leaderboard/cross-venue forwards here.
+        .route("/public/ac/leaderboard/cross-venue", get(cross_venue_leaderboard))
         .route("/public/laps/{lap_id}/telemetry", get(public_lap_telemetry))
         .route("/public/sessions/{id}", get(public_session_summary))
         .route("/public/championships/{id}/standings", get(public_championship_standings_handler))
