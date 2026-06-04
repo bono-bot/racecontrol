@@ -194,6 +194,15 @@ Three distinct pieces — they are **alternatives, not layered** (Wati is **not*
 
 **First-INR impact:** registration (journey step 2 / §1.5A) needs OTP to actually deliver — so the operator **`MSG91_AUTHKEY` + DLT** (or an Evolution WhatsApp re-pair) is a **cluster-#3 operator gate**, not just a migration. Source: `memory/project_otp_msg91_a27_merged_cutover_gated_20260602.md` · `memory/project_otp_contract_f1f2f3_pr27_20260603.md`.
 
+### 1.5G — Pod-display does NOT block gameplay during a live session (workflow-verified 2026-06-04)
+
+Customer + staff + surface-model traces + adversarial verify (workflow `wrllp58f0`). **"Pod display" = TWO surfaces — do not conflate:**
+
+1. **`rp-v2-apps/apps/pod-display`** (the app whose error screens we build: server-lost/maintenance/updating/crash) — runs on a **dedicated screen on a SEPARATE machine** (`SCAFFOLD-NOTES.md:5-7` "Surface separation — pod displays = state mirror"; 8 distinct hosts). **Zero** game-launch/window/fullscreen code (grep empty); talks only to venue server `:3201`. → **Cannot block/overlay AC.** Its full-screen swaps mid-session (`offline` short-circuit `page.tsx:208-210` on any 30s SSE gap → RECONNECTING; runout-alarm precedence `page.tsx:93-96`) repaint **its own** screen, not the game. **Staff trace = 0 blocking paths**: no heart route sets `PodLifecycle::Maintenance` on an occupied pod (`heart_v2.rs:205` Empty-init; only Empty↔Occupied). → **adding updating/crash states here is SAFE.**
+2. **`rc-agent` (gaming PC)** — lock-screen `SW_HIDE`'d when game Live (`event_loop.rs:860-869`); the racing **HUD overlay INTENTIONALLY overlays the game** during billing (~105px `WS_EX_TOPMOST|WS_EX_NOACTIVATE` strip, `overlay.rs:1079-1106`, every 10s, `!freedom_mode`) — the by-design speed/RPM/gear HUD, not the pod-display app.
+
+**Residual (NOT runtime-proven):** the per-pod runbook binding the pod-display browser to a physical display (`SCAFFOLD-NOTES.md:12-13`) was not located; pods 0/8 OFF → no live screenshot. "Separate screen" is code-strong but unverified at runtime. **At deploy: one pod-canary screenshot during an active billed session.** Detail: `memory/reference_pod_display_surface_separation_20260604.md`.
+
 ---
 
 ## PART 2 — FULL ECOSYSTEM INVENTORY (appendix)
