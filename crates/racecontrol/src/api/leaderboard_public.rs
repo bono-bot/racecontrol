@@ -475,3 +475,328 @@ pub(crate) async fn public_time_trial(
         })).collect::<Vec<_>>(),
     }))
 }
+
+// ─── Cross-Venue AC Leaderboard (Public, PII-bounded closed shape) ────────────
+
+/// Normalize a configured `venue_id` into the closed-shape `home_venue_id`
+/// slug the cross-venue contract requires (`^[a-z0-9-]{2,32}$`). Lowercases,
+/// maps every other character to `-`, clamps to 32 chars, and falls back to
+/// `"unknown-venue"` when the result is shorter than the 2-char minimum.
+///
+/// Why fail-safe-normalize rather than pass through: the captain-console BFF
+/// re-validates EVERY row with `CrossVenueLeaderboardEntry.parse()` (`.strict()`
+/// zod) and returns 502 for the WHOLE response if any `home_venue_id` violates
+/// the regex. A single misconfigured venue_id must not blank the leaderboard.
+fn normalize_venue_slug(raw: &str) -> String {
+    let mapped: String = raw
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .take(32)
+        .collect();
+    if mapped.len() >= 2 {
+        mapped
+    } else {
+        "unknown-venue".to_string()
+    }
+}
+
+/// `GET /api/v1/public/ac/leaderboard/cross-venue` — V2.1 telemetry/leaderboards
+/// surface (Captain `/goal` unfreeze 2026-06-04). Returns the PII-bounded
+/// closed-shape JSON ARRAY the captain-console BFF re-validates against
+/// `CrossVenueLeaderboardEntry` (`.strict()` zod): exactly
+/// `{display_name, lap_time_ms, car, track, posted_at, home_venue_id}`.
+///
+/// PII boundary (`ac-telemetry.yaml` §"Cross-venue leaderboard PII boundary"
+/// + threat_model.md out-of-contract #12): deliberately omits
+/// driver_id / profile_id / household_id / phone-derived id. Adding ANY extra
+/// key here makes the BFF fail-closed (502) — do NOT widen without a
+/// Captain-ratified contract change.
+///
+/// Scope: SINGLE-VENUE. `home_venue_id` is this venue's configured `venue_id`;
+/// the source rows are this venue's local `laps`. True multi-tenant cross-venue
+/// aggregation is deferred (tenant_id JWT retrofit on F6 first).
+///
+/// AC-scope-only per contract Phase L: `sim_type = 'assettocorsa'` — the
+/// `lap_tracker` Debug-repr-lowercase value, NOT the contract enum string
+/// `'assetto_corsa'`. Integrity filters mirror `public_leaderboard`:
+/// UX-04 billing-session-only, UX-07 validity, suspect excluded.
+pub(crate) async fn cross_venue_leaderboard(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    let home_venue_id = normalize_venue_slug(&state.config.venue.venue_id);
+
+    // Best AC lap per driver (billing-verified, valid, non-suspect), top 100,
+    // fastest first. ROW_NUMBER picks one deterministic row when a driver ties
+    // their own best time across multiple laps.
+    let rows = sqlx::query_as::<_, (String, i64, String, String, Option<i64>)>(
+        "WITH ac_laps AS (
+             SELECT l.driver_id, l.car, l.track, l.lap_time_ms, l.created_at
+             FROM laps l
+             WHERE l.sim_type = 'assettocorsa'
+               AND l.valid = 1
+               AND (l.suspect IS NULL OR l.suspect = 0)
+               AND l.billing_session_id IS NOT NULL
+               AND (l.validity IS NULL OR l.validity = 'valid')
+               AND l.lap_time_ms > 0
+               AND l.car <> ''
+               AND l.track <> ''
+         ),
+         driver_best AS (
+             SELECT driver_id, MIN(lap_time_ms) AS best_lap_ms
+             FROM ac_laps GROUP BY driver_id
+         ),
+         best_rows AS (
+             SELECT db.driver_id, db.best_lap_ms, al.car, al.track,
+                    CAST(strftime('%s', al.created_at) AS INTEGER) AS posted_at,
+                    ROW_NUMBER() OVER (PARTITION BY db.driver_id ORDER BY al.created_at ASC) AS rn
+             FROM driver_best db
+             JOIN ac_laps al ON al.driver_id = db.driver_id
+                            AND al.lap_time_ms = db.best_lap_ms
+         )
+         SELECT
+             CASE WHEN d.show_nickname_on_leaderboard = 1 AND d.nickname IS NOT NULL
+                  THEN d.nickname ELSE d.name END AS display_name,
+             br.best_lap_ms, br.car, br.track, br.posted_at
+         FROM best_rows br
+         JOIN drivers d ON br.driver_id = d.id
+         WHERE br.rn = 1
+         ORDER BY br.best_lap_ms ASC
+         LIMIT 100",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    let entries: Vec<Value> = match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|(display_name, lap_time_ms, car, track, posted_at)| {
+                // Closed-shape guard: display_name/car/track must be min-1,
+                // lap_time_ms positive, posted_at nonnegative. Drop any row that
+                // can't satisfy the contract rather than emit one the BFF 502s on.
+                let display_name = display_name.trim().to_string();
+                if display_name.is_empty()
+                    || car.is_empty()
+                    || track.is_empty()
+                    || lap_time_ms <= 0
+                {
+                    return None;
+                }
+                let posted_at = posted_at.unwrap_or(0).max(0);
+                Some(json!({
+                    "display_name": display_name,
+                    "lap_time_ms": lap_time_ms,
+                    "car": car,
+                    "track": track,
+                    "posted_at": posted_at,
+                    "home_venue_id": home_venue_id,
+                }))
+            })
+            .collect(),
+        Err(e) => {
+            tracing::error!("cross_venue_leaderboard query failed: {}", e);
+            Vec::new()
+        }
+    };
+
+    Json(Value::Array(entries))
+}
+
+#[cfg(test)]
+mod cross_venue_tests {
+    use super::*;
+
+    /// Mirror of the contract regex `^[a-z0-9-]{2,32}$` for `home_venue_id`.
+    fn is_valid_home_venue_slug(s: &str) -> bool {
+        s.len() >= 2
+            && s.len() <= 32
+            && s.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    }
+
+    #[test]
+    fn normalize_venue_slug_satisfies_contract_regex() {
+        // Default venue_id passes through unchanged.
+        assert_eq!(
+            normalize_venue_slug("racingpoint-hyd-001"),
+            "racingpoint-hyd-001"
+        );
+        // Uppercase + spaces are normalized to the slug shape.
+        assert_eq!(normalize_venue_slug("  RacingPoint HYD  "), "racingpoint-hyd");
+        // Too-short / empty fall back so the BFF never 502s the whole response.
+        assert_eq!(normalize_venue_slug(""), "unknown-venue");
+        assert_eq!(normalize_venue_slug("a"), "unknown-venue");
+        // Over-length clamps to 32.
+        assert_eq!(normalize_venue_slug(&"x".repeat(40)).len(), 32);
+        // Non-ASCII never escapes the closed shape.
+        assert!(is_valid_home_venue_slug(&normalize_venue_slug("Münster!!")));
+        assert!(is_valid_home_venue_slug(&normalize_venue_slug("racingpoint-hyd-001")));
+    }
+
+    async fn seed_state() -> Arc<AppState> {
+        let config = crate::config::Config::default_test();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+
+        sqlx::query(
+            "CREATE TABLE drivers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                nickname TEXT,
+                show_nickname_on_leaderboard INTEGER DEFAULT 0
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create drivers");
+
+        sqlx::query(
+            "CREATE TABLE laps (
+                id TEXT PRIMARY KEY,
+                driver_id TEXT,
+                sim_type TEXT,
+                track TEXT,
+                car TEXT,
+                lap_time_ms INTEGER,
+                valid INTEGER DEFAULT 1,
+                suspect INTEGER DEFAULT 0,
+                billing_session_id TEXT,
+                validity TEXT DEFAULT 'valid',
+                created_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create laps");
+
+        for (id, name, nick, show) in [
+            ("d1", "Alice", None, 0),
+            ("d2", "Bob", Some("Speedy"), 1),
+        ] {
+            sqlx::query("INSERT INTO drivers (id, name, nickname, show_nickname_on_leaderboard) VALUES (?, ?, ?, ?)")
+                .bind(id)
+                .bind(name)
+                .bind(nick)
+                .bind(show)
+                .execute(&pool)
+                .await
+                .expect("insert driver");
+        }
+
+        // (id, driver, sim, track, car, ms, valid, suspect, billing_session, created_at)
+        let laps: &[(&str, &str, &str, &str, &str, i64, i64, i64, Option<&str>, &str)] = &[
+            // d1 two AC laps — best is monza/lambo 88_000.
+            ("l1", "d1", "assettocorsa", "spa", "ks_ferrari_488_gt3", 90_000, 1, 0, Some("b1"), "2026-06-01 10:00:00"),
+            ("l2", "d1", "assettocorsa", "monza", "ks_lamborghini_huracan_gt3", 88_000, 1, 0, Some("b2"), "2026-06-01 11:00:00"),
+            // d2 best AC lap — fastest overall, 85_000.
+            ("l3", "d2", "assettocorsa", "spa", "ks_ferrari_488_gt3", 85_000, 1, 0, Some("b3"), "2026-06-01 12:00:00"),
+            // EXCLUDED: F1 25 lap (wrong sim_type) even though faster.
+            ("l4", "d1", "f125", "monza", "ferrari_sf25", 80_000, 1, 0, Some("b4"), "2026-06-01 13:00:00"),
+            // EXCLUDED: unbilled AC lap (would be fastest) — UX-04.
+            ("l5", "d2", "assettocorsa", "spa", "ks_ferrari_488_gt3", 70_000, 1, 0, None, "2026-06-01 14:00:00"),
+            // EXCLUDED: suspect AC lap — integrity filter.
+            ("l6", "d1", "assettocorsa", "spa", "ks_ferrari_488_gt3", 60_000, 1, 1, Some("b6"), "2026-06-01 15:00:00"),
+            // EXCLUDED: invalid AC lap.
+            ("l7", "d2", "assettocorsa", "spa", "ks_ferrari_488_gt3", 50_000, 0, 0, Some("b7"), "2026-06-01 16:00:00"),
+        ];
+        for (id, drv, sim, track, car, ms, valid, suspect, bill, created) in laps {
+            sqlx::query(
+                "INSERT INTO laps (id, driver_id, sim_type, track, car, lap_time_ms, valid, suspect, billing_session_id, validity, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)",
+            )
+            .bind(id)
+            .bind(drv)
+            .bind(sim)
+            .bind(track)
+            .bind(car)
+            .bind(ms)
+            .bind(valid)
+            .bind(suspect)
+            .bind(*bill)
+            .bind(created)
+            .execute(&pool)
+            .await
+            .expect("insert lap");
+        }
+
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher))
+    }
+
+    #[tokio::test]
+    async fn cross_venue_leaderboard_closed_shape_and_filters() {
+        let state = seed_state().await;
+        let expected_home = normalize_venue_slug(&state.config.venue.venue_id);
+        assert!(
+            is_valid_home_venue_slug(&expected_home),
+            "test venue_id must normalize to a valid slug: {expected_home}"
+        );
+
+        let Json(value) = cross_venue_leaderboard(State(state.clone())).await;
+        let arr = value.as_array().expect("response is a JSON array");
+
+        // Only the 2 billing-verified AC drivers survive the integrity filters.
+        assert_eq!(arr.len(), 2, "got {arr:?}");
+
+        // Fastest first: Bob (85_000) then Alice (88_000, her monza best).
+        assert_eq!(arr[0]["lap_time_ms"], 85_000);
+        assert_eq!(arr[1]["lap_time_ms"], 88_000);
+
+        // Nickname shown for Bob (show flag + nickname); real name for Alice.
+        assert_eq!(arr[0]["display_name"], "Speedy");
+        assert_eq!(arr[1]["display_name"], "Alice");
+
+        // Best-per-driver dedup picked d1's monza/lambo lap, not her spa lap.
+        assert_eq!(arr[1]["track"], "monza");
+        assert_eq!(arr[1]["car"], "ks_lamborghini_huracan_gt3");
+
+        // Closed shape: EXACTLY the 6 contract fields — no driver_id / profile_id
+        // / position. An extra key here would 502 the captain-console BFF.
+        let expected_keys = ["display_name", "lap_time_ms", "car", "track", "posted_at", "home_venue_id"];
+        for entry in arr {
+            let obj = entry.as_object().expect("entry is an object");
+            assert_eq!(obj.len(), 6, "entry must have exactly 6 keys: {obj:?}");
+            for k in expected_keys {
+                assert!(obj.contains_key(k), "missing key {k} in {obj:?}");
+            }
+            for leaked in ["driver_id", "profile_id", "household_id", "position", "phone"] {
+                assert!(!obj.contains_key(leaked), "PII/extra key {leaked} leaked: {obj:?}");
+            }
+            assert_eq!(obj["home_venue_id"], Value::String(expected_home.clone()));
+            assert!(obj["posted_at"].as_i64().expect("posted_at int") >= 0);
+            assert!(obj["lap_time_ms"].as_i64().expect("lap_time int") > 0);
+        }
+
+        // No excluded lap time (80k F1, 70k unbilled, 60k suspect, 50k invalid) appears.
+        for excluded in [80_000_i64, 70_000, 60_000, 50_000] {
+            assert!(
+                !arr.iter().any(|e| e["lap_time_ms"].as_i64() == Some(excluded)),
+                "excluded lap {excluded} leaked into leaderboard"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cross_venue_leaderboard_empty_is_empty_array() {
+        // No laps at all → a bare `[]`, which the BFF renders as an empty board.
+        let config = crate::config::Config::default_test();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("pool");
+        sqlx::query("CREATE TABLE drivers (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, show_nickname_on_leaderboard INTEGER DEFAULT 0)")
+            .execute(&pool).await.expect("drivers");
+        sqlx::query("CREATE TABLE laps (id TEXT PRIMARY KEY, driver_id TEXT, sim_type TEXT, track TEXT, car TEXT, lap_time_ms INTEGER, valid INTEGER DEFAULT 1, suspect INTEGER DEFAULT 0, billing_session_id TEXT, validity TEXT DEFAULT 'valid', created_at TEXT)")
+            .execute(&pool).await.expect("laps");
+        let field_cipher = crate::crypto::encryption::test_field_cipher();
+        let state = Arc::new(AppState::new_with_test_v2db(config, pool, field_cipher));
+
+        let Json(value) = cross_venue_leaderboard(State(state)).await;
+        assert_eq!(value, Value::Array(vec![]));
+    }
+}
