@@ -98,11 +98,18 @@ Runbooks: `.bono-staging/RUNBOOK-FIRST-INR-GATES-INDEX-20260603.md` · `RUNBOOK-
 *Merged:* #22 durable wallet `27eb7923` · #29 incident store `f7f1fdcc` · #18/#19 OTP `92d5950`/`d47b4d3` · #13/#14 contracts `46e683`/`7e0b976` · #20/#30/#31/#32/#33 V3-UI+fixes · #6/#10/#11 console.
 **#21 = CLOSED** (squash-subsumed by #22; lacks the fixes — do not reopen).
 
-### 1E. ❄️ FROZEN to V2.1+ (do not build until both surfaces pass)
+### 1E. Scope-freeze status (updated — Captain `/goal` unfreeze 2026-06-04)
 
-Multiplayer green-light trio · AC-MP lobby polish · pod-display error-display states (server-lost/updating/crash-relaunch) · telemetry/leaderboards · customer-email scope (WhatsApp + in-app only for V2.0) · V1 decommissioning · multi-tenant control plane · Console V2+ (Releases/Deploy Ring6, Billing Ring7, brand-pack).
+**⚠️ UNFROZEN 2026-06-04 (Captain `/goal`) → now an in-flight V2.1 integration program** (substrate-grounded plan in `.claude/plans/`; most items already have partial code):
+- **Multiplayer racing** — `lobby.rs` state-machine + `/lobbies` UI ~95% built; open unknown = AC-server-pool slot allocator.
+- **Pod-display error screens** (server-lost/updating/crash) — **Phase 1 server-lost SHIPPED → rp-v2-apps PR #34**; updating/OTA + crash-relaunch = Phase 2 (need heart `display_message` signal plumbing).
+- **Telemetry & leaderboards** — lap-persistence V1-mature; cross-venue contract/BFF/UI built, only the Rust endpoint pending; per-game leaderboards generalize from AC/F1.
 
-One Captain-granted EXCEPTION: a single full-UX pass (customer+staff workflow RCA) — `memory/project_customer_staff_workflow_rca_human_perspective_20260603.md`.
+> **Doctrine reconcile is Captain-owed:** `racecontrol/CLAUDE.md` scope-freeze text + a §S-N ratify-append still mark these frozen. This Index records the lift; the canonical doctrine update is Captain's.
+
+**❄️ STILL FROZEN (until first-INR passes):** customer-email scope (WhatsApp + in-app only for V2.0) · V1 decommissioning · **multi-tenant control plane** (so cross-venue leaderboards' `tenant_id` JWT slice stays frozen — single-venue ships, multi-venue defers) · Console V2+ (Releases/Deploy Ring6, Billing Ring7, brand-pack).
+
+One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+staff workflow RCA) — `memory/project_customer_staff_workflow_rca_human_perspective_20260603.md`. The grace-countdown asymmetry (PR #25, §1.5D) ships under this.
 
 ---
 
