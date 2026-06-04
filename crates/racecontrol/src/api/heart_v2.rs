@@ -497,14 +497,24 @@ impl HeartStore {
     /// `dispatch_launch_to_agent` call `normalize_pod_id`). The heart keys pods as
     /// `pod-N` (hyphen) — WITHOUT this normalization the diff (and the legacy
     /// green-light reconcile) silently never match (hyphen vs underscore).
-    pub fn live_sessions_normalized(&self) -> Vec<(String, String, SessionState, bool)> {
+    pub fn live_sessions_normalized(
+        &self,
+    ) -> Vec<(String, String, SessionState, bool, String)> {
         self.pods
             .values()
             .filter_map(|p| {
                 p.current_session.as_ref().map(|s| {
                     let norm = rc_common::pod_id::normalize_pod_id(&p.pod_id)
                         .unwrap_or_else(|_| p.pod_id.clone());
-                    (norm, s.id.clone(), s.state, s.green_light_at.is_some())
+                    // started_at (RFC3339) added for #11: the reconciler derives a
+                    // Loading session's age from it for the stale-Loading reaper.
+                    (
+                        norm,
+                        s.id.clone(),
+                        s.state,
+                        s.green_light_at.is_some(),
+                        s.started_at.clone(),
+                    )
                 })
             })
             .collect()
@@ -997,12 +1007,27 @@ fn tier_to_duration(_tier: &str) -> Option<u32> {
 const RECONCILE_STARTUP_GRACE: std::time::Duration = std::time::Duration::from_secs(120);
 const RECONCILE_SUSTAINED_ABSENCE: std::time::Duration = std::time::Duration::from_secs(900); // 15 min
 
+/// Gap #11: a `Loading` session (pre-green-light, pre-billing) whose launch task
+/// died between `launch_loading` and `promote`/`abandon` (a dropped/dead in-request
+/// task — NOT the heart-restart case, which rehydrate forces `Loading`→`Running`)
+/// strands the pod `Occupied` forever (future `launch_loading` ⇒ `PodNotEmpty`).
+/// Reap it after this TTL. MUST exceed the max legitimate `launch_loading`→`promote`
+/// window: dispatch verify (`default_verify_timeout` 30s AC / 60s other,
+/// `game_launcher_ops.rs`) + semaphore/retry/ACK + AC/Steam cold-start (30-120s).
+/// 600s ≈ 5× margin over the realistic worst case, and strictly BELOW
+/// `RECONCILE_SUSTAINED_ABSENCE` (900s) so the Loading arm stays the more-specific
+/// case. Reaping is BILLING-NEUTRAL (no green-light ⇒ the proxy never billed).
+const LOADING_STALE_TTL: std::time::Duration = std::time::Duration::from_secs(600); // 10 min
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReconcileAct {
     Promote,
     Crash,
     Exit,
     Abandon,
+    /// #11: reap a stale `Loading` session (age ≥ `LOADING_STALE_TTL`) via the
+    /// in-request abandon path (StopGame-before-fail_launch). Billing-neutral.
+    AbandonStale,
 }
 
 /// Pure per-session reconcile decision — unit-tested exhaustively so the
@@ -1021,6 +1046,9 @@ fn reconcile_act(
     real_launch: bool,
     session_state: SessionState,
     has_green_light: bool,
+    // #11: age of a `Loading` session (since `started_at`). `None` = unknown
+    // (parse failure) => never reaped. Only consulted for the stale-Loading arm.
+    loading_age: Option<std::time::Duration>,
 ) -> Option<ReconcileAct> {
     use rc_common::types::GameState;
     match agent_state {
@@ -1073,7 +1101,19 @@ fn reconcile_act(
                 None
             }
         }
-        _ => None, // healthy / Launching / loading-in-flight
+        // #11: a Loading session stuck past LOADING_STALE_TTL (dropped/dead launch
+        // task — the agent never reported Running, and the in-request abandon never
+        // ran). Reap it (billing-neutral: no green-light). Placed AFTER the
+        // Some(Running)=>Promote arm, so a slow launch the agent has CONFIRMED Running
+        // is promoted, not reaped. real_launch-gated (launch_loading is real-launch
+        // only; belt-and-suspenders preserves the flag-OFF ⇒ no-destructive invariant).
+        _ if real_launch
+            && session_state == SessionState::Loading
+            && loading_age.is_some_and(|age| age >= LOADING_STALE_TTL) =>
+        {
+            Some(ReconcileAct::AbandonStale)
+        }
+        _ => None, // healthy / Launching / loading-in-flight (within TTL)
     }
 }
 
@@ -1141,10 +1181,21 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
     // Diff the heart's live sessions (normalized pod) vs the agent view; decide every
     // transition via the pure `reconcile_act` WITHOUT holding the heart lock. Operate
     // by `sid` (a UUID) so pod-id key format is irrelevant past the match (DIAGNOSE D3).
-    let acts: Vec<(String, ReconcileAct)> = {
+    let acts: Vec<(String, String, ReconcileAct)> = {
         let live = state.heart.read().await.live_sessions_normalized();
         live.into_iter()
-            .filter_map(|(norm_pod, sid, st, has_gl)| {
+            .filter_map(|(norm_pod, sid, st, has_gl, started_at)| {
+                // #11: a Loading session's age, for the stale-Loading reaper arm.
+                // started_at is RFC3339 (now_iso); parse + diff vs now. A parse
+                // failure or a future timestamp (clock skew) ⇒ None ⇒ the arm holds
+                // (never reaps on bad data).
+                let loading_age = chrono::DateTime::parse_from_rfc3339(&started_at)
+                    .ok()
+                    .and_then(|t| {
+                        (chrono::Utc::now() - t.with_timezone(&chrono::Utc))
+                            .to_std()
+                            .ok()
+                    });
                 reconcile_act(
                     agent_view.get(&norm_pod).copied(),
                     connected.contains(&norm_pod),
@@ -1153,24 +1204,34 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
                     real_launch,
                     st,
                     has_gl,
+                    loading_age,
                 )
-                .map(|act| (sid, act))
+                .map(|act| (sid, norm_pod, act))
             })
             .collect()
     };
     if acts.is_empty() {
         return;
     }
-    // Apply under the write lock; mutators are idempotent so a TOCTOU between the
-    // read snapshot and this write (e.g. a concurrent proxy /end) is safe.
+    // Apply. The synchronous heart mutations (Promote/Crash/Exit/Abandon) run under
+    // ONE write lock; mutators are idempotent so a TOCTOU between the read snapshot
+    // and this write (e.g. a concurrent proxy /end) is safe. AbandonStale is the ONE
+    // act that must run OUTSIDE the lock (abandon_launch is async + needs &state —
+    // never hold heart.write() across .await), so it is collected here and applied in
+    // a SECOND pass below.
+    let mut stale: Vec<(String, String)> = Vec::new(); // (sid, pod_id)
     let results: Vec<(PodSession, Option<PodState>)> = {
         let mut heart = state.heart.write().await;
         acts.into_iter()
-            .filter_map(|(sid, act)| match act {
+            .filter_map(|(sid, pod_id, act)| match act {
                 ReconcileAct::Promote => heart.promote_to_running(&sid),
                 ReconcileAct::Crash => heart.mark_crashed(&sid),
                 ReconcileAct::Exit => heart.end(&sid, "game_exit"),
                 ReconcileAct::Abandon => heart.end(&sid, "agent_abandoned"),
+                ReconcileAct::AbandonStale => {
+                    stale.push((sid, pod_id));
+                    None
+                }
             })
             .collect()
     };
@@ -1178,6 +1239,19 @@ pub async fn reconcile_heart_green_light_once(state: &Arc<AppState>) {
         persist_session(&state.v2db, &sess).await;
         if let Some(s) = snap {
             let _ = state.heart_stream_tx.send(s);
+        }
+    }
+    // #11 second pass (out of the heart write lock): reap stale Loading sessions via
+    // the in-request abandon path (StopGame-before-fail_launch; billing-neutral — the
+    // session never had a green-light). abandon_launch persists + frees the pod.
+    for (sid, pod_id) in stale {
+        if let Some((sess, snap)) =
+            abandon_launch(state, &pod_id, &sid, "loading_stale_reaped").await
+        {
+            persist_session(&state.v2db, &sess).await;
+            if let Some(s) = snap {
+                let _ = state.heart_stream_tx.send(s);
+            }
         }
     }
 }
@@ -1414,45 +1488,69 @@ mod tests {
         let grace = RECONCILE_STARTUP_GRACE;
         let absent = RECONCILE_SUSTAINED_ABSENCE;
 
+        // NOTE: every call gains a trailing `loading_age` arg (#11). For the Running
+        // cases below it is `None` (inert — the stale-Loading arm only fires on Loading).
         // #3 — heart restart: empty agent_view, agent not yet reconnected, WITHIN the
         // startup grace → MUST hold the billed session (the mass-end-on-redeploy bug).
-        assert_eq!(reconcile_act(None, false, s(10), None, true, r, true), None,
+        assert_eq!(reconcile_act(None, false, s(10), None, true, r, true, None), None,
             "#3: must NOT end a billed session during the startup grace");
         // post-grace, agent connected, reports no game → genuine exit.
-        assert_eq!(reconcile_act(None, true, s(200), None, true, r, true), Some(ReconcileAct::Exit),
+        assert_eq!(reconcile_act(None, true, s(200), None, true, r, true, None), Some(ReconcileAct::Exit),
             "connected agent with no game = real exit");
         // #4 — post-grace, agent NOT connected, recently disconnected (transient blip) → hold.
-        assert_eq!(reconcile_act(None, false, s(3600), Some(s(10)), true, r, true), None,
+        assert_eq!(reconcile_act(None, false, s(3600), Some(s(10)), true, r, true, None), None,
             "#4: a transient WS blip must NOT end a billed session");
         // post-grace, agent NOT connected, disconnected ≥ sustained-absence → abandon.
-        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, r, true), Some(ReconcileAct::Abandon),
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, r, true, None), Some(ReconcileAct::Abandon),
             "sustained absence (dead pod) → abandon");
         // post-grace, never-connected pod, heart up ≥ sustained-absence → abandon.
-        assert_eq!(reconcile_act(None, false, absent, None, true, r, true), Some(ReconcileAct::Abandon),
+        assert_eq!(reconcile_act(None, false, absent, None, true, r, true, None), Some(ReconcileAct::Abandon),
             "never-seen pod after long uptime → abandon");
         // FLAG OFF: an absent agent_view is ALWAYS a no-op (no destructive action).
-        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), false, r, true), None,
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), false, r, true, None), None,
             "flag OFF: reconciler never ends a session");
         // grace boundary is exclusive-below: exactly at grace + connected + settled → exit.
-        assert_eq!(reconcile_act(None, true, grace, None, true, r, true), Some(ReconcileAct::Exit));
+        assert_eq!(reconcile_act(None, true, grace, None, true, r, true, None), Some(ReconcileAct::Exit));
         // MAOR ISSUE-1: connected snapshot but a RECENT disconnect stamp (WS flap /
         // stale snapshot) → HOLD, never end a billed session on a flapped agent.
-        assert_eq!(reconcile_act(None, true, s(3600), Some(s(10)), true, r, true), None,
+        assert_eq!(reconcile_act(None, true, s(3600), Some(s(10)), true, r, true, None), None,
             "ISSUE-1: connected-but-recently-flapped must hold, not Exit");
         // connected + the flap is old (reconnected & stable past the settle window) → exit.
-        assert_eq!(reconcile_act(None, true, s(3600), Some(grace), true, r, true), Some(ReconcileAct::Exit),
+        assert_eq!(reconcile_act(None, true, s(3600), Some(grace), true, r, true, None), Some(ReconcileAct::Exit),
             "a settled reconnected agent reporting no game = exit");
 
         // Non-destructive arms unchanged:
         // agent reports Running without green-light → promote (NOT flag-gated).
-        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, false, r, false), Some(ReconcileAct::Promote));
+        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, false, r, false, None), Some(ReconcileAct::Promote));
         // agent reports Error (flag ON) → crash (billing-neutral mark).
-        assert_eq!(reconcile_act(Some(GameState::Error), true, s(3600), None, true, r, true), Some(ReconcileAct::Crash));
+        assert_eq!(reconcile_act(Some(GameState::Error), true, s(3600), None, true, r, true, None), Some(ReconcileAct::Crash));
         // agent reports Running + already green-lit → no-op.
-        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, true, r, true), None);
-        // a Loading session (not Running) with absent agent_view → no-op (owned by launch_real).
-        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, SessionState::Loading, false), None,
-            "Loading session must not be ended by the reconciler");
+        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, true, r, true, None), None);
+        // a Loading session with NO age info (parse failure) → no-op (hold; never reap on bad data).
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, SessionState::Loading, false, None), None,
+            "Loading with unknown age must NOT be reaped");
+
+        // #11 — stale-Loading reaper (the dropped/dead launch-task case). Loading is
+        // pre-green-light/pre-billing, so AbandonStale is billing-neutral.
+        let stale = LOADING_STALE_TTL;
+        // Loading aged ≥ TTL, flag ON → reap.
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), true, SessionState::Loading, false, Some(stale)),
+            Some(ReconcileAct::AbandonStale),
+            "#11: a Loading session past LOADING_STALE_TTL with no promote must be reaped (billing-neutral)");
+        // Flag OFF → never reap (preserves flag-OFF ⇒ no-destructive invariant).
+        assert_eq!(reconcile_act(None, false, s(3600), Some(absent), false, SessionState::Loading, false, Some(stale)), None,
+            "#11: flag OFF — reconciler never reaps a Loading session");
+        // Slow-but-VALID launch UNDER the TTL → must NOT be reaped (no false reap of cold-start).
+        assert_eq!(reconcile_act(None, false, s(3600), None, true, SessionState::Loading, false, Some(stale - s(1))), None,
+            "#11: a slow launch under the TTL must NOT be reaped");
+        // TTL boundary is inclusive (≥).
+        assert_eq!(reconcile_act(None, false, s(3600), None, true, SessionState::Loading, false, Some(stale)),
+            Some(ReconcileAct::AbandonStale), "#11: TTL boundary is inclusive (≥)");
+        // A slow Loading launch the agent has CONFIRMED Running → PROMOTE, not reaped
+        // (the Promote arm wins; this is the load-bearing safety check).
+        assert_eq!(reconcile_act(Some(GameState::Running), true, s(3600), None, true, SessionState::Loading, false, Some(stale)),
+            Some(ReconcileAct::Promote),
+            "#11: a slow launch the agent confirmed Running is PROMOTED, never reaped");
     }
 
     #[test]
