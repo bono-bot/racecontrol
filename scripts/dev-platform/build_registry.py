@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-P1 readout generator for the dev-platform registry (DEV-PLATFORM-DESIGN.md §8, P1).
+P1 readout generator for the dev-platform registry (DEV-PLATFORM-DESIGN.md §8, P1/P2).
 
 Reads the P0 hand-maintained registry (apps.yaml + developments.yaml), runs the
 HOST-AVAILABLE probes live (gh CI status, gh open-PR count, git last-commit), and
@@ -9,8 +9,15 @@ renders a readout (REGISTRY.md + registry-live.json).
 Honesty rules (design §5 + capability-claim discipline):
   - Probe values are LIVE (run now), never projected. A failed probe records
     "unavailable: <reason>", never a guessed value.
+  - PROBE-PRESERVATION (P2): if a probe is unavailable this run BUT the prior
+    registry-live.json holds a real value, the prior value is carried forward and
+    flagged `stale` — so a partial run (e.g. a CI runner that only checked out one
+    repo) NEVER regresses the committed readout.
   - Venue/auth/CI-secret-gated probes (/api/v1/fleet/health, /fleet/intelligence,
-    check-parity, billing SQL) are NOT reachable from this host -> marked DEFERRED.
+    check-parity, billing SQL) are not reachable from a generic host -> DEFERRED.
+
+Repo roots: defaults to the Bono VPS layout; override with env DEVPLATFORM_REPO_ROOTS
+(JSON map repo->path), e.g. in CI: DEVPLATFORM_REPO_ROOTS='{"racecontrol":"."}'.
 
 Regenerate:  python3 scripts/dev-platform/build_registry.py
 """
@@ -20,12 +27,13 @@ from datetime import datetime, timezone, timedelta
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEC_DIR = os.path.abspath(os.path.join(HERE, "..", "..", ".planning", "specs", "dev-platform"))
 
-REPO_ROOTS = {
+_DEFAULT_ROOTS = {
     "racecontrol": "/root/racecontrol",
     "rp-v2-apps": "/root/rp-v2-apps",
     "racingpoint-cloud-dashboard": "/root/racingpoint-cloud-dashboard",
     "racingpoint-api-gateway": "/root/racingpoint-api-gateway",
 }
+REPO_ROOTS = json.loads(os.environ["DEVPLATFORM_REPO_ROOTS"]) if os.environ.get("DEVPLATFORM_REPO_ROOTS") else _DEFAULT_ROOTS
 
 # Venue/auth-gated probes we deliberately defer (cannot run honestly from this host)
 DEFERRED_PROBES = [
@@ -113,12 +121,24 @@ def load(name):
         return yaml.safe_load(f)
 
 
+def load_prior():
+    p = os.path.join(SPEC_DIR, "registry-live.json")
+    if os.path.isfile(p):
+        try:
+            return json.load(open(p))
+        except Exception:
+            return {}
+    return {}
+
+
 def main():
     apps_doc = load("apps.yaml")
     devs_doc = load("developments.yaml")
     apps = apps_doc["apps"]
     devs = devs_doc["developments"]
-    dev_by_id = {d["id"]: d for d in devs}
+
+    prior = load_prior()
+    prior_apps = {a["id"]: a for a in prior.get("apps", [])}
 
     now = datetime.now(timezone.utc)
     ist = now + timedelta(hours=5, minutes=30)
@@ -126,7 +146,6 @@ def main():
            "generated_at_ist": ist.strftime("%Y-%m-%d %H:%M IST"),
            "host": socket.gethostname()}
 
-    # enrich apps with live probes
     live_apps = []
     for a in apps:
         ci = repo_ci(a["repo"])
@@ -138,26 +157,38 @@ def main():
             "active_developments": a.get("active_developments", []),
             "candidate": a.get("candidate", False),
         }
+        # PROBE-PRESERVATION: carry forward prior values for unavailable probes
+        p = prior_apps.get(a["id"], {})
+        stale = []
+        if rec["repo_ci"].get("status") == "unavailable" and p.get("repo_ci", {}).get("conclusion") is not None:
+            rec["repo_ci"] = {**p["repo_ci"], "stale": True}
+            stale.append("ci")
+        if rec["repo_open_prs"] is None and isinstance(p.get("repo_open_prs"), int):
+            rec["repo_open_prs"] = p["repo_open_prs"]
+            stale.append("open_prs")
+        if rec["last_commit"] is None and p.get("last_commit"):
+            rec["last_commit"] = p["last_commit"]
+            stale.append("last_commit")
+        rec["stale_fields"] = stale
         live_apps.append(rec)
 
     out = {"meta": gen, "apps": live_apps, "developments": devs, "deferred_probes": DEFERRED_PROBES}
     with open(os.path.join(SPEC_DIR, "registry-live.json"), "w") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)
 
-    # render REGISTRY.md
+    any_stale = any(r["stale_fields"] for r in live_apps)
     L = []
-    L.append("# REGISTRY — Dev-Platform live readout (P1, GENERATED)")
+    L.append("# REGISTRY — Dev-Platform live readout (P1/P2, GENERATED)")
     L.append("")
-    L.append(f"> **GENERATED FILE — do not hand-edit.** Regenerate: `python3 scripts/dev-platform/build_registry.py`")
+    L.append("> **GENERATED FILE — do not hand-edit.** Regenerate: `python3 scripts/dev-platform/build_registry.py`")
     L.append(f"> **Generated:** {gen['generated_at_ist']} (UTC {gen['generated_at_utc']}) on `{gen['host']}` · "
-             f"P1 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.")
-    L.append(f"> **Source registries (hand-maintained):** [`apps.yaml`](./apps.yaml) · [`developments.yaml`](./developments.yaml). "
-             f"Probe values below are LIVE; failures show `unavailable`; venue/auth probes are DEFERRED (see end).")
+             f"P1/P2 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.")
+    L.append("> **Source registries (hand-maintained):** [`apps.yaml`](./apps.yaml) · [`developments.yaml`](./developments.yaml). "
+             "Probe values are LIVE; failures show `unavailable`; `*` = carried-forward (not re-probed this run); venue/auth probes DEFERRED (end).")
     L.append("")
     L.append(f"**Portfolio:** {len(apps)} product apps · {len(devs)} DMADV developments "
              f"({sum(1 for d in devs if d['freeze_status']=='frozen')} frozen).")
     L.append("")
-    # Apps table
     L.append("## Applications (live probes)")
     L.append("")
     L.append("| App | Line | Last commit | CI (latest) | Repo open PRs | Active devs |")
@@ -167,14 +198,18 @@ def main():
         ci_txt = ci.get("conclusion") or ci.get("status") or "—"
         if ci.get("reason"):
             ci_txt = f"{ci_txt} ({ci['reason']})"
+        st = set(r.get("stale_fields", []))
+        mark = lambda v, key: f"{v}*" if key in st else v
         prs = "—" if r["repo_open_prs"] is None else str(r["repo_open_prs"])
         lc = r["last_commit"] or "—"
         cand = " *(candidate)*" if r["candidate"] else ""
-        L.append(f"| `{r['id']}`{cand} | {r['product_line']} | {lc} | {ci_txt} | {prs} | {len(r['active_developments'])} |")
+        L.append(f"| `{r['id']}`{cand} | {r['product_line']} | {mark(lc,'last_commit')} | "
+                 f"{mark(ci_txt,'ci')} | {mark(prs,'open_prs')} | {len(r['active_developments'])} |")
     L.append("")
     L.append("*CI/open-PRs are repo-level (monorepo single pipeline) attributed to each app in that repo.*")
+    if any_stale:
+        L.append("`*` = carried-forward from a prior run (this run could not probe that repo — e.g. not checked out in CI). Full live refresh runs on the Bono VPS.")
     L.append("")
-    # Developments DMADV board
     L.append("## Developments — DMADV board")
     L.append("")
     L.append("| Development | D | M | A | Des | V | Current phase | Freeze |")
@@ -187,7 +222,6 @@ def main():
     L.append("")
     L.append("Legend: ✅ done · 🟡 in-phase · 🔴 not-started · ⛔ gated · ❄️ frozen.")
     L.append("")
-    # Deferred probes
     L.append("## Deferred probes (not runnable from this host — design §5 🟠/🔴)")
     L.append("")
     L.append("| Metric | Source | Why deferred |")
@@ -195,15 +229,14 @@ def main():
     for metric, src, why in DEFERRED_PROBES:
         L.append(f"| {metric} | `{src}` | {why} |")
     L.append("")
-    L.append("These land when P1 runs from a venue-reachable/authed context (or P2 automation wires CI secrets + a venue probe relay).")
+    L.append("These land when run from a venue-reachable/authed context (or P2+ wires CI secrets + a venue probe relay).")
     L.append("")
 
     with open(os.path.join(SPEC_DIR, "REGISTRY.md"), "w") as f:
         f.write("\n".join(L) + "\n")
 
     print(f"OK: wrote REGISTRY.md + registry-live.json to {SPEC_DIR}")
-    print(f"apps={len(apps)} developments={len(devs)} generated={gen['generated_at_ist']}")
-    # surface probe availability summary
+    print(f"apps={len(apps)} developments={len(devs)} generated={gen['generated_at_ist']} stale_carried={any_stale}")
     for repo in sorted({a['repo'] for a in apps}):
         ci = repo_ci(repo); prs = repo_open_prs(repo)
         print(f"  repo {repo}: ci={ci.get('conclusion') or ci.get('status')} open_prs={prs}")

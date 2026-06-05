@@ -1,7 +1,7 @@
 {
   "meta": {
-    "generated_at_utc": "2026-06-04T20:07:33Z",
-    "generated_at_ist": "2026-06-05 01:37 IST",
+    "generated_at_utc": "2026-06-05T10:55:05Z",
+    "generated_at_ist": "2026-06-05 16:25 IST",
     "host": "srv1422716"
   },
   "apps": [
@@ -16,14 +16,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-multi-tenant-control-plane",
         "dev-console-v2"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "pod-display",
@@ -36,14 +37,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-pod-display-error-screens",
         "dev-grace-countdown-symmetry"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "pos",
@@ -56,14 +58,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-walk-in-registration",
         "dev-refund-adjust-ui"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "pos130",
@@ -76,11 +79,12 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "staff-tablet",
@@ -93,14 +97,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-grace-countdown-symmetry",
         "dev-incident-resolve-ui"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "kiosk",
@@ -113,11 +118,12 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "pwa",
@@ -130,14 +136,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-customer-email-messaging",
         "dev-walk-in-registration"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "launch-portal",
@@ -150,13 +157,14 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-multiplayer-racing"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "chef-display",
@@ -169,11 +177,12 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "captain-console",
@@ -186,14 +195,15 @@
         "status": "completed",
         "conclusion": "failure",
         "workflow": "proxy-core integration",
-        "branch": "replit/coordinator"
+        "branch": "feat/wallet-staff-user-id-ledger"
       },
-      "repo_open_prs": 15,
+      "repo_open_prs": 17,
       "active_developments": [
         "dev-incident-resolve-ui",
         "dev-refund-adjust-ui"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "racecontrol-heart",
@@ -203,12 +213,12 @@
       "path": "crates/racecontrol",
       "last_commit": "2026-06-04",
       "repo_ci": {
-        "status": "in_progress",
-        "conclusion": "",
-        "workflow": "Quality Gate",
-        "branch": "docs/dev-platform-design"
+        "status": "completed",
+        "conclusion": "failure",
+        "workflow": "Deploy to VPS",
+        "branch": "main"
       },
-      "repo_open_prs": 20,
+      "repo_open_prs": 19,
       "active_developments": [
         "dev-multiplayer-racing",
         "dev-cross-venue-leaderboard",
@@ -218,7 +228,8 @@
         "dev-customer-email-messaging",
         "dev-v1-decommission"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "rc-agent",
@@ -228,16 +239,17 @@
       "path": "crates/rc-agent",
       "last_commit": "2026-05-12",
       "repo_ci": {
-        "status": "in_progress",
-        "conclusion": "",
-        "workflow": "Quality Gate",
-        "branch": "docs/dev-platform-design"
+        "status": "completed",
+        "conclusion": "failure",
+        "workflow": "Deploy to VPS",
+        "branch": "main"
       },
-      "repo_open_prs": 20,
+      "repo_open_prs": 19,
       "active_developments": [
         "dev-multiplayer-racing"
       ],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "rc-installer",
@@ -247,14 +259,15 @@
       "path": "crates/rc-installer",
       "last_commit": "2026-05-31",
       "repo_ci": {
-        "status": "in_progress",
-        "conclusion": "",
-        "workflow": "Quality Gate",
-        "branch": "docs/dev-platform-design"
+        "status": "completed",
+        "conclusion": "failure",
+        "workflow": "Deploy to VPS",
+        "branch": "main"
       },
-      "repo_open_prs": 20,
+      "repo_open_prs": 19,
       "active_developments": [],
-      "candidate": false
+      "candidate": false,
+      "stale_fields": []
     },
     {
       "id": "cloud-dashboard",
@@ -268,7 +281,8 @@
       },
       "repo_open_prs": 0,
       "active_developments": [],
-      "candidate": true
+      "candidate": true,
+      "stale_fields": []
     },
     {
       "id": "api-gateway",
@@ -282,7 +296,8 @@
       },
       "repo_open_prs": 0,
       "active_developments": [],
-      "candidate": true
+      "candidate": true,
+      "stale_fields": []
     }
   ],
   "developments": [

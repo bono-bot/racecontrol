@@ -1,0 +1,70 @@
+# Dev-platform registry refresh (P2 of DEV-PLATFORM-DESIGN.md §8, Option A: GH Action -> refresh PR)
+# Regenerates the P1 readout (REGISTRY.md + registry-live.json) and opens/updates a single
+# rolling refresh PR when MEANINGFUL signals change. Does NOT auto-commit to main (no §10.5 gate).
+#
+# Scope note: a GH runner only checks out THIS repo (racecontrol). The generator's probe-preservation
+# carries forward prior values for repos it cannot probe here (rp-v2-apps / cloud / venue) so this run
+# never regresses the committed readout. A full live refresh (all repos + tailnet) runs on the Bono VPS.
+name: dev-platform-refresh
+
+on:
+  schedule:
+    - cron: "37 19 * * *"   # 19:37 UTC = 01:07 IST, nightly
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dev-platform-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DEVPLATFORM_REPO_ROOTS: '{"racecontrol": "."}'
+    steps:
+      - name: Checkout racecontrol
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install deps
+        run: pip install --quiet pyyaml
+
+      - name: Regenerate readout
+        run: python3 scripts/dev-platform/build_registry.py
+
+      - name: Open/update refresh PR on meaningful change
+        run: |
+          set -euo pipefail
+          FILES=".planning/specs/dev-platform/REGISTRY.md .planning/specs/dev-platform/registry-live.json"
+          # Ignore timestamp-only churn: -I treats hunks whose changed lines all match as unchanged.
+          if git diff -I 'generated_at' -I 'Generated:' --quiet -- $FILES; then
+            echo "No meaningful change (timestamp-only or none) — skipping PR."
+            git checkout -- $FILES || true
+            exit 0
+          fi
+          BRANCH="chore/dev-platform-refresh"
+          git config user.name "dev-platform-bot"
+          git config user.email "bono@racingpoint.in"
+          git checkout -B "$BRANCH"
+          git add $FILES
+          git commit -m "chore(dev-platform): registry readout refresh [skip ci]"
+          git push --force-with-lease origin "$BRANCH"
+          existing="$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number' || true)"
+          if [ -n "$existing" ]; then
+            echo "Refresh PR #$existing already open — branch updated."
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore(dev-platform): registry readout refresh" \
+              --body "Automated P1 readout refresh (REGISTRY.md + registry-live.json) by the dev-platform-refresh workflow. CI-resident signals are live; cross-repo/venue values are carried-forward (marked \`*\`). Full live refresh runs on the Bono VPS. Review + merge to land."
+          fi
