@@ -1,8 +1,8 @@
-# REGISTRY — Dev-Platform live readout (P1, GENERATED)
+# REGISTRY — Dev-Platform live readout (P1/P2, GENERATED)
 
 > **GENERATED FILE — do not hand-edit.** Regenerate: `python3 scripts/dev-platform/build_registry.py`
-> **Generated:** 2026-06-05 01:37 IST (UTC 2026-06-04T20:07:33Z) on `srv1422716` · P1 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.
-> **Source registries (hand-maintained):** [`apps.yaml`](./apps.yaml) · [`developments.yaml`](./developments.yaml). Probe values below are LIVE; failures show `unavailable`; venue/auth probes are DEFERRED (see end).
+> **Generated:** 2026-06-05 16:25 IST (UTC 2026-06-05T10:55:05Z) on `srv1422716` · P1/P2 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.
+> **Source registries (hand-maintained):** [`apps.yaml`](./apps.yaml) · [`developments.yaml`](./developments.yaml). Probe values are LIVE; failures show `unavailable`; `*` = carried-forward (not re-probed this run); venue/auth probes DEFERRED (end).
 
 **Portfolio:** 15 product apps · 12 DMADV developments (7 frozen).
 
@@ -10,19 +10,19 @@
 
 | App | Line | Last commit | CI (latest) | Repo open PRs | Active devs |
 |---|---|---|---|---|---|
-| `racecontrol-console` | A | 2026-06-01 | failure | 15 | 2 |
-| `pod-display` | B | 2026-05-29 | failure | 15 | 2 |
-| `pos` | B | 2026-05-29 | failure | 15 | 2 |
-| `pos130` | B | 2026-05-29 | failure | 15 | 0 |
-| `staff-tablet` | B | 2026-05-29 | failure | 15 | 2 |
-| `kiosk` | B | 2026-05-29 | failure | 15 | 0 |
-| `pwa` | B | 2026-05-29 | failure | 15 | 2 |
-| `launch-portal` | B | 2026-05-29 | failure | 15 | 1 |
-| `chef-display` | B | 2026-05-29 | failure | 15 | 0 |
-| `captain-console` | B | 2026-06-01 | failure | 15 | 2 |
-| `racecontrol-heart` | B | 2026-06-04 | in_progress | 20 | 7 |
-| `rc-agent` | B | 2026-05-12 | in_progress | 20 | 1 |
-| `rc-installer` | B | 2026-05-31 | in_progress | 20 | 0 |
+| `racecontrol-console` | A | 2026-06-01 | failure | 17 | 2 |
+| `pod-display` | B | 2026-05-29 | failure | 17 | 2 |
+| `pos` | B | 2026-05-29 | failure | 17 | 2 |
+| `pos130` | B | 2026-05-29 | failure | 17 | 0 |
+| `staff-tablet` | B | 2026-05-29 | failure | 17 | 2 |
+| `kiosk` | B | 2026-05-29 | failure | 17 | 0 |
+| `pwa` | B | 2026-05-29 | failure | 17 | 2 |
+| `launch-portal` | B | 2026-05-29 | failure | 17 | 1 |
+| `chef-display` | B | 2026-05-29 | failure | 17 | 0 |
+| `captain-console` | B | 2026-06-01 | failure | 17 | 2 |
+| `racecontrol-heart` | B | 2026-06-04 | failure | 19 | 7 |
+| `rc-agent` | B | 2026-05-12 | failure | 19 | 1 |
+| `rc-installer` | B | 2026-05-31 | failure | 19 | 0 |
 | `cloud-dashboard` *(candidate)* | C | — | no-runs | 0 | 0 |
 | `api-gateway` *(candidate)* | C | — | no-runs | 0 | 0 |
 
@@ -57,5 +57,5 @@ Legend: ✅ done · 🟡 in-phase · 🔴 not-started · ⛔ gated · ❄️ fro
 | revenue / session success | `billing_sessions SQL` | venue/cloud DB + auth |
 | code coverage % | `(not instrumented)` | no nyc/tarpaulin in CI yet |
 
-These land when P1 runs from a venue-reachable/authed context (or P2 automation wires CI secrets + a venue probe relay).
+These land when run from a venue-reachable/authed context (or P2+ wires CI secrets + a venue probe relay).
 
