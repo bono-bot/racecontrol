@@ -210,6 +210,11 @@ pub struct LockScreenConfig {
     /// Only enable for venues that let customers scan/enter a PIN to start their own session.
     #[serde(default)]
     pub customer_self_service_mode: bool,
+    /// WEB-IDLE (RCA-webidle-blank-screen-20260606): when true, the pod idles on the V2.0
+    /// pod-display web design (black GDI floor + centered web pane) instead of the native blank.
+    /// Default false → native animated blank (zero behavior change). Enable per-pod for the canary.
+    #[serde(default)]
+    pub web_idle: bool,
 }
 
 impl Default for LockScreenConfig {
@@ -217,6 +222,7 @@ impl Default for LockScreenConfig {
         Self {
             enabled: true,
             customer_self_service_mode: false,
+            web_idle: false,
         }
     }
 }

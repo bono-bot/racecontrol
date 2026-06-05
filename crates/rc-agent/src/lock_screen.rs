@@ -186,6 +186,10 @@ pub struct LockScreenManager {
     /// When true, the pod idles on an empty PIN pad for customer self-service entry.
     /// Racing Point venue uses staff-initiated billing — leave false.
     customer_self_service_mode: bool,
+    /// WEB-IDLE (RCA-webidle-blank-screen-20260606): when true, the pod idles on the V2.0
+    /// pod-display web design (black GDI floor + centered web pane) instead of the native blank.
+    /// Default false → native blank (zero behavior change). Launcher lands in the build-on-.27 pass.
+    web_idle: bool,
     /// BILL-02: Current countdown warning state. Served via /countdown-warning endpoint.
     /// None = no warning displayed. The HTTP server reads this on each request.
     pub(crate) countdown_warning: Arc<Mutex<Option<CountdownWarningState>>>,
@@ -203,6 +207,7 @@ impl LockScreenManager {
             safe_mode_active: Arc::new(AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
         }
     }
 
@@ -229,6 +234,17 @@ impl LockScreenManager {
         );
     }
 
+    /// WEB-IDLE: when true, `show_idle_state()` uses the V2.0 pod-display web Idle page as the
+    /// default blanking screen (Option (c): black GDI floor + persistent centered web pane).
+    /// Default false. Wire from AgentConfig.lock_screen.web_idle in main.rs.
+    /// See racecontrol/.planning/specs/v2/RCA-webidle-blank-screen-20260606.md.
+    pub fn set_web_idle(&mut self, enabled: bool) {
+        self.web_idle = enabled;
+        if enabled {
+            tracing::info!(target: LOG_TARGET, "WEB-IDLE enabled — pod idles on the V2.0 pod-display web design (floor + web pane)");
+        }
+    }
+
     /// Show the correct idle state for this venue configuration.
     /// - `customer_self_service_mode = false` (default): animated blank screen.
     /// - `customer_self_service_mode = true`: empty PIN pad for customer self-service.
@@ -236,6 +252,15 @@ impl LockScreenManager {
     pub fn show_idle_state(&mut self) {
         if self.customer_self_service_mode {
             self.show_idle_pin_entry();
+        } else if self.web_idle {
+            // WEB-IDLE (RCA-webidle-blank-screen-20260606; MMA 4/4 → Option (c)):
+            // the always-present native black window is the FLOOR (full virtual desktop, never the
+            // Windows desktop); the centered persistent Edge-kiosk-in-JobObject web pane is launched
+            // by the web_idle launcher (build-on-.27 pass). Until the launcher lands this paints the
+            // black floor — the correct fail-safe (Option (c) floor). web_idle defaults OFF, so this
+            // branch is inert in production until enabled per-pod for the pod-8 canary.
+            tracing::info!(target: LOG_TARGET, "web_idle: painting black floor (web pane launcher pending — RCA-webidle-blank-screen-20260606)");
+            self.show_blank_screen();
         } else {
             self.show_blank_screen();
         }
@@ -1070,6 +1095,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
 
@@ -1091,6 +1117,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
 
@@ -1112,6 +1139,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "StartupConnecting must be treated as idle");
@@ -1182,6 +1210,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         assert!(manager.is_idle_or_blanked(), "MaintenanceRequired must be treated as idle");
@@ -1223,6 +1252,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         // Should not panic — no native_window, this is a no-op
@@ -1241,6 +1271,7 @@ mod tests {
             safe_mode_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             browser_disabled: false,
             customer_self_service_mode: false,
+            web_idle: false,
             countdown_warning: std::sync::Arc::new(std::sync::Mutex::new(None)),
         };
         manager.close_browser();

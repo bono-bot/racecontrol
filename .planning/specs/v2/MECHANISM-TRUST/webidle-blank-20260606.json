@@ -1,0 +1,59 @@
+{
+  "surface": "rc-agent web-idle blank screen (pod-display Idle V2.0 as default blanking screen)",
+  "date": "2026-06-06",
+  "author": "bono",
+  "validity_days": 30,
+  "trigger": "Captain /goal 2026-06-06: replace the pod blank/idle screen with the new pod-display Idle (V2.0) web design, complete replacement, no overlap. Foundational pod-state-channel change -> mechanism-trust-check upstream of the 5-section RCA (CLAUDE.md doctrine).",
+  "shared_infrastructure_under_test": [
+    "rc-agent browser process launch + supervision (Edge --kiosk / WebView2) in Session 1",
+    "SSE transport pod-display -> admin-proxy(.23:3211) -> heart (live Idle/wallet state)",
+    "native GDI lock-screen window (fallback floor + multi-monitor coverage)",
+    "idle<->game state machine supervision (BillingStarted/SessionEnded) + process-guard allowlist + rc-agent fleet delivery"
+  ],
+  "questions": [
+    {
+      "q": 1,
+      "name": "atomic primitives?",
+      "verdict": "FAIL (design-gap)",
+      "evidence": "Today show_blank_screen() (lock_screen.rs:571) sets state=ScreenBlanked AFTER a window_alive check but the v1 Edge path was non-atomic: state was set even when launch_browser() silently failed (edge_process_count=0 while state=blanked). There is no atomic 'browser-rendered -> set web-idle state' primitive, nor an atomic 'browser-confirmed-dead -> launch AC' primitive.",
+      "rca_requirement": "RCA must specify atomic transitions: (a) do NOT enter web-idle state until the browser confirms it has rendered the Idle page; (b) do NOT launch AC until the browser is confirmed fully closed/hidden. Single critical section per transition."
+    },
+    {
+      "q": 2,
+      "name": "TTL-bounded sentinels integrated with the atomic primitive?",
+      "verdict": "FAIL (design-gap)",
+      "evidence": "The v1 failure was an untimed/stuck state (no TTL on browser liveness). A persistent browser needs a TTL-bounded behavioral heartbeat that, on expiry, deterministically falls back to the native black floor.",
+      "rca_requirement": "RCA must define a TTL heartbeat (poll browser/pod-display render-health every N s; if no render confirmation within TTL -> native GDI black floor + log). The sentinel must be integrated with the state primitive (Q1), not a free-floating flag."
+    },
+    {
+      "q": 3,
+      "name": "behavioral-verify success (not echo-string)?",
+      "verdict": "FAIL (must be designed)",
+      "evidence": "The canonical v1 anti-pattern here: '.spawn().is_ok()' / state=blanked is an echo-string success, NOT proof the browser is rendering. CLAUDE.md standing rule: verify edge_process_count>0 / actual render, behavioral not proxy.",
+      "rca_requirement": "Behavioral verify REQUIRED: WebView2 NavigationCompleted event OR heart /api/v1/fleet/health `displays` registration for pod-N OR a localhost render-confirmation — NOT spawn-Ok. Visual on-screen check (doctrine) before fleet ship."
+    },
+    {
+      "q": 4,
+      "name": "single-target dry-run path?",
+      "verdict": "PASS",
+      "evidence": "The rc-agent fleet rollout has a proven pod-8 canary path: native build on .27 over SSH, sha-verified per-pod, rollback rc-agent-prev.exe preserved, heart fleet/health re-verify. Single-target dry-run exists.",
+      "rca_requirement": "Use pod-8 canary first; visual-verify the screen; only then fleet 1-7."
+    },
+    {
+      "q": 5,
+      "name": "guards have written contracts with the delivery script (parser-not-regex + allowlist)?",
+      "verdict": "FAIL (design-gap)",
+      "evidence": "The pod process-guard allowlist does NOT currently include the browser exe (msedge.exe / WebView2). v1 anchor: an empty/mismatched guard allowlist flagged/killed processes fleet-wide (28,749 false violations/day). A browser blank screen the guard does not allowlist will be flagged or killed.",
+      "rca_requirement": "Add the browser process to the pod process-guard allowlist (/api/v1/guard/whitelist/pod-N) as part of the change; verify first-run flag count after enabling. Delivery via the established rc-agent fleet path (rc-sentry /exec atomic swap), bat-file sync included."
+    }
+  ],
+  "overall_verdict": "FAIL (4 of 5 FAIL) -> surface REQUIRES its own 5-section RCA before the fix proceeds (exactly the doctrine path; RCA in progress this session).",
+  "design_guarantees_the_rca_must_engineer": [
+    "Atomic browser-rendered->state and browser-dead->AC transitions (Q1)",
+    "TTL behavioral heartbeat with native-black fallback floor (Q2)",
+    "Behavioral render-verify via WebView2 NavigationCompleted / heart displays, never spawn-Ok (Q3)",
+    "pod-8 canary + on-screen visual verify before fleet (Q4)",
+    "Process-guard allowlist contract for the browser exe + fleet delivery hygiene (Q5)"
+  ],
+  "composes_with": "feedback_mechanism_trust_check_upstream_of_fix_rca_20260510.md; CLAUDE.md V1-dependent-V2 RCA gate; CLAUDE.md 'Visual verification for display-affecting deploys'; the v17.0 flicker + 2026-03-26 blanking-broken anchors."
+}

@@ -1173,6 +1173,11 @@ async fn main() -> Result<()> {
     // Default false → idle state shows animated blank screen (Racing Point venue).
     // Set true in TOML only for venues that let customers enter PINs to start sessions.
     lock_screen.set_customer_self_service_mode(config.lock_screen.customer_self_service_mode);
+    // WEB-IDLE: Wire web_idle from config. Default false → native blank (zero behavior change).
+    // When true, show_idle_state() uses the V2.0 pod-display web Idle as the blank screen
+    // (Option (c) per .planning/specs/v2/RCA-webidle-blank-screen-20260606.md). Enable per-pod for
+    // the pod-8 canary; the floor (native black) + web-pane launcher land in the build-on-.27 pass.
+    lock_screen.set_web_idle(config.lock_screen.web_idle);
     // SAFETY-02: Use start_server_checked so bind failure is observable (not silent)
     let lock_screen_rx = lock_screen.start_server_checked();
 
