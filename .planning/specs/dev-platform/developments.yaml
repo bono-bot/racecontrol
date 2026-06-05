@@ -1,0 +1,134 @@
+meta:
+  registry: developments
+  phase: P0
+  schema: ./SCHEMA.md
+  authored: "2026-06-05"
+  refresh_mode: manual
+  stale_at: "2026-06-12"
+  status_vocab: [done, in_phase, not_started, gated, frozen]
+  note: >-
+    DMADV-tracked work-items ("Index Items"). Phase states from current evidence
+    (Index/PRs/§S-N). Freeze-gate: frozen items keep Design/Verify=gated until
+    Captain-unfreeze + first-INR pass. CTQ entries are TBD-Captain unless an
+    enforced fact is cited.
+
+developments:
+  - id: dev-multiplayer-racing
+    title: Multiplayer racing
+    apps: [racecontrol-heart, launch-portal, rc-agent]
+    dmadv: { D: done, M: in_phase, A: in_phase, Design: in_phase, Verify: not_started }
+    current_phase: "Analyze/Design — lobby.rs ~95%; S0 preflight_acserver merged"
+    freeze_status: unfrozen
+    ctq: ["AC-server-pool slot allocation success = TBD-Captain", "lobby fill latency = TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["rc #126 e81bf72d (MP S0 preflight_acserver)", "lobby.rs state-machine"]
+
+  - id: dev-pod-display-error-screens
+    title: Pod-display error screens (Phase 2)
+    apps: [pod-display, racecontrol-heart]
+    dmadv: { D: done, M: in_phase, A: in_phase, Design: in_phase, Verify: not_started }
+    current_phase: "Design — Ph1 server-lost merged; Ph2 updating/OTA + crash pending heart display_message"
+    freeze_status: unfrozen
+    ctq: ["error-screen never overlays live gameplay [enforced: separate screen]", "screen-swap latency = TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["rp #34 2eaaf94 (RECONNECTING)", "reference_pod_display_surface_separation_20260604"]
+
+  - id: dev-cross-venue-leaderboard
+    title: Cross-venue AC leaderboard
+    apps: [racecontrol-heart, racecontrol-console]
+    dmadv: { D: done, M: in_phase, A: done, Design: done, Verify: gated }
+    current_phase: "Verify — deploy-gated (Server-.23 deploy of both binaries)"
+    freeze_status: unfrozen
+    ctq: ["PII fields exposed = 0 [enforced: closed shape]", "query p95 latency = TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["rc #124 20065a6d", "rp #35 430537e (admin-proxy-james mount)"]
+
+  - id: dev-grace-countdown-symmetry
+    title: Grace-countdown symmetry (customer vs staff)
+    apps: [pod-display, staff-tablet]
+    dmadv: { D: done, M: in_phase, A: done, Design: in_phase, Verify: not_started }
+    current_phase: "Design — PR #25 (pod.live_timers)"
+    freeze_status: unfrozen
+    ctq: ["customer + staff countdown parity (live mm:ss both) = TBD-Captain"]
+    owner: James
+    evidence_anchors: ["rp #25 (live grace/runout timers)", "Captain full-UX-pass exception"]
+
+  - id: dev-per-game-leaderboards
+    title: Per-game leaderboards (generalize AC pattern)
+    apps: [racecontrol-heart]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define"
+    freeze_status: frozen
+    ctq: ["TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["depends on dev-cross-venue-leaderboard pattern"]
+
+  - id: dev-multi-tenant-control-plane
+    title: Multi-tenant control plane (Halo)
+    apps: [racecontrol-console, racecontrol-heart]
+    dmadv: { D: done, M: not_started, A: in_phase, Design: gated, Verify: gated }
+    current_phase: "Define/Analyze — design verified; 8 blockers B1-B8"
+    freeze_status: frozen
+    ctq: ["per-venue isolation (tenant_id) = TBD-Captain"]
+    owner: Captain
+    evidence_anchors: ["project_halo_multi_venue_design_20260531", "project_rc_hq_control_plane_p3_handoff_20260531"]
+
+  - id: dev-console-v2
+    title: Console V2+ (Ring6 Releases / Ring7 Billing / brand-pack)
+    apps: [racecontrol-console]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define — P3 prototype in Drive"
+    freeze_status: frozen
+    ctq: ["TBD-Captain"]
+    owner: Captain
+    evidence_anchors: ["rc-hq-control-plane-P3 Drive bundle"]
+
+  - id: dev-customer-email-messaging
+    title: Customer email & messaging (Wati / WhatsApp BSP)
+    apps: [pwa, racecontrol-heart]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define"
+    freeze_status: frozen
+    ctq: ["TBD-Captain"]
+    owner: Captain
+    evidence_anchors: ["Index §1.5F comms/OTP provider state"]
+
+  - id: dev-v1-decommission
+    title: V1 decommissioning
+    apps: [racecontrol-heart]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define — V1-DECOMMISSION-INVENTORY exists"
+    freeze_status: frozen
+    ctq: ["zero V1-dependent code paths in fleet = TBD-Captain"]
+    owner: Captain
+    evidence_anchors: [".planning/specs/v2/V1-DECOMMISSION-INVENTORY.md"]
+
+  - id: dev-walk-in-registration
+    title: Walk-in registration (Phase 2)
+    apps: [pos, pwa]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define"
+    freeze_status: frozen
+    ctq: ["TBD-Captain"]
+    owner: Captain
+    evidence_anchors: ["Index §1.5A row 3 (on-the-fly reg = Phase 2)"]
+
+  - id: dev-incident-resolve-ui
+    title: Incident RESOLVE staff UI (VIEW half merged)
+    apps: [staff-tablet, captain-console]
+    dmadv: { D: done, M: not_started, A: in_phase, Design: in_phase, Verify: not_started }
+    current_phase: "Design (partial) — read/VIEW half merged; RESOLVE half + cadence open"
+    freeze_status: in_flight
+    ctq: ["incident resolution audit-trail completeness = TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["rp #36 803801a (GET /api/v2/admin/billing-incidents)", "Index §1.5D"]
+
+  - id: dev-refund-adjust-ui
+    title: Refund / manual-adjust / dispute UI
+    apps: [captain-console, pos]
+    dmadv: { D: in_phase, M: not_started, A: not_started, Design: gated, Verify: gated }
+    current_phase: "Define — apology-credit is the V2.0 path"
+    freeze_status: frozen
+    ctq: ["TBD-Captain"]
+    owner: Captain
+    evidence_anchors: ["Index §1.5D row 9 (manual.adjust FROZEN)"]
