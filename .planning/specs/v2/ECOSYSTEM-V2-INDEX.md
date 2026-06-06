@@ -152,7 +152,7 @@ One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+st
 | 6 | Monitor floor | staff-tablet 8-pod grid (SSE) + **live grace countdown** + −30s chirp | ✅ built | NEW — the half the customer lacks |
 | 7 | Handle runout | tap alarming pod → pause / deep-link POS top-up | ✅ built | NEW |
 | 8 | Handle incident | billing-incident store **records** (#29); staff **VIEW/read route MERGED** (admin-proxy-james #36 `803801a` `GET /api/v2/admin/billing-incidents`) — **RESOLVE UI + live cadence still open** | 🟡 view-merged, resolve-open | §2F A4; resolver open |
-| 9 | Refund / correct charge | **no refund/manual-adjust UI** (apology-credit only) | 🔴 frozen | NEW — `manual.adjust` FROZEN |
+| 9 | Refund / correct charge | **no refund/manual-adjust UI** (apology-credit only) | ⛔ V2.0 (§S-452) | reclassified FROZEN→V2.0 (Captain 2026-06-07); build RCA+MMA-gated |
 | 10 | End-of-day reconcile | POS .130 close-of-shift (7-channel) only; **floor staff has no EOD**; venue aggregator pending | 🟡 partial | NEW — I3 |
 
 ### 1.5C — Money-IN rail (the credit-IN half of cluster #2)
@@ -175,7 +175,7 @@ One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+st
 | I3 — floor-staff daily till-reconcile | HARDENING | Replit/bono | POS .130 only; aggregator pending |
 | I5 — pause-cap auto-end pod notice | HARDENING | bono | |
 | Incident VIEW/RESOLVE staff UI | HARDENING | bono (read route landed #36) | read/visibility half **MERGED** (admin-proxy-james `GET /api/v2/admin/billing-incidents` #36 `803801a`); RESOLVE half + live resolver cadence still open; A4 = records-not-resolves stopgap |
-| Refund / manual-adjust / dispute UI | **FROZEN** V2.0 | — | apology-credit is the path |
+| Refund / manual-adjust / dispute UI | **V2.0 in-scope** (§S-452, Captain 2026-06-07) | bono | apology-credit = interim path; build §S-146 RCA+MMA-gated |
 | Kiosk-based customer onboarding wizard | **FROZEN / clarify** | — | V2.0 onboarding is PWA (built) — see §2B |
 | pod-display error states | **FROZEN** V2.1+ | — | already in §1E |
 

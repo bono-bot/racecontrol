@@ -12,6 +12,8 @@
 
 **Scope freeze:** **NO V2.1+ scope until BOTH pass.** Frozen → V2.1+: multiplayer green-light trio · pod-display error-display states · telemetry / leaderboards · any non-first-INR feature. Bug-fixes + hardening + the cutover / subscription-wiring / operator-physical unblocks are IN-SCOPE for V2 completion (they close the bar, they do not extend it).
 
+**AMENDMENT (Captain 2026-06-07 · §S-452 · verbatim "yes, apply the refund→V2.0 scope amendment"):** **refund / void / manual charge-adjust (charge reversal) is RECLASSIFIED FROZEN-V2.1 → V2.0 in-scope (operational-viability).** A venue reverses charges as routine daily operation; the refund engine already exists (`crates/racecontrol/src/wallet_refund.rs`). **Classification change only** — building the refund/void UI + wiring remains §S-146 RCA + MMA-gated (foundational money-path boundary); apology-credit (`apps/staff-tablet/app/apology`) stays the interim path. Canonical: §S-452 · operator brief `.bono-staging/OPERATOR-READINESS-BRIEF-20260607.md` D1.
+
 **Default test on ANY proposed work:** *does it close the first-INR bug-free bar, or is it V2.1+ (→ FROZEN, defer)?* "Done" for V2 = this bar, not feature-completeness.
 
 **Canonical:** Captain ratification `rp-v2-apps/coordinator/CAPTAIN-RATIFICATION-V2-SCOPE-FREEZE-2026-05-30.md` (`0ea33e7`) · bono memory `project_v2_scope_freeze_definition_of_done_20260530.md` · `§S-N` assigned by James on ratify-append.
