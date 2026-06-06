@@ -76,30 +76,80 @@ async fn main() -> anyhow::Result<()> {
   by RacingPoint
 "#);
 
-    // Single-instance guard: prevent zombie racecontrol processes (same pattern as rc-agent 305638b)
-    // When watchdog spawns a new instance while zombie holds ports, the mutex causes
-    // the second instance to exit cleanly instead of crashing with os error 10048.
+    // Single-instance guard: prevent zombie racecontrol processes (same pattern as rc-agent 305638b).
+    //
+    // ACQUIRE-WITH-RETRY (2026-06-06): the original guard took the mutex with
+    // bInitialOwner=TRUE and exited immediately on ERROR_ALREADY_EXISTS. That lost
+    // the deploy race — there is no graceful-shutdown path yet, so after `taskkill /F`
+    // the old process can take >5 MINUTES to fully reap (kernel teardown of pod
+    // WebSockets + cloud-sync + DB connections), holding this Global\ mutex the whole
+    // time. A freshly-spawned instance would hit the held mutex and exit(0) before the
+    // reap finished, so the new binary never came up and deploy-server.sh rolled back.
+    //
+    // Fix: create the mutex UNOWNED, then WaitForSingleObject up to
+    // RC_SINGLETON_WAIT_SECS (default 600) so a new instance patiently waits out a
+    // still-reaping predecessor instead of giving up. WAIT_ABANDONED (previous owner
+    // died without releasing — normal after a hard kill) also yields ownership, and by
+    // the time the mutex is released the predecessor has fully reaped so :8080 is free
+    // too (also fixes the os-error-10048 port collision the old comment mentioned).
+    // A genuinely-persistent second instance still exits after the timeout.
+    // See memory: venue-23-racecontrol-deploy-mutex-reap-bug-20260606.
     #[cfg(windows)]
     let _mutex_guard = {
         use std::ffi::CString;
+        const WAIT_OBJECT_0: u32 = 0x0000_0000;
+        const WAIT_ABANDONED: u32 = 0x0000_0080;
+        const ERROR_ALREADY_EXISTS: u32 = 183;
+
         let name = CString::new("Global\\RacingPoint_RaceControl_SingleInstance")
             .expect("mutex name contains no null bytes");
+        // bInitialOwner = FALSE so we can explicitly Wait for ownership below.
         let handle = unsafe {
-            winapi::um::synchapi::CreateMutexA(
-                std::ptr::null_mut(),
-                1, // bInitialOwner = TRUE
-                name.as_ptr(),
-            )
+            winapi::um::synchapi::CreateMutexA(std::ptr::null_mut(), 0, name.as_ptr())
         };
-        if handle.is_null() || unsafe { winapi::um::errhandlingapi::GetLastError() } == 183 {
-            // ERROR_ALREADY_EXISTS = 183
-            eprintln!("racecontrol is already running. Exiting to prevent zombie.");
-            if !handle.is_null() {
-                unsafe { winapi::um::handleapi::CloseHandle(handle); }
+        if handle.is_null() {
+            eprintln!(
+                "FATAL: CreateMutexA returned NULL (GetLastError {})",
+                unsafe { winapi::um::errhandlingapi::GetLastError() }
+            );
+            std::process::exit(1);
+        }
+        let already_held =
+            unsafe { winapi::um::errhandlingapi::GetLastError() } == ERROR_ALREADY_EXISTS;
+
+        let wait_secs: u64 = std::env::var("RC_SINGLETON_WAIT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600);
+        if already_held {
+            eprintln!(
+                "racecontrol singleton mutex is held (a previous instance is still running or reaping). Waiting up to {wait_secs}s for release..."
+            );
+        }
+        let mut owned = false;
+        for elapsed in 0..=wait_secs {
+            // 1s slice so we can log progress; WAIT_OBJECT_0 / WAIT_ABANDONED = acquired,
+            // WAIT_TIMEOUT (0x102) = still held, keep waiting.
+            let r = unsafe { winapi::um::synchapi::WaitForSingleObject(handle, 1000) };
+            if r == WAIT_OBJECT_0 || r == WAIT_ABANDONED {
+                if already_held {
+                    eprintln!("Acquired singleton mutex after ~{elapsed}s (previous instance reaped).");
+                }
+                owned = true;
+                break;
             }
+            if elapsed > 0 && elapsed % 15 == 0 {
+                eprintln!("  ...still waiting for singleton mutex at {elapsed}s");
+            }
+        }
+        if !owned {
+            eprintln!(
+                "racecontrol is already running (singleton mutex still held after {wait_secs}s). Exiting to prevent zombie."
+            );
+            unsafe { winapi::um::handleapi::CloseHandle(handle); }
             std::process::exit(0);
         }
-        handle // held until process exits → mutex released automatically
+        handle // held until process exits → mutex released automatically (or ABANDONED on hard kill)
     };
 
     // Load config FIRST so MonitoringConfig is available for tracing init
