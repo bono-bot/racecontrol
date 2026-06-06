@@ -21,6 +21,10 @@ meta:
     the Console Finished view is empty by design until the bug-free bar passes).
     2026-06-06: +initiative-customer-registration-otp (V1->V2 customer-surface cutover +
     MSG91 captcha-race fix, this session) — a real this-session add, not a prototype seed.
+    2026-06-06 PM: BOTH money-path turn-ons EXECUTED+VERIFIED on .23 — WALLET_STORE=pg
+    durable wallet cutover (admin-proxy-james :3211) + heart_v2_real_launch flag ON
+    (heart :8080); first-INR now blocked only on operator/physical (see
+    initiative-money-path-reliability).
 
 developments:
   # ---- Existing DMADV developments (new-feature pipeline; mostly V2.1+ frozen) ----
@@ -168,6 +172,25 @@ developments:
     owner: Captain
     evidence_anchors: ["Index §1.5D row 9 (manual.adjust FROZEN)"]
 
+  # ---- IDE Operating-Model doctrine + Console tracking spine (this session, 2026-06-06) ----
+  # Dogfood: the work that makes IDE work auto-appear on this board tracks ITSELF here.
+  # A new design (operating model + a new mechanism) → DMADV, per the doctrine's own decision rule.
+  - id: dev-ide-operating-model
+    title: IDE Operating-Model (DMAIC/DMADV) + commit-trailer Console tracking
+    apps: [racecontrol-console]
+    framework: DMADV
+    dmadv: { D: done, M: done, A: done, Design: in_phase, Verify: not_started }
+    current_phase: "Design — IDE-OPERATING-MODEL.md doctrine (phase→gate orchestration for tool-use/debug/deploy) + Development:-trailer harvest→/initiatives sync being built; cadence = auto-harvest-on-commit + manual deploy"
+    freeze_status: in_flight
+    health: "on"
+    gate_state: open
+    ui: { need: none, status: na, surfaces: "Console /initiatives (tracking spine; no new UI surface)" }
+    linked_release_id: null
+    rollout_targets: ["console.racecontrol.in"]
+    ctq: ["IDE work auto-appears as tracked evidence on /initiatives with zero manual curation = TBD-Captain", "doctrine phase→gate mapping is faithful to each canonical gate spec = TBD-Captain"]
+    owner: bono
+    evidence_anchors: [".claude/plans/remember-that-all-the-giggly-pearl.md (Captain-approved plan)", "racecontrol-layer/IDE-OPERATING-MODEL.md", "scripts/sync-ide-initiatives.py + inject-auto-evidence.py + deploy-console-registry.sh"]
+
   # ---- Prototype first-INR-cluster seed (Captain's Console, 2026-06-06) ----
   # Source = the Captain's Console prototype's 12 seeded initiatives. The 4 that map
   # to existing entries above (pod-display FSM -> dev-pod-display-error-screens;
@@ -181,7 +204,7 @@ developments:
     apps: [racecontrol-heart, pos, pwa, staff-tablet]
     framework: DMAIC
     dmaic: { D: done, M: in_phase, A: done, Improve: in_phase, Control: not_started }
-    current_phase: "Improve/Control — durable wallet + 402 launch-gate + per-tick-debit + launch-args MERGED flag-OFF; rollout-confidence A1/A2 (rc #122); wallet-durable-tick + A3 unmerged; Control (first-INR e2e + monitoring) pending. Registration (upstream first-INR step 1-2) now LIVE-DEPLOYED on app.racingpoint.cloud (see initiative-customer-registration-otp); money-path stays downstream of OTP-confirm + WALLET_STORE=pg cutover"
+    current_phase: "Improve/Control — durable wallet + 402 launch-gate + per-tick-debit + launch-args MERGED. 2026-06-06 BOTH money-path turn-ons EXECUTED+VERIFIED on .23: WALLET_STORE=pg durable wallet cutover (admin-proxy-james :3211; boot 'wallet store=pg (durable)', pm2 restart_time=0 stable) + heart_v2_real_launch flag ON (heart :8080, /api/v1/health 200 status=ok). Control (first-INR e2e on a real pod) now blocked ONLY on operator/physical: pod power + real-handset OTP + staff F6. Back-port debt: the .23 durable build + tag-fix not yet merged to canonical rp-v2-apps; wallet-durable-tick + A3 still unmerged"
     freeze_status: in_flight
     health: risk
     gate_state: open
@@ -190,7 +213,7 @@ developments:
     rollout_targets: ["all-venues"]
     ctq: ["first-INR e2e: ₹ reconciled, zero money-leak / double-spend / double-spawn = TBD-Captain", "per-tick debit accuracy = TBD-Captain"]
     owner: bono
-    evidence_anchors: ["Gap-1 durable money-path replit/coordinator 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", "initiative-customer-registration-otp (upstream first-INR step, live-deployed)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
+    evidence_anchors: ["Gap-1 durable money-path replit/coordinator 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "WALLET_STORE=pg durable cutover .23 :3211 2026-06-06 (memory project_venue_23_cutover_access_and_classifier_gate_20260606)", "heart_v2_real_launch flag ON .23 2026-06-06 (DB feature_flags WAL + single-restart)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", "initiative-customer-registration-otp (upstream first-INR step, live-deployed)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
 
   # Customer registration & OTP — the #1 first-INR step. Cutover went LIVE this
   # session (2026-06-06): app.racingpoint.cloud now serves the V2 PWA on MSG91 and
