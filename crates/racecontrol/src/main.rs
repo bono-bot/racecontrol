@@ -575,8 +575,12 @@ fn build_router(state: Arc<AppState>) -> Router {
         // Redirects: common wrong URLs → correct destinations
         .route("/status.html", get(|| async { axum::response::Redirect::permanent("/status") }))
         .route("/health", get(|| async { axum::response::Redirect::permanent("/api/v1/health") }))
-        .route("/admin", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
-        .route("/admin/", get(|| async { axum::response::Redirect::temporary("http://192.168.31.23:3201/") }))
+        // /admin -> the live V3.1 captain-console (cloud). The old target :3201 is dead
+        // (V1 admin retired in the 2026-06-06 cloud V3 cutover; captain-console now roots
+        // admin.racingpoint.cloud). Reachable from the venue (.23 -> 200). See memory
+        // venue-23-racecontrol-deploy-mutex-reap-bug + the v31-surface-discovery map.
+        .route("/admin", get(|| async { axum::response::Redirect::temporary("https://admin.racingpoint.cloud/") }))
+        .route("/admin/", get(|| async { axum::response::Redirect::temporary("https://admin.racingpoint.cloud/") }))
         .route("/pos", get(|| async { axum::response::Redirect::temporary("/billing") }))
         .route("/dashboard", get(|| async { axum::response::Redirect::temporary("/billing") }))
         .route("/staff", get(|| async { axum::response::Redirect::temporary("/kiosk/staff") }))
