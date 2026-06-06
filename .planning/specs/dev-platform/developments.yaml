@@ -19,6 +19,8 @@ meta:
     for the new initiatives are a follow-up (forward dev→app refs are valid).
     lifecycle defaults to active per SCHEMA (nothing is shipped-live pre-first-INR;
     the Console Finished view is empty by design until the bug-free bar passes).
+    2026-06-06: +initiative-customer-registration-otp (V1->V2 customer-surface cutover +
+    MSG91 captcha-race fix, this session) — a real this-session add, not a prototype seed.
 
 developments:
   # ---- Existing DMADV developments (new-feature pipeline; mostly V2.1+ frozen) ----
@@ -179,7 +181,7 @@ developments:
     apps: [racecontrol-heart, pos, pwa, staff-tablet]
     framework: DMAIC
     dmaic: { D: done, M: in_phase, A: done, Improve: in_phase, Control: not_started }
-    current_phase: "Improve/Control — durable wallet + 402 launch-gate + per-tick-debit + launch-args MERGED flag-OFF; rollout-confidence A1/A2 (rc #122); wallet-durable-tick + A3 unmerged; Control (first-INR e2e + monitoring) pending"
+    current_phase: "Improve/Control — durable wallet + 402 launch-gate + per-tick-debit + launch-args MERGED flag-OFF; rollout-confidence A1/A2 (rc #122); wallet-durable-tick + A3 unmerged; Control (first-INR e2e + monitoring) pending. Registration (upstream first-INR step 1-2) now LIVE-DEPLOYED on app.racingpoint.cloud (see initiative-customer-registration-otp); money-path stays downstream of OTP-confirm + WALLET_STORE=pg cutover"
     freeze_status: in_flight
     health: risk
     gate_state: open
@@ -188,7 +190,27 @@ developments:
     rollout_targets: ["all-venues"]
     ctq: ["first-INR e2e: ₹ reconciled, zero money-leak / double-spend / double-spawn = TBD-Captain", "per-tick debit accuracy = TBD-Captain"]
     owner: bono
-    evidence_anchors: ["Gap-1 durable money-path replit/coordinator 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
+    evidence_anchors: ["Gap-1 durable money-path replit/coordinator 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", "initiative-customer-registration-otp (upstream first-INR step, live-deployed)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
+
+  # Customer registration & OTP — the #1 first-INR step. Cutover went LIVE this
+  # session (2026-06-06): app.racingpoint.cloud now serves the V2 PWA on MSG91 and
+  # the "Couldn't send" captcha-race root-cause is fixed + deployed-live. Awaiting
+  # Captain real-device OTP proof; live patches not yet back-ported to canonical.
+  - id: initiative-customer-registration-otp
+    title: Customer registration & OTP (V1->V2 cutover + MSG91 widget) [first-INR step 1-2]
+    apps: [pwa, admin-proxy-bono, admin-proxy-james]
+    framework: DMAIC
+    dmaic: { D: done, M: done, A: done, Improve: in_phase, Control: not_started }
+    current_phase: "Improve - V1->V2 customer-surface cutover LIVE (app.racingpoint.cloud = V2 PWA, OTP=MSG91); registration cascade patched-forward-live (requestOtp/verifyOtp contract + widget-init race + duplicate-send + captcha-race root-cause: captchaRenderId + wait isCaptchaVerified before sendOtp); live chunk 235b76dcb9f3c350.js (served + proxy 200). Control = Captain real-device OTP confirm -> createHousehold/topup + issueCustomerJwt. NOTE: live patches NOT yet back-ported to canonical rp-v2-apps branches."
+    freeze_status: in_flight
+    health: risk
+    gate_state: open
+    ui: { need: update, status: live, surfaces: "app.racingpoint.cloud /register + /register/verify (MSG91 OTP widget)" }
+    linked_release_id: null
+    rollout_targets: ["rp-vlm", "all-venues"]
+    ctq: ["real customer completes phone->OTP->verify, no spurious 'Couldn't send' = awaiting real-device proof (2026-06-06)", "OTP via MSG91 SMS; server re-verifies access_token = TBD-Captain"]
+    owner: bono
+    evidence_anchors: ["live cutover app.racingpoint.cloud -> rp2-pwa container :3302 (/srv/rp-v2-pwa-standalone)", "captcha-race fix apps/pwa/lib/msg91-widget.ts (captchaRenderId + waitForCaptchaVerified)", "RCA-FIRST-INR-OTP-DUPLICATE-SEND-DMAIC-20260606.md", "RCA-FIRST-INR-REGISTRATION-CASCADE-20260606.md", "RUNBOOK-V2-PWA-CUTOVER-20260606.md", "isolation-page oracle: raw widget SEND+VERIFY success on real device"]
 
   - id: initiative-per-pod-licensing
     title: Per-pod licensing & entitlement [PS-1...7]
@@ -262,7 +284,7 @@ developments:
     apps: [pwa]
     framework: DMAIC
     dmaic: { D: in_phase, M: not_started, A: not_started, Improve: not_started, Control: not_started }
-    current_phase: "Define — prototype seed (PWA cache freshness)"
+    current_phase: "Define — prototype seed (PWA cache freshness); NOTE: the V2 PWA is now the LIVE customer surface (app.racingpoint.cloud, cutover 2026-06-06) — service-worker freshness is now load-bearing"
     freeze_status: in_flight
     health: "on"
     gate_state: open

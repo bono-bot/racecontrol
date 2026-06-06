@@ -3,7 +3,7 @@
 > **Purpose:** one place to see "what's done / what's left / who owns each gap" for V2, so a session doesn't re-discover it across ~20 memory files, ~50 `.bono-staging/` handoffs, the §S-N ledger, the progress map, and two repos' PR queues.
 > **Compiled:** 2026-06-04 ~05:30 IST (bono); **refreshed 2026-06-04 ~23:00 IST** (live `gh pr list` re-probe — 6 PRs merged since compile, see §1D Δ). **Method:** 3 parallel Explore agents (memory+handoffs · ledger+progress-map+roadmap · live git/PR) + direct read-only probes (`gh pr list`, §S-N grep). All facts are file-/probe-backed, not memory-projected.
 > **Companion (doctrine-ledger lens):** [`V2-PROGRESS-MAP.md`](./V2-PROGRESS-MAP.md). **Canonical ledger:** `comms-link/V2-MASTER-STATE.md` (§S-N). This index is a *navigation + gap* layer, not a replacement.
-> **Freshness:** numbers verified 2026-06-04 ~05:30 IST, **refreshed ~23:00 IST** (live `gh pr list` re-probe; 6 PRs merged in the interval — see §1D Δ). Re-run the §Verification probes before trusting on a later date.
+> **Freshness:** numbers verified 2026-06-04 ~05:30 IST, **refreshed ~23:00 IST** (live `gh pr list` re-probe; 6 PRs merged in the interval — see §1D Δ). **Re-refreshed 2026-06-06 ~11:00 IST** — V1→V2 customer-surface cutover LIVE + OTP MSG91 captcha-race fix deployed (this session; see §1A / §1.5F / §2D). Re-run the §Verification probes before trusting on a later date.
 
 ---
 
@@ -36,7 +36,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 
 | Step in the rupee path | State | Where |
 |---|---|---|
-| Register via OTP | ✅ contract+wiring merged; provider migrating **Evolution(WhatsApp)→MSG91(SMS)** — see §1.5F | rp-v2-apps #18/#19 merged; #27/#28 open; rc #115 merged |
+| Register via OTP | ✅ **DEPLOYED-LIVE** on `app.racingpoint.cloud` (V2 PWA, OTP=**MSG91**); registration cascade + captcha-race fixed live (chunk `235b76dcb9f3c350`); ⏳ awaiting Captain real-device OTP confirm; canonical back-port pending — see §1.5F | live: `rp2-pwa` container; rp-v2-apps #18/#19 merged, #26/#27/#28 open (canonical); rc #115 merged |
 | Topup → **durable** wallet (PgWalletStore) | ✅ code merged (incl. 2 MAOR money-bugs fixed) | rp-v2-apps #22 `27eb7923` |
 | Launch **gated by balance** (402 HOLD) | ✅ in #22 (`402 launch-gate`); companion gate #17 open (CONFLICTING) | #22 merged; #17 open |
 | Heart-V2 → rc-agent **game actually launches** on pod | ✅ built+merged+deployed (**flag-OFF**) | rc `b7067829` (delta A `c0a74c9f`); `.23`=`21531f31` |
@@ -54,7 +54,7 @@ Source: `memory/project_v2_scope_freeze_definition_of_done_20260530.md` · ratif
 |---|---|---|---|
 | **#1 — game launches on pod** | heart-V2 → rc-agent launch handshake | bono (built) → **Captain + operator** (gates) | ⛔ built+merged+deployed, **flag `heart_v2_real_launch` OFF + runtime-unverified at scale**; `launch_args` now real (#116); stale-`Loading`-session reaper merged (#125 `55b70092`) closes the dropped-launch-task stuck-pod path. Half-proven live on pod_1 (2026-06-01): launcher fired, session `Running` confirmed. Remaining: flag ON [Captain] + pods power [operator] |
 | **#2 — money moves (IN *and* out)** | durable wallet + **credit-IN (cash-topup SEAM)** + HOLD/402 + tick debit | bono (built; was Replit) | ⛔ **code merged (#22)**; remaining = **`.23` cutover `WALLET_STORE=pg`** [operator, not started] — MUST precede flag-ON. Covers BOTH the debit/spend side AND the money-IN rail (cash-at-POS) — see §1.5C |
-| **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **OTP delivery gate: Evolution(WhatsApp) re-pair OR MSG91 cutover — operator owes `MSG91_AUTHKEY`+DLT (§1.5F)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
+| **#3 — venue physically ready** | heart `.23` live · rc-agent fleet · OTP · pods · seed:captain · keys | **operator + Captain** | 🟡 heart `.23`=`21531f31` LIVE (`/heart/pods`→200) · rc-agent `a826b100` uniform 8/8 · **OTP: MSG91 widget DEPLOYED LIVE on `app.racingpoint.cloud` (provider=msg91 baked); cascade + captcha-race fixed live; gate = Captain real-device OTP confirm → then createHousehold/topup + `issueCustomerJwt`; operator still owes server-verify `MSG91_AUTHKEY`+DLT (§1.5F)** · **pods 0/8 OFF** · **seed:captain not run** · F6/B8 keys unprovisioned |
 | **#4 — billing-start semantics** | `green_light_at` (launch-time vs loading-complete) | **Captain** (decision) → bono | ✅ DECIDED (delta A = confirm-before-bill on `verified_running`); awaiting Captain explicit §S-N ratify |
 
 **14 money/launch bugs ledger:** 13 fixed+merged; only **#6** (sub-1-min 0-tick rate-reconstruction) open = **documented non-flip-blocker**.
@@ -126,7 +126,7 @@ One Captain-granted EXCEPTION (pre-existing): a single full-UX pass (customer+st
 | # | Step | Touchpoint / component | Status | Index ref / note |
 |---|------|------------------------|--------|------------------|
 | 1 | Onboard | PWA `/register` (phone +91) | ✅ built | §1A register; **V2.0 onboarding is PWA, not kiosk** |
-| 2 | Verify identity | OTP `/register/verify` (Evolution→MSG91) | ✅ built; provider migrating | §1A · rc #115, rp #27/#28 |
+| 2 | Verify identity | OTP `/register/verify` (**MSG91 widget LIVE**) | ✅ built; **MSG91 deployed-live (captcha-race fixed 2026-06-06); awaiting real-device confirm** | §1A · §1.5F · rc #115, rp #27/#28 |
 | 3 | First credits (free) | `/register/welcome` REG-BONUS-1 (tier-1 × 5 min) | ✅ built | NEW — the *free* first-play; **not a paid ₹** |
 | 4 | **Money IN (real ₹)** | **staff cash-at-POS** `/wallet/topup/pos-cash` (+ manual-ref digital) | ⛔ gated | NEW — no gateway; SEAM stub; needs `WALLET_STORE=pg` (credit-IN half of cluster #2) |
 | 5 | Launch gated by balance | 402 gate (side-effect-free) | ✅ built | §1A 402 launch-gate |
@@ -189,13 +189,15 @@ Three distinct pieces — they are **alternatives, not layered** (Wati is **not*
 
 | Provider | Role | State |
 |---|---|---|
-| **Evolution API** | self-hosted **WhatsApp** gateway — the **current/live** OTP sender | ⚠️ WhatsApp **banned** it (ToS); still the runtime **default** (`RP_OTP_PROVIDER=evolution`) only because the replacement is merged-but-not-deployed |
-| **MSG91** | the **OTP forward path** — **SMS + voice** widget (MSG91 owns gen/send/verify client-side; bono only `verifyAccessToken` server-side) | contract + wiring **MERGED**, **cutover-gated**, **nothing deployed**. Operator owes **`MSG91_AUTHKEY` + India DLT** registration (lead-time) |
+| **Evolution API** | self-hosted **WhatsApp** gateway — legacy OTP sender | ⚠️ WhatsApp **banned** it (ToS); **RETIRED on the customer surface** — `app.racingpoint.cloud` cut over to MSG91 2026-06-06 (PWA baked `NEXT_PUBLIC_OTP_PROVIDER=msg91`); legacy `RP_OTP_PROVIDER=evolution` default lingers only on the un-cutover server-verify half |
+| **MSG91** | the **OTP forward path** — **SMS + voice** widget (MSG91 owns gen/send/verify client-side; bono only `verifyAccessToken` server-side) | **DEPLOYED on the live customer PWA** (was "nothing deployed") — `app.racingpoint.cloud` 2026-06-06; registration cascade + **captcha-race root-cause fixed** (mount `captchaRenderId` + wait `isCaptchaVerified` before `sendOtp`); ⏳ awaiting Captain real-device OTP proof; **live patches not yet back-ported to canonical `rp-v2-apps`**. Operator still owes server-verify **`MSG91_AUTHKEY` + `MSG91_VERIFY_URL` + India DLT** |
 | **Wati** | the official WhatsApp **BSP transport** that *replaces* the banned self-hosted Evolution gateway | **alert-track = stub** (owed) → **DEFERRED / not built** |
 
 **Net direction:** OTP is moving **off WhatsApp → onto SMS** (Evolution→MSG91); the **WhatsApp channel (Wati) is parked**. `OtpChannel` enum went whatsapp-only (V2.0 lock, INVENTORY §C) → **+`sms`** via PR #27 F2 (Captain-confirmed 2026-06-03). Cutover is gated: **C1** (delete-not-bypass) + **C2** (guardian-migrate) must **not** ship pre-cutover — `otp.rs::send_otp_whatsapp` (Evolution egress) is shared by the live guardian path; 5-condition retire-trigger at `.planning/specs/v2/CUTOVER/otp-msg91-v1-retire-20260602.md`.
 
 **First-INR impact:** registration (journey step 2 / §1.5A) needs OTP to actually deliver — so the operator **`MSG91_AUTHKEY` + DLT** (or an Evolution WhatsApp re-pair) is a **cluster-#3 operator gate**, not just a migration. Source: `memory/project_otp_msg91_a27_merged_cutover_gated_20260602.md` · `memory/project_otp_contract_f1f2f3_pr27_20260603.md`.
+
+**Update 2026-06-06 (this session):** the customer surface is now **cut over** — `app.racingpoint.cloud` serves the V2 PWA on **MSG91**, and the registration cascade (incl. the captcha-race "Couldn't send" root-cause) is **fixed + deployed-live** (chunk `235b76dcb9f3c350` served; `/api/v2/healthz`→200). The immediate gate is a **Captain real-device OTP confirm**; then `createHousehold`/topup + `issueCustomerJwt`. Live patches are not yet back-ported to canonical `rp-v2-apps`. Runbook: `.bono-staging/RUNBOOK-V2-PWA-CUTOVER-20260606.md` · RCAs `RCA-FIRST-INR-OTP-DUPLICATE-SEND-DMAIC-20260606.md` + `RCA-FIRST-INR-REGISTRATION-CASCADE-20260606.md`.
 
 ### 1.5G — Pod-display does NOT block gameplay during a live session (workflow-verified 2026-06-04)
 
@@ -213,7 +215,7 @@ Customer + staff + surface-model traces + adversarial verify (workflow `wrllp58f
 ### 2A. Two surfaces
 
 - **RaceControl** (Rust, repo `racecontrol`, **bono-sole lane**): crate `racecontrol` = the **heart** (now carries the `/heart/*` V2 session/launch/billing surface — the binding blocker that was closed 2026-05-30) · `rc-agent` (per-pod; fleet uniform `a826b100`, 8/8, 2026-06-02) · `rc-installer` (web-distributed trust core: ed25519+sha256, cross-language golden-vectors L1-5 verified).
-- **Ecosystem V2** (TS, repo `rp-v2-apps`; james active-editor · replit `packages/contracts/**` · bono co-edit): ~10 apps, all **V3-UI rebuilt** (2026-06-03): pod-display · POS · staff-tablet · kiosk (+ launch portal / PWA) · racecontrol-console · captain-console (shell+cockpit) · admin-proxy-bono · admin-proxy-james. Plus `packages/contracts/**` (OpenAPI joints, **Replit-owned**) · billing-engine · SSE.
+- **Ecosystem V2** (TS, repo `rp-v2-apps`; james active-editor · replit `packages/contracts/**` · bono co-edit): ~10 apps, all **V3-UI rebuilt** (2026-06-03; **PWA cut over to the V2 customer-surface LIVE on `app.racingpoint.cloud` 2026-06-06, OTP=MSG91**): pod-display · POS · staff-tablet · kiosk (+ launch portal / PWA) · racecontrol-console · captain-console (shell+cockpit) · admin-proxy-bono · admin-proxy-james. Plus `packages/contracts/**` (OpenAPI joints, **Replit-owned**) · billing-engine · SSE.
 
 ### 2B. 13-layer V2-PROGRESS-MAP rollup (doctrine-ledger lens — **~18 days stale, predates 06-02→06-04 merges; refresh recommended**)
 
@@ -225,7 +227,7 @@ Customer + staff + surface-model traces + adversarial verify (workflow `wrllp58f
 
 ### 2D. Deployed reality (claim — **verify on resume**, not re-probed in this compile)
 
-heart `.23` = build **`21531f31`** (2026-05-31 panic-fix + cutover, verified `/heart/pods`→200) · pods **0/8 OFF** · flag `heart_v2_real_launch` **OFF** · rc-agent fleet **`a826b100`** uniform 8/8 (2026-06-02).
+heart `.23` = build **`21531f31`** (2026-05-31 panic-fix + cutover, verified `/heart/pods`→200) · pods **0/8 OFF** · flag `heart_v2_real_launch` **OFF** · rc-agent fleet **`a826b100`** uniform 8/8 (2026-06-02) · **`app.racingpoint.cloud` = V2 PWA LIVE** (Docker `rp2-pwa` :3302 ← `/srv/rp-v2-pwa-standalone`; OTP=MSG91; `/api/`→:3213→james :3211; cutover 2026-06-06, chunk `235b76dcb9f3c350` served + `/api/v2/healthz`→200).
 *Historical note:* an older 2026-05-17 SWAPLOG forensic about `8da500c7` / soak-reset is **superseded** by the 2026-05-31 cutover — do not treat as current. To re-verify without pod SSH: heart `GET /api/v1/fleet/health` on `.23` (`memory/reference_heart_fleet_view_reads_pod_state_without_pod_ssh_20260603.md`).
 
 ### 2E. Lane ownership (§S-450, RATIFIED 2026-06-02)
