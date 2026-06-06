@@ -238,6 +238,25 @@ developments:
     owner: Captain
     evidence_anchors: ["prototype seed G92", "V2 scope-freeze (telemetry/leaderboards frozen)"]
 
+  # Dogfood: the Console tracks its OWN sign-in + single-identity hardening as a
+  # DMAIC initiative (Captain 2026-06-06 reported the magic-link dead-end + a
+  # world-readable console; fixed + e2e-verified from the public edge).
+  - id: initiative-console-signin-identity-hardening
+    title: Console sign-in redirect + single-identity lockdown
+    apps: [racecontrol-console]
+    framework: DMAIC
+    dmaic: { D: done, M: done, A: done, Improve: done, Control: in_phase }
+    current_phase: "Control — consume redirect→public origin + fail-closed middleware + per-page/action requireConsoleIdentity DEPLOYED; e2e green from the public edge (anon 6/6 →307, usingh@ 6/6 →200, consume→console host) + vitest regression guard added; pending Captain emailed-link sign-in confirmation"
+    freeze_status: in_flight
+    health: "on"
+    gate_state: open
+    ui: { need: update, status: live, surfaces: "console.racecontrol.in — sign-in flow + single-identity gate (usingh@)" }
+    linked_release_id: null
+    rollout_targets: ["console.racecontrol.in"]
+    ctq: ["usingh@ signs in and reaches every authed surface; non-usingh (incl. anonymous) cannot read/write any surface except /signin — MET (e2e 2026-06-06)", "consume redirect lands on the console host, never localhost — MET (e2e 2026-06-06)"]
+    owner: bono
+    evidence_anchors: ["app/signin/consume/route.ts consoleRedirectBase (CONTROL_PLANE_PUBLIC_URL, never req.url)", "middleware.ts fail-closed cookie gate", "lib/console-gate.ts requireConsoleActor write-gate + 5 page gates", "lib/console-redirect.test.ts regression guard", "e2e public-edge: anon→307 /signin, usingh@→200 all surfaces, consume→console.racecontrol.in/", ".claude/plans/pull-up-ecosystem-v2-proud-comet.md PLAN B (DMAIC)"]
+
   - id: initiative-pwa-freshness
     title: PWA freshness (service-worker cache) [G1 / G2]
     apps: [pwa]
