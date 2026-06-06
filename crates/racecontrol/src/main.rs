@@ -501,15 +501,26 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/ws/spectator", get(ws::spectator_ws))
         // Registration page (standalone HTML for QR code walk-in flow)
         .route("/register", get(|| async {
-            axum::response::Html(include_str!("../../../assets/register.html"))
+            // Disk-served (decoupled 2026-06-06) so cosmetic re-themes need no binary rebuild;
+            // falls back to the compile-time-embedded copy if the file is missing on disk.
+            axum::response::Html(
+                tokio::fs::read_to_string("./assets/register.html").await
+                    .unwrap_or_else(|_| include_str!("../../../assets/register.html").to_string())
+            )
         }))
-        // Portal — single URL linking to all apps (kiosk, admin, POS, web)
+        // Portal — single URL linking to all apps (kiosk, admin, POS, web). Disk-served (see above).
         .route("/portal", get(|| async {
-            axum::response::Html(include_str!("../../../assets/portal.html"))
+            axum::response::Html(
+                tokio::fs::read_to_string("./assets/portal.html").await
+                    .unwrap_or_else(|_| include_str!("../../../assets/portal.html").to_string())
+            )
         }))
-        // Status dashboard — visual UI for health + fleet + services
+        // Status dashboard — visual UI for health + fleet + services. Disk-served (see above).
         .route("/status", get(|| async {
-            axum::response::Html(include_str!("../../../assets/status.html"))
+            axum::response::Html(
+                tokio::fs::read_to_string("./assets/status.html").await
+                    .unwrap_or_else(|_| include_str!("../../../assets/status.html").to_string())
+            )
         }))
         // Redirects: common wrong URLs → correct destinations
         .route("/status.html", get(|| async { axum::response::Redirect::permanent("/status") }))
@@ -532,6 +543,8 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/", get(|| async { axum::response::Redirect::temporary("/portal") }))
         // Static file serving for cafe item images
         .nest_service("/static/cafe-images", tower_http::services::ServeDir::new("./data/cafe-images"))
+        // Self-hosted V3.1 fonts for portal/status/register (CSP allows same-origin only)
+        .nest_service("/assets/fonts", tower_http::services::ServeDir::new("./assets/fonts"))
         // Reverse proxy: kiosk UI + Next.js assets → localhost:3300
         .fallback(middleware::kiosk_proxy)
         .layer(axum_mw::from_fn(middleware::jwt_error_to_401))
