@@ -135,11 +135,11 @@ apps:
     dependencies: ["@rp/contracts", "@rp/tokens"]
     dev_metrics:
       ci: { source: "gh run list -R bono-bot/rp-v2-apps", class: probe, value: "TBD (P1)" }
-      open_prs: { source: "gh pr list (kiosk V2-theme cluster, James lane)", class: probe, value: "TBD (P1)" }
+      open_prs: { source: "gh pr list (kiosk V2-theme cluster)", class: probe, value: "TBD (P1)" }
     ctq_metrics: {}
     active_developments: []
     freeze_status: live
-    evidence_anchors: ["kiosk V2-theme migration PRs (James)"]
+    evidence_anchors: ["kiosk V2-theme migration PRs"]
 
   - id: pwa
     name: Customer PWA
@@ -160,7 +160,7 @@ apps:
       otp_delivery: { source: "OTP provider (Evolution->MSG91); operator AUTHKEY+DLT", class: manual, target: "TBD-Captain" }
     active_developments: ["dev-customer-email-messaging", "dev-walk-in-registration"]
     freeze_status: live
-    evidence_anchors: ["OTP F1/F2/F3 PR #27", "MSG91 widget PR #26 (James)"]
+    evidence_anchors: ["OTP F1/F2/F3 PR #27", "MSG91 widget PR #26"]
 
   - id: launch-portal
     name: Launch Portal

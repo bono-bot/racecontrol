@@ -213,7 +213,7 @@ developments:
     rollout_targets: ["all-venues"]
     ctq: ["first-INR e2e: ₹ reconciled, zero money-leak / double-spend / double-spawn = TBD-Captain", "per-tick debit accuracy = TBD-Captain"]
     owner: bono
-    evidence_anchors: ["Gap-1 durable money-path replit/coordinator 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "WALLET_STORE=pg durable cutover .23 :3211 2026-06-06 (memory project_venue_23_cutover_access_and_classifier_gate_20260606)", "heart_v2_real_launch flag ON .23 2026-06-06 (DB feature_flags WAL + single-restart)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", "initiative-customer-registration-otp (upstream first-INR step, live-deployed)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
+    evidence_anchors: ["Gap-1 durable money-path 27eb7923 (PR #22)", "Gap-2 launch-args main 690a8616 (PR #116)", "WALLET_STORE=pg durable cutover .23 :3211 2026-06-06 (memory project_venue_23_cutover_access_and_classifier_gate_20260606)", "heart_v2_real_launch flag ON .23 2026-06-06 (DB feature_flags WAL + single-restart)", "rollout-confidence A1/A2 rc #122", "wallet-durable-tick (local, unmerged)", "initiative-customer-registration-otp (upstream first-INR step, live-deployed)", ".planning/specs/v2/ECOSYSTEM-V2-INDEX.md first-INR gap map"]
 
   # Customer registration & OTP — the #1 first-INR step. Cutover went LIVE this
   # session (2026-06-06): app.racingpoint.cloud now serves the V2 PWA on MSG91 and
