@@ -17,6 +17,9 @@ pub mod manifest;
 pub mod profile;
 pub mod signature_verifier;
 pub mod trusted_keys;
+pub mod trusted_ssh_keys;
+pub mod venue_type;
 
 pub use manifest::ReleaseManifest;
 pub use profile::Profile;
+pub use venue_type::{VenueDecision, VenueType};

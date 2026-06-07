@@ -20,6 +20,10 @@ use std::process::{Command, Output};
 use std::thread;
 use std::time::Duration;
 
+// Venue-type trust model + embedded SSH login-key set (rc-installer trust-core lib).
+use rc_installer::trusted_ssh_keys;
+use rc_installer::venue_type::{self, VenueType};
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -43,6 +47,16 @@ const CORE_IP: &str = "192.168.31.23";
 const HEARTBEAT_PORT: u16 = 9999;
 const MIN_BINARY_SIZE: u64 = 1_000_000; // 1MB — anything less is truncated
 const BUILD_ID: &str = env!("GIT_HASH");
+
+// ── Venue-type SSH provisioning (own venues) — MMA-DIAGNOSE M1/M3/M4/M5/M6 ──
+const SSH_DIR: &str = r"C:\ProgramData\ssh";
+const SSH_AUTHKEYS: &str = r"C:\ProgramData\ssh\administrators_authorized_keys";
+const SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
+const SSHD_EXE: &str = r"C:\Windows\System32\OpenSSH\sshd.exe";
+const VENUE_MARKER_DIR: &str = r"C:\ProgramData\RacingPoint";
+const VENUE_MARKER: &str = r"C:\ProgramData\RacingPoint\venue_type.lock";
+// Tailscale CGNAT range — the ONLY source range allowed inbound to :22 (fail-closed, M1).
+const TAILSCALE_SUBNET: &str = "100.64.0.0/10";
 
 // ANSI color codes (Windows 10+ with virtual terminal processing)
 const GREEN: &str = "\x1b[32m";
@@ -214,19 +228,32 @@ fn run_installation(pod: u8, src: &Path, dest: &Path) -> i32 {
         }
     }
 
-    // ── Step 12: Remove legacy programs ────────────────────────
-    // OpenSSH, Salt, pod-agent are all scrapped. Clean them up.
-    // Tailscale is the replacement -- do NOT touch it.
-    step(12, "Removing legacy programs");
-    match remove_legacy_programs() {
-        Ok(count) => {
-            if count > 0 {
-                ok(&format!("{} legacy item(s) removed", count));
-            } else {
-                ok("No legacy programs found -- already clean");
-            }
-        }
+    // ── Step 12: Legacy cleanup + venue-type SSH posture ───────
+    // SOLD (default): remove OpenSSH (Tailscale-only). OWN: provision key-only SSH
+    // over Tailscale. Ownership is pinned by an immutable marker so an old installer
+    // can't strip SSH off an own pod, and a mis-set flag can't plant a key on a sold
+    // pod (MMA-DIAGNOSE M3). RCA + DIAGNOSE: .planning/specs/v2/rc-installer/.
+    let venue = venue_type::resolve(read_venue_marker(), get_requested_venue_type());
+    if venue.requested_mismatch {
+        warn(&format!(
+            "Requested venue-type differs from the pinned marker ({}). Marker wins — ownership unchanged.",
+            venue.effective.as_str()
+        ));
+    }
+    step(12, &format!("Legacy cleanup ({} venue)", venue.effective.as_str()));
+    match remove_legacy_programs(venue.effective == VenueType::Own) {
+        Ok(count) => ok(&format!("{} legacy item(s) processed", count)),
         Err(e) => warn(&format!("Legacy cleanup issue: {}", e)),
+    }
+    if venue.effective == VenueType::Own {
+        info("OWN venue — provisioning key-only SSH over Tailscale");
+        match provision_ssh() {
+            Ok(n) => ok(&format!("SSH provisioning: {} action(s)", n)),
+            Err(e) => warn(&format!("SSH provisioning issue: {}", e)),
+        }
+    }
+    if venue.write_marker {
+        write_venue_marker(venue.effective);
     }
 
     // ── Step 13: Verify network services ─────────────────────
@@ -771,7 +798,7 @@ fn set_registry_keys(dest: &Path) -> Result<(), String> {
 /// Remove legacy programs that have been scrapped.
 /// OpenSSH, Salt minion, pod-agent, sshd-loop, and related artifacts.
 /// Tailscale is the replacement for remote access -- never touch it.
-fn remove_legacy_programs() -> Result<u32, String> {
+fn remove_legacy_programs(skip_ssh: bool) -> Result<u32, String> {
     let mut removed: u32 = 0;
 
     // Set network to Private (Tailscale needs this)
@@ -779,9 +806,16 @@ fn remove_legacy_programs() -> Result<u32, String> {
         "Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private",
     );
 
-    // Disable Windows Firewall (pods are on private LAN behind router)
-    let _ = run("netsh", &["advfirewall", "set", "allprofiles", "state", "off"]);
+    // Disable Windows Firewall (pods are on private LAN behind router).
+    // OWN venues KEEP it ON — provision_ssh() re-enables + scopes :22 to the
+    // Tailscale subnet (MMA-DIAGNOSE M1). Only SOLD takes the legacy firewall-off.
+    if !skip_ssh {
+        let _ = run("netsh", &["advfirewall", "set", "allprofiles", "state", "off"]);
+    }
 
+    // OpenSSH teardown — SOLD venues only. OWN venues PROVISION SSH instead
+    // (provision_ssh(), called from step 12). MMA-DIAGNOSE M1/M4.
+    if !skip_ssh {
     // -- OpenSSH Server service --
     let sshd_exists = run("sc", &["query", "sshd"])
         .is_ok_and(|o| o.status.success());
@@ -851,6 +885,7 @@ fn remove_legacy_programs() -> Result<u32, String> {
             removed += 1;
         }
     }
+    } // end OpenSSH teardown (SOLD only — skip_ssh==false)
 
     // -- Salt minion --
     let salt_exists = run("sc", &["query", "salt-minion"])
@@ -967,6 +1002,173 @@ fn remove_legacy_programs() -> Result<u32, String> {
     }
 
     Ok(removed)
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Venue-type SSH provisioning (OWN venues) — RCA + MMA-DIAGNOSE
+//  .planning/specs/v2/rc-installer/  (M1 firewall-subnet · M3 marker ·
+//  M4 reconcile · M5 validate/verify · M6 parent-ACL/order)
+// ═══════════════════════════════════════════════════════════════
+
+/// `--venue-type own|sold` CLI flag. Omitted/unknown → None (caller defaults to
+/// Sold). Never coerces an unknown string to Own (RC#4 fail-safe).
+fn get_requested_venue_type() -> Option<VenueType> {
+    let mut args = env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--venue-type" {
+            if let Some(v) = args.next() {
+                return VenueType::parse(&v);
+            }
+        } else if let Some(v) = a.strip_prefix("--venue-type=") {
+            return VenueType::parse(v);
+        }
+    }
+    None
+}
+
+/// Read the immutable venue-type marker (M3). Absent → None (first install).
+fn read_venue_marker() -> Option<VenueType> {
+    fs::read_to_string(VENUE_MARKER).ok().and_then(|s| VenueType::parse(&s))
+}
+
+/// Persist the venue-type marker (M3) — pins ownership for all future installs so
+/// a later/older installer cannot flip own↔sold (no silent strip / no backdoor).
+fn write_venue_marker(vt: VenueType) {
+    if let Err(e) = fs::create_dir_all(VENUE_MARKER_DIR) {
+        warn(&format!("venue marker dir: {}", e));
+        return;
+    }
+    match fs::write(VENUE_MARKER, vt.as_str()) {
+        Ok(()) => {
+            // Admin/SYSTEM-only so the pin can't be trivially rewritten.
+            let _ = run("icacls", &[VENUE_MARKER, "/inheritance:r",
+                "/grant", "*S-1-5-32-544:F", "/grant", "*S-1-5-18:F"]);
+            ok(&format!("Venue type pinned: {}", vt.as_str()));
+        }
+        Err(e) => warn(&format!("venue marker write: {}", e)),
+    }
+}
+
+/// Provision key-only SSH over Tailscale for OWN venues. All actions are LOCAL on
+/// the pod (no inline-PowerShell-over-SSH — IH-1). Returns the action count.
+///
+/// Security posture (MMA-DIAGNOSE):
+/// - M1: firewall back ON + a single :22 allow rule scoped to the Tailscale subnet
+///   (fail-closed; does NOT depend on the ephemeral Tailscale IP via ListenAddress,
+///   which fails OPEN to 0.0.0.0 — RC#1).
+/// - M4: authorized_keys reconciled from the embedded set (add active, REMOVE
+///   revoked/placeholder, never touch foreign keys). Ships Placeholder → installs
+///   no login key until the Captain-verified key ceremony flips it to Active.
+/// - M5: `sshd -t` validate before start; verify RUNNING + `sshd -T` password-off.
+/// - M6: ACL the parent dir AND the file; sshd depends on Tailscale for ordering.
+///
+/// Deferred (defense-in-depth, documented): M2 interface-disappear watchdog — the
+/// subnet-scoped firewall rule already makes the boundary fail-closed without it.
+fn provision_ssh() -> Result<u32, String> {
+    let mut done: u32 = 0;
+
+    // 1. Install OpenSSH.Server capability if absent.
+    let installed = run_ps(
+        "$s=(Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*').State; if ($s -eq 'Installed'){exit 0}else{exit 1}",
+    ).is_ok_and(|o| o.status.success());
+    if !installed {
+        info("Installing OpenSSH.Server capability...");
+        match run_ps("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0") {
+            Ok(o) if o.status.success() => { ok("OpenSSH.Server installed"); done += 1; }
+            _ => warn("Could not install OpenSSH.Server (may need Windows Update / reboot)"),
+        }
+    }
+
+    // 2. Auto-start + (M6) start ordering after Tailscale.
+    let _ = run("sc", &["config", "sshd", "start=", "auto"]);
+    let _ = run("sc", &["config", "sshd", "depend=", "Tailscale"]);
+
+    // 3. (M4) Reconcile administrators_authorized_keys from the embedded set.
+    if let Err(e) = fs::create_dir_all(SSH_DIR) {
+        return Err(format!("create {}: {}", SSH_DIR, e));
+    }
+    let current = fs::read_to_string(SSH_AUTHKEYS).unwrap_or_default();
+    let recon = trusted_ssh_keys::embedded().reconcile(&current);
+    if recon.changed {
+        fs::write(SSH_AUTHKEYS, &recon.content)
+            .map_err(|e| format!("write authorized_keys: {}", e))?;
+        ok(&format!("authorized_keys reconciled (+{} / -{})", recon.added.len(), recon.removed.len()));
+        done += 1;
+    } else {
+        info("authorized_keys already in desired state");
+    }
+    if recon.content.trim().is_empty() {
+        warn("No ACTIVE login key embedded yet (key ceremony pending) — sshd surface prepared, no key installed");
+    }
+
+    // 4. (M3/M6/IH-3) ACL parent dir AND file → Administrators + SYSTEM only, no
+    //    inheritance. sshd silently ignores administrators_authorized_keys otherwise.
+    let _ = run("icacls", &[SSH_DIR, "/inheritance:r",
+        "/grant", "*S-1-5-32-544:F", "/grant", "*S-1-5-18:F"]);
+    if Path::new(SSH_AUTHKEYS).exists() {
+        let _ = run("icacls", &[SSH_AUTHKEYS, "/inheritance:r",
+            "/grant", "*S-1-5-32-544:F", "/grant", "*S-1-5-18:F"]);
+    }
+    done += 1;
+
+    // 5. sshd_config: key-only. Local read→filter→write (never inline-PS, IH-1).
+    if let Ok(orig) = fs::read_to_string(SSHD_CONFIG) {
+        let mut lines: Vec<String> = orig
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start().to_ascii_lowercase();
+                !t.starts_with("passwordauthentication") && !t.starts_with("pubkeyauthentication")
+            })
+            .map(|l| l.to_string())
+            .collect();
+        lines.push("PubkeyAuthentication yes".to_string());
+        lines.push("PasswordAuthentication no".to_string());
+        match fs::write(SSHD_CONFIG, format!("{}\n", lines.join("\n"))) {
+            Ok(()) => done += 1,
+            Err(e) => warn(&format!("sshd_config write: {}", e)),
+        }
+    } else {
+        info("sshd_config absent (capability just installed) — first sshd run writes defaults");
+    }
+
+    // 6. (M1) Firewall ON + :22 allow scoped to the Tailscale subnet (fail-closed).
+    let _ = run("netsh", &["advfirewall", "set", "allprofiles", "state", "on"]);
+    let _ = run("netsh", &["advfirewall", "firewall", "delete", "rule",
+        "name=RacingPoint-SSH-Tailscale"]);
+    match run("netsh", &["advfirewall", "firewall", "add", "rule",
+        "name=RacingPoint-SSH-Tailscale", "dir=in", "action=allow",
+        "protocol=TCP", "localport=22", &format!("remoteip={}", TAILSCALE_SUBNET)]) {
+        Ok(o) if o.status.success() => { ok("Firewall :22 scoped to Tailscale subnet"); done += 1; }
+        _ => warn("Could not add Tailscale-scoped :22 firewall rule"),
+    }
+
+    // 7. (M5) Validate config, then start, then verify RUNNING + password-off.
+    let cfg_ok = run(SSHD_EXE, &["-t"]).map(|o| o.status.success()).unwrap_or(false);
+    if !cfg_ok {
+        warn("sshd -t reported config errors — NOT starting sshd (M5 fail-closed)");
+        return Ok(done);
+    }
+    let _ = run("sc", &["start", "sshd"]);
+    let mut running = false;
+    for _ in 0..5 {
+        if run("sc", &["query", "sshd"]).is_ok_and(|o|
+            String::from_utf8_lossy(&o.stdout).contains("RUNNING")) {
+            running = true;
+            break;
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    if running {
+        ok("sshd RUNNING");
+        let pw_off = run(SSHD_EXE, &["-T"]).is_ok_and(|o|
+            String::from_utf8_lossy(&o.stdout).to_lowercase().contains("passwordauthentication no"));
+        if pw_off { ok("sshd effective config: PasswordAuthentication no"); }
+        else { warn("Could not confirm 'PasswordAuthentication no' via sshd -T"); }
+    } else {
+        warn("sshd did not reach RUNNING within 5s");
+    }
+    done += 1;
+    Ok(done)
 }
 
 /// Verify network services: UDP heartbeat reachability and Tailscale mesh.
