@@ -2,16 +2,23 @@ import { describe, test, expect } from 'vitest';
 import fixtures from './fixtures/launch-config.json';
 
 /**
- * Launch boundary (server <-> agent) — TS structural invariants over the SAME
- * golden vectors the Rust serde round-trip test consumes
- * (crates/rc-common/tests/launch_contract_vectors.rs). Source of truth:
+ * Launch boundary FIXTURE SHAPE-LOCK (racecontrol side). Source of truth:
  * crates/rc-common/src/launch_contract.rs.
  *
- * This is the TS half of the cross-language vector: it asserts the wire-shape
- * invariants that the kiosk / PWA launch-arg builders MUST honor. The canonical
- * drift it guards (2026-03-26): kiosk sent ai_difficulty:"easy" (string) while the
- * Rust struct had ai_level:u8 (numeric). The numeric assertions below fail loudly
- * if a fixture (or a future generated TS type) ever lets ai_level become a string.
+ * WHAT THIS IS NOT: this is NOT a cross-language CONSUMER contract test. It imports
+ * the fixture and asserts its shape with inline checks; it runs NO production parser.
+ * There is no production TS parser for GameConfig yet — the zod type does not exist,
+ * and racecontrol-agent.ts is the OpenRouter agent, not the launch agent. So this
+ * guards only that the FIXTURE stays well-formed; it does NOT prove the kiosk/PWA
+ * consumer parses these bytes correctly. If the kiosk still expects ai_difficulty:
+ * "easy" tomorrow, these assertions stay green — the drift would NOT be caught here.
+ *
+ * The real cross-language guard on THIS side is the Rust serde round-trip
+ * (crates/rc-common/tests/launch_contract_vectors.rs), which pins the Rust->wire
+ * direction exactly. The missing half — production zod .parse() over these exact
+ * bytes, deep-equal to the typed value — must live in rp-v2-apps CI (separate PR),
+ * because that is the repo where the kiosk consumer is edited and where its CI runs.
+ * Until that lands, the cross-language boundary is HALF-pinned (Rust->wire only).
  */
 
 const GAME_TYPES = ['AssettCorsa', 'F125', 'IRacing', 'LeManUltimate'];
@@ -33,7 +40,7 @@ const launchRequests = fixtures.launch_request as Record<string, any>;
 const launchResults = fixtures.launch_result as Record<string, any>;
 const gameEvents = fixtures.game_event as Record<string, any>;
 
-describe('Launch boundary vectors — TS/Rust contract', () => {
+describe('Launch boundary fixture shape-lock (NOT a consumer contract — see rp-v2-apps PR for production-zod parse)', () => {
   test('fixture groups are present and non-empty', () => {
     expect(Object.keys(launchRequests).length).toBeGreaterThan(0);
     expect(Object.keys(launchResults).length).toBeGreaterThan(0);
