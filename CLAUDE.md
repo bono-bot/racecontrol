@@ -18,6 +18,18 @@
 
 **Canonical:** Captain ratification `rp-v2-apps/coordinator/CAPTAIN-RATIFICATION-V2-SCOPE-FREEZE-2026-05-30.md` (`0ea33e7`) · bono memory `project_v2_scope_freeze_definition_of_done_20260530.md` · `§S-N` assigned by James on ratify-append.
 
+## 🛰️ Own-venue pod SSH SANCTIONED — key-only over Tailscale (Captain 2026-06-07)
+
+For **own / RP-Esports venues** (Tailscale-equipped), bono/RaceControl touches pods via **key-based SSH over Tailscale** — sanctioned going-forward (no operator visit needed). Control_node key in each pod's `C:\ProgramData\ssh\administrators_authorized_keys` (ACL = Administrators `*S-1-5-32-544` + SYSTEM `*S-1-5-18` ONLY — SIDs; a world-readable file makes sshd silently ignore the key), **key-only** (`PasswordAuthentication no` **AND** `KbdInteractiveAuthentication no` — Win32-OpenSSH needs BOTH; kbd-interactive is a second password path), tailnet-bound. SSH **complements** the audited `rc-sentry :8091/exec` + heart `pod_exec` channels (those stay the automated path + fallback) — it does not replace them. **Sold / third-party venues stay installer + exec-only** (`rc-installer` REMOVES OpenSSH for `sold`). Provisioned at install by rc-installer venue-type (PR #131) + resolved at runtime by the venue-model `pod_transport` registry + helper (PR #132). Verified 2026-06-07: 8/8 VLM pods key-only (`ssh user@<pod> → publickey`).
+
+**Deploy/ops rules this adds:**
+- **Restart sshd via rc-sentry** (`net stop sshd & net start sshd`), NEVER over SSH — stopping sshd kills the ssh child running the command mid-restart (same class as the rc-agent taskkill+start rule).
+- **rc-sentry `:8091/exec` contract:** plain cmd verbs + single `&` only; it MANGLES cmd `if`/`if exist`, `>>`-after-`if`, and PowerShell `$vars` (returns `exit=0` doing nothing) → verify by behavior (`ssh user@pod 'echo OK'`), never `exit=0`.
+- **Visual-verify (display/EAC-critical canary):** rc-agent `/screenshot` (`debug_server.rs`, port 18924, captures in session-1) hit over **pod-localhost** (`ssh pod 'curl localhost:18924/screenshot'` → scp → view) — `ALLOWED_IPS` is LAN-only so it must originate on the pod; direct screenshot-over-SSH is black (session-0 isolation). Pairs with the existing "Visual verification for display-affecting deploys" standing rule.
+- **Fleet-wide** sshd changes = pod-8 canary THEN fleet, config-identical-to-baseline guard before overwrite (pod-1 drift `LogLevel DEBUG3` was preserved, not clobbered), `sshd -t` validate, per-pod publickey-only verify.
+
+**Canonical:** harness `~/.claude/CLAUDE.md` "Own-venue pod SSH SANCTIONED" · `/root/bin/pod-ssh-bootstrap.sh` · `.planning/specs/racecontrol-layer/VENUE-MODEL-AND-POD-MGMT-20260607.md` (PR #132) · `crates/rc-installer/src/{venue_type,trusted_ssh_keys}.rs` (PR #131) · `crates/rc-agent/src/debug_server.rs`.
+
 ## The Principle — Verify Before Generate (2026-04-11)
 
 **Before generating ANY output, verify the inputs it depends on.**
