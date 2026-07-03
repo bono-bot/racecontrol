@@ -1,6 +1,11 @@
 {
   "_doc": "Venue ownership + pod-transport registry (racecontrol-layer). The single source of truth for whether RaceControl manages a venue's pods over Tailscale SSH (own) or installer/rc-sentry-exec only (sold). Keyed by venue_id; node roles per VENUE-NODE-ROLE-TAXONOMY.md. Read by scripts/pod-mgmt.mjs. Pairs with the installer venue-type axis (RCA + PR #131, .planning/specs/v2/rc-installer/). Declarative data, NOT compiled per-venue — the binary stays identical across venues (config.rs invariant).",
   "schema_version": 1,
+  "_operators_doc": "Operator = the tenant/business that owns venue(s) and (for sold) pays the subscription. operator_id is the isolation boundary (rc-cloud RLS); venue_id/branch_id are sub-keys. Public app subdomain = operator_slug (regex ^[a-z][a-z0-9-]{1,30}$): own -> app.racingpoint.cloud; sold -> <operator_slug>.racecontrol.in (venue apex-chennai -> operator apex -> apex.racecontrol.in). See VENUE-INFRASTRUCTURE.md.",
+  "operators": {
+    "racingpoint": { "operator_slug": "racingpoint", "venue_type": "own", "domain": "app.racingpoint.cloud", "entitlement": "permanent-never-suspended", "venue_ids": ["rp-vlm"] },
+    "_template-sold-operator": { "operator_slug": "<operator_slug>", "venue_type": "sold", "domain": "<operator_slug>.racecontrol.in", "billing": { "model": "subscription", "cycle": "monthly|annual" }, "entitlement": "subscription-gated", "venue_ids": ["<venue_id>"] }
+  },
   "_transports": {
     "tailscale-ssh": "control_node -> pod directly via key-only SSH over Tailscale (own venues). Needs the control-node key bootstrapped onto the pod (Phase 1 / installer provision_ssh).",
     "tailscale-rc-sentry": "control_node -> pod :8091/exec over Tailscale (own-venue fallback; audited; survives sshd breakage).",
@@ -10,6 +15,8 @@
     "rp-vlm": {
       "name": "Vantage Line Mall",
       "venue_type": "own",
+      "operator": "racingpoint",
+      "public_domain": "app.racingpoint.cloud",
       "pod_transport": "tailscale-ssh",
       "fallback_transport": "tailscale-rc-sentry",
       "pod_ssh_user": "ADMIN",
@@ -28,9 +35,11 @@
     "_template-sold": {
       "name": "Third-party venue template (copy + fill per sale)",
       "venue_type": "sold",
+      "operator": "<operator_slug>",
+      "public_domain": "<operator_slug>.racecontrol.in",
       "pod_transport": "heart-exec",
       "fallback_transport": "heart-exec",
-      "venue_heart": { "role": "venue_heart", "url": "https://<venue_id>.racecontrol.in" },
+      "venue_heart": { "role": "venue_heart", "lan": "<venue_lan_ip>", "reach": "reverse-tunnel (venue dials out; no public inbound; public app = operator subdomain on the cloud, not the heart)" },
       "pods": {
         "pod-1": { "id": "pod-1" }
       }

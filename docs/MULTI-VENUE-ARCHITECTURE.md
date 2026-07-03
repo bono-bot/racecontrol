@@ -1,5 +1,7 @@
 # Multi-Venue Architecture
 
+> **⚠️ SUPERSEDED (2026-07-04) by `.planning/specs/racecontrol-layer/VENUE-INFRASTRUCTURE.md` — HISTORICAL only.** This Phase-303 doc models a **single-venue SQLite** schema (`venue_id TEXT DEFAULT 'racingpoint-hyd-001'`) with cloud-sync + LWW conflict resolution and **no operator/tenant concept**. The ratified V3 model (§S-598) is: **operator_id = the tenant/RLS boundary** (venue_id/branch_id are sub-keys); per-OPERATOR domains (`app.racingpoint.cloud` own / `<operator>.racecontrol.in` sold); a **Postgres** append-only edge store as the sole money authority; cloud = read-only reconcile replica (venue-wins, merge-by-txn-id — not LWW). See `VENUE-INFRASTRUCTURE.md` §2 (tenancy) / §3 (stack) / §7 (topology). Keep below as the retired Phase-303 single-venue record.
+
 **Phase:** 303 — Multi-Venue Schema Prep
 **Status:** Schema ready (single-venue mode), INSERT threading deferred to Plan 303-02
 **Requirement:** VENUE-04
