@@ -6,6 +6,7 @@
     "tailscale-rc-sentry": "control_node -> pod :8091/exec over Tailscale (own-venue fallback; audited; survives sshd breakage).",
     "heart-exec": "control_node -> venue_heart pod_exec proxy -> rc-sentry -> pod (sold venues; no direct tailnet to pods). Audited + command-filtered at the heart."
   },
+  "_cloud_admin": "Per-venue cloud admin panel (rp-ecosystem/docs/DECISION-LEDGER-CLOUD-ADMIN-20260708.md): VPS nginx reverse-proxies the venue-admin FQDN to the venue heart rc-gateway over the venue's outbound tunnel. fqdn = the public admin domain (CA-2/CA-4); upstream = heart gateway origin as reachable FROM the VPS (tailnet IP for own, wg0 peer IP for sold); transport in {tailnet, wg-over-wstunnel}. Sold-venue entries are written by rp-ecosystem/scripts/venue/provision-cloud-admin.sh (one-unit: WG peer + secrets + vhost + cert + this entry) — do not hand-write one without the rest.",
   "venues": {
     "rp-vlm": {
       "name": "Vantage Line Mall",
@@ -14,6 +15,7 @@
       "fallback_transport": "tailscale-rc-sentry",
       "pod_ssh_user": "ADMIN",
       "venue_heart": { "role": "venue_heart", "tailnet": "100.125.108.37", "lan": "192.168.31.23", "user": "ADMIN" },
+      "cloud_admin": { "fqdn": "admin.racingpoint.cloud", "upstream": "https://100.125.108.37", "transport": "tailnet" },
       "pods": {
         "pod-1": { "tailnet": "100.92.122.89", "host": "sim1-1", "lan": "192.168.31.89" },
         "pod-2": { "tailnet": "100.105.93.108", "host": "sim2", "lan": "192.168.31.33" },
@@ -31,6 +33,7 @@
       "pod_transport": "heart-exec",
       "fallback_transport": "heart-exec",
       "venue_heart": { "role": "venue_heart", "url": "https://<venue_id>.racecontrol.in" },
+      "cloud_admin": { "fqdn": "<venue_id>.racecontrol.management", "upstream": "https://10.42.0.<wg-peer-N>", "transport": "wg-over-wstunnel" },
       "pods": {
         "pod-1": { "id": "pod-1" }
       }
