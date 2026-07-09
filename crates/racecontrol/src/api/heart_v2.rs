@@ -377,8 +377,30 @@ impl HeartStore {
     /// Idempotent: a re-delivered promote on an already-green-lit session no-ops.
     pub fn promote_to_running(&mut self, sid: &str) -> Option<(PodSession, Option<PodState>)> {
         let session = self.sessions.get_mut(sid)?;
-        if session.state == SessionState::Running && session.green_light_at.is_some() {
-            return Some((session.clone(), None));
+        // State-allowlist guard (MAOR F1 CRITICAL / F2 IMPORTANT; supplemental RCA
+        // heart-loading-complete-route-20260601): `promote_to_running` is now
+        // reachable as an EXTERNAL, retryable rc-agent callback
+        // (POST /heart/sessions/{sid}/loading-complete), not only the internal
+        // launch_real caller. A delayed / duplicate / out-of-order callback MUST
+        // NOT resurrect a terminal or paused session — doing so would re-grant
+        // green_light_at (= billing RESTART on a session the customer already left)
+        // and re-link the pod via sync_pod_running (clobbering a newer session that
+        // took the pod). Only Loading (the normal pre-condition) and
+        // Running-without-green (post-restart rehydration) may be promoted.
+        match session.state {
+            // Idempotent re-deliver of a callback that already succeeded — no-op.
+            SessionState::Running if session.green_light_at.is_some() => {
+                return Some((session.clone(), None));
+            }
+            // Valid promote pre-conditions.
+            SessionState::Loading | SessionState::Running => {}
+            // Preflight / Ready / Paused / Ending / Ended / AutoBilled: a callback
+            // for a session that is not loading is a no-op — never grant green-light
+            // or re-link the pod. 200 (idempotent-safe for a retryable callback).
+            other => {
+                tracing::warn!(sid, ?other, "loading-complete on non-Loading session — ignored: no green-light, no pod relink (prevents billing resurrection)");
+                return Some((session.clone(), None));
+            }
         }
         session.state = SessionState::Running;
         if session.green_light_at.is_none() {
@@ -1319,6 +1341,20 @@ async fn end(State(state): State<Arc<AppState>>, Path(sid): Path<String>, Json(r
     persist_and_respond(result, &state).await
 }
 
+/// rc-agent loading-complete callback (contract `reportLoadingComplete` / #4b,
+/// session.yaml): the agent confirms the game window is up → promote the Loading
+/// session to Running + grant `green_light_at`. **Billing starts HERE**, not at
+/// launch — confirm-before-bill (Captain decision G-DUP-C4 2026-05-31; bridge RCA
+/// §5; supplemental RCA heart-loading-complete-route-20260601). Idempotent: a
+/// re-delivered callback on an already-green-lit session no-ops (same 200, via
+/// `promote_to_running`'s already-Running guard). Unknown session → 404. The heart
+/// route is unauthenticated (LAN-internal); the F6SystemJWT/pod-subject-match auth
+/// is enforced at the admin proxy, the auth boundary for all `/heart/*` routes.
+async fn loading_complete(State(state): State<Arc<AppState>>, Path(sid): Path<String>) -> Response {
+    let result = state.heart.write().await.promote_to_running(&sid);
+    persist_and_respond(result, &state).await
+}
+
 async fn set_alarm(
     State(state): State<Arc<AppState>>,
     Path(pod_id): Path<String>,
@@ -1427,6 +1463,9 @@ pub fn heart_routes() -> Router<Arc<AppState>> {
         .route("/heart/sessions/{sid}/resume", post(resume))
         .route("/heart/sessions/{sid}/switch-game", post(switch_game))
         .route("/heart/sessions/{sid}/end", post(end))
+        // confirm-before-bill (G-NEW-9): rc-agent reports the game window is up →
+        // promote Loading→Running + grant green_light_at. Contract #4b.
+        .route("/heart/sessions/{sid}/loading-complete", post(loading_complete))
 }
 
 // ─── Tests (state machine + idempotency; no AppState needed) ──────────────────
@@ -1835,6 +1874,120 @@ mod http_tests {
             .await
             .unwrap();
         assert_eq!(row2.map(|r| r.0), Some("ended".to_string()), "end handler must write the ended state through");
+    }
+
+    /// G-NEW-9 confirm-before-bill: the rc-agent loading-complete callback flips a
+    /// Loading session (no green-light) → Running + grants `green_light_at`.
+    /// Billing starts HERE, not at launch. Idempotent; unknown session → 404.
+    #[tokio::test]
+    async fn http_loading_complete_promotes_loading_and_grants_green_light() {
+        let (app, state) = test_app_with_migrated_v2db().await;
+        // Seed a Loading session directly: the flag-OFF HTTP launch path goes
+        // straight to Running; confirm-before-bill reserves Loading first (the
+        // real-launch path the rc-agent drives), so the callback has work to do.
+        let sid = {
+            let mut store = state.heart.write().await;
+            match store.launch_loading(LaunchReq {
+                pod_id: "pod-4".to_string(),
+                household_id: "hh".to_string(),
+                profile_id: "pf".to_string(),
+                tier: "tier_1_full_skeleton".to_string(),
+                game: "ac_sp".to_string(),
+                lobby_id: None,
+                preset_id: None,
+            }) {
+                LaunchOutcome::Ok { session, .. } => {
+                    assert_eq!(session.state, SessionState::Loading);
+                    assert!(session.green_light_at.is_none(), "no green-light before loading-complete");
+                    session.id
+                }
+                _ => panic!("launch_loading must succeed on an empty pod"),
+            }
+        };
+        // rc-agent callback: game window up → grant green-light (billing starts).
+        let (status, json) =
+            call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(status, 200, "loading-complete must NOT 404 — contract #4b route");
+        assert_eq!(json["state"], "running");
+        assert!(json["green_light_at"].as_str().is_some(), "loading-complete grants green_light_at = billing start");
+        // Idempotent: a re-delivered callback no-ops (still 200, still green-lit).
+        let (status2, json2) =
+            call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(status2, 200, "re-delivered loading-complete is idempotent");
+        assert!(json2["green_light_at"].as_str().is_some());
+        // Unknown session → 404 (not a silent 200).
+        let (s404, _) =
+            call(&app, "POST", "/heart/sessions/no-such/loading-complete", Some(serde_json::json!({}))).await;
+        assert_eq!(s404, 404, "unknown session must 404, not silently succeed");
+    }
+
+    /// MAOR F1 (CRITICAL) regression guard: a late/duplicate loading-complete that
+    /// arrives AFTER the session ended must NOT resurrect it — no Running, no fresh
+    /// green_light_at, pod stays free. Prevents a billing restart on a session the
+    /// customer already left + pod-link clobber of a newer session.
+    #[tokio::test]
+    async fn http_loading_complete_does_not_resurrect_ended_session() {
+        let (app, state) = test_app_with_migrated_v2db().await;
+        let sid = {
+            let mut store = state.heart.write().await;
+            match store.launch_loading(LaunchReq {
+                pod_id: "pod-5".to_string(),
+                household_id: "hh".to_string(),
+                profile_id: "pf".to_string(),
+                tier: "tier_1_full_skeleton".to_string(),
+                game: "ac_sp".to_string(),
+                lobby_id: None,
+                preset_id: None,
+            }) {
+                LaunchOutcome::Ok { session, .. } => session.id,
+                _ => panic!("launch_loading must succeed on an empty pod"),
+            }
+        };
+        // Normal path: callback → Running + green-light.
+        let (s1, _) = call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(s1, 200);
+        // Customer's session ends.
+        let (s2, ended) = call(&app, "POST", &format!("/heart/sessions/{sid}/end"), Some(serde_json::json!({"end_reason": "customer_stop"}))).await;
+        assert_eq!(s2, 200);
+        assert_eq!(ended["state"], "ended");
+        // Late/duplicate callback AFTER end — must be a no-op, NOT a resurrection.
+        let (s3, json) = call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(s3, 200, "late callback is idempotent-safe (200), not an error the agent retry-storms on");
+        assert_eq!(json["state"], "ended", "ENDED session must NOT be resurrected to running");
+        // The pod must stay free — not re-linked to the dead session.
+        let (_, pod) = call(&app, "GET", "/heart/pods/pod-5", None).await;
+        assert_eq!(pod["lifecycle"], "empty", "ended session's pod must NOT be re-linked by a late callback");
+    }
+
+    /// MAOR F2 (IMPORTANT) regression guard: loading-complete on a PAUSED session
+    /// must NOT silently resume it — resume is an explicit action; a stray callback
+    /// must not restart the billing clock.
+    #[tokio::test]
+    async fn http_loading_complete_does_not_resume_paused_session() {
+        let (app, state) = test_app_with_migrated_v2db().await;
+        let sid = {
+            let mut store = state.heart.write().await;
+            match store.launch_loading(LaunchReq {
+                pod_id: "pod-6".to_string(),
+                household_id: "hh".to_string(),
+                profile_id: "pf".to_string(),
+                tier: "tier_1_full_skeleton".to_string(),
+                game: "ac_sp".to_string(),
+                lobby_id: None,
+                preset_id: None,
+            }) {
+                LaunchOutcome::Ok { session, .. } => session.id,
+                _ => panic!("launch_loading must succeed on an empty pod"),
+            }
+        };
+        let (s1, _) = call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(s1, 200);
+        let (sp, _) = call(&app, "POST", &format!("/heart/sessions/{sid}/pause"), Some(serde_json::json!({}))).await;
+        assert_eq!(sp, 200);
+        // Stray loading-complete on a paused session — no-op, stays paused.
+        let (s3, json) = call(&app, "POST", &format!("/heart/sessions/{sid}/loading-complete"), Some(serde_json::json!({}))).await;
+        assert_eq!(s3, 200);
+        assert_eq!(json["state"], "paused", "paused session must NOT be flipped to running by loading-complete");
     }
 }
 
