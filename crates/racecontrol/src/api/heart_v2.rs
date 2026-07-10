@@ -1897,6 +1897,63 @@ mod persistence_tests {
         assert_eq!(pod.current_session.unwrap().id, session.id);
     }
 
+    /// A2 (money-safety): a BILLED session that survives a heart restart must NOT
+    /// be re-billed. The proxy computes elapsed spend from `green_light_at` and keys
+    /// idempotency on the session id, so recovery MUST preserve both unchanged — and
+    /// a reconciler re-promote of the recovered Running session MUST be idempotent
+    /// (a second green-light = a second billing window = double-bill). Extends
+    /// `running_session_survives_restart` with the no-double-bill + settle dimensions.
+    #[tokio::test]
+    async fn restarted_billed_session_is_not_double_billed() {
+        let v2db = mem_v2db().await;
+        let (sid, green) = {
+            let mut store = HeartStore::new();
+            let s = launch(&mut store, "pod-1"); // Running + green-lit
+            // The proxy has debited some credits before the crash; the heart mirrors
+            // the count. Recovery must neither reset nor re-accrue it.
+            store.sessions.get_mut(&s.id).unwrap().credits_debited = 7;
+            let s = store.sessions.get(&s.id).unwrap().clone();
+            persist_session(&v2db, &s).await;
+            (s.id.clone(), s.green_light_at.clone())
+        };
+
+        // Restart: a fresh, empty store rehydrates from the durable v2db.
+        let mut restarted = HeartStore::new();
+        restarted.apply_loaded_sessions(load_sessions(&v2db).await);
+        let recovered = restarted
+            .sessions
+            .get(&sid)
+            .expect("billed session recovered after restart")
+            .clone();
+        assert_eq!(recovered.state, SessionState::Running);
+        assert_eq!(
+            recovered.green_light_at, green,
+            "billing window preserved — a reset green-light would restart the proxy's elapsed clock = double-bill",
+        );
+        assert_eq!(
+            recovered.credits_debited, 7,
+            "recovery must NOT reset or re-accrue the debit count",
+        );
+
+        // The reconciler re-promotes recovered Running sessions; promote MUST be
+        // idempotent — no NEW green-light window.
+        let _ = restarted.promote_to_running(&sid);
+        assert_eq!(
+            restarted.sessions.get(&sid).unwrap().green_light_at,
+            green,
+            "re-promote after restart must NOT open a second green-light window (no double-bill)",
+        );
+
+        // Settle once → terminal, pod freed, debit count unchanged (end never re-bills).
+        let (ended, _) = restarted.end(&sid, "customer_stop").expect("end the recovered session");
+        assert_eq!(ended.state, SessionState::Ended);
+        assert_eq!(ended.credits_debited, 7, "settle must not change the debit count");
+        assert!(
+            restarted.get_pod("pod-1").unwrap().current_session.is_none(),
+            "settle frees the pod",
+        );
+    }
+
     /// Paused state + accumulated pause_ms survive a restart.
     #[tokio::test]
     async fn paused_state_survives_restart() {
@@ -2535,5 +2592,94 @@ mod bridge_tests {
         assert_eq!(sess.id, sid);
         assert_eq!(sess.state, SessionState::Running);
         assert!(!pod.display_message.starts_with("INTERRUPTED"), "flag OFF must not mark crashed");
+    }
+
+    // ───────────────── A1: full money-loop integration (flag ON) ─────────────
+    // The gap both rollout-readiness audits flagged: every existing flag-ON test
+    // drives a SINGLE seam (dispatch in isolation, store.launch_loading+promote,
+    // or the reconciler). NONE drives the real `launch()` entry point end-to-end
+    // with the flag ON, through a live agent round-trip, to green-light and then
+    // settle. This is that test — the integrated launch → dispatch →
+    // verified_running → promote → green-light → end loop, exercised as a whole.
+    #[tokio::test]
+    async fn full_loop_flag_on_launch_to_green_light_to_settle() {
+        let state = build_state().await;
+        set_real_launch(&state, true).await; // production money-path: flag ON
+        let agent = mock_agent(&state, "pod_1", true).await; // ACK + reports Running
+
+        // Drive the REAL flag-gated entry point (not a seam): flag ON routes
+        // launch() → launch_real → dispatch → confirm-before-bill → promote.
+        let resp = super::launch(
+            axum::extract::State(state.clone()),
+            axum::Json(req("pod-1")),
+        )
+        .await;
+        assert_eq!(resp.status().as_u16(), 200, "a confirmed real launch must return 200");
+
+        // The billing window is now OPEN — and ONLY because the agent confirmed Running.
+        let pod = state.heart.read().await.get_pod("pod-1").expect("pod-1 exists");
+        let sess = pod
+            .current_session
+            .clone()
+            .expect("a confirmed launch must leave a billable session");
+        assert_eq!(sess.state, SessionState::Running, "confirmed launch promotes to Running");
+        assert!(
+            sess.green_light_at.is_some(),
+            "green-light (the proxy's bill-start signal) is granted ONLY after confirmed Running — confirm-before-bill",
+        );
+        assert_eq!(
+            sess.credits_debited, 0,
+            "the heart opens the window; the proxy owns the per-tick debit — no heart-side debit",
+        );
+        assert_eq!(pod.lifecycle, PodLifecycle::Occupied, "pod is occupied while billed");
+        let sid = sess.id.clone();
+        let _ = agent.await;
+
+        // Settle: a clean customer stop ends the session and frees the pod.
+        let (ended, snap) = state
+            .heart
+            .write()
+            .await
+            .end(&sid, "customer_stop")
+            .expect("end the billed session");
+        assert_eq!(ended.state, SessionState::Ended, "a clean stop settles to Ended (not AutoBilled)");
+        assert!(snap.is_some(), "settle broadcasts a freed-pod snapshot");
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.current_session.is_none(), "settle frees the pod (no stranded billed session)");
+        assert_eq!(pod.lifecycle, PodLifecycle::Empty);
+    }
+
+    // A1 (money-safety contrast): an UNCONFIRMED real launch must leave NO money
+    // trail. launch_real's failure arm calls abandon_launch (StopGame + fail_launch)
+    // — the same path a never-Running dispatch takes — freeing the pod WITHOUT ever
+    // granting green-light. Driven directly to avoid the 30s AC verify-timeout that
+    // the full launch() would wait on a never-Running agent.
+    #[tokio::test]
+    async fn full_loop_flag_on_unconfirmed_launch_leaves_no_money_trail() {
+        let state = build_state().await;
+        set_real_launch(&state, true).await;
+        // Reserve a Loading session (no green-light), exactly as launch_real does pre-dispatch.
+        let session = match state.heart.write().await.launch_loading(req("pod-1")) {
+            LaunchOutcome::Ok { session, .. } => session,
+            other => panic!("launch_loading must reserve, got {:?}", std::mem::discriminant(&other)),
+        };
+        assert!(session.green_light_at.is_none(), "a reserved session must NOT be green-lit");
+
+        // The agent never confirmed Running → launch_real abandons the launch.
+        let failed = super::abandon_launch(&state, "pod-1", &session.id, "game not confirmed running")
+            .await
+            .expect("abandon must end the reserved session");
+        assert!(
+            failed.0.green_light_at.is_none(),
+            "an abandoned launch must NEVER have green-light (the proxy never bills it)",
+        );
+        assert!(
+            matches!(failed.0.state, SessionState::Ended | SessionState::AutoBilled),
+            "an abandoned launch must be terminal, got {:?}",
+            failed.0.state,
+        );
+        let pod = state.heart.read().await.get_pod("pod-1").unwrap();
+        assert!(pod.current_session.is_none(), "abandon frees the pod — no stranded session, no money trail");
+        assert_eq!(pod.lifecycle, PodLifecycle::Empty);
     }
 }
