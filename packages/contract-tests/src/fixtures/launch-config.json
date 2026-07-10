@@ -1,0 +1,78 @@
+{
+  "_meta": {
+    "description": "Golden cross-language vectors for the LAUNCH boundary (server <-> agent). Canonical wire shape of rc-common LaunchRequest / GameConfig / LaunchResult / GameEvent. SINGLE source consumed by BOTH the Rust serde round-trip test (crates/rc-common/tests/launch_contract_vectors.rs) and the TS structural-invariant test (packages/contract-tests/src/launch-config.contract.test.ts).",
+    "anchors_drift": "2026-03-26 fleet-wide: kiosk sent ai_difficulty:\"easy\" (string) while Rust had ai_level:u8 (numeric); serde silently dropped the unknown field, AI was always Semi-Pro. See packages/contract-tests/tests/regression-drift.test.ts.",
+    "source_of_truth": "crates/rc-common/src/launch_contract.rs",
+    "serde_tagging": "externally-tagged enums serialize as {\"Variant\": {..}}; unit enums as \"Variant\"; Option None as null (fields carry no skip_serializing_if). Test values use TEST_ONLY / loopback per the No-Fake-Data rule."
+  },
+  "launch_request": {
+    "ac_sp_staff_kiosk": {
+      "game": "AssettCorsa",
+      "pod_id": 5,
+      "driver_id": 4271,
+      "driver_name": "TEST_ONLY Driver",
+      "method": { "StaffKiosk": { "staff_id": "TEST_ONLY-staff" } },
+      "config": {
+        "AssettCorsa": {
+          "track": "spa",
+          "car": "ferrari_488_gt3",
+          "session_type": "Race",
+          "ai_count": 7,
+          "ai_level": 92,
+          "server": null
+        }
+      }
+    },
+    "ac_mp_pwa_pin": {
+      "game": "AssettCorsa",
+      "pod_id": 3,
+      "driver_id": 8810,
+      "driver_name": "TEST_ONLY MP Driver",
+      "method": { "PwaPin": { "pin": "000000" } },
+      "config": {
+        "AssettCorsa": {
+          "track": "monza",
+          "car": "bmw_z4_gt3",
+          "session_type": "Practice",
+          "ai_count": 0,
+          "ai_level": 0,
+          "server": { "ip": "127.0.0.1", "http_port": 9600, "password": "TEST_ONLY" }
+        }
+      }
+    },
+    "f125_staff": {
+      "game": "F125",
+      "pod_id": 1,
+      "driver_id": 1200,
+      "driver_name": "TEST_ONLY F1 Driver",
+      "method": { "StaffKiosk": { "staff_id": "TEST_ONLY-staff" } },
+      "config": { "F125": { "track": "silverstone" } }
+    },
+    "iracing_pwa": {
+      "game": "IRacing",
+      "pod_id": 2,
+      "driver_id": 1300,
+      "driver_name": "TEST_ONLY iR Driver",
+      "method": { "PwaPin": { "pin": "000000" } },
+      "config": { "IRacing": {} }
+    },
+    "lmu_staff": {
+      "game": "LeManUltimate",
+      "pod_id": 4,
+      "driver_id": 1400,
+      "driver_name": "TEST_ONLY LMU Driver",
+      "method": { "StaffKiosk": { "staff_id": "TEST_ONLY-staff" } },
+      "config": { "LeManUltimate": { "track": "le_mans", "car": null } }
+    }
+  },
+  "launch_result": {
+    "spawned_with_pid": { "pod_id": 5, "game": "AssettCorsa", "outcome": { "Spawned": { "pid": 12345 } } },
+    "spawned_no_pid": { "pod_id": 5, "game": "AssettCorsa", "outcome": { "Spawned": { "pid": null } } },
+    "failed": { "pod_id": 5, "game": "AssettCorsa", "outcome": { "Failed": { "reason": "acs.exe not found" } } }
+  },
+  "game_event": {
+    "started": { "Started": { "pod_id": 5, "game": "AssettCorsa", "pid": 12345 } },
+    "crashed": { "Crashed": { "pod_id": 5, "game": "AssettCorsa", "reason": "exit code 0xC0000005" } },
+    "ended": { "Ended": { "pod_id": 5, "game": "AssettCorsa", "duration_secs": 1800 } }
+  }
+}
