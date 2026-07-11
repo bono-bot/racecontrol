@@ -10,7 +10,12 @@ import { NextResponse } from 'next/server';
  * 3. Config API returns valid JSON
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.31.23:8080';
+// Same-origin server-side proxy target. Matches web/next.config.ts:17 rewrite
+// destination (API_PROXY_TARGET || "http://localhost:8080") — both venue Server .23
+// and cloud Bono VPS have racecontrol backend co-located on localhost. V2-aligned;
+// closes I-1/I-3/I-6 from RCA-2026-05-14-deep-health-route-cross-origin (sibling of
+// PR #80 v2 + PR #84 same-origin sweep).
+const API_BASE = process.env.API_PROXY_TARGET || 'http://localhost:8080';
 const TIMEOUT_MS = 8000;
 
 interface CheckResult {
