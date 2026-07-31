@@ -340,22 +340,36 @@ Captain commission verbatim 2026-05-12 ~11:28 IST: *"Standing-rule: bono autonom
 
 ## Server Services
 
+_Canonical sources: deployed-state via `curl :PORT/api/health` (build_id + git_commit) per surface · `ECOSYSTEM-MANIFEST.json` repo root · `pm2 list` (Bono VPS) · scheduled-task list (Server .23). **Drift-prevention rule:** when a new service ships to production at a new port, add a row in the same session. Missing-from-table = invisible to future-readers. Sibling to "Substrate-Pointer Convention" — services need their own substrate pointer. RATIFIED 2026-05-14 IST per Captain "Authorize plan as-written" (V1→V2 gap-flow plan B1)._
+
 | Service | Port | Location | Start |
 |---------|------|----------|-------|
-| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run). Build: `0c0c8134` |
+| racecontrol | 8080 | Server .23 | `start-racecontrol.bat` (HKLM Run). Build: live via `curl :8080/api/v1/health` |
 | server_ops | 8090 | Server .23 | Part of racecontrol binary |
-| kiosk | 3300 | Server .23 | Scheduled task |
-| web dashboard | 3200 | Server .23 | Scheduled task |
-| rc-agent | 8090 | All pods | `start-rcagent.bat` (HKLM Run). Build: `0c0c8134` |
-| rc-sentry | 8091 | All pods | `start-rcsentry.bat` (HKLM Run). Build: `0c0c8134` |
+| kiosk | 3300 | Server .23 | Scheduled task. basePath `/kiosk`. Live via `curl :3300/kiosk/api/health` |
+| web dashboard | 3200 | Server .23 | Scheduled task. Customer-facing POS. Live via `curl :3200/api/health` |
+| admin dashboard | 3201 | Server .23 | Scheduled task. Staff/admin dashboard. Currently serves same `web-dashboard` build as :3200 (one binary, two ports). Live via `curl :3201/api/health` |
+| **web-v2 (V2 customer entry)** | **3500** | **Bono VPS (LIVE) / Server .23 (NOT-DEPLOYED 2026-05-14)** | **pm2 `racingpoint-web-v2`. basePath `/v2`. V2 customer-entry frontpage per `project_v2_customer_workflows_consolidated_20260503.md` + UI-SPEC v0.2. Live cloud via `curl https://racingpoint.cloud/v2`. Venue: `curl :3500/v2` → 000 NOT-DEPLOYED — tracked in LIVE-BLOCKERS B15.** |
+| **admin-gateway** | **3100** | **Bono VPS / Server .23 (NOT-DEPLOYED 2026-05-14)** | **`bono-bot/racingpoint-admin` separate repo. `NEXT_PUBLIC_GATEWAY_URL=http://192.168.31.23:3100` in admin .env. Spinal-cord proxy `/api/rc/[...path]` per admin-gateway A1+A2+A5-stub. Venue: `curl :3100/` → 000 NOT-DEPLOYED — tracked in LIVE-BLOCKERS B17.** |
+| pwa | 3501 | Bono VPS (LIVE) / venue status UNVERIFIED | pm2 `racingpoint-pwa`. Port-moved 3500→3501 (commit `005c09ec`) due to web-v2 conflict. Customer-facing landing at `www.racingpoint.cloud`. Venue parity to be verified per LIVE-BLOCKERS B16 |
+| rc-agent | 8090 | All pods | `start-rcagent.bat` (HKLM Run). Build: live via `curl :8090/health` |
+| rc-sentry | 8091 | All pods | `start-rcsentry.bat` (HKLM Run). Build: live via `curl :8091/health` |
 | go2rtc | 1984 | James .27 | `go2rtc.exe` — 29 RTSP streams, API on :1984 (NOT 8096) |
 | comms-link relay | 8766 | James .27 | `start-comms-link.bat`, Task Scheduler every 2min watchdog |
 | AI healer | — | James .27 | `rc-watchdog.exe` via `CommsLink-DaemonWatchdog` task, 10 services, Ollama diagnosis |
 | webterm | 9999 | James .27 | `python C:/Users/bono/racingpoint/deploy-staging/webterm.py` |
 | Ollama | 11434 | James .27 | qwen2.5:3b + llama3.1:8b — venue-only |
 | rc-sentry-ai | — | James .27 | Face detection on 3 cameras (cam2, cam9, entrance) |
-| Cloud racecontrol | 8080 | Bono VPS | pm2 `racecontrol`. Build: `129a24f2` |
+| Cloud racecontrol | 8080 | Bono VPS | pm2 `racecontrol`. Live via `curl https://api.racingpoint.cloud/api/v1/health` (canonical) |
 | Cloud comms-link | 8765 | Bono VPS | pm2 `comms-link` — WS server |
+
+**Drift-detection probe (manual venue check):**
+```bash
+for p in 3100 3200 3201 3300 3500 3501 8080; do
+  printf "%-5s " $p; curl -s --max-time 3 http://192.168.31.23:$p/api/health 2>/dev/null | head -c 200; echo
+done
+```
+Any `:000` on a customer-day port = surface missing at venue → LIVE-BLOCKERS entry required.
 
 ---
 
