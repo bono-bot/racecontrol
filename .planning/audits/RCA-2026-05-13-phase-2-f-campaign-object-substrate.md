@@ -33,7 +33,11 @@ Phase 2-F NEW-MECHANISM-CLASS: V2 Campaign Object primitive — the transactiona
 V1 adjacent substrate exists but does NOT capture campaigns as primitives:
 - **Manual ad-hoc campaign workflow** — Captain verbally instructs bono to broadcast; bono dispatches via Wave 5 WhatsApp; no DB row links rate_window decision to broadcast event to customer arrival
 - `whatsapp-bot/src/templates/` — V1 `wa_message_templates` table exists (Wave 5 substrate); template_id reference target for `broadcast_spec.whatsapp_template_id` exists conceptually but no Phase 2-F caller
-- `crates/racecontrol/src/api/billing_session.rs` — V1 billing event payload `{session_id, customer_id, gross_amount, gst_amount, net_amount, paid_via, timestamp}` — **NO `campaign_id` field, NO `rate_window_id` field** (Q-2F-7 CAVEAT)
+- **V1 billing-event emit sites** (AMENDED 2026-05-15 IST per §S-186 fast-lane short-RCA below — original line was substrate-projected, not grep-verified): two emit paths on session-end:
+  - `crates/racecontrol/src/billing_session_end.rs:89` — `event_archive::append_event("billing.session_ended", "billing", Some(&pod_id), json!({driver_id, driving_seconds, end_status}), venue_id)` → writes JSON payload to `system_events` table
+  - `crates/racecontrol/src/billing_session_end.rs:155` — `INSERT INTO billing_events (id, billing_session_id, event_type, driving_seconds_at_event, venue_id)` (additional path at L423 includes optional `metadata` column) → relational columns in `billing_events` table
+  - `billing_events` schema (per `tests/integration.rs:227-234`): `id, billing_session_id, event_type, driving_seconds_at_event, metadata, created_at` — NO `customer_id`, NO `gross_amount`, NO `gst_amount`, NO `net_amount`, NO `paid_via` columns
+  - **NO `campaign_id` field, NO `rate_window_id` field** in either emit path (Q-2F-7 CAVEAT — directionally unchanged)
 - `crates/racecontrol/src/dynamic_pricing.rs:7-18` — V1 PricingRecommendation generates advice; no campaign-effectiveness feedback loop
 - Customer check-in events — V1 captures arrival but no attribution-window match against active campaigns
 
@@ -52,6 +56,38 @@ V1 adjacent substrate exists but does NOT capture campaigns as primitives:
 - §S-92 P8 ₹100/customer/month engagement-spend ceiling — enforced at Wave 5 pre-send layer NOT campaign layer
 
 **Contract test scaffolded:** `racecontrol/tests/contract/phase-2-f-campaign-object.spec.ts` — **NOT YET AUTHORED** (per §S-221 F1 SCOPE GATE; substrate-PR ships test alongside). Env-gated SKIP-with-reason `V1_NO_CAMPAIGN_PRIMITIVE` until substrate ships.
+
+---
+
+### §1 amendment — §S-186 fast-lane short-RCA (james · 2026-05-15 IST · Captain Option A ratified ~10:30 IST)
+
+**1. What** — single-file documentation correction to §1 above. Replaced one bullet (line 36 original) claiming V1 billing-event payload shape `{session_id, customer_id, gross_amount, gst_amount, net_amount, paid_via, timestamp}` in `crates/racecontrol/src/api/billing_session.rs` with grep-evidenced actual V1 emit sites + actual payload/column shapes from `crates/racecontrol/src/billing_session_end.rs`. ~7 LOC net addition. No code touched. No schema, no protocol, no contract test. Substrate-truth correction only.
+
+**2. Why still needed** — grep evidence (this machine, racecontrol HEAD `feat/row-7.6-cookie-auth-phase-1` 2026-05-15 ~10:25 IST):
+
+```
+$ rg 'gross_amount|gst_amount|net_amount|paid_via' crates/racecontrol/src/
+(0 hits)
+
+$ rg 'gross_amount|gst_amount|net_amount|paid_via' crates/
+crates/v2-db/src/wallets.rs  (only match — different boundary)
+```
+
+The original §1 line's named fields exist only in `crates/v2-db/src/wallets.rs` (a separate v2-db boundary, not the V1 billing-event surface). The Q-2F-7 sub-RCA author (james-LED, forward-deferred to post-Wave-1-ship + Phase 2-A FILE) needs the actual emit-site boundary map to correctly trace the protocol-extension surface. Leaving the false shape in §1 would produce a sub-RCA boundary map that extends a non-existent field set — extension of phantom V1 substrate, the F1-anti-pattern §14.2 explicitly blocks.
+
+**3. V2-compat check** — V2 docs read this turn:
+- `comms-link/.planning/draft-pacts/PACT-DRAFT-phase-2-f-campaign-object.md` §7 Q-2F-7 (MI ingestion path) — Captain ratified Option (a) direct DB read; the AMPLIFIER §4.H CAVEAT-1 sub-RCA scope (billing-event payload extension) is what this §1 amendment supports
+- V2-LBAC v0.1 §14.1 MAOR — not invoked (documentation-only correction; no mechanism-quality REVIEW substrate)
+- V2-LBAC v0.1 §14.2 F1 SCOPE GATE — composed-with: amendment moves §1 from F1-fail (boundary map cites absent fields) toward F1-pass (boundary map cites grep-verified emit sites)
+- §S-146 V1↔V2 RCA — this is a doc-correction to an existing §S-146 RCA, not a new substrate change; full 5-section sub-RCA for Q-2F-7 itself remains gated on Wave 1 + Phase 2-A FILE
+- §S-186 pre-§S-146 fast-lane — strictly the 6-eligibility-check requires PR created < 2026-05-09; this PR is dated 2026-05-15. Captain ratified Option A explicitly as "§S-186 fast-lane short-RCA" for this case, treating it as a substrate-truth correction class. Carve-out interpretation logged here for ledger transparency
+- No conflict identified
+
+**Boundary class:** documentation amendment (single file, ≤200 LOC, no schema, no protocol, fix-class corrects substrate-truth). Layer 4 per-PR Captain merge auth retained per fast-lane doctrine — this PR opens for Captain disposition; auto-push NOT invoked.
+
+**Composes-with:** parent §S-146 RCA (this turn) · §S-251 Phase 2-A + 2-F prereq RCA cascade (parent context for Q-2F-7 forward-defer) · §S-186 fast-lane (Captain Option A ratify) · `feedback_capability_claim_without_probe_20260514.md` N=2-ACTIVE (grep-verify substrate before doctrine-claim; this amendment IS that rule applied retroactively) · `feedback_v1_dependent_v2_root_cause_before_proceeding.md` §S-146 parent doctrine.
+
+---
 
 ## 2. Inherited-issue catalogue
 
