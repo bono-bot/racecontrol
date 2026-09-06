@@ -1,7 +1,7 @@
 # REGISTRY — Dev-Platform live readout (P1/P2, GENERATED)
 
 > **GENERATED FILE — do not hand-edit.** Regenerate: `python3 scripts/dev-platform/build_registry.py`
-> **Generated:** 2026-06-05 16:25 IST (UTC 2026-06-05T10:55:05Z) on `srv1422716` · P1/P2 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.
+> **Generated:** 2026-09-07 03:08 IST (UTC 2026-09-06T21:38:08Z) on `runnervmejwal` · P1/P2 of [`DEV-PLATFORM-DESIGN.md`](./DEV-PLATFORM-DESIGN.md) §8.
 > **Source registries (hand-maintained):** [`apps.yaml`](./apps.yaml) · [`developments.yaml`](./developments.yaml). Probe values are LIVE; failures show `unavailable`; `*` = carried-forward (not re-probed this run); venue/auth probes DEFERRED (end).
 
 **Portfolio:** 15 product apps · 12 DMADV developments (7 frozen).
@@ -10,23 +10,24 @@
 
 | App | Line | Last commit | CI (latest) | Repo open PRs | Active devs |
 |---|---|---|---|---|---|
-| `racecontrol-console` | A | 2026-06-01 | failure | 17 | 2 |
-| `pod-display` | B | 2026-05-29 | failure | 17 | 2 |
-| `pos` | B | 2026-05-29 | failure | 17 | 2 |
-| `pos130` | B | 2026-05-29 | failure | 17 | 0 |
-| `staff-tablet` | B | 2026-05-29 | failure | 17 | 2 |
-| `kiosk` | B | 2026-05-29 | failure | 17 | 0 |
-| `pwa` | B | 2026-05-29 | failure | 17 | 2 |
-| `launch-portal` | B | 2026-05-29 | failure | 17 | 1 |
-| `chef-display` | B | 2026-05-29 | failure | 17 | 0 |
-| `captain-console` | B | 2026-06-01 | failure | 17 | 2 |
-| `racecontrol-heart` | B | 2026-06-04 | failure | 19 | 7 |
-| `rc-agent` | B | 2026-05-12 | failure | 19 | 1 |
-| `rc-installer` | B | 2026-05-31 | failure | 19 | 0 |
-| `cloud-dashboard` *(candidate)* | C | — | no-runs | 0 | 0 |
-| `api-gateway` *(candidate)* | C | — | no-runs | 0 | 0 |
+| `racecontrol-console` | A | 2026-06-01* | failure* | 17* | 2 |
+| `pod-display` | B | 2026-05-29* | failure* | 17* | 2 |
+| `pos` | B | 2026-05-29* | failure* | 17* | 2 |
+| `pos130` | B | 2026-05-29* | failure* | 17* | 0 |
+| `staff-tablet` | B | 2026-05-29* | failure* | 17* | 2 |
+| `kiosk` | B | 2026-05-29* | failure* | 17* | 0 |
+| `pwa` | B | 2026-05-29* | failure* | 17* | 2 |
+| `launch-portal` | B | 2026-05-29* | failure* | 17* | 1 |
+| `chef-display` | B | 2026-05-29* | failure* | 17* | 0 |
+| `captain-console` | B | 2026-06-01* | failure* | 17* | 2 |
+| `racecontrol-heart` | B | 2026-06-04 | in_progress | 24 | 7 |
+| `rc-agent` | B | 2026-05-12 | in_progress | 24 | 1 |
+| `rc-installer` | B | 2026-06-07 | in_progress | 24 | 0 |
+| `cloud-dashboard` *(candidate)* | C | — | unavailable (repo dir not found) | 0* | 0 |
+| `api-gateway` *(candidate)* | C | — | unavailable (repo dir not found) | 0* | 0 |
 
 *CI/open-PRs are repo-level (monorepo single pipeline) attributed to each app in that repo.*
+`*` = carried-forward from a prior run (this run could not probe that repo — e.g. not checked out in CI). Full live refresh runs on the Bono VPS.
 
 ## Developments — DMADV board
 
